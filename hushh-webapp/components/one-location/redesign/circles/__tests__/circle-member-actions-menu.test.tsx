@@ -133,8 +133,16 @@ describe("CircleMemberActionsMenu on a phone", () => {
       within(sheet).getByRole("menuitem", { name: /Share location/i }),
     ).toBeInTheDocument();
     expect(
-      within(sheet).getByRole("menuitem", { name: /Remove from Circle/i }),
+      within(sheet).getByRole("button", { name: /Remove from Circle/i }),
     ).toBeInTheDocument();
+    const removeFromCircle = within(sheet).getByRole("button", {
+      name: /Remove from Circle/i,
+    });
+    expect(removeFromCircle).toHaveClass(
+      "w-full",
+      "justify-center",
+      "text-destructive",
+    );
 
     const actionMenu = within(sheet).getByRole("menu", { name: triggerName });
     expect(actionMenu).toHaveClass("w-full");
@@ -177,7 +185,7 @@ describe("CircleMemberActionsMenu on a phone", () => {
 
     fireEvent.click(screen.getByRole("button", { name: triggerName }));
     fireEvent.click(
-      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
+      await screen.findByRole("button", { name: /Remove from Circle/i }),
     );
 
     // Same surface, second pane -- so there is never a confirm painting
@@ -210,7 +218,7 @@ describe("CircleMemberActionsMenu on a phone", () => {
 
     fireEvent.click(screen.getByRole("button", { name: triggerName }));
     fireEvent.click(
-      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
+      await screen.findByRole("button", { name: /Remove from Circle/i }),
     );
     const cancel = await screen.findByRole("button", { name: "Cancel" });
     expect(cancel).toHaveClass("text-foreground");
@@ -218,7 +226,7 @@ describe("CircleMemberActionsMenu on a phone", () => {
 
     // Back to the action list, not out of the sheet entirely.
     expect(
-      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
+      await screen.findByRole("button", { name: /Remove from Circle/i }),
     ).toBeInTheDocument();
     expect(onRemove).not.toHaveBeenCalled();
   });
@@ -229,8 +237,11 @@ describe("CircleMemberActionsMenu on a phone", () => {
     fireEvent.click(screen.getByRole("button", { name: triggerName }));
 
     expect(
-      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
+      await screen.findByRole("button", { name: /Remove from Circle/i }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("menu", { name: triggerName }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("menuitem", { name: /Share location/i }),
     ).toBeNull();

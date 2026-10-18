@@ -377,11 +377,12 @@ export function CircleMemberActionsMenu({
                   </div>
                 </div>
 
-                <div
-                  role="menu"
-                  aria-label={menuLabel}
-                  className={cn("w-full overflow-hidden border border-[#E5E5EA] bg-white", LOCATION_ACTION_SHAPE)}
-                >
+                {profileHref || messageHref || canShare ? (
+                  <div
+                    role="menu"
+                    aria-label={menuLabel}
+                    className={cn("w-full overflow-hidden border border-[#E5E5EA] bg-white", LOCATION_ACTION_SHAPE)}
+                  >
                   {profileHref ? (
                     <Link
                       href={profileHref}
@@ -397,7 +398,7 @@ export function CircleMemberActionsMenu({
                       View profile
                     </Link>
                   ) : null}
-                  {profileHref && (messageHref || canShare || canRemove) ? (
+                  {profileHref && (messageHref || canShare) ? (
                     <div aria-hidden="true" className="ml-[52px] h-px bg-[#E5E5EA]" />
                   ) : null}
                   {messageHref ? (
@@ -415,7 +416,7 @@ export function CircleMemberActionsMenu({
                       Message
                     </DirectMessageLink>
                   ) : null}
-                  {messageHref && (canShare || canRemove) ? (
+                  {messageHref && canShare ? (
                     <div aria-hidden="true" className="ml-[52px] h-px bg-[#E5E5EA]" />
                   ) : null}
                   {canShare ? (
@@ -436,35 +437,28 @@ export function CircleMemberActionsMenu({
                       Share location
                     </button>
                   ) : null}
-                  {canShare && canRemove ? (
-                    // Inset from the icon column, the way a grouped iOS list
-                    // separates rows -- a full-bleed rule reads as the end of
-                    // the group rather than a divider inside it.
-                    <div
-                      aria-hidden="true"
-                      className="ml-[52px] h-px bg-[#E5E5EA]"
-                    />
-                  ) : null}
-                  {canRemove ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      disabled={busy}
-                      className={cn(
-                        MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME,
-                        "text-[#FF3B30]",
-                      )}
-                      onClick={() => setSheetConfirmingRemove(true)}
-                    >
-                      <Trash2 className="h-5 w-5 shrink-0" aria-hidden="true" />
-                      Remove from Circle
-                    </button>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
 
                 <div
-                  className={cn("mt-2", MEMBER_ACTIONS_SHEET_CTA_CLASSNAME)}
+                  className={cn(
+                    "mt-2 flex flex-col gap-1",
+                    MEMBER_ACTIONS_SHEET_CTA_CLASSNAME,
+                  )}
                 >
+                  {canRemove ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="prominent"
+                      disabled={busy}
+                      className="w-full justify-center text-destructive hover:bg-transparent hover:text-destructive"
+                      onClick={() => setSheetConfirmingRemove(true)}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
+                      Remove from Circle
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     variant="ghost"

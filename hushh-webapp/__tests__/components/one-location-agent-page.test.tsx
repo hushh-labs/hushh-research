@@ -2412,6 +2412,13 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("heading", { name: "Auto-approve for" }),
     ).toBeTruthy();
+    const autoApproveDialog = screen.getByRole("dialog", {
+      name: "Auto-approve for",
+    });
+    const autoApproveActions = autoApproveDialog.querySelector(
+      '[data-ui-role="flow-actions"]',
+    );
+    expect(autoApproveActions).toHaveClass("mx-auto", "max-w-[244px]");
     const allContacts = screen.getByRole("checkbox", { name: "All contacts" });
     fireEvent.click(allContacts);
     expect(allContacts).toHaveAttribute("aria-checked", "true");

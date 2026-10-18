@@ -3422,6 +3422,7 @@ function LocationSettingsFlow({
           <DialogFooter>
             <FlowActionGroup
               measure="decision"
+              className="max-w-[244px]"
               primary={
                 <Button
                   type="button"
