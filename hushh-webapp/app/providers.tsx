@@ -738,7 +738,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                                       isCanonicalChatRoute
                                         ? "flex-1 overflow-hidden relative z-10 min-h-0 flex flex-col h-full"
                                         : hideGlobalChrome
-                                          ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
+                                          ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
                                           : shouldLockFullscreenRoot
                                             ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
                                             : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-content-clearance))] relative z-10 min-h-0"
@@ -795,7 +795,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                                         ? "flex-1 overflow-hidden relative z-10 min-h-0 flex flex-col h-full"
                                         : hideGlobalChrome
                                           ? // Landing/onboarding flows retain a scroll tail for the fixed Agent Bar.
-                                            "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
+                                            "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
                                           : shouldLockFullscreenRoot
                                             ? // Fullscreen flows keep chrome contract, but permit y-scroll for small devices.
                                               "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"

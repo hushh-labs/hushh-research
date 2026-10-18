@@ -359,19 +359,7 @@ test.describe("One Location compact CTA layout", () => {
             ).toBeLessThanOrEqual(32);
           }
         }
-        if (width >= 400) {
-          expect(
-            Math.abs(
-              header.toggle.top +
-                header.toggle.height / 2 -
-                (header.status.top + header.status.height / 2),
-            ),
-          ).toBeLessThanOrEqual(1);
-        } else {
-          expect(header.toggle.bottom).toBeLessThanOrEqual(
-            header.status.top + 1,
-          );
-        }
+        expect(header.toggle.bottom).toBeLessThanOrEqual(header.status.top + 1);
       }
     });
   }

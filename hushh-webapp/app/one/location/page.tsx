@@ -191,7 +191,6 @@ import {
   RECIPIENT_KEY_UNAVAILABLE_MESSAGE,
   decryptLocationEnvelope,
   encryptLocationForRecipient,
-  ensureLocationRecipientKey,
   ensureVaultSyncedRecipientKey,
 } from "@/lib/one-location/encryption";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
@@ -1393,10 +1392,8 @@ function receivedGrantOwnerLabel(grant: OneLocationGrant): string {
  * render byte-identical text — the state setters below compare by value to
  * avoid re-rendering the map on every poll.
  */
-function awaitingFirstPublishMessage(grant: OneLocationGrant): string {
-  return `${receivedGrantOwnerLabel(
-    grant,
-  )} is sharing, but hasn't sent a live location update yet. It will appear here automatically as soon as they move or open One.`;
+function awaitingFirstPublishMessage(): string {
+  return "Waiting for a live location update.";
 }
 
 /** Outcome of one recipient-side envelope read, used to pace the next poll. */
@@ -1548,15 +1545,6 @@ export function oneLocationFailureClass(error: unknown): string {
 function isRetryableForegroundError(error: unknown): boolean {
   const failureClass = oneLocationFailureClass(error);
   return failureClass === "one_api_unavailable" || failureClass === "network";
-}
-
-/** "Parth", "Parth and Aarav", "Parth, Aarav and 2 others". */
-function formatNameList(names: string[]): string {
-  const cleaned = names.map((name) => name.trim()).filter(Boolean);
-  if (cleaned.length === 0) return "someone";
-  if (cleaned.length === 1) return cleaned[0]!;
-  if (cleaned.length === 2) return `${cleaned[0]} and ${cleaned[1]}`;
-  return `${cleaned[0]}, ${cleaned[1]} and ${cleaned.length - 2} others`;
 }
 
 async function runOneLocationForegroundAttempt<T>(params: {
@@ -1753,7 +1741,7 @@ function LocalMapPreview({
           // map borderless avoids the loud double-frame that previously made
           // the map look detached from its own metadata.
           nested
-            ? "h-40 rounded-t-[16px] rounded-b-none sm:h-44"
+            ? "h-[clamp(208px,56vw,304px)] rounded-t-[16px] rounded-b-none sm:h-[clamp(240px,32vw,360px)]"
             : "h-48 sm:h-56",
         )}
       >
@@ -1788,48 +1776,52 @@ function LocalMapPreview({
         </div>
       </div>
 
-      <div className={cn("space-y-3 p-3.5 sm:p-4", nested && "space-y-2 p-3")}>
-        <div className="min-w-0">
-          <p className="break-words text-[13px] font-medium leading-5 text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere]">
-            Updated {captured}
-            {accuracy ? ` - ${accuracy}` : ""} -{" "}
-            {locationSourceLabel(point.sourcePlatform)}
-          </p>
-        </div>
+      {!nested || point.drive || showNavigation ? (
+        <div className={cn("space-y-3 p-3.5 sm:p-4", nested && "space-y-2 p-3")}>
+          {!nested ? (
+            <div className="min-w-0">
+              <p className="break-words text-[13px] font-medium leading-5 text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere]">
+                Updated {captured}
+                {accuracy ? ` - ${accuracy}` : ""} -{" "}
+                {locationSourceLabel(point.sourcePlatform)}
+              </p>
+            </div>
+          ) : null}
 
-        {point.drive ? (
-          <div className="rounded-[14px] border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] p-3">
-            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent)]">
-              <Route className="h-3.5 w-3.5" aria-hidden="true" />
-              Driving to {point.drive.destination.label}
-            </p>
-            <p className="mt-0.5 text-[13px] font-semibold text-foreground">
-              {driveEtaText(point.drive.etaSeconds)}
-            </p>
-          </div>
-        ) : null}
+          {point.drive ? (
+            <div className="rounded-[14px] border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] p-3">
+              <p className="flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent)]">
+                <Route className="h-3.5 w-3.5" aria-hidden="true" />
+                Driving to {point.drive.destination.label}
+              </p>
+              <p className="mt-0.5 text-[13px] font-semibold text-foreground">
+                {driveEtaText(point.drive.etaSeconds)}
+              </p>
+            </div>
+          ) : null}
 
-        {showNavigation ? (
-          <div className="grid gap-2">
-            <Button
-              asChild
-              variant="outline"
-              size="sm"
-              className="h-10 w-full min-w-0 rounded-full border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-surface-strong)]"
-            >
-              <a
-                href={directionsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Open Google Maps directions to shared live location"
+          {showNavigation ? (
+            <div className="grid gap-2">
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="h-10 w-full min-w-0 rounded-full border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-surface-strong)]"
               >
-                <Route className="h-4 w-4" aria-hidden="true" />
-                Directions
-              </a>
-            </Button>
-          </div>
-        ) : null}
-      </div>
+                <a
+                  href={directionsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open Google Maps directions to shared live location"
+                >
+                  <Route className="h-4 w-4" aria-hidden="true" />
+                  Directions
+                </a>
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {isStale ? (
         <div
@@ -3214,6 +3206,7 @@ export function OneLocationAgentPageContent({
   const foregroundReconcileQueuedRef = useRef(false);
   const lastForegroundReconcileAtRef = useRef(0);
   const [connectionGraphRevision, setConnectionGraphRevision] = useState(0);
+  const [recipientDirectoryRevision, setRecipientDirectoryRevision] = useState(0);
   // Kept separate from connectionGraphRevision: Circle lifecycle events must
   // re-read an open roster/picker, but must not also restart every paged
   // recipient-directory query that depends on the connection graph.
@@ -3279,6 +3272,38 @@ export function OneLocationAgentPageContent({
     [state?.recipients],
   );
 
+  // Both pickers project the same latest account snapshot without discarding
+  // selected people outside the bounded workspace page. Never join by name.
+  const commitRecipientSnapshots = useCallback((rows: OneLocationRecipient[], isCurrent: () => boolean = () => true) => {
+    const latest = new Map(rows.map((row) => [row.userId, row]));
+    setPagedRecipientsByUserId((current) => {
+      if (!isCurrent()) return current;
+      const next = new Map(current);
+      for (const row of rows) next.set(row.userId, row);
+      return next;
+    });
+    const reconcile = (current: OneLocationRecipient[] | null) => isCurrent()
+      ? current?.map((row) => latest.get(row.userId) ?? row) ?? null
+      : current;
+    setRecipientPageRows(reconcile);
+    setShareRecipientPageRows(reconcile);
+  }, []);
+  const recipientAuthoritySignature = useMemo(() => JSON.stringify([auth.userId, recipients.map((row) => [
+    row.userId, row.displayName, row.photoUrl, row.publicPersonRef, row.keyId,
+    row.publicKeyJwk, row.keyAlgorithm, row.keyRegisteredAt, row.canReceiveLocation,
+    row.connectedFromContacts, row.isRia,
+  ])]), [auth.userId, recipients]);
+  const recipientAuthoritySignatureRef = useRef(recipientAuthoritySignature);
+  recipientAuthoritySignatureRef.current = recipientAuthoritySignature;
+  const appliedRecipientSignatureRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (appliedRecipientSignatureRef.current === recipientAuthoritySignature) return;
+    appliedRecipientSignatureRef.current = recipientAuthoritySignature;
+    recipientPageRequestRef.current += 1;
+    shareRecipientPageRequestRef.current += 1;
+    commitRecipientSnapshots(recipients, () => recipientAuthoritySignature === recipientAuthoritySignatureRef.current);
+  }, [commitRecipientSnapshots, recipientAuthoritySignature, recipients]);
+
   const loadRecipientPage = useCallback(
     async ({
       page = 1,
@@ -3302,18 +3327,16 @@ export function OneLocationAgentPageContent({
             limit: 50,
             query: query.trim() || undefined,
           });
-        if (requestId !== recipientPageRequestRef.current) return;
+        const isCurrent = () => requestId === recipientPageRequestRef.current && recipientAuthoritySignature === recipientAuthoritySignatureRef.current;
+        if (!isCurrent()) return;
         setRecipientPageRows((current) => {
+          if (!isCurrent()) return current;
           if (!append || !current) return result.items;
           const byUserId = new Map(current.map((row) => [row.userId, row]));
           for (const row of result.items) byUserId.set(row.userId, row);
           return [...byUserId.values()];
         });
-        setPagedRecipientsByUserId((current) => {
-          const next = new Map(current);
-          for (const row of result.items) next.set(row.userId, row);
-          return next;
-        });
+        commitRecipientSnapshots(result.items, isCurrent);
         setRecipientPage(result.page);
         setRecipientPageHasMore(result.hasMore);
         setRecipientPageTotalCount(result.totalCount);
@@ -3327,7 +3350,7 @@ export function OneLocationAgentPageContent({
         }
       }
     },
-    [recipientSearch, vaultOwnerToken],
+    [commitRecipientSnapshots, recipientAuthoritySignature, recipientSearch, vaultOwnerToken],
   );
 
   const reloadRecipientAuthority = useCallback(async (
@@ -3368,6 +3391,7 @@ export function OneLocationAgentPageContent({
     };
   }, [
     connectionGraphRevision,
+    recipientDirectoryRevision,
     loadRecipientPage,
     recipientSearch,
     vaultOwnerToken,
@@ -3387,13 +3411,10 @@ export function OneLocationAgentPageContent({
         query: shareRecipientSearch.trim() || undefined,
       })
         .then((result) => {
-          if (requestId !== shareRecipientPageRequestRef.current) return;
-          setShareRecipientPageRows(result.items);
-          setPagedRecipientsByUserId((current) => {
-            const next = new Map(current);
-            for (const row of result.items) next.set(row.userId, row);
-            return next;
-          });
+          const isCurrent = () => requestId === shareRecipientPageRequestRef.current && recipientAuthoritySignature === recipientAuthoritySignatureRef.current;
+          if (!isCurrent()) return;
+          setShareRecipientPageRows((current) => isCurrent() ? result.items : current);
+          commitRecipientSnapshots(result.items, isCurrent);
         })
         .catch(() => undefined);
     }, 250);
@@ -3401,7 +3422,7 @@ export function OneLocationAgentPageContent({
       window.clearTimeout(timer);
       shareRecipientPageRequestRef.current += 1;
     };
-  }, [connectionGraphRevision, shareRecipientSearch, vaultOwnerToken]);
+  }, [commitRecipientSnapshots, connectionGraphRevision, recipientAuthoritySignature, recipientDirectoryRevision, shareRecipientSearch, vaultOwnerToken]);
   const autoApprovePreference = useMemo(
     () =>
       state?.autoApprovePreference ?? {
@@ -4268,12 +4289,11 @@ export function OneLocationAgentPageContent({
                 );
               },
             );
-            const key = await ensureLocationRecipientKey(activeUserId);
-            await OneLocationService.registerRecipientKey({
+            await bootstrapCurrentUserLocationRecipientKey({
+              userId: activeUserId,
               vaultOwnerToken: activeVaultOwnerToken,
-              keyId: key.keyId,
-              publicKeyJwk: key.publicKeyJwk,
-              algorithm: key.algorithm,
+              vaultKey,
+              strictRecovery: true,
             });
             workspaceBootstrapUserRef.current = activeUserId;
           }
@@ -4372,6 +4392,7 @@ export function OneLocationAgentPageContent({
       contactMatchedUserIds,
       setSelectedShareCircleSelections,
       stateEntry?.userId,
+      vaultKey,
       vaultOwnerToken,
     ],
   );
@@ -4454,6 +4475,11 @@ export function OneLocationAgentPageContent({
         if (oneLocationStateRefreshRevisionRef.current !== revision) return;
         await refresh({ background: true });
         if (oneLocationStateRefreshRevisionRef.current !== revision) return;
+        if (detail.domains.includes("workspace")) {
+          recipientPageRequestRef.current += 1;
+          shareRecipientPageRequestRef.current += 1;
+          setRecipientDirectoryRevision((current) => current + 1);
+        }
         if (shouldRefreshSmsRoster) await refreshSmsRoster();
       })().catch(() => undefined);
     });
@@ -6058,17 +6084,6 @@ export function OneLocationAgentPageContent({
         });
         if (sosOwnerRef.current !== owner) return;
 
-        // Only worth saying when it changes what the sender should do next:
-        // "nobody's phone lit up" reads very differently if two inboxes got it.
-        // And a contact with no address is named rather than skipped in
-        // silence — "Emailed 0" with no reason is what made a broken email
-        // channel look like a working one.
-        const mailNote =
-          (mail.emailed > 0 ? ` Emailed ${mail.emailed}.` : "") +
-          (mail.withoutEmail.length > 0
-            ? ` No mail on file for ${formatNameList(mail.withoutEmail)}.`
-            : "");
-
         // Emitted after the email fallback so it reports the alert's real
         // outcome rather than the push channel's. An SOS where every push
         // failed but two inboxes received it is not an alert that reached
@@ -6086,11 +6101,13 @@ export function OneLocationAgentPageContent({
           toast.error("The alert could not be sent. Call for help directly.");
         } else if (shared < totalSelected || unreachable.length > 0) {
           toast.warning(
-            `Shared ${shared}/${totalSelected}. Push requests: ${reached}.${mailNote}`,
+            "Some contacts may miss this alert.",
+            { classNames: { title: "!line-clamp-1" } },
           );
         } else {
           toast.success(
-            `Shared with ${shared}. Push requests: ${reached}.${mailNote}`,
+            reached > 0 || mail.emailed > 0 ? "SMS alert sent." : "SMS location shared.",
+            { classNames: { title: "!line-clamp-1" } },
           );
         }
         void refresh().catch(() => null);
@@ -6429,7 +6446,7 @@ export function OneLocationAgentPageContent({
           // failure: hold the calm waiting copy and let the caller drop this
           // grant to the slow cadence until the owner actually publishes.
           setGrantViewErrors((current) => {
-            const waiting = awaitingFirstPublishMessage(grant);
+            const waiting = awaitingFirstPublishMessage();
             return current[grant.id]?.message === waiting
               ? current
               : {
@@ -6437,7 +6454,9 @@ export function OneLocationAgentPageContent({
                   [grant.id]: { message: waiting, tone: "waiting" },
                 };
           });
-          if (!silent) toast.message(awaitingFirstPublishMessage(grant));
+          if (!silent) toast.message(awaitingFirstPublishMessage(), {
+            classNames: { title: "!line-clamp-1" },
+          });
           return "awaiting";
         }
         // A stationary owner republishes the same point every heartbeat, so most
@@ -6509,7 +6528,7 @@ export function OneLocationAgentPageContent({
           // Calm, reassuring "waiting for their first update" state. The share
           // is genuinely active; the point simply hasn't arrived yet and will
           // appear automatically on the next poll once the owner publishes.
-          const waitingMessage = awaitingFirstPublishMessage(grant);
+          const waitingMessage = awaitingFirstPublishMessage();
           setGrantViewErrors((current) =>
             current[grant.id]?.message === waitingMessage
               ? current
@@ -6521,7 +6540,9 @@ export function OneLocationAgentPageContent({
           // Only nudge with a gentle (non-error) toast on an explicit tap, and
           // never on the background poll, so the page stays quiet while waiting.
           if (!silent) {
-            toast.message(waitingMessage);
+            toast.message(waitingMessage, {
+              classNames: { title: "!line-clamp-1" },
+            });
           }
           return "awaiting";
         }
@@ -8264,13 +8285,11 @@ export function OneLocationAgentPageContent({
         if (!currentCommand()) return failedResult;
         await (async () => {
           try {
-            const key = await ensureLocationRecipientKey(activeUserId);
-            if (!currentCommand()) return;
-            await OneLocationService.registerRecipientKey({
+            await bootstrapCurrentUserLocationRecipientKey({
+              userId: activeUserId,
               vaultOwnerToken: activeVaultOwnerToken,
-              keyId: key.keyId,
-              publicKeyJwk: key.publicKeyJwk,
-              algorithm: key.algorithm,
+              vaultKey,
+              strictRecovery: true,
             });
           } catch (error) {
             if (!currentCommand()) return;
@@ -8368,6 +8387,7 @@ export function OneLocationAgentPageContent({
       scheduleOneLocationStateRefresh,
       selectedRequestOwnerIds,
       selectedRequestOwners,
+      vaultKey,
       vaultOwnerToken,
     ],
   );
@@ -14075,6 +14095,11 @@ export function OneLocationAgentPageContent({
               if (owner) OneLocationStateResource.invalidate(owner);
             }
             await refresh({ background: true });
+            if (owner && shareAudienceOwnerUserIdRef.current === owner) {
+              recipientPageRequestRef.current += 1;
+              shareRecipientPageRequestRef.current += 1;
+              setRecipientDirectoryRevision((current) => current + 1);
+            }
             await refreshSmsRoster();
           };
           await Promise.allSettled([

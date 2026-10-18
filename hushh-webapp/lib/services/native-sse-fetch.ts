@@ -220,7 +220,11 @@ async function readAll(stream: ReadableStream<Uint8Array>): Promise<string> {
  * or absolute; `init` is what a caller would hand to `fetch`, including the
  * `signal` that cancels the native request.
  */
-export async function nativeStreamFetch(path: string, init: ApiFetchOptions = {}): Promise<Response> {
+export async function nativeStreamFetch(
+  path: string,
+  init: ApiFetchOptions = {},
+  authFailureHandling: "transport" | "caller" = "transport",
+): Promise<Response> {
   if (!Capacitor.isNativePlatform()) {
     return ApiService.apiFetchStream(path, init);
   }
@@ -325,6 +329,10 @@ export async function nativeStreamFetch(path: string, init: ApiFetchOptions = {}
   // An error response is small and JSON; drain it so the caller gets the
   // body `fetch` would have given it, and settle the session the same way.
   const text = await readAll(stream).catch(() => "");
-  settleStreamAuthFailure(path, opened.status, text, requestOwner);
+  // ApiService owns both Firebase recovery and vault lifecycle settlement when
+  // it uses this transport. Direct callers retain the transport's HCT handling.
+  if (authFailureHandling === "transport") {
+    settleStreamAuthFailure(path, opened.status, text, requestOwner);
+  }
   return new Response(text, { status: opened.status, headers: responseHeaders });
 }

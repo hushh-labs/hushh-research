@@ -2112,6 +2112,7 @@ export function NearbyCheckInSheet({
           // of is not your home, and silently filing the first one as Home
           // would be a wrong answer that is tedious to undo.
           category: "other",
+          savedFrom: "check_in",
           label: candidate.label,
           latitude: candidate.latitude,
           longitude: candidate.longitude,
@@ -2932,6 +2933,8 @@ export function NearbyCheckInSheet({
 
                 <FlowActionGroup
                   stacked
+                  measure="decision"
+                  className="max-w-[244px]"
                   secondary={
                     <Button
                       type="button"

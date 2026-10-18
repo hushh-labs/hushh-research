@@ -329,6 +329,44 @@ describe("DirectMessagesPage", () => {
     expect(screen.getByText("Loading messages…")).toBeInTheDocument();
   });
 
+  it("opens a new connected person's chat with their identity before the first message", async () => {
+    mocks.getConversationWithPerson.mockResolvedValue({
+      conversation: null,
+      peerPersonRef: "person-1",
+      peerDisplayName: "Ankit Kumar Singh",
+      peerPhotoUrl: "https://example.com/ankit.jpg",
+      canSend: true,
+      disconnectedNotice: null,
+    });
+    renderConnectionThread();
+
+    expect(await screen.findByRole("heading", { name: "Ankit Kumar Singh", exact: true })).toBeVisible();
+    expect(screen.getByText("Connected", { exact: true })).toBeVisible();
+    expect(screen.getByText("Start the conversation with Ankit Kumar Singh.")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh", exact: true })).toBeEnabled();
+    expect(mocks.getConversationWithPerson).toHaveBeenCalledWith({ idToken: "test-token", personRef: "person-1" });
+    expect(mocks.getConversationMessages).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Conversation", exact: true })).not.toBeInTheDocument();
+  });
+
+  it("opens the selected connected person's existing history using its conversation ID", async () => {
+    mocks.getConversationMessages.mockResolvedValue({
+      conversation: mocks.conversation,
+      items: [visibleMessage],
+      canSend: true,
+      disconnectedNotice: null,
+      nextBefore: null,
+    });
+    renderConnectionThread();
+
+    expect(await screen.findByText(visibleMessage.content)).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Ankit Kumar Singh", exact: true })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh", exact: true })).toBeEnabled();
+    expect(mocks.getConversationWithPerson).toHaveBeenCalledWith({ idToken: "test-token", personRef: "person-1" });
+    expect(mocks.getConversationMessages).toHaveBeenCalledWith({ idToken: "test-token", conversationId: "conversation-1", limit: 60 });
+    expect(screen.queryByText(/Start the conversation with/)).not.toBeInTheDocument();
+  });
+
   it("downloads an inline photo only near the viewport and releases its preview on unmount", async () => {
     const photo = arrangePhoto();
     mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
@@ -981,7 +1019,7 @@ describe("DirectMessagesPage", () => {
     expect(timestamp?.parentElement?.parentElement).toContainElement(screen.getByLabelText("Sent"));
   });
 
-  it("exposes message reactions and replies after a bubble is tapped", async () => {
+  it("opens reactions and replies on a stationary long press, not a tap or scroll", async () => {
     const message = {
       id: "message-1",
       conversationId: "conversation-1",
@@ -1000,10 +1038,24 @@ describe("DirectMessagesPage", () => {
     });
 
     renderConnectionThread();
-    fireEvent.click(await screen.findByText("Hello Ankit"));
-
-    fireEvent.click(screen.getByRole("button", { name: "React to message" }));
-    fireEvent.click(screen.getByRole("button", { name: "React ❤️" }));
+    const bubble = await screen.findByText("Hello Ankit");
+    const pointer = (type: string, x = 20) => fireEvent(bubble, Object.assign(new Event(type, { bubbles: true }), { pointerType: "touch", button: 0, clientX: x, clientY: 20 }));
+    vi.useFakeTimers();
+    try {
+      pointer("pointerdown"); pointer("pointerup");
+      act(() => vi.advanceTimersByTime(1_100));
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      pointer("pointerdown"); pointer("pointermove", 40);
+      act(() => vi.advanceTimersByTime(1_100));
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      pointer("pointerdown");
+      act(() => vi.advanceTimersByTime(999));
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      pointer("pointerup");
+    } finally { vi.useRealTimers(); }
+    fireEvent.click(screen.getByRole("menuitem", { name: "React ❤️" }));
     await waitFor(() =>
       expect(mocks.reactToMessage).toHaveBeenCalledWith({
         idToken: "test-token",

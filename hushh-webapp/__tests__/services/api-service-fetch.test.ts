@@ -6,6 +6,9 @@ const capacitorMocks = vi.hoisted(() => ({
   request: vi.fn(),
 }));
 
+const nativeStreamFetch = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/services/native-sse-fetch", () => ({ nativeStreamFetch }));
+
 const previewMocks = vi.hoisted(() => ({ prepare: vi.fn(), keyId: "fixture-key" }));
 vi.mock("@/lib/notifications/preview-keys", () => ({
   prepareNotificationDevice: previewMocks.prepare,
@@ -164,6 +167,53 @@ describe("ApiService.apiFetch", () => {
     expect(mockFetch).not.toHaveBeenCalled();
     expect(capacitorMocks.request).not.toHaveBeenCalled();
   });
+  it.each([
+    ["ios", false], ["android", false], ["ios", true], ["android", true],
+  ] as const)("keeps native SSE auth recovery scoped to its initiating session on %s (switch: %s)", async (platform, switchAccount) => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue(platform);
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "https://uat.example");
+    const originalToken = makeUnsignedToken({ user_id: "account-a", version: 1 });
+    const freshToken = makeUnsignedToken({ user_id: "account-a", version: 2 });
+    const originalUser = { uid: "account-a" };
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue(originalUser as never);
+    const refreshed = deferred<string>();
+    vi.mocked(AuthService.getIdToken).mockReturnValueOnce(refreshed.promise);
+    const streamed = new Response(new ReadableStream<Uint8Array>(), { status: 200 });
+    nativeStreamFetch.mockResolvedValueOnce(jsonResponse({ error: "Unauthorized" }, 401));
+    nativeStreamFetch.mockResolvedValueOnce(streamed);
+    const controller = new AbortController();
+    try {
+      const pending = ApiService.apiFetchStream("/api/one/messages/events", {
+        headers: { Authorization: `Bearer ${originalToken}` },
+        signal: controller.signal,
+      });
+      await vi.waitFor(() => expect(AuthService.getIdToken).toHaveBeenCalledWith(true));
+      if (switchAccount) {
+        vi.mocked(AuthService.getCurrentUser).mockReturnValue({ uid: "account-b" } as never);
+      }
+      refreshed.resolve(freshToken);
+      const response = await pending;
+      expect(nativeStreamFetch).toHaveBeenCalledWith(
+        `${ApiService.getBaseUrl()}/api/one/messages/events`,
+        expect.objectContaining({ signal: controller.signal, headers: expect.objectContaining({ Accept: "text/event-stream", Authorization: `Bearer ${originalToken}` }) }),
+        "caller",
+      );
+      expect(capacitorMocks.request).not.toHaveBeenCalled();
+      expect(mockFetch).not.toHaveBeenCalled();
+      if (switchAccount) {
+        expect(response.status).toBe(401);
+        expect(nativeStreamFetch).toHaveBeenCalledTimes(1);
+      } else {
+        expect(response).toBe(streamed);
+        expect(nativeStreamFetch).toHaveBeenCalledTimes(2);
+        expect(nativeStreamFetch.mock.calls[1][1].headers.Authorization).toBe(`Bearer ${freshToken}`);
+      }
+    } finally {
+      await streamed.body?.cancel();
+      vi.unstubAllEnvs();
+    }
+  });
   it.each(["ios", "android"])("preserves authenticated attachment bytes on %s and keeps JSON refusals readable", async platform => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
     capacitorMocks.getPlatform.mockReturnValue(platform);
@@ -184,6 +234,7 @@ describe("ApiService.apiFetch", () => {
     capacitorMocks.isNativePlatform.mockReturnValue(false);
     capacitorMocks.getPlatform.mockReturnValue("web");
     capacitorMocks.request.mockReset();
+    nativeStreamFetch.mockReset();
     vi.mocked(AuthService.getIdToken).mockReset();
     vi.mocked(AuthService.getCurrentUser).mockReset();
     for (const mock of Object.values(kaiMocks)) mock.mockReset();

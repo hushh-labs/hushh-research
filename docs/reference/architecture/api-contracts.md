@@ -1884,6 +1884,15 @@ connection ended.
 | GET | `/api/one/messages/events` and `/stream` | Authenticated metadata-only realtime subscription. The event is a doorbell; clients re-read the inbox/history instead of trusting an event payload. |
 | POST / DELETE | `/api/one/messages/blocks` | Create/remove the caller's directed block using `{blockedPersonRef|blockedUserId}`. Blocking does not revoke the canonical connection or delete history, but either direction disables future sends. |
 
+Opening a person returns their participant-safe `peerDisplayName` and
+`peerPhotoUrl` alongside `peerPersonRef`, including an accepted, unblocked
+connection's draft before its first message. Draft identity is checked against
+the current connection and block state in the same read. An unavailable draft
+returns no name or photo; existing participant history remains readable and
+keeps its peer identity. Opening never creates a conversation: first send owns
+that write. Anonymous public-profile visibility is a separate discovery policy
+and does not hide an already-accepted connection's identity.
+
 Message projections include nullable `deliveredAt`; `readAt` implies delivery,
 including legacy read rows. Send acceptance and push hints do not establish
 recipient delivery. Inbox body previews and authenticated history can be
@@ -1926,6 +1935,10 @@ Invalid/tampered selections return to the inbox. New Feed and push links use
 viewer-bound tokens; old notifications without a token open the inbox.
 
 Each newly received Direct Message also creates one recipient-only Feed row.
+Migration 268 projects that row in the message INSERT transaction; the send
+response does not repeat the Feed write after commit. Web subscriptions use
+the streaming response and native subscriptions reuse `HushhStream` via
+`nativeStreamFetch`, so event bytes arrive before the subscription closes.
 That row contains only the opaque source message id; it never stores a body,
 envelope, sender id, or preview. During the authenticated recipient's Feed
 read, the service verifies the recipient relationship again, decrypts the

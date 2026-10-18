@@ -14,6 +14,36 @@ const message: OpenChatMessage = {
 };
 beforeEach(() => { api.react.mockReset(); api.image.mockReset(); window.localStorage.clear(); });
 
+test("touch actions wait for a stationary hold, cancel on scroll, and retain quick reactions", async () => {
+  api.react.mockResolvedValue({ messageId: message.id, reactions: [{ emoji: "❤️", count: 1, reactedByViewer: true }] });
+  const props = { message, session, visible: true, layoutBlocked: false, scrollRoot: { current: null }, onMediaError: () => {}, onViewerChange: () => {}, onAction: vi.fn() };
+  const view = render(<CircleChatMessage {...props} />);
+  const bubble = screen.getByText("Hello");
+  const pointer = (type: string, x = 20) => fireEvent(bubble, Object.assign(new Event(type, { bubbles: true }), { pointerType: "touch", button: 0, clientX: x, clientY: 20 }));
+  vi.useFakeTimers();
+  try {
+    pointer("pointerdown"); pointer("pointerup");
+    act(() => vi.advanceTimersByTime(1_100));
+    expect(screen.queryByRole("menu")).toBeNull();
+    pointer("pointerdown"); pointer("pointermove", 40);
+    act(() => vi.advanceTimersByTime(1_100));
+    expect(screen.queryByRole("menu")).toBeNull();
+    pointer("pointerdown");
+    act(() => vi.advanceTimersByTime(999));
+    expect(screen.queryByRole("menu")).toBeNull();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByRole("menu")).toBeTruthy();
+    pointer("pointerup");
+  } finally { vi.useRealTimers(); }
+  await act(async () => fireEvent.click(screen.getByRole("menuitem", { name: "React ❤️" })));
+  expect(api.react).toHaveBeenCalledWith(session, message, "❤️", true);
+  expect(screen.getByRole("button", { name: "❤️, 1 reactions, you reacted" })).toBeTruthy();
+  // Retained panes must discard pending holds before they can open a portal.
+  pointer("pointerdown");
+  view.rerender(<CircleChatMessage {...props} visible={false} />);
+  expect(screen.queryByRole("menu")).toBeNull();
+});
+
 test("deleting or revoking a file while it downloads cancels it and discards late bytes", async () => {
   let finish!: (blob: Blob) => void;
   api.image.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));

@@ -611,6 +611,7 @@ async function readEnterpriseSsoResponse<T>(response: Response): Promise<T> {
 async function apiFetch(
   path: string,
   options: ApiFetchOptions = {},
+  streaming = false,
 ): Promise<Response> {
   const { beforeDispatch, isEffectCurrent, responseType, ...fetchOptions } = options;
   const assertEffectCurrent = () => {
@@ -821,7 +822,7 @@ async function apiFetch(
       return apiFetch(path, {
         ...options,
         headers: retryHeaders,
-      });
+      }, streaming);
     } catch (error) {
       console.warn("[ApiService] Firebase auth refresh failed:", error);
       const code = authSessionInvalidationCodeFromFirebaseError(error);
@@ -919,6 +920,19 @@ async function apiFetch(
       }
       if (options.signal?.aborted) {
         throw new Error("Request aborted");
+      }
+
+      if (streaming) {
+        // CapacitorHttp returns a completed body. Keep the shared auth/retry
+        // boundary while the native byte bridge delivers events as they arrive.
+        const { nativeStreamFetch } = await import("./native-sse-fetch");
+        await beforeDispatch?.();
+        assertEffectCurrent();
+        const response = await nativeStreamFetch(url, {
+          ...fetchOptions,
+          headers: mergedHeaders,
+        }, "caller");
+        return await settleAuthenticatedResponse(response);
       }
 
       const method = (options.method || "GET").toUpperCase();
@@ -1512,7 +1526,7 @@ export class ApiService {
         ...options.headers,
         Accept: "text/event-stream",
       },
-    });
+    }, true);
   }
 
   /**

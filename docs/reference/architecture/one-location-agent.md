@@ -51,6 +51,25 @@ Opening a contact source always requires the user's contact-check action.
 
 ## Onboarding Resume
 
+### Automatic receiving readiness
+
+Vault unlock starts recipient-key recovery before unrelated warm jobs, including
+cached warm returns. Warm-up, setup and Location join one account-scoped operation.
+The operation adopts the existing vault-encrypted backup across devices; a failed
+remote read or undecryptable backup cannot silently replace a registered key.
+Session and owner generations fence recovery and registration across lock/logout.
+Transient failures retry with bounded backoff; the setup status also retries on
+online/foreground return and waits for registration before publishing readiness.
+Receiving readiness requests no GPS permission and enables no location sharing.
+
+Share and Ask use the same account-ID recipient directory. Workspace refreshes
+reconcile both visible pages and retained selections, fence older page responses,
+and reload the directory. A connected person's missing receiving key is shown as
+`Location setup pending`, never as an invitation requirement. Ask may still send a
+consent request to that person without disclosing coordinates; private sharing
+requires their registered public key and revalidates the complete audience before
+submission. Contact matches never merge different account IDs by display name.
+
 The introduction has three steps: Features, an optional Save a place step, then the
 existing Circle invite, copy/share, Join and Find contacts finale. Continue on
 Features asks for device location and a position once, only to centre the pin;

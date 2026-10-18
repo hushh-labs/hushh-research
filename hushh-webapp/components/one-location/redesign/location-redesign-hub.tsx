@@ -84,12 +84,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
 import { LocationPermissionRecoveryCard } from "@/components/one-location/location-permission-recovery-card";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   ButtonLabel,
-  CardTitle,
   FormLabel,
   MediumRowLabel,
   RowDescription,
@@ -116,7 +114,7 @@ import type {
   OneLocationShareDurationMode,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
-import { locationStatusLabel } from "@/lib/one-location/location-readiness";
+import { LocationHeaderActions, LocationPrimaryShareCard, LocationRequestDurationHeader } from "./location-hub-summary";
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
 import {
@@ -991,102 +989,6 @@ export function resolveLocationDeepLinkFocus(input: {
     return { detailAction: null, nextTab: "links" };
   }
   return { detailAction: null, nextTab: null };
-}
-
-/**
- * The id the header switch points `aria-describedby` at. A constant, not
- * `useId`: the status text now renders below the switch in the actions column,
- * and `aria-describedby` resolves by id anywhere in the document. There is
- * exactly one Location header on screen.
- */
-const LOCATION_HEADER_STATUS_ID = "one-location-header-status";
-
-/** What the header switch currently means, in words. */
-function locationHeaderStatusText(vm: LocationHubViewModel): string {
-  if (vm.locationAcquiring) return "Finding you\u2026";
-  const status = locationStatusLabel({
-    readiness: vm.locationBlocked
-      ? ("blocked" as const)
-      : vm.locationEnabled
-        ? ("ready" as const)
-        : ("askable" as const),
-    previewOn: vm.locationEnabled,
-    paused: vm.locationPaused,
-    accuracyLimited: vm.locationAccuracyLimited,
-  });
-  if (status === "Location on") return "Location on";
-  if (status === "Location off") return "Location off";
-  return status;
-}
-
-/** The status stays with the switch and may wrap rather than clip on a narrow phone. */
-function LocationHeaderStatus({
-  vm,
-  onToggle,
-}: {
-  vm: LocationHubViewModel;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      id={LOCATION_HEADER_STATUS_ID}
-      data-testid="one-location-header-status"
-      className="mt-1 block w-full whitespace-nowrap text-center font-[family-name:var(--font-app-body)] text-[13px] font-medium leading-[18px] tracking-[-0.01em] text-[color:var(--app-secondary-label)]"
-    >
-      {locationHeaderStatusText(vm)}
-    </button>
-  );
-}
-
-function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
-  const locationOn = vm.locationEnabled;
-  const acquiring = vm.locationAcquiring;
-
-  const handleLocationChange = (checked: boolean) => {
-    if (checked === locationOn) return;
-    if (checked) {
-      vm.onShowMyLocation();
-      return;
-    }
-    vm.onHideMyLocation();
-  };
-
-  const handleLocationToggle = () => handleLocationChange(!locationOn);
-
-  return (
-    <div
-      role="group"
-      aria-label="Location"
-      className="ml-auto flex min-h-0 w-[92px] shrink-0 flex-col items-center justify-center overflow-visible"
-      data-testid="one-location-header-actions"
-    >
-      <Switch
-        size="ios"
-        checked={locationOn}
-        onCheckedChange={handleLocationChange}
-        // Deliberately never disabled. What it controls is local state that
-        // flips on tap, so a disabled window could only ever swallow the
-        // person's NEXT tap — during the very seconds the device spends
-        // finding them, which is when they are most likely to change their
-        // mind. The status text carries the waiting instead.
-        aria-label={locationOn ? "Turn location off" : "Turn location on"}
-        // The status text is the switch's description, not decoration. It used
-        // to be aria-hidden, so a VoiceOver user got "Turn location on" and no
-        // way to hear whether it was blocked, paused, or still finding them.
-        aria-describedby={LOCATION_HEADER_STATUS_ID}
-        // The same pair of contract actions the Settings toggle carries.
-        // Both are the same control in two places, so voice can offer
-        // pause/resume from the Now tab without opening Settings first.
-        data-voice-control-id="one-location-updates-toggle"
-        // No colour override: the shared Switch already carries the iOS
-        // system green, so this toggle reads the same as every other one.
-        className={cn("shrink-0", acquiring && "animate-pulse")}
-      />
-      <LocationHeaderStatus vm={vm} onToggle={handleLocationToggle} />
-    </div>
-  );
 }
 
 // People lists (Ready people / Pending invites) can grow long. Cap their height
@@ -2089,9 +1991,6 @@ const LOCATION_GROUP_SURFACE =
 const LOCATION_GROUP_SHELL_CLASSNAME =
   "[--settings-group-radius:var(--app-radius-md)] !rounded-[var(--app-radius-md)] !bg-[color:var(--app-primary-surface)] !shadow-[var(--app-card-shadow-standard)] ring-1 ring-inset ring-[color:var(--app-separator)] dark:!shadow-none";
 
-const LOCATION_INTERACTIVE_SURFACE =
-  "bg-[color:var(--app-primary-surface)] ring-1 ring-inset ring-[color:var(--app-separator)]";
-
 function LocationHubPanel({ children }: { children: ReactNode }) {
   return (
     <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]">
@@ -2348,61 +2247,6 @@ function LocationMenuListRow({
         />
       </span>
     </button>
-  );
-}
-
-function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
-  return (
-    <section aria-label="Share location" data-testid="one-location-now-primary">
-      <div
-        data-testid="one-location-share-row"
-        className={cn(
-          LOCATION_INTERACTIVE_SURFACE,
-          "flex w-full flex-col gap-4 rounded-[18px] px-4 py-4 text-left sm:flex-row sm:items-center",
-        )}
-      >
-        <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
-          <LocationSharePulseIcon />
-          <span className="min-w-0">
-            <CardTitle
-              as="span"
-              className="block !text-[17px] !font-semibold !leading-[22px]"
-            >
-              You&apos;re not sharing
-            </CardTitle>
-            <span className="mt-0.5 block text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
-              Choose a Circle or contact.
-            </span>
-          </span>
-        </div>
-        <Button
-          type="button"
-          size="prominent"
-          data-voice-control-id="one-location-action-share"
-          data-voice-action-id="location.open_share"
-          data-voice-label="Share location"
-          aria-label="Share location"
-          onClick={onClick}
-          className="mr-auto w-full max-w-[244px] shrink-0 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] sm:mx-0 sm:w-auto sm:max-w-none"
-        >
-          Share location
-        </Button>
-      </div>
-    </section>
-  );
-}
-
-function LocationSharePulseIcon() {
-  return (
-    <span
-      aria-hidden="true"
-      data-location-share-pulse-icon=""
-      className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.025)] dark:shadow-none sm:h-16 sm:w-16"
-    >
-      <span className="absolute inset-[13%] rounded-full bg-[color:var(--app-accent-surface)]" />
-      <span className="absolute inset-[28%] rounded-full bg-[color:var(--app-accent)]/20" />
-      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_var(--app-primary-surface),0_8px_16px_rgba(0,122,255,0.18)] dark:shadow-[0_0_0_4px_var(--app-primary-surface)]" />
-    </span>
   );
 }
 
@@ -3421,7 +3265,9 @@ function LocationSettingsFlow({
 
           <DialogFooter>
             <FlowActionGroup
+              stacked
               measure="decision"
+              className="max-w-[244px]"
               primary={
                 <Button
                   type="button"
@@ -4872,7 +4718,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
               density="compact"
               leading={<LinkIdentityMark />}
               title="Create a temporary link"
-              description="Anyone with this link can see your location until it expires."
+              description={<span className="block truncate">Anyone with the link can view.</span>}
               className="after:hidden"
             />
             <div className={PUBLIC_LINK_CREATE_FORM_CLASSNAME}>
@@ -5179,7 +5025,7 @@ function ShareFlow({
           ) : includedThroughCircle ? (
             `Included through ${includedThroughCircle.circle.name}`
           ) : ready ? undefined : (
-            "Invite them first"
+            "Location setup pending"
           )
         }
         trailing={
@@ -6274,16 +6120,7 @@ function AskFlow({
   if (step === "details") {
     return (
       <div className={FLOW_STEP_CONFIRM_CLASSNAME}>
-        {/* Names the two fields under it rather than asking whether the
-            person is ready.
-
-            "Ready to ask?" was a yes/no question about the reader's state of
-            mind, on a screen whose whole job is to collect two answers -- how
-            long, and why. It told somebody arriving here nothing they did not
-            already know (they tapped Continue; they are ready) and nothing
-            about what the screen wanted from them. This is the same two words
-            the section labels below use, in the same order. */}
-        <TaskFlowHeader eyebrow="Step 2 of 2" title="Who, then how long?" />
+        <LocationRequestDurationHeader />
 
         <SelectedRecipientsRail
           title="Request Location"
@@ -6457,7 +6294,7 @@ function AskFlow({
                   fromContacts={r.connectedFromContacts}
                   subtitle={
                     status.selectable && status.tone === "ready"
-                      ? undefined
+                      ? vm.isRecipientShareReady(r) ? undefined : "Location setup pending"
                       : status.subtitle
                   }
                   tone={status.tone}

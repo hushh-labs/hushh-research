@@ -144,6 +144,7 @@ type ConnectorListEntry = {
   id: string;
   name: string;
   detail?: string;
+  accountDetail?: string;
   connected: boolean;
   onOpen?: () => void;
   action?: { label: string; onClick: () => void; disabled?: boolean };
@@ -192,6 +193,15 @@ export type ConnectorsPanelPresentation = {
   confirmation: (ConnectorConfirmCopy & { busy: boolean; confirm: () => void; cancel: () => void }) | null;
   webBody: ReactNode;
 };
+function connectorAccountDetail(
+  account: string | null | undefined,
+  status: "connected" | "needs_reauth" | "verifying" = "connected",
+): string {
+  const label = account?.trim();
+  if (status === "needs_reauth") return `Sign-in needed · ${label || "account details unavailable"}`;
+  if (status === "verifying") return `Authorized · ${label || "account details unavailable"}`;
+  return label ? `Connected as ${label}` : "Account details unavailable";
+}
 
 /** The row's second line: in-flight and failed changes are always visible. */
 function connectorRowStatus(entry: ConnectorListEntry): string | undefined {
@@ -280,7 +290,7 @@ function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
         <button
           type="button"
           aria-label={entry.name}
-          aria-describedby={entry.detail ? detailId : undefined}
+          aria-describedby={status || entry.accountDetail || entry.detail ? detailId : undefined}
           onClick={entry.onOpen}
           className="flex min-h-14 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         >
@@ -288,6 +298,8 @@ function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
             <span className="block truncate text-sm font-normal">{entry.name}</span>
             {status ? (
               <span id={detailId} role="status" className="block truncate text-xs text-muted-foreground">{status}</span>
+            ) : entry.accountDetail ? (
+              <span id={detailId} className="block truncate text-xs text-muted-foreground">{entry.accountDetail}</span>
             ) : entry.detail ? <span id={detailId} className="sr-only">{entry.detail}</span> : null}
           </span>
           {!entry.action ? <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
@@ -297,6 +309,8 @@ function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
           <span className="block truncate text-sm font-normal">{entry.name}</span>
           {status ? (
             <span role="status" className="block truncate text-xs text-muted-foreground">{status}</span>
+          ) : entry.accountDetail ? (
+            <span className="block truncate text-xs text-muted-foreground">{entry.accountDetail}</span>
           ) : entry.detail ? <span className="sr-only">{entry.detail}</span> : null}
         </span>
       )}
@@ -325,6 +339,7 @@ function ProfileConnectorRow({ entry }: { entry: ConnectorListEntry }) {
   const status = connectorRowStatus(entry);
   const description =
     status ??
+    entry.accountDetail ??
     entry.detail ??
     (entry.action || entry.onOpen
       ? entry.connected
@@ -2067,6 +2082,18 @@ function OwnerConnectorsPanel({
   const mailConnected = Boolean(gmail.status?.connected && !gmail.status?.needs_reauth);
   const driveConnected = ["connected", "verifying"].includes(drive?.status ?? "");
   const calendarNeedsReconnect = calendar.status?.status === "needs_reauth";
+  const mailAccountDetail = !gmail.loadingStatus && !gmail.statusError &&
+    (gmail.status?.connected || gmail.status?.needs_reauth)
+      ? connectorAccountDetail(gmail.status.google_email, gmail.status.needs_reauth ? "needs_reauth" : "connected")
+      : undefined;
+  const calendarAccountDetail = calendar.loaded && !calendar.error &&
+    (calendar.connected || calendarNeedsReconnect)
+      ? connectorAccountDetail(calendar.status?.google_email, calendarNeedsReconnect ? "needs_reauth" : "connected")
+      : undefined;
+  const driveAccountDetail = statusChecked && !loading &&
+    (driveConnected || drive?.status === "needs_reauth")
+      ? connectorAccountDetail(drive?.accountLabel, drive?.status === "verifying" ? "verifying" : drive?.status === "needs_reauth" ? "needs_reauth" : "connected")
+      : undefined;
   const calendarStatusLabel = calendar.error
     ? "Status unavailable"
     : !calendar.loaded
@@ -2099,6 +2126,7 @@ function OwnerConnectorsPanel({
       id: "gmail",
       name: "Gmail",
       detail: gmail.status?.needs_reauth ? "Sign-in needed" : undefined,
+      accountDetail: mailAccountDetail,
       connected: mailConnected,
       onOpen: () => showConnector("gmail"),
       pending: disconnecting.gmail ? "disconnect" : mailPopupPending ? "connect" : undefined,
@@ -2117,6 +2145,7 @@ function OwnerConnectorsPanel({
     {
       id: "google_drive",
       name: "Google Drive",
+      accountDetail: driveAccountDetail,
       detail: drive?.status === "needs_reauth"
         ? "Sign-in needed"
         : canConnectDrive && driveConnectionProfile === "selected"
@@ -2145,6 +2174,7 @@ function OwnerConnectorsPanel({
     {
       id: "calendar",
       name: "Calendar",
+      accountDetail: calendarAccountDetail,
       connected: calendar.connected,
       onOpen: () => showConnector("calendar"),
       pending: disconnecting.calendar ? "disconnect" : calendarPopupPending ? "connect" : undefined,
@@ -2273,7 +2303,7 @@ function OwnerConnectorsPanel({
   const matchingEntries = entries.filter(
     (entry) =>
       !query ||
-      `${entry.name} ${entry.detail ?? ""}`.toLocaleLowerCase().includes(query),
+      `${entry.name} ${entry.detail ?? ""} ${entry.accountDetail ?? ""}`.toLocaleLowerCase().includes(query),
   );
   // A row the person acted on from the list keeps its section until they next
   // arrive at the list: the list never re-sorts under their finger.
@@ -2633,9 +2663,9 @@ function OwnerConnectorsPanel({
               <h3 id="connection-mail-title" className="font-semibold">
                 Gmail
               </h3>
-              <p className="break-all text-sm text-muted-foreground">
-                {mailDetail.account}
-              </p>
+              {mailAccountDetail ? (
+                <p className="break-all text-sm text-muted-foreground">{mailAccountDetail}</p>
+              ) : null}
               <p role="status" className="text-sm">
                 {mailDetail.status}
               </p>
@@ -2705,13 +2735,13 @@ function OwnerConnectorsPanel({
               </h3>
               {statusChecked && !loading && drive?.status === "connected" ? (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-foreground/5 px-4 py-3 text-sm">
-                  <span className="min-w-0 break-all text-muted-foreground">{drive.accountLabel || "Google Drive"}</span>
+                  <span className="min-w-0 break-all text-muted-foreground">{driveAccountDetail || "Google Drive"}</span>
                   <span role="status" className="font-medium">Connected</span>
                 </div>
               ) : (
                 <>
                   <p className="break-all text-sm text-muted-foreground">
-                    {drive?.accountLabel || "Search and read files"}
+                    {driveAccountDetail || "Search and read files"}
                   </p>
                   <p role="status" className="text-sm">
                     {loading
@@ -2966,6 +2996,9 @@ function OwnerConnectorsPanel({
                 </div>
 
                 <div className="space-y-3">
+                  {calendarAccountDetail ? (
+                    <p className="break-all text-sm text-muted-foreground">{calendarAccountDetail}</p>
+                  ) : null}
                   <p role="status" className="text-lg font-medium">
                     {calendarDetail.status}
                   </p>

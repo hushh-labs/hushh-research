@@ -182,6 +182,31 @@ async function writeFixture(navigationHidden = false): Promise<string> {
 }
 
 test.describe("app shell bottom clearance", () => {
+  test("the page scroller bounds edge pulls in every shell mode and still scrolls", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(await writeFixture());
+    const root = page.locator('[data-app-scroll-root="true"]');
+    for (const mode of ["standard", "hidden-shell", "fullscreen-flow"]) {
+      await root.evaluate((node, mode) => { node.setAttribute("data-app-scroll-mode", mode); node.scrollTop = 0; }, mode);
+      await expect(root).toHaveCSS("overscroll-behavior-y", "none");
+      await page.mouse.move(190, 400);
+      await page.mouse.wheel(0, 240);
+      await expect.poll(() => root.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+      await root.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+      await page.mouse.wheel(0, 600);
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    }
+    // The boundary belongs to the page, not every descendant scroll surface.
+    await root.evaluate((node) => {
+      node.insertAdjacentHTML("afterbegin", '<div data-nested-scroll style="height:100px;overflow-y:auto;overscroll-behavior-y:contain"><div style="height:400px">Nested list</div></div>');
+      node.scrollTop = 0;
+    });
+    const nested = page.locator("[data-nested-scroll]");
+    await expect(nested).toHaveCSS("overscroll-behavior-y", "contain");
+    await nested.evaluate((node) => { node.scrollTop = 80; });
+    expect(await nested.evaluate((node) => node.scrollTop)).toBe(80);
+  });
+
   for (const width of WIDTHS) {
     test(`a short page reserves the bottom chrome once at ${width}px`, async ({
       page,
