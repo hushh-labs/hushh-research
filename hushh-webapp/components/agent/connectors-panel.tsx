@@ -5,6 +5,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -28,6 +29,7 @@ import { Switch } from "@/components/ui/switch";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
+import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { HushhAuth } from "@/lib/capacitor";
 import {
   NATIVE_CONNECTOR_RETURN_EVENT,
@@ -415,6 +417,18 @@ function OwnerConnectorsPanel({
   const router = useRouter();
   const { user } = useAuth();
   const { vaultOwnerToken, vaultKey } = useVault();
+  const hasOwnerToken = Boolean(vaultOwnerToken);
+  const authGeneration = snapshotValidatedAuthSessionOwner()?.generation;
+  // Credential renewal advances the transport epoch without ending an unlock.
+  // Keep operations tied to the actual owner/key lifetime instead.
+  // Comparison-only private identity; never project, log or persist this tuple.
+  const unlockOwner = useMemo(() => [user?.uid, vaultKey, hasOwnerToken, authGeneration] as const,
+    [user?.uid, vaultKey, hasOwnerToken, authGeneration]);
+  const liveUnlockOwner = useRef<object | null>(null);
+  useLayoutEffect(() => {
+    liveUnlockOwner.current = unlockOwner;
+    return () => { if (liveUnlockOwner.current === unlockOwner) liveUnlockOwner.current = null; };
+  }, [unlockOwner]);
   const [overview, setOverview] = useState<ConnectorOverview | null>(null);
   const [documents, setDocuments] = useState<DriveDocument[]>([]);
   const [allowBackground, setAllowBackground] = useState(false);
@@ -556,6 +570,9 @@ function OwnerConnectorsPanel({
     currentToken.current = vaultOwnerToken;
   }, [vaultOwnerToken]);
   const driveLock = useRef(false);
+  // A submitted setting write belongs to this vault owner, not a drawer
+  // visit. Closing may retire its UI but cannot prove the write was cancelled.
+  const backgroundWrite = useRef<{ owner: object } | null>(null);
   // Native browser returns and Vault Owner token renewal can overlap the
   // existing Drive mutation. Keep only opaque attempt metadata in memory and
   // drain it after that mutation releases the single-flight lock.
@@ -695,14 +712,40 @@ function OwnerConnectorsPanel({
     )
       setDocuments(next);
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!open) return;
     const lifetime = new AbortController();
     controller.current = lifetime;
+    overviewRead.current++;
+    documentRead.current++;
+    curatedRequest.current++;
+    if (backgroundWrite.current?.owner !== unlockOwner) backgroundWrite.current = null;
+    driveLock.current = backgroundWrite.current !== null;
+    mailLock.current = false;
+    calendarLock.current = false;
+    curatedLock.current = false;
+    queuedNativeReconcile.current = null;
+    queuedNativePickerReconcile.current = null;
+    changesInFlight.current.clear();
+    curatedDisconnectId.current = null;
+    setDriveBusy(backgroundWrite.current !== null);
+    setMailBusy(false);
+    setCalendarBusy(false);
+    setCuratedBusy(false);
+    setPlaidBusy(false);
+    setDrivePopupPending(false);
+    setMailPopupPending(false);
+    setCalendarPopupPending(false);
+    setCuratedPopupPending(false);
+    setCuratedPopupFor(null);
+    setDisconnecting({});
+    setLoading(false);
     return () => {
       lifetime.abort();
+      if (controller.current === lifetime) controller.current = null;
       onExternalModalChange?.(false);
     };
-  }, [onExternalModalChange]);
+  }, [open, onExternalModalChange, unlockOwner]);
   useEffect(() => {
     if (!initialConnector) {
       appliedInitialConnector.current = null;
@@ -713,22 +756,23 @@ function OwnerConnectorsPanel({
     setActiveConnector(initialConnector);
   }, [initialConnector, open, setActiveConnector]);
   useEffect(() => {
+    if (!open) return;
     if (vaultOwnerToken) void refresh(controller.current?.signal);
     else onCatalogStateChange?.("unavailable-valid");
-  }, [vaultOwnerToken, refresh, onCatalogStateChange]);
+  }, [open, vaultOwnerToken, refresh, onCatalogStateChange]);
   useEffect(() => {
     if (previousOpen.current === open) return;
     previousOpen.current = open;
-    overviewRead.current++;
-    documentRead.current++;
     if (!open) {
-      setActiveConnector(null);
+      // The caller already owns its new query destination. Closing this
+      // retained feature must not replace that destination with Connectors.
+      if (!connectorHeldByHost) setOwnActiveConnector(null);
+      appliedInitialConnector.current = null;
       setSearch("");
       setConfirm(null);
       setPinnedSections({});
     }
-    if (open && vaultOwnerToken) void refresh(controller.current?.signal);
-  }, [open, vaultOwnerToken, refresh, setActiveConnector]);
+  }, [open, connectorHeldByHost]);
   useLayoutEffect(() => {
     const previous = previousActiveConnector.current;
     previousActiveConnector.current = activeConnector;
@@ -776,12 +820,16 @@ function OwnerConnectorsPanel({
     let active = true;
     setLiveBackground(null);
     setLiveBackgroundError(false);
+    if (backgroundWrite.current) {
+      setLiveBackgroundChange("saving");
+      return;
+    }
     setLiveBackgroundChange(null);
     void ExternalConnectorService.liveBackground(vaultOwnerToken)
-      .then((enabled) => { if (active) setLiveBackground(enabled); })
-      .catch(() => { if (active) setLiveBackgroundError(true); });
+      .then((enabled) => { if (active && liveUnlockOwner.current === unlockOwner && currentToken.current === vaultOwnerToken) setLiveBackground(enabled); })
+      .catch(() => { if (active && liveUnlockOwner.current === unlockOwner && currentToken.current === vaultOwnerToken) setLiveBackgroundError(true); });
     return () => { active = false; };
-  }, [open, vaultOwnerToken, drive?.profile, drive?.status, liveBackgroundRead]);
+  }, [open, vaultOwnerToken, unlockOwner, drive?.profile, drive?.status, liveBackgroundRead]);
   const hasDriveGrant = Boolean(
     drive && !["not_connected", "revoked"].includes(drive.status),
   );
@@ -807,7 +855,7 @@ function OwnerConnectorsPanel({
       });
   }, [open, hasDriveGrant, refreshDocuments]);
   useEffect(() => {
-    if (!pending) return;
+    if (!pending || !open) return;
     setConfirm(null);
     setActiveConnector("google_drive");
     setAllowBackground(false);
@@ -820,9 +868,9 @@ function OwnerConnectorsPanel({
       Math.max(0, pending.expiresAt - Date.now()),
     );
     return () => window.clearTimeout(timer);
-  }, [pending, updatePendingSelection, setActiveConnector]);
+  }, [pending, open, updatePendingSelection, setActiveConnector]);
   useEffect(() => {
-    if (driveBusy || !restorePickerFocus.current) return;
+    if (!open || driveBusy || !restorePickerFocus.current) return;
     restorePickerFocus.current = false;
     const frame = requestAnimationFrame(() => {
       (
@@ -831,7 +879,7 @@ function OwnerConnectorsPanel({
       )?.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [driveBusy, pending]);
+  }, [open, driveBusy, pending]);
 
   const runDrive = useCallback(
     async (
@@ -843,7 +891,7 @@ function OwnerConnectorsPanel({
       if (!token || !signal || signal.aborted || driveLock.current) return;
       // Retire reads taken before this operation. Late GETs cannot resurrect
       // removed documents or a connection which has just been disconnected.
-      overviewRead.current++;
+      const retiredRead = ++overviewRead.current;
       documentRead.current++;
       driveLock.current = true;
       setDriveBusy(true);
@@ -856,14 +904,18 @@ function OwnerConnectorsPanel({
             "Drive could not finish this action. Check the connection and try again.",
           );
       } finally {
-        driveLock.current = false;
-        if (queuedNativeReconcile.current)
-          queueMicrotask(() => drainNativeReconcile.current());
-        if (queuedNativePickerReconcile.current)
-          queueMicrotask(() => drainNativePickerReconcile.current());
-        if (!signal.aborted) {
-          setDriveBusy(false);
-          setLoading(false);
+        // Closing/reopening gives a new visit its own locks and queues. A late
+        // old completion must not release or drain that new visit's work.
+        if (controller.current?.signal === signal) {
+          driveLock.current = false;
+          if (queuedNativeReconcile.current)
+            queueMicrotask(() => drainNativeReconcile.current());
+          if (queuedNativePickerReconcile.current)
+            queueMicrotask(() => drainNativePickerReconcile.current());
+          if (!signal.aborted) {
+            setDriveBusy(false);
+            if (overviewRead.current === retiredRead) setLoading(false);
+          }
         }
       }
     },
@@ -1562,8 +1614,8 @@ function OwnerConnectorsPanel({
         if (!signal.aborted) setMailPopupPending(false);
         signal.removeEventListener("abort", close);
         popup?.close();
-        clearGmailOAuthPopupAttempt();
-        mailLock.current = false;
+        clearGmailOAuthPopupAttempt(undefined, attempt.attemptId);
+        if (controller.current?.signal === signal) mailLock.current = false;
         if (!signal.aborted) setMailBusy(false);
       }
     })();
@@ -1604,7 +1656,7 @@ function OwnerConnectorsPanel({
     void attempt.result.then((outcome) => {
       if (calendarPopupCancel.current === attemptCancel)
         calendarPopupCancel.current = null;
-      calendarLock.current = false;
+      if (controller.current?.signal === signal) calendarLock.current = false;
       if (outcome === "stale" || signal.aborted) return;
       setCalendarPopupPending(false);
       setCalendarBusy(false);
@@ -1658,7 +1710,8 @@ function OwnerConnectorsPanel({
   };
   const curatedRolloutEnabled = overview?.features.curated_mcp_connectors === true;
   const connectCurated = (connectorId: string, name: string) => {
-    if (!vaultOwnerToken || !user?.uid || curatedBusy || curatedLock.current) return;
+    const signal = controller.current?.signal;
+    if (!vaultOwnerToken || !user?.uid || !signal || signal.aborted || curatedBusy || curatedLock.current) return;
     const connector = overview?.connectors.find((item) => item.connectorId === connectorId);
     if (
       !connector ||
@@ -1686,7 +1739,6 @@ function OwnerConnectorsPanel({
       return;
     }
     const token = vaultOwnerToken;
-    const signal = controller.current?.signal;
     const request = ++curatedRequest.current;
     setCuratedBusy(true);
     setCuratedMessage("");
@@ -1762,15 +1814,16 @@ function OwnerConnectorsPanel({
           }
         }
         if (curatedRequest.current === request && !signal?.aborted) setCuratedBusy(false);
-        curatedLock.current = false;
+        if (controller.current?.signal === signal && curatedRequest.current === request) curatedLock.current = false;
       }
     })();
   };
   const confirmAction = () => {
     const target = confirm;
+    const visitSignal = controller.current?.signal;
     // One change per target at a time: a second tap in the same frame reads
     // the same `confirm`, so the guard has to be synchronous.
-    if (!target || changesInFlight.current.has(target)) return;
+    if (!target || !visitSignal || visitSignal.aborted || changesInFlight.current.has(target)) return;
     setConfirm(null);
     if (target.startsWith("curated:")) {
       const connectorId = target.slice("curated:".length);
@@ -1813,7 +1866,7 @@ function OwnerConnectorsPanel({
           }
         })
         .finally(() => {
-          if (curatedRequest.current !== request) return;
+          if (controller.current?.signal !== signal || curatedRequest.current !== request) return;
           changesInFlight.current.delete(target);
           curatedDisconnectId.current = null;
           if (!signal.aborted) setCuratedBusy(false);
@@ -1846,6 +1899,7 @@ function OwnerConnectorsPanel({
           }
         })
         .finally(() => {
+          if (controller.current?.signal !== signal) return;
           changesInFlight.current.delete(target);
           if (!signal.aborted && currentToken.current === ownerToken) setPlaidBusy(false);
         });
@@ -1877,6 +1931,7 @@ function OwnerConnectorsPanel({
           }
         })
         .finally(() => {
+          if (controller.current?.signal !== signal) return;
           changesInFlight.current.delete(target);
           if (!signal.aborted) {
             setCalendarBusy(false);
@@ -1906,6 +1961,7 @@ function OwnerConnectorsPanel({
           endDisconnect("gmail", DISCONNECT_FAILED);
         })
         .finally(() => {
+          if (controller.current?.signal !== signal) return;
           mailLock.current = false;
           changesInFlight.current.delete(target);
           if (!signal.aborted) setMailBusy(false);
@@ -1938,6 +1994,7 @@ function OwnerConnectorsPanel({
         await refresh(signal);
         await refreshDocuments(signal);
       }).finally(() => {
+        if (controller.current?.signal !== visitSignal) return;
         changesInFlight.current.delete(target);
         endDisconnect("google_drive");
       });
@@ -2531,24 +2588,47 @@ function OwnerConnectorsPanel({
               )}
               {drive?.profile === "live" && drive.status === "connected" && (
                 <SettingsGroup density="compact">
-                  <SettingsRow title="Background Drive access" description={liveBackground === null
+                  <SettingsRow title="Background Drive access" description={liveBackgroundChange === "saving" ? "Saving…" : liveBackground === null
                     ? liveBackgroundError ? "Couldn’t check background access." : "Checking background access…"
-                    : liveBackgroundChange === "saving" ? "Saving…"
                     : liveBackgroundChange ? `Couldn’t turn ${liveBackgroundChange}. Try again.`
                     : liveBackground ? "Agent One works while you’re away." : "Paused while you’re away."}
                     trailing={liveBackground !== null ? <Switch id={driveBackgroundId} size="ios" aria-label="Background Drive access" checked={liveBackground}
                       disabled={driveBusy}
-                      onCheckedChange={(next) => void runDrive(async (token) => {
+                      onCheckedChange={(next) => void runDrive(async (token, signal) => {
+                        const write = { owner: unlockOwner };
+                        backgroundWrite.current = write;
                         setLiveBackgroundChange("saving");
                         try {
                           const confirmed = await ExternalConnectorService.setLiveBackground(token, next);
+                          if (signal.aborted || currentToken.current !== token) return;
                           setLiveBackground(confirmed);
                           setLiveBackgroundChange(null);
                           setDriveMessage(confirmed ? "Background Drive access is on." : "Background Drive access is off.");
                         } catch (error) {
                           // The switch never left the saved state; the row says the change didn't land.
+                          if (signal.aborted || currentToken.current !== token) return;
                           setLiveBackgroundChange(next ? "on" : "off");
                           throw error;
+                        } finally {
+                          if (backgroundWrite.current === write) {
+                            backgroundWrite.current = null;
+                            if (committedPresentation.current && liveUnlockOwner.current === write.owner &&
+                                (controller.current?.signal !== signal || currentToken.current !== token)) {
+                              // This owner's write settled after its old view
+                              // retired. Reconcile, never replay or adopt the
+                              // old view's result into a new visit.
+                              retryLiveBackground(attempt => attempt + 1);
+                              // Same-visit renewal leaves release/draining to
+                              // runDrive's finally; doing it early would let
+                              // that finally release a newer operation's lock.
+                              if (controller.current?.signal !== signal) {
+                                driveLock.current = false;
+                                setDriveBusy(false);
+                                if (queuedNativeReconcile.current) queueMicrotask(() => drainNativeReconcile.current());
+                                if (queuedNativePickerReconcile.current) queueMicrotask(() => drainNativePickerReconcile.current());
+                              }
+                            }
+                          }
                         }
                       })}
                     /> : null} />

@@ -90,6 +90,7 @@ vi.mock("@/components/icons", () => ({
 
 import { Capacitor } from "@capacitor/core";
 import { ConnectorsPanel, type ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const callbacks = {
   onBack: vi.fn(),
@@ -775,10 +776,11 @@ describe("supported connector catalog", () => {
         expect(assign).not.toHaveBeenCalled();
       });
 
-      it("closes the popup when the panel unmounts mid sign-in", async () => {
+      it.each(["unmount", "close"] as const)("closes the popup when the panel leaves by %s mid sign-in", async (ending) => {
         const view = await connectHubspot();
         await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
-        view.unmount();
+        if (ending === "unmount") view.unmount();
+        else view.rerender(panel(false));
         await waitFor(() => expect(popup.close).toHaveBeenCalled());
         expect(assign).not.toHaveBeenCalled();
       });
@@ -801,6 +803,7 @@ describe("supported connector catalog", () => {
         // on the provider's consent page at that moment must not lose the window.
         const view = await connectHubspot();
         await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+        advanceVaultSessionEpoch();
         state.token = "renewed-owner-token";
         view.rerender(panel());
         await waitFor(() => expect(state.overview).toHaveBeenLastCalledWith("renewed-owner-token"));
@@ -948,6 +951,12 @@ describe("supported connector catalog", () => {
       />,
     );
     expect(await screen.findByRole("region", { name: "Calendar details" })).toBeInTheDocument();
+    view.rerender(
+      <ConnectorsPanel open={false} surface="profile" activeConnector="calendar"
+        onActiveConnectorChange={onActiveConnectorChange} {...callbacks} />,
+    );
+    // Leaving the feature is not a query write back into the previous panel.
+    expect(onActiveConnectorChange).toHaveBeenCalledExactlyOnceWith("calendar");
   });
 
   it.each(["instagram", "linkedin"])("offers %s as a public-link draft without granting a connection", async (id) => {
@@ -1298,7 +1307,9 @@ describe("supported connector catalog", () => {
   it("rejects a prior panel session's response after close and reopen", async () => {
     let finish!: (value: ReturnType<typeof overview>) => void;
     state.overview.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
-    const view = render(panel());
+    const view = render(panel(false));
+    expect(state.overview).not.toHaveBeenCalled();
+    view.rerender(panel());
     await waitFor(() => expect(state.overview).toHaveBeenCalledTimes(1));
     view.rerender(panel(false));
     view.rerender(panel());
@@ -1620,20 +1631,33 @@ describe("supported connector catalog", () => {
         .closest("[data-row-layout]")
         ?.querySelector('[data-slot="settings-row-description"]')?.textContent;
 
-    it("says Saving… in the row while a change is in flight, then shows the saved state", async () => {
+    it.each(["same", "reopen", "renew"] as const)("retains the pending setting and reconciles its saved state (%s)", async (mode) => {
+      const rebind = mode !== "same";
       state.overview.mockResolvedValue(liveDrive());
+      state.liveBackground.mockResolvedValue(!rebind);
       let finish!: (enabled: boolean) => void;
       state.setLiveBackground.mockReturnValueOnce(new Promise<boolean>((resolve) => { finish = resolve; }));
-      await openDrive();
+      const view = await openDrive();
       const toggle = await screen.findByRole("switch", { name: "Background Drive access" });
       await waitFor(() => expect(toggle).toBeEnabled());
-      expect(backgroundCaption()).toBe("Agent One works while you’re away.");
       fireEvent.click(toggle);
       await waitFor(() => expect(backgroundCaption()).toBe("Saving…"));
-      expect(toggle).toHaveAttribute("aria-checked", "true");
-      await act(async () => finish(false));
-      await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
-      expect(backgroundCaption()).toBe("Paused while you’re away.");
+      expect(toggle).toHaveAttribute("aria-checked", String(!rebind));
+      if (rebind) {
+        if (mode === "reopen") view.rerender(<ConnectorsPanel open={false} initialConnector="google_drive" {...callbacks} />);
+        else { advanceVaultSessionEpoch(); state.token = "renewed-owner-token"; }
+        view.rerender(<ConnectorsPanel open initialConnector="google_drive" {...callbacks} />);
+        await waitFor(() => expect(backgroundCaption()).toBe("Saving…"));
+        expect(screen.queryByRole("switch", { name: "Background Drive access" })).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Disconnect Drive" })).toBeDisabled();
+      }
+      state.liveBackground.mockResolvedValue(rebind);
+      await act(async () => finish(rebind));
+      await waitFor(() => expect(screen.getByRole("switch", { name: "Background Drive access" })).toHaveAttribute("aria-checked", String(rebind)));
+      expect(backgroundCaption()).toBe(rebind ? "Agent One works while you’re away." : "Paused while you’re away.");
+      expect(state.setLiveBackground).toHaveBeenCalledTimes(1);
+      if (rebind) expect(state.liveBackground.mock.calls.length).toBeGreaterThan(1);
+      if (mode === "renew") expect(state.liveBackground).toHaveBeenLastCalledWith("renewed-owner-token");
     });
 
     it.each([

@@ -50,8 +50,20 @@ instead of mounting another panel. Catalog and confirmation actions are revoked
 after a superseding commit or owner retirement. This boundary is not native
 Connectors admission: complete detail scenes and the separately owned Drive,
 trust-rule and custom-connector bodies still need their shared mappings. A
-retained owner must also gate inactive reads and cancel the retired connector
-visit before it is placed above the native page's lifetime.
+retained owner now gates inactive reads and retires the closed visit's requests,
+focus and queued callbacks without writing the old Profile query. An unsettled
+background-access write retains serialization through close/reopen; its same-owner
+settlement reconciles through a fresh read without replaying the write. Old visit
+cleanup cannot release a reopened visit's lock or erase a newer OAuth marker.
+
+The vault credential epoch also advances during ordinary token renewal; it is
+not the unlock lifetime. Connector operations use the existing owner/key lifetime
+while current-token reads and action bindings retain their credential fences.
+The nearest regressions advance the real credential epoch during renewal, not
+only a mocked token string. This controller proof does not qualify native host,
+editor or gesture continuity: the existing native drawer lease and Profile detail
+owner still rotate with that credential epoch, so their presentation continuity
+requires its own integrated evidence before family qualification.
 
 | Destination | Native source coverage / remaining body mapping |
 |---|---|
