@@ -4,6 +4,15 @@ Status: Location command repair in progress. The physical-device acceptance jour
 
 ## Visual Map
 
+**Private-cloud policy — 18 October 2026:** GCP BYOC uses admitted pod routes for
+recorded transcription and command assessment, subject to its actual model authority.
+Azure voice is disabled in the microphone selector, pod capability and transcription
+route, even when a Gemini key or Google project setting is present. Typed commands
+retain their existing model checks. Private conversational Live cannot use the shared
+Developer API key; a compatible native Vertex model and live acceptance are separate
+requirements. [Current evidence](../quality/adk-orchestration-docs-audit.md) distinguishes
+local verification from installed-image behavior.
+
 ```mermaid
 flowchart TD
   entries[Agent Bar / Chat microphone / Siri free text] --> capture[One microphone owner: hold, speak, release]

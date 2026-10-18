@@ -13,9 +13,11 @@ from tests.test_pod_session_authority import Subject, World, _binding
 from tests.test_pod_session_authority import hub_key as hub_key
 
 
+@pytest.mark.parametrize("platform", ["gcp", "azure"])
 async def test_direct_transcription_requires_an_app_scope_before_model_access(
-    tmp_path, hub_key, monkeypatch
+    tmp_path, hub_key, monkeypatch, platform
 ):
+    monkeypatch.setattr("api.routes.one.pod_capabilities.workload_platform", lambda: platform)
     world = World(tmp_path)
     authority = await world.boot()
     monkeypatch.setattr("api.routes.one.pod_session.authority_or_503", lambda: authority)
@@ -49,9 +51,14 @@ async def test_direct_transcription_requires_an_app_scope_before_model_access(
             json={"audio_base64": "a" * 64},
             headers={"Authorization": "Bearer " + valid},
         )
-        assert result.status_code == 200
-        assert result.json() == {"transcript": "synthetic transcript"}
-        model.assert_awaited_once()
+        if platform == "azure":
+            assert result.status_code == 503
+            assert result.json()["detail"]["code"] == "COMMAND_MODEL_UNAVAILABLE"
+            model.assert_not_awaited()
+        else:
+            assert result.status_code == 200
+            assert result.json() == {"transcript": "synthetic transcript"}
+            model.assert_awaited_once()
         permit.release.assert_awaited_once()
 
 

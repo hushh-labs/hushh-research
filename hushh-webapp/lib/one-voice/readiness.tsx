@@ -140,7 +140,7 @@ export function OneVoiceReadinessProvider({
           };
         if (!current()) return;
         if (!cached && hosting.hostingMode === "shared") writeCache(uid, provider);
-        const microphoneOwner = hosting.hostingMode === "byoc" ? "pod_commands"
+        const microphoneOwner = hosting.hostingMode === "byoc" && hosting.deploymentTarget === "user_gcp" ? "pod_commands"
           : hosting.hostingMode === "shared" && provider.liveEnabled && provider.serverStatus === "ready"
             ? "shared_live" : "none";
         setObservation({ uid, generation: captured.generation, value: {
@@ -183,7 +183,7 @@ export function useOneVoiceLiveEnabled(): boolean {
   return readiness.status === "resolved" && readiness.liveEnabled;
 }
 
-/** Private commands require an explicitly resolved BYOC placement. */
+/** Recorded voice requires an explicitly resolved GCP BYOC placement. */
 export function useOneVoiceCommandsEnabled(): boolean {
   return useOneVoiceReadiness().microphoneOwner === "pod_commands";
 }

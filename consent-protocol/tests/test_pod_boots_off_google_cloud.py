@@ -95,7 +95,7 @@ def test_an_azure_pod_states_its_version_one_capabilities(monkeypatch):
     assert pod_capabilities() == {
         "platform": "azure",
         "memoryRecall": {"source": "sealed_log"},
-        "voice": {"available": False, "reason": "no_vertex_model"},
+        "voice": {"available": False, "reason": "voice_disabled"},
         "filesBackgroundOrganization": {"available": False, "reason": "files_disabled"},
         "gmailPush": {"available": False, "reason": "requires_google_pubsub"},
         "webSearch": {"available": False, "reason": "requires_gemini_model"},
@@ -115,6 +115,7 @@ def test_a_memory_bank_setting_without_a_google_project_still_recalls_from_the_l
 
 
 def test_a_google_cloud_pod_keeps_voice_and_gmail_push(monkeypatch):
+    monkeypatch.setenv("AGENT_ONE_ADK_MODEL", "gemini-live-2.5-flash-native-audio")
     monkeypatch.delenv("CONTAINER_APP_NAME", raising=False)
     monkeypatch.setenv("K_SERVICE", "one-pod-ha1")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "owner-project")

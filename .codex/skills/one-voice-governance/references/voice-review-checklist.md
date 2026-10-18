@@ -26,6 +26,7 @@ Use this when reviewing One Voice, Kai compatibility runtime, or typed-search ch
 
 ## Runtime Boundary
 
+- For private pods, does verified GCP placement select recorded commands while Azure and unknown placement leave capture disabled? Does the server also refuse Azure transcription and Live regardless of injected Google settings? Private Live must not borrow the shared Developer API key; recorded GCP and native conversational Live require separate evidence.
 - Which existing voice runtime surfaces does this PR extend: generated gateway, manifest, realtime client, turn orchestrator, shared dispatcher, console sheet, backend voice intent, or voice tests?
 - Is this a new input adapter over the current runtime, or is it creating a parallel voice system?
 - Does runtime surface metadata describe current state rather than invent capabilities?

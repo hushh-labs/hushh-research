@@ -2070,7 +2070,7 @@ async def delete_account(
     return await _perform_account_deletion(user_id, target=target)
 
 
-def _files_erasure_pending_response(code: str) -> JSONResponse:
+def _files_erasure_pending_response(code: str | None) -> JSONResponse | None:
     messages = {
         "FILES_ERASURE_IN_PROGRESS": (
             "Files cleanup is still in progress. Account not deleted. Try again to continue."
@@ -2079,25 +2079,31 @@ def _files_erasure_pending_response(code: str) -> JSONResponse:
             "An upload outcome is unverified. Account not deleted. Contact support before retrying."
         ),
     }
+    message = messages.get(code or "")
+    if message is None:
+        return None
     return JSONResponse(
         status_code=409,
-        content={"detail": messages[code], "code": code},
+        content={"detail": message, "code": code},
     )
+
+
+async def _delete_account_result(user_id: str, *, target: str) -> dict[str, Any]:
+    """Preserve the erasure service's result, including a definite pre-transaction failure."""
+    service = AccountService()
+    try:
+        return cast(dict[str, Any], await service.delete_account(user_id, target=target))
+    except Exception as exc:
+        # Transaction failures are returned by the service. A raised exception
+        # occurred before erasure, so preserve the existing retry-safe result.
+        logger.error("account.delete_failed user=%s error=%s", user_id, type(exc).__name__)
+        return {"success": False, "error": type(exc).__name__}
 
 
 async def _perform_account_deletion(user_id: str, *, target: str):
     """Shared erasure lifecycle. Authority is checked by the calling route."""
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
-    service = AccountService()
-    try:
-        result = await service.delete_account(user_id, target=target)
-    except Exception as exc:
-        # The erasure itself catches every error once its transaction begins,
-        # and provider release never raises, so an exception here happened
-        # before anything was erased (for example the profile read). Report it
-        # with the machine code so the client keeps a session it can retry.
-        logger.error("account.delete_failed user=%s error=%s", user_id, type(exc).__name__)
-        result = {"success": False, "error": type(exc).__name__}
+    result = await _delete_account_result(user_id, target=target)
 
     if not result["success"]:
         if result.get("error_code") == PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE:
@@ -2121,13 +2127,11 @@ async def _perform_account_deletion(user_id: str, *, target: str):
                 status_code=503,
                 content={"detail": "Account deletion paused", "code": ACCOUNT_DELETION_PAUSED_CODE},
             )
-        if result.get("error_code") in {
-            "FILES_ERASURE_IN_PROGRESS",
-            "FILES_ERASURE_WAITING_FOR_WRITES",
-        }:
+        pending_files = _files_erasure_pending_response(result.get("error_code"))
+        if pending_files is not None:
             # Preserve the exact safe refusal. Unverified uploads require
             # reconciliation; only a settled bounded batch invites continuation.
-            return _files_erasure_pending_response(result["error_code"])
+            return pending_files
         # SECURITY: do not reflect the internal error string in the HTTP response.
         # The service-layer error may include persona names, DB state, or persona IDs.
         logger.error("account.delete_failed user=%s error=%s", user_id, result.get("error"))

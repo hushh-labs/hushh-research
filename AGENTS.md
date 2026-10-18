@@ -15,6 +15,7 @@ pointer or refines it; nothing overrides it except a rule that is genuinely more
 | `agents/` | Canonical authored **subagent** lanes (`*.toml`). `.claude/agents/*.md` is generated from these and verified byte-for-byte in CI |
 | `.codex/skills/`, `.codex/workflows/` | The governed **routing brain** — manifests with owned paths, required reads, verification bundles, risk tags |
 | `docs/reference/architecture/private-agent-north-star.md` | Private-agent requirements and qualified implementation evidence |
+| `docs/reference/quality/adk-orchestration-docs-audit.md` | Current Founder/CTO readiness decision: source, serving revisions, measured journeys and blockers |
 | `docs/future/personal-agent/` | Private-agent designs, parity matrix and divergence register; verify implementation claims against current source |
 | `docs/project_context_map.md` | Orientation: which platform layer maps to which repo anchor |
 | `CLAUDE.md` | Claude-Code-specific operating context; it never contradicts this file |
@@ -25,6 +26,17 @@ Correct inaccurate instructions in the change that discovers them. When satisfyi
 requirement needs separate implementation, access or a user-owned decision, record the
 owning workflow, gap and required evidence in the audit report. Continue the authorized
 scope; neither hide the gap nor turn a documentation correction into an unbounded rollout.
+
+**Private-agent delivery.** Execute private work in the owner's selected cloud through
+the existing admitted direct/relay routes. The hub coordinates identity, consent and
+updates; a healthy hub or diagnostic bridge does not prove a working owner pod.
+GCP recorded voice retains its authorized native model path; Azure voice is disabled.
+Private Live must not borrow the shared service's model key. Computer Use retains its
+native sandbox requirement and stays unavailable per cloud until isolation qualifies.
+Report measurable journey outcomes in the existing readiness memo. Reuse valid,
+unchanged evidence, finish the bounded implementation before freezing a candidate,
+and preserve the required verification and release gates below. Do not expand the
+product merely to work around a failed acceptance prerequisite.
 
 ## Project-Wide Principal Craft Kernel
 

@@ -191,6 +191,7 @@ flowchart LR
 - [Getting Started Guide](docs/guides/getting-started.md)
 - [Environment Model](docs/guides/environment-model.md)
 - [Project Context Map](docs/project_context_map.md)
+- [Founder/CTO: Private-Agent Readiness and Next Decision](docs/reference/quality/adk-orchestration-docs-audit.md)
 - [Architecture Index and Founder/CTO Diagram Guide](docs/reference/architecture/README.md)
 - [Brand & Compatibility Contract](docs/reference/operations/brand-and-compatibility-contract.md)
 - [Founder Language Matrix](docs/reference/architecture/founder-language-matrix.md)

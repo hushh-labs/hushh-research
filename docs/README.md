@@ -2,6 +2,13 @@
 
 > Canonical entry point for durable repo knowledge.
 
+## Founder / CTO: start here
+
+- [Current readiness decision](./reference/quality/adk-orchestration-docs-audit.md): what works, what serves dev, measured outcomes and blockers.
+- [Private-agent north star](./reference/architecture/private-agent-north-star.md): architecture and ownership requirements.
+- [System diagrams](./reference/architecture/README.md#founder-and-cto-diagram-guide): cloud, Docker images, agents and information boundaries.
+- [Browser execution evidence](../consent-protocol/docs/reference/private-browser-runtime.md): ADK integration and each native sandbox gate.
+
 ## Visual Map
 
 ```mermaid

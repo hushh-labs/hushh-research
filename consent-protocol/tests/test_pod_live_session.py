@@ -206,6 +206,10 @@ async def test_pod_entrypoint_revocation_stops_live_work(private, monkeypatch):
 
     from api.routes.one import adk_live, pod_turn, relay_auth
 
+    monkeypatch.delenv("CONTAINER_APP_NAME", raising=False)
+    monkeypatch.setenv("K_SERVICE", "synthetic-gcp-pod")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "synthetic-owner-project")
+    monkeypatch.setenv("AGENT_ONE_ADK_MODEL", "gemini-live-2.5-flash-native-audio")
     monkeypatch.setattr(pod_turn, "_require_enabled", lambda: None)
     monkeypatch.setattr(relay_auth, "one_voice_enabled", lambda: True)
     validator = AsyncMock(

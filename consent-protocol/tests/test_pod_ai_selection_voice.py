@@ -63,6 +63,7 @@ async def test_voice_refuses_while_the_owners_own_ai_is_in_force(monkeypatch, st
     monkeypatch.setattr(pod_turn, "_require_enabled", lambda: None)
     monkeypatch.setattr(pod_turn, "_validate_consent", _consent)
     monkeypatch.setattr(pod_capabilities, "vertex_model_configured", lambda: True)
+    monkeypatch.setenv("AGENT_ONE_ADK_MODEL", "gemini-live-2.5-flash-native-audio")
     monkeypatch.setattr("api.routes.one.relay_auth.one_voice_enabled", lambda: True)
     monkeypatch.setattr(pod_live_session, "PodLiveSession", _Session)
     monkeypatch.setattr(pod_upgrade_admission.ADMISSION, "acquire_turn", _acquire)
@@ -87,3 +88,52 @@ async def test_voice_refuses_while_the_owners_own_ai_is_in_force(monkeypatch, st
         assert reached_admission == [True], "with no selection voice proceeds as before"
     finally:
         pod_ai_selection.set_active_ai_selection(None)
+
+
+async def test_azure_voice_refuses_even_with_google_project_and_voice_enabled(monkeypatch):
+    monkeypatch.setenv("CONTAINER_APP_NAME", "synthetic-azure-pod")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "synthetic-project")
+    monkeypatch.setattr("api.routes.one.relay_auth.one_voice_enabled", lambda: True)
+    monkeypatch.setattr(pod_ai_selection, "owner_ai_in_force", lambda: False)
+    monkeypatch.setattr(pod_turn, "_require_enabled", lambda: None)
+    assert pod_capabilities.voice_capability() == {
+        "available": False,
+        "reason": "voice_disabled",
+    }
+    socket = _Socket()
+    await pod_turn.pod_live_route(socket)  # type: ignore[arg-type]
+    assert socket.closed == (1008, "Private voice unavailable.")
+    assert not socket.accepted
+
+    # Identical Google model settings retain GCP voice rather than disabling both clouds.
+    monkeypatch.delenv("CONTAINER_APP_NAME")
+    monkeypatch.setenv("K_SERVICE", "synthetic-gcp-pod")
+    monkeypatch.setenv("AGENT_ONE_ADK_MODEL", "gemini-live-2.5-flash-native-audio")
+    assert pod_capabilities.voice_capability() == {"available": True, "reason": None}
+    for model in (
+        "gemini-3.1-flash-live-preview",
+        "gemini-3.5-transcribe-live-preview",
+        "unknown-live-model",
+    ):
+        monkeypatch.setenv("AGENT_ONE_ADK_MODEL", model)
+        assert pod_capabilities.voice_capability() == {
+            "available": False,
+            "reason": "native_live_model_unavailable",
+        }
+
+
+def test_private_live_cannot_use_a_shared_developer_key(monkeypatch):
+    from hushh_mcp.one_adk import agent_tree as _tree
+
+    monkeypatch.setattr(_tree, "pod_mode", lambda: True)
+    monkeypatch.setattr(_tree, "_ONE_MODEL", "gemini-3.1-flash-live-preview")
+    monkeypatch.setattr(
+        _tree, "_managed_live_api_key", lambda: pytest.fail("private Live read shared key")
+    )
+    with pytest.raises(RuntimeError, match="private_live_requires_vertex"):
+        _tree._build_one_live_model()
+
+    native_model = object()
+    monkeypatch.setattr(_tree, "_ONE_MODEL", "gemini-live-2.5-flash-native-audio")
+    monkeypatch.setattr(_tree, "build_managed_gemini_adk_model", lambda *a, **kw: native_model)
+    assert _tree._build_one_live_model() is native_model

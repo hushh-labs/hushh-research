@@ -34,7 +34,7 @@ describe("voice compute follows verified owner hosting", () => {
     ["pending", "none"], ["unknown", "none"], ["hussh_pods", "none"],
     [undefined, "none"],
   ])("selects %s without treating missing placement as Shared", async (hostingMode, expected) => {
-    hosting.mockResolvedValue({ hostingMode });
+    hosting.mockResolvedValue({ hostingMode, deploymentTarget: "user_gcp" });
     render(view());
     await screen.findByText(expected);
   });
@@ -43,7 +43,7 @@ describe("voice compute follows verified owner hosting", () => {
     window.sessionStorage.setItem("one_voice_readiness_v1:owner-a", JSON.stringify({
       at: Date.now(), value: { status: "resolved", liveEnabled: true, serverStatus: "ready", model: "synthetic", location: "global", wsPath: "/api/one/voice/live" },
     }));
-    hosting.mockResolvedValueOnce({ hostingMode: "shared" }).mockResolvedValue({ hostingMode: "byoc" });
+    hosting.mockResolvedValueOnce({ hostingMode: "shared" }).mockResolvedValue({ hostingMode: "byoc", deploymentTarget: "user_gcp" });
     render(view());
     await screen.findByText("shared_live");
     act(() => { window.dispatchEvent(new Event("focus")); });
@@ -75,7 +75,7 @@ describe("voice compute follows verified owner hosting", () => {
 
   it("recovers in the same tab after the existing hosting invalidation", async () => {
     hosting.mockRejectedValueOnce(new Error("synthetic outage"))
-      .mockResolvedValue({ hostingMode: "byoc" });
+      .mockResolvedValue({ hostingMode: "byoc", deploymentTarget: "user_gcp" });
     render(view());
     await screen.findByText("none");
     act(() => dispatchFeedStateChanged());
@@ -90,10 +90,20 @@ describe("voice compute follows verified owner hosting", () => {
     await waitFor(() => expect(hosting).toHaveBeenCalledOnce());
     publishValidatedAuthSessionOwner("owner-b");
     publishValidatedAuthSessionOwner("owner-a");
-    hosting.mockResolvedValue({ hostingMode: "byoc" });
+    hosting.mockResolvedValue({ hostingMode: "byoc", deploymentTarget: "user_gcp" });
     mounted.rerender(view());
     await screen.findByText("pod_commands");
     await act(async () => { settle({ hostingMode: "shared" }); });
     expect(screen.getByText("pod_commands")).toBeTruthy();
   });
+
+  it.each(["user_azure", undefined, "unknown"])(
+    "does not arm voice or fall back to Shared for BYOC target %s",
+    async (deploymentTarget) => {
+      hosting.mockResolvedValue({ hostingMode: "byoc", deploymentTarget });
+      render(view());
+      await screen.findByText("none");
+      expect(readiness).not.toHaveBeenCalled();
+    },
+  );
 });

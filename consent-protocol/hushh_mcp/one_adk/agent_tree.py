@@ -171,9 +171,9 @@ from hushh_mcp.runtime_providers import (
     bind_managed_vertex_project,
     build_managed_gemini_adk_model,
     build_managed_regional_gemini_adk_model,
+    live_compatibility,
     thinking_config_for,
 )
-from hushh_mcp.runtime_providers.live_compatibility import GEMINI_LIVE_COMPATIBILITY
 from hushh_mcp.runtime_providers.puppy_transport import PuppyCapabilityUnsupported
 from hushh_mcp.runtime_settings import one_db_sessions_enabled, pod_mode
 from hushh_mcp.services.action_gateway import (
@@ -330,12 +330,7 @@ if _CRM_PRODUCT_AVAILABLE:
 # the existing infrastructure runtime.  The ordinary text head below uses the
 # specialist model; Live still resolves its separately authored native-audio
 # model and transport matrix.
-_ONE_HEADS = _ONE_MANIFEST.capabilities.get("heads", {})
-_ONE_MODEL = (
-    os.getenv("AGENT_ONE_ADK_MODEL")
-    or (_ONE_HEADS.get("live") if isinstance(_ONE_HEADS, dict) else None)
-    or "gemini-3.1-flash-live-preview"
-).strip()
+_ONE_MODEL = live_compatibility.configured_one_live_model()
 ONE_LIVE_MODEL = _ONE_MODEL
 _ONE_LIVE_LOCATION = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
 ONE_LIVE_VOICE_NAME = (os.getenv("AGENT_ONE_ADK_VOICE_NAME") or "Leda").strip()
@@ -408,7 +403,9 @@ def _managed_live_api_key() -> str:
 
 def _build_one_live_model() -> Any:
     """Build the native-audio model using its declared transport contract."""
-    compatibility = GEMINI_LIVE_COMPATIBILITY.get(_ONE_MODEL)
+    if pod_mode() and not live_compatibility.private_live_model_supported(_ONE_MODEL):
+        raise RuntimeError("private_live_requires_vertex")
+    compatibility = live_compatibility.GEMINI_LIVE_COMPATIBILITY.get(_ONE_MODEL)
     if compatibility is not None and compatibility.transport == "developer_api":
         key = _managed_live_api_key()
         if not key:

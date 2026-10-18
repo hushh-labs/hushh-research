@@ -7,8 +7,8 @@ from deployment topology the hub already renders, or from what the platform sets
 
 * **memory recall** comes from Memory Bank only where one is configured (a Google
   Cloud project); everywhere else it is recall from the sealed commit log;
-* **voice** needs a Vertex model, so a pod with no Vertex project says so here and
-  refuses before accepting a connection, rather than failing after it;
+* **voice** is supported on Google Cloud with authorized model access. Azure voice
+  is deliberately disabled, including when Google credentials are present;
 * **Files background organization** needs the configured owner-cloud storage,
   authenticated worker and model; Azure uses Blob storage and a managed-identity queue;
 * **Gmail push** alerts are delivered through Google Pub/Sub only;
@@ -57,15 +57,30 @@ def vertex_model_configured() -> bool:
     return bool(_env("GENAI_GOOGLE_CLOUD_PROJECT") or _env("GOOGLE_CLOUD_PROJECT"))
 
 
+def voice_hosting_allowed() -> bool:
+    """Azure voice stays disabled; credentials cannot change hosting policy."""
+    return bool(workload_platform() != "azure")
+
+
 def voice_capability() -> dict[str, Any]:
     from api.routes.one.relay_auth import one_voice_enabled  # noqa: PLC0415
+    from hushh_mcp.runtime_providers.live_compatibility import (  # noqa: PLC0415
+        configured_one_live_model,
+        private_live_model_supported,
+    )
     from hushh_mcp.services.pod_ai_selection import owner_ai_in_force  # noqa: PLC0415
 
-    if not one_voice_enabled():
+    if not voice_hosting_allowed() or not one_voice_enabled():
         return _capability("voice_disabled")
     if owner_ai_in_force():  # Live runs on managed Gemini: it never stands in for the owner's AI
         return _capability("owner_ai_selected")
-    return _capability("" if vertex_model_configured() else "no_vertex_model")
+    if not vertex_model_configured():
+        return _capability("no_vertex_model")
+    return _capability(
+        ""
+        if private_live_model_supported(configured_one_live_model())
+        else "native_live_model_unavailable"
+    )
 
 
 def voice_available() -> bool:
@@ -128,14 +143,15 @@ def web_search_capability() -> dict[str, Any]:
 
 
 def private_commands_capability() -> dict[str, Any]:
-    """Voice transcription and location commands for this pod's OWN model.
+    """Typed location commands for this pod's OWN model.
 
     ``pod_commands._command_target`` builds a command brain only on Gemini, because a
     command needs Gemini structured output and audio input, which neither the owner's
     Azure transport nor an OpenAI key carries. Every other own model is refused there
     with ``COMMAND_MODEL_UNAVAILABLE``, so it is reported unavailable here, in the same
     words web search uses. A request that brings its own Gemini key or a Puppy device is
-    decided by that request, never by this report.
+    decided by that request, never by this report. This does not enable Azure
+    transcription: the separate hosting policy refuses all Azure voice.
     """
     return _capability("" if own_model_provider() == "gemini" else "requires_gemini_model")
 
@@ -242,5 +258,6 @@ __all__ = [
     "vertex_model_configured",
     "voice_available",
     "voice_capability",
+    "voice_hosting_allowed",
     "web_search_capability",
 ]

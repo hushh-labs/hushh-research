@@ -3,12 +3,17 @@
 **Status — 2026-10-10:** dev implementation with qualified owner-direct chat,
 Dev 12 owner-approved installation, Files transfer/organization and post-update
 Puppy inference. Existing selected resources are preserved. Active-work update
-drain, native connector/voice journeys, independent-network acceptance and the
+drain, native connector journeys, independent-network acceptance and the
 cold-response target remain unverified or failing. See the
 [readiness decision](../quality/adk-orchestration-docs-audit.md) for exact receipts.
 No UAT/production release is qualified. This page inherits the
 [private-agent north star](./private-agent-north-star.md); historical observations
 below retain their dates.
+
+**Voice policy — 18 October 2026:** Azure voice is deliberately unavailable.
+Connecting a Gemini key does not enable it. Typed chat and supported typed commands
+retain their existing provider contracts; GCP recorded voice uses its owner pod.
+The readiness decision distinguishes source changes from installed-image behavior.
 
 ## Visual Map
 

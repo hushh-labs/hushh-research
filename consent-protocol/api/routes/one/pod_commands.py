@@ -12,6 +12,7 @@ from google.genai.errors import APIError
 from pydantic import Field
 
 from api.routes.one.agent_context import sanitize_agent_context
+from api.routes.one.pod_capabilities import voice_hosting_allowed
 from api.routes.one.pod_session import verified_session
 from api.routes.one.pod_turn import PodTurnRequest, _resolve_model, _resolve_owner_target
 from hushh_mcp.agents.location.command_brain import LocationCommandBrain, _load_transcriber_gene
@@ -217,6 +218,8 @@ async def transcribe(
     body: TranscribeRequest, request: Request, authorization: str | None = Header(default=None)
 ):
     async with _admitted(authorization, request) as claims:
+        if not voice_hosting_allowed():
+            raise HTTPException(503, detail={"code": "COMMAND_MODEL_UNAVAILABLE"})
         brain = await _brain(body.model, claims["user_id"], "location.transcribe", claims)
         transcript = await brain.transcribe(body.audio_base64)
     return {"transcript": transcript}
