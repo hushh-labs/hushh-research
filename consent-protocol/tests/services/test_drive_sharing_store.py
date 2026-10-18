@@ -1993,3 +1993,70 @@ async def test_production_requests_keep_the_owner_review_contract(sharing, monke
     other = await request(sharing)
     _, other_private = stored_request(sharing, other["requestId"])
     assert other_private["request_flow"] == "oct17_autoshare"
+
+
+def test_semantic_search_creation_is_uat_only_and_sealed_policy_is_strict(monkeypatch):
+    from hushh_mcp.services.drive_owner_allowed import (
+        semantic_search_enrollment_enabled,
+        semantic_search_request,
+    )
+
+    monkeypatch.delenv("DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED", raising=False)
+    for environment, expected in (
+        ("uat", True),
+        ("production", False),
+        ("development", False),
+        ("", False),
+    ):
+        monkeypatch.setenv("ENVIRONMENT", environment)
+        assert semantic_search_enrollment_enabled() is expected
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED", "false")
+    assert not semantic_search_enrollment_enabled()
+    sealed = {"request_flow": "oct17_autoshare", "semantic_search_policy_version": 1}
+    assert semantic_search_request(sealed)
+    for version in (None, True, "1", 0, 2):
+        assert not semantic_search_request({**sealed, "semantic_search_policy_version": version})
+    assert not semantic_search_request({**sealed, "agent_package_required": True})
+    assert not semantic_search_request({**sealed, "v1_live_request": True})
+    assert not semantic_search_request({**sealed, "request_flow": "older"})
+
+
+@pytest.mark.asyncio
+async def test_new_semantic_request_policy_survives_creation_kill_switch(sharing, monkeypatch):
+    live_drive(sharing, monkeypatch)
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED", raising=False)
+    monkeypatch.delenv("DRIVE_AGENT_PACKAGES_ENABLED", raising=False)
+    created = await request(sharing)
+    identity = created["requestId"]
+    _, private = stored_request(sharing, identity)
+    assert private["semantic_search_policy_version"] == 1
+    assert (await sharing.request_bulk_context(user_id="owner", request_id=identity))[
+        "semanticSearch"
+    ] is True
+
+    # A creation-only kill switch cannot reinterpret previously accepted terms.
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED", "false")
+    assert (await sharing.request_bulk_context(user_id="owner", request_id=identity))[
+        "semanticSearch"
+    ] is True
+    older = await request(sharing)
+    _, older_private = stored_request(sharing, older["requestId"])
+    assert "semantic_search_policy_version" not in older_private
+    assert (await sharing.request_bulk_context(user_id="owner", request_id=older["requestId"]))[
+        "semanticSearch"
+    ] is False
+
+    # The actual checkout authority refuses an enrolled request before a bound
+    # interpretation exists. A synthetic Stripe client must never be reached.
+    from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
+
+    stripe_api = Mock()
+    payment = DriveRequestPaymentService(db=sharing.db, stripe_api=stripe_api)
+    with sharing.db.engine.begin() as connection:
+        with pytest.raises(DriveSharingError, match="payment_not_ready"):
+            payment._current_checkout_authority(
+                connection, request_id=identity, requester_user_id="recipient"
+            )
+    stripe_api.checkout.Session.create.assert_not_called()

@@ -566,11 +566,11 @@ def _prompt(payload: dict) -> str:
     return prompt
 
 
-async def _interpret(*, prompt, user_id, output_schema):
+async def _interpret(*, prompt, user_id, output_schema, gene_id="agent_documents_suggestions"):
     manifest = ManifestLoader.load(
         str(Path(__file__).resolve().parents[1] / "agents/documents/agent.yaml")
     )
-    gene = next(child for child in manifest.subagents if child.id == "agent_documents_suggestions")
+    gene = next(child for child in manifest.subagents if child.id == gene_id)
     if (
         gene.privacy.plaintext_telemetry
         or gene.runtime.adk_mode != "single_turn"
@@ -590,6 +590,16 @@ async def _interpret(*, prompt, user_id, output_schema):
 
 async def interpret_document_batch(*, prompt, user_id):
     return await _interpret(prompt=prompt, user_id=user_id, output_schema=DocumentBatchAssessment)
+
+
+async def interpret_request_document_batch(*, prompt, user_id):
+    """Use the bounded request-local Documents gene; legacy package modes stay separate."""
+    return await _interpret(
+        prompt=prompt,
+        user_id=user_id,
+        output_schema=DocumentBatchAssessment,
+        gene_id="agent_documents_request_assessment",
+    )
 
 
 async def interpret_package(*, prompt, user_id):
@@ -664,6 +674,20 @@ async def assess_document_batch(
         user_id=user_id,
     )
     return validate_document_batch(result, retrieved=retrieved)
+
+
+async def assess_request_document_batch(
+    *, request: dict, retrieved: dict, user_id: str, interpreter=interpret_request_document_batch
+) -> BoundDocumentBatchAssessment:
+    """Reuse exact source validation with the compact request-only assessment gene."""
+    if request.get("assessmentMode") not in {None, "generic_request_candidate_v1"}:
+        raise ValueError("invalid request assessment mode")
+    return await assess_document_batch(
+        request={**request, "assessmentMode": "generic_request_candidate_v1"},
+        retrieved=retrieved,
+        user_id=user_id,
+        interpreter=interpreter,
+    )
 
 
 async def assess_package(

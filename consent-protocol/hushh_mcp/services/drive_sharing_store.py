@@ -31,6 +31,7 @@ from hushh_mcp.services.drive_owner_allowed import (
     LEGACY_DEFAULT_PRICE_CENTS,
     LEGACY_REQUEST_POLICY,
     OWNER_ALLOWED_KEY,
+    SEMANTIC_SEARCH_POLICY_VERSION,
     automatic_recipient_current,
     autoshare_enabled,
     autoshare_request,
@@ -39,6 +40,8 @@ from hushh_mcp.services.drive_owner_allowed import (
     owner_allowed_record,
     package_allow_marker,
     request_has_document_scope,
+    semantic_search_enrollment_enabled,
+    semantic_search_request,
     valid_owner_price_cents,
     valid_request_price_cents,
     whole_dollar_request,
@@ -1457,6 +1460,7 @@ class DriveSharingStore(DriveDocumentStore):
                 "v1LiveRequest": private.get("v1_live_request") is True,
                 "trustedAuto": private.get("trusted_auto") is True,
                 "autoshare": autoshare_request(private),
+                "semanticSearch": semantic_search_request(private),
                 "reusablePacket": private.get("reusable_packet"),
             }
 
@@ -1754,6 +1758,15 @@ class DriveSharingStore(DriveDocumentStore):
                     **(
                         {"request_flow": AUTOSHARE_REQUEST_FLOW}
                         if not owner_initiated and not agent_package and autoshare_enabled()
+                        else {}
+                    ),
+                    **(
+                        {"semantic_search_policy_version": SEMANTIC_SEARCH_POLICY_VERSION}
+                        if not owner_initiated
+                        and not agent_package
+                        and not v1_live_request
+                        and autoshare_enabled()
+                        and semantic_search_enrollment_enabled()
                         else {}
                     ),
                     **(

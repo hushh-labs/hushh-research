@@ -39,6 +39,8 @@ LEGACY_DEFAULT_PRICE_CENTS = 1_000
 # payment with no owner file selection, at a price from $0.50 in cents. Older
 # sealed requests keep their own price and review contract.
 AUTOSHARE_REQUEST_FLOW = "oct17_autoshare"
+SEMANTIC_SEARCH_POLICY_VERSION = 1
+SEMANTIC_SEARCH_ENROLLMENT_FLAG = "DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED"
 
 
 def autoshare_enabled() -> bool:
@@ -55,6 +57,25 @@ def autoshare_request(private: Mapping[str, Any]) -> bool:
     return (
         private.get("request_flow") == AUTOSHARE_REQUEST_FLOW
         and private.get("agent_package_required") is not True
+    )
+
+
+def semantic_search_enrollment_enabled() -> bool:
+    """Enroll new UAT requests; a flag change never reinterprets sealed requests."""
+    return (
+        os.getenv("ENVIRONMENT", "").strip().lower() == "uat"
+        and os.getenv(SEMANTIC_SEARCH_ENROLLMENT_FLAG, "true").strip().lower() == "true"
+    )
+
+
+def semantic_search_request(private: Mapping[str, Any]) -> bool:
+    """Only the exact policy sealed at creation selects semantic request search."""
+    version = private.get("semantic_search_policy_version")
+    return (
+        type(version) is int
+        and version == SEMANTIC_SEARCH_POLICY_VERSION
+        and autoshare_request(private)
+        and private.get("v1_live_request") is not True
     )
 
 
