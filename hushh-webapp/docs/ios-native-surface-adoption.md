@@ -18,6 +18,24 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Profile roster and source coverage — 2026-10-18
 
+Referrals continuation (unadmitted source candidate): the standard route has a
+private body projection independent of Profile's modal lifetime. It maps You,
+Ranking, Rewards, rules, existing Share, Circle selection/joining, creation and
+people selection through shared feature models. Catalogue filtering and reward
+claims use the same server-authoritative model as web; a threshold never mints
+an entitlement. Ordinary builds remain unchanged and `routeWorkspaces` is not
+advertised while combined integration is checked.
+
+The body uses retained UIKit containment below native drawers, a shared owner
+fence, exact post-confirmation projection checks, cancellation tombstones,
+privacy-retirement barriers and tracked native edit-menu completion. Circle
+names and search queries stay private and memory-only. An unsupported DOM
+overlap withdraws the whole family before web fallback; this is deliberately
+not a native overlap-continuity pass. The focused stale-confirmation regression
+fails when its exact projection fence is removed. Route-body visual, physical,
+mutation, accessibility and Release-performance acceptance are separate from
+the older installed Connector/Memory evidence below.
+
 Installed candidate `db43537926`, UAT Debug qualification, passes normal reviewer
 passphrase unlock and ordered, attach-only Connector and Memory journeys on the
 physical iPhone. Catalog search, Gmail/social detail, public-link and custom
@@ -128,7 +146,7 @@ not integrated Connector presentation or physical-device qualification.
 | Security & privacy | Native Security, Session and Vault methods/details/password; system authentication remains with existing owners |
 | Trusted devices | Native list/details/unlink confirmation; existing session authority |
 | Connectors | Catalog/filter, provider details, Drive/preparation/files/packets/trust and custom setup/tools/removal now map through retained shared owners; three closed private editor variants. Qualification-only iPhone admission; exact-candidate device/visual/performance acceptance separate |
-| Invite friends | Existing route-bound referrals workspace still requires native mapping |
+| Invite friends | Route-bound native candidate maps You/Ranking/Rewards, Share, rules, Circle choice/creation/people and server-authoritative claims; capability remains unadvertised pending combined integration |
 | Help & feedback | Native form, message types, draft and delivery outcomes |
 | Privacy | Native authored-document reader and links |
 | Terms | Native authored-document reader and links |

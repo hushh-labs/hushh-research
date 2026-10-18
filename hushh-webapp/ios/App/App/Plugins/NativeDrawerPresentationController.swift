@@ -1125,43 +1125,7 @@ struct NativeDrawerContent: View {
         }
     }
     private func profileRowLabel(_ row: NativeDrawerRow) -> some View {
-            HStack(spacing: 12) {
-                if let artwork = NativeProfileArtwork.resolve(row.artworkId ?? row.id) {
-                    ZStack {
-                        Image(uiImage: artwork.base).resizable()
-                            .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(artwork.colorHex) ?? .label))
-                        if let accent = artwork.accent {
-                            Image(uiImage: accent).resizable()
-                                .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label))
-                        }
-                    }.frame(width: artwork.base.size.width, height: artwork.base.size.height)
-                        .frame(width: 32, height: 32).accessibilityHidden(true)
-                } else if let symbol = row.symbol {
-                    Image(systemName: symbol).symbolRenderingMode(.hierarchical).font(.system(size: 28))
-                        .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(row.iconHex) ?? .label))
-                        .frame(width: 32, height: 28).accessibilityHidden(true)
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(row.label).font(.system(size: profileRowFont, weight: .medium))
-                        .foregroundStyle(row.destructive == true ? Color(uiColor: .systemRed) : .primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let detail = row.detail {
-                        Text(detail).font(.subheadline).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                Spacer(minLength: 8)
-                if let trailing = row.trailing {
-                    Text(trailing).font(.caption).foregroundStyle(.secondary)
-                }
-                if row.pending == true { ProgressView() }
-                else if row.selected == true { Image(systemName: "checkmark").accessibilityHidden(true) }
-                else if row.chevron == true {
-                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
-                        .frame(width: 16).foregroundStyle(.secondary).accessibilityHidden(true)
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 56)
-                .padding(.horizontal, 16).padding(.vertical, row.detail == nil ? 0 : 8).contentShape(Rectangle())
+        NativeSettingsRowLabel(row: row, accentHex: model.projection.accentHex)
     }
     private var searchContent: some View {
         HStack(spacing: 8) {
@@ -1196,6 +1160,52 @@ struct NativeDrawerContent: View {
                 .accessibilityLabel(label).disabled(!model.controlsEnabled)
                 .accessibilityIdentifier(identifier)
         }
+    }
+}
+
+/// Shared Profile/workspace columns. No callbacks, authority or persistence.
+struct NativeSettingsRowLabel: View {
+    let row: NativeDrawerRow
+    let accentHex: String
+    @ScaledMetric(relativeTo: .body) private var rowFont: CGFloat = 16
+    var body: some View {
+            HStack(spacing: 12) {
+                if let artwork = NativeProfileArtwork.resolve(row.artworkId ?? row.id) {
+                    ZStack {
+                        Image(uiImage: artwork.base).resizable()
+                            .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(artwork.colorHex) ?? .label))
+                        if let accent = artwork.accent {
+                            Image(uiImage: accent).resizable()
+                                .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(accentHex) ?? .label))
+                        }
+                    }.frame(width: artwork.base.size.width, height: artwork.base.size.height)
+                        .frame(width: 32, height: 32).accessibilityHidden(true)
+                } else if let symbol = row.symbol {
+                    Image(systemName: symbol).symbolRenderingMode(.hierarchical).font(.system(size: 28))
+                        .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(row.iconHex) ?? .label))
+                        .frame(width: 32, height: 28).accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(row.label).font(.system(size: rowFont, weight: .medium))
+                        .foregroundStyle(row.destructive == true ? Color(uiColor: .systemRed) : .primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let detail = row.detail {
+                        Text(detail).font(.subheadline).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 8)
+                if let trailing = row.trailing {
+                    Text(trailing).font(.caption).foregroundStyle(.secondary)
+                }
+                if row.pending == true { ProgressView() }
+                else if row.selected == true { Image(systemName: "checkmark").accessibilityHidden(true) }
+                else if row.chevron == true {
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+                        .frame(width: 16).foregroundStyle(.secondary).accessibilityHidden(true)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 56)
+                .padding(.horizontal, 16).padding(.vertical, row.detail == nil ? 0 : 8).contentShape(Rectangle())
     }
 }
 

@@ -46,6 +46,75 @@ import { NativeRequestPricingEditor } from "@/components/profile/native-request-
 import { NativeVaultPasswordEditor } from "@/components/profile/native-vault-password-editor";
 import { registerBackLayer } from "@/lib/navigation/back-layers";
 import { backProfilePane } from "@/lib/navigation/profile-pane-back";
+import { validNativeWorkspace, workspaceAcknowledged, type NativeWorkspaceProjection } from "@/lib/capacitor/native-workspace";
+import { useNativeWorkspace } from "@/lib/capacitor/use-native-workspace";
+
+describe("private route-body presentation boundary", () => {
+  it("rejects a delayed confirmation after content changes and consumes the new choice once", async () => {
+    publishValidatedAuthSessionOwner("synthetic-workspace-owner");
+    bridge.documentId = crypto.randomUUID();
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
+    const seat = document.createElement("div"); seat.dataset.nativeWorkspaceSeat = "true"; document.body.append(seat);
+    vi.spyOn(seat, "getBoundingClientRect").mockReturnValue({ x: 0, y: 100, width: window.innerWidth, height: 400 } as DOMRect);
+    const originalObserver = globalThis.ResizeObserver;
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true, routeWorkspaces: ["referrals"], ...nativeDrawerIsolation() });
+    drawerBridge.applyWorkspace.mockImplementation(async state => ({ ...state, layoutRevision: state.frame.layoutRevision, phase: "active", settled: true }));
+    drawerBridge.retireWorkspace.mockImplementation(async state => ({ ...state, updateSequence: 0, privacyGeneration: 0, layoutRevision: 0, phase: "retired", settled: true }));
+    let confirm!: (value: { valid: boolean }) => void;
+    drawerBridge.confirmWorkspaceChoice.mockImplementation(() => new Promise(resolve => { confirm = resolve; }));
+    drawerBridge.settleWorkspaceChoice.mockResolvedValue({ valid: true });
+    const action = vi.fn();
+    function Workspace() {
+      const [value, setValue] = useState("old");
+      const phase = useNativeWorkspace({ owner: "synthetic-workspace-owner", current: () => true, back: () => {},
+        content: { workspace: "referrals", page: "overview", title: "Synthetic workspace", enabled: true, backEnabled: false,
+          sections: [{ id: "public-section", rows: [{ id: "public-action", label: value, enabled: true }] }] },
+        actions: new Map([["public-action", () => action(value)]]) });
+      return <><output>{phase}</output><button onClick={() => setValue("new")}>Change content</button></>;
+    }
+    const view = render(<Workspace />);
+    const emit = (state: NativeWorkspaceProjection, sequence: number) => act(() => {
+      const { documentId, ownerEpoch, ownerGeneration, revision, workspace, updateSequence, privacyGeneration } = state;
+      drawerBridge.listeners.get("workspaceChoice")?.forEach(callback => callback({ documentId, ownerEpoch, ownerGeneration, revision, workspace, updateSequence, privacyGeneration, sequence, action: "row", rowId: "public-action" }));
+    });
+    try {
+      await waitFor(() => expect(view.getByText("native")).toBeInTheDocument());
+      const before = drawerBridge.applyWorkspace.mock.calls.at(-1)![0];
+      emit(before, 1);
+      await waitFor(() => expect(drawerBridge.confirmWorkspaceChoice).toHaveBeenCalledOnce());
+      fireEvent.click(view.getByRole("button", { name: "Change content" }));
+      await waitFor(() => expect(drawerBridge.applyWorkspace.mock.calls.at(-1)![0].updateSequence).toBeGreaterThan(before.updateSequence));
+      await act(async () => { confirm({ valid: true }); });
+      await waitFor(() => expect(drawerBridge.settleWorkspaceChoice).toHaveBeenCalledOnce());
+      expect(action).not.toHaveBeenCalled();
+      drawerBridge.confirmWorkspaceChoice.mockResolvedValue({ valid: true });
+      const after = drawerBridge.applyWorkspace.mock.calls.at(-1)![0];
+      emit(after, 2);
+      await waitFor(() => expect(action).toHaveBeenCalledExactlyOnceWith("new"));
+      emit(after, 2);
+      expect(action).toHaveBeenCalledOnce();
+    } finally { view.unmount(); seat.remove(); vi.stubGlobal("ResizeObserver", originalObserver); }
+  });
+  it("keeps workspace values out of executable/public fields and requires exact completed geometry", () => {
+    const state: NativeWorkspaceProjection = { documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1, workspace: "referrals",
+      appearance: "light", accentHex: "#007aff", foregroundHex: "#111111", updateSequence: 1, privacyGeneration: 0, isolationGeneration: 0,
+      frame: { x: 0, y: 100, width: 390, height: 500, viewportWidth: 390, viewportHeight: 844, layoutRevision: 1 },
+      page: "circle-create", title: "Create a Circle", enabled: true, backEnabled: true, sections: [],
+      circleEditor: { destinationId: "public-circle-visit", draft: { name: "Synthetic Circle", kind: "friends" }, draftRevision: 0, acknowledgedEditRevision: 0, canSave: true, busy: false, error: null } };
+    expect(validNativeWorkspace(state)).toBe(true);
+    expect(validNativeWorkspace({ ...state, vaultOwnerToken: "forbidden" } as never)).toBe(false);
+    expect(validNativeWorkspace({ ...state, circleEditor: { ...state.circleEditor!, draft: { ...state.circleEditor!.draft, credential: "forbidden" } } } as never)).toBe(false);
+    expect(validNativeWorkspace({ ...state, frame: { ...state.frame, height: 900 } })).toBe(false);
+    expect(validNativeWorkspace({ ...state, sections: [{ id: "choices", rows: [{ id: "choice", label: "Unsafe", enabled: true, href: "https://example.com" }] }] } as never)).toBe(false);
+    const receipt = { ...state, layoutRevision: 1, phase: "active" as const, settled: true };
+    expect(workspaceAcknowledged(receipt, state, "active")).toBe(true);
+    expect(workspaceAcknowledged({ ...receipt, settled: false }, state, "active")).toBe(false);
+    expect(workspaceAcknowledged({ ...receipt, revision: 2 }, state, "active")).toBe(false);
+    expect(workspaceAcknowledged({ ...receipt, layoutRevision: 2 }, state, "active")).toBe(false);
+  });
+});
 
 function publicNameScene(): NativeProfileNameProjection {
   return { documentId: "public-form-document", ownerEpoch: "public-form-owner", ownerGeneration: 1,
@@ -503,6 +572,7 @@ const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "document-a", ca
 const dockBridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: unknown) => void>(),
   subscribe: vi.fn(), getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn(), snapshotDraft: vi.fn() }));
 const drawerBridge = vi.hoisted(() => ({ listeners: new Map<string, Set<(event: unknown) => void>>(),
+  applyWorkspace: vi.fn(), retireWorkspace: vi.fn(), confirmWorkspaceChoice: vi.fn(), settleWorkspaceChoice: vi.fn(), getWorkspaceState: vi.fn(),
   getCapabilities: vi.fn(), getPresentationState: vi.fn(), apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(),
   applyProfileNameScene: vi.fn(), confirmProfileNameAction: vi.fn(), settleProfileNameAction: vi.fn(), retireProfileNameScene: vi.fn(),
   applyProfileStyleScene: vi.fn(), confirmProfileStyleAction: vi.fn(), settleProfileStyleAction: vi.fn(), retireProfileStyleScene: vi.fn(),

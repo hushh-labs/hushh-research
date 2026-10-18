@@ -62,6 +62,10 @@ typealias NativeMemoryEditorModel = NativeProfileEditorModel<NativeMemoryProject
         var owner: NativeProfilePrivateText; init(_ owner: NativeProfilePrivateText) { self.owner = owner }
         func textViewDidChange(_ textView: UITextView) { owner.model.capture() }
         func textViewDidEndEditing(_ textView: UITextView) { owner.model.capture() }
+        func textView(_ textView: UITextView, willPresentEditMenuWith animator: any UIEditMenuInteractionAnimating) { owner.model.editMenuPresented(textView) }
+        func textView(_ textView: UITextView, willDismissEditMenuWith animator: any UIEditMenuInteractionAnimating) {
+            let model = owner.model; animator.addCompletion { model.editMenuDismissed(textView) }
+        }
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             let current = textView.text ?? ""
             guard owner.model.canEdit, let r = Range(range, in: current) else { return false }

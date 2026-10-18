@@ -10,7 +10,8 @@ protocol NativeProfileEditorDraft: Equatable {
 }
 protocol NativeProfileEditorProjection {
     associatedtype Draft: NativeProfileEditorDraft
-    var identity: NativeDrawerIdentity { get }
+    associatedtype Identity: Equatable
+    var identity: Identity { get }
     var scene: String { get }
     var destinationId: String { get }
     var valid: Bool { get }
@@ -25,6 +26,24 @@ protocol NativeProfileEditorProjection {
     var primary: String { get }
     var accentHex: String { get }
     var error: String? { get set }
+}
+/// UIKit edit menus live beyond their field's SwiftUI body. Track actual
+/// dismissal completion without borrowing an operation or feature lifetime.
+@MainActor final class NativeEditorMenuLifetime {
+    private var visible = Set<ObjectIdentifier>()
+    private var retirement = [() -> Void]()
+    func presented(_ view: UIView) { visible.insert(ObjectIdentifier(view)) }
+    func dismissed(_ view: UIView) {
+        visible.remove(ObjectIdentifier(view))
+        if visible.isEmpty { let callbacks = retirement; retirement.removeAll(); callbacks.forEach { $0() } }
+    }
+    func dismiss(_ views: [UIView], completion: @escaping () -> Void) {
+        guard !visible.isEmpty else { completion(); return }
+        retirement.append(completion)
+        if #available(iOS 16.0, *) {
+            for view in views { for interaction in view.interactions { (interaction as? UIEditMenuInteraction)?.dismissMenu() } }
+        }
+    }
 }
 struct NativeRuntimeDraft: Codable, NativeProfileEditorDraft {
     var credential: String; var transport: String; var project: String; var location: String
@@ -67,6 +86,12 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
     private var fields = [String: WeakField]()
     private final class WeakField { weak var value: UITextField?; init(_ value: UITextField) { self.value = value } }
     private var textViews = [String: WeakTextView]()
+    private let editMenus = NativeEditorMenuLifetime()
+    func editMenuPresented(_ view: UIView) { editMenus.presented(view) }
+    func editMenuDismissed(_ view: UIView) { editMenus.dismissed(view) }
+    func dismissEditorMenus(completion: @escaping () -> Void) {
+        editMenus.dismiss(fields.values.compactMap(\.value).map({ $0 as UIView }) + textViews.values.compactMap(\.value).map({ $0 as UIView }), completion: completion)
+    }
     private final class WeakTextView { weak var value: UITextView?; init(_ value: UITextView) { self.value = value } }
     var edit: ((Projection.Draft, Bool, Int) -> Bool)?
     var choose: ((NativeProfileNameAction) -> Bool)?
@@ -187,6 +212,10 @@ typealias NativeRuntimeModel = NativeProfileEditorModel<NativeRuntimeProjection>
         var owner: NativeProfilePrivateField; init(_ owner: NativeProfilePrivateField) { self.owner = owner }
         @objc func changed() { owner.model.capture() }
         func textFieldDidChangeSelection(_ field: UITextField) { owner.model.capture() }
+        func textField(_ textField: UITextField, willPresentEditMenuWith animator: any UIEditMenuInteractionAnimating) { owner.model.editMenuPresented(textField) }
+        func textField(_ textField: UITextField, willDismissEditMenuWith animator: any UIEditMenuInteractionAnimating) {
+            let model = owner.model; animator.addCompletion { model.editMenuDismissed(textField) }
+        }
         func textField(_ field: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
             guard owner.model.canEdit, let text = field.text as NSString?, range.location <= text.length, range.length <= text.length - range.location else { return false }
             return text.replacingCharacters(in: range, with: string).utf16.count <= owner.maximum

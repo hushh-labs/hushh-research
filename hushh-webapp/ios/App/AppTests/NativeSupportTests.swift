@@ -5,6 +5,72 @@ import Capacitor
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    @MainActor
+    func testRouteBodyRetainsItsOwnerAndEditorWhileRejectingRetiredOrRepeatedActions() throws {
+        func projection(sequence: Int = 1, ack: Int = 0, name: String = "Synthetic Circle") throws -> NativeWorkspaceProjection {
+            let object: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": "referrals",
+                "updateSequence": sequence, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111",
+                "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
+                "page": "circle-create", "title": "Create a Circle", "enabled": true, "backEnabled": true, "sections": [],
+                "circleEditor": ["destinationId": "public-circle-visit", "draft": ["name": name, "kind": "friends"], "draftRevision": sequence - 1, "acknowledgedEditRevision": ack, "canSave": true, "busy": false, "error": NSNull()]]
+            XCTAssertTrue(NativeWorkspaceProjection.closed(object))
+            let value = try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object))
+            XCTAssertTrue(value.valid); return value
+        }
+        let state = try projection()
+        var session = NativeDrawerSessionFence()
+        XCTAssertTrue(session.admitOwner(documentId: state.documentId, ownerEpoch: state.ownerEpoch, ownerGeneration: state.ownerGeneration))
+        let profile = NativeDrawerIdentity(documentId: state.documentId, ownerEpoch: state.ownerEpoch, ownerGeneration: state.ownerGeneration, revision: 2, family: "profile")
+        XCTAssertTrue(session.contains(profile), "Preparing same-owner Profile must not retire the route body")
+        XCTAssertTrue(session.admit(profile))
+        var retired = NativeWorkspaceRetirementFence()
+        retired.retire(state.identity) // Cancellation reaches native before apply.
+        XCTAssertTrue(retired.retired(state.identity))
+        let replacement = NativeWorkspaceIdentity(documentId: state.documentId, ownerEpoch: state.ownerEpoch, ownerGeneration: 1, revision: 2, workspace: "referrals")
+        XCTAssertFalse(retired.retired(replacement))
+        XCTAssertTrue(retired.retired(state.identity), "Readback of the departed visit remains terminal")
+        let model = NativeWorkspaceModel(state)
+        var eligible = true
+        model.canInteract = { eligible }
+        model.emit = { _ in }; model.emitEdit = { _, _ in }
+        let editor = try XCTUnwrap(model.editor)
+        let field = UITextField(); field.text = state.circleEditor!.draft.name; editor.register(field, name: "name")
+        editor.change { $0.name = "Synthetic updated Circle" }
+        editor.action("save")
+        XCTAssertNil(model.pending, "Unacknowledged text cannot submit")
+        XCTAssertTrue(model.update(try projection(sequence: 2, ack: 1, name: "Synthetic updated Circle")))
+        XCTAssertTrue(model.editor === editor, "A compatible update retains the real editor")
+        editor.action("save")
+        let intent = try XCTUnwrap(model.pending)
+        XCTAssertTrue(model.confirm(intent)); XCTAssertFalse(model.confirm(intent))
+        XCTAssertTrue(model.settle(intent))
+        editor.action("save")
+        let blocked = try XCTUnwrap(model.pending)
+        eligible = false
+        XCTAssertFalse(model.confirm(blocked), "Coverage revocation wins over a pending action")
+        model.clear()
+        XCTAssertEqual(field.text, "")
+        XCTAssertTrue(model.state.sections.isEmpty); XCTAssertNil(model.state.circleEditor)
+        XCTAssertFalse(model.confirm(blocked))
+    }
+
+    func testNativeContentScrollMatchesDirectionalCommitAndIgnoresProgrammaticMovement() throws {
+        var state = HushhNativeContentScrollState()
+        XCTAssertEqual(state.apply(y: 0, fromPerson: false), 0)
+        // The top-of-content rule explicitly pins chrome visible; only
+        // displacement beyond that area enters the directional threshold.
+        for y in stride(from: 2, through: 10, by: 2) { XCTAssertEqual(state.apply(y: CGFloat(y), fromPerson: true), 0) }
+        for y in [12, 14] { XCTAssertNil(state.apply(y: CGFloat(y), fromPerson: true)) }
+        XCTAssertNotNil(state.apply(y: 30, fromPerson: true))
+        let progress = state.progress
+        XCTAssertGreaterThan(progress, 0)
+        XCTAssertNil(state.apply(y: 300, fromPerson: false))
+        XCTAssertEqual(state.progress, progress, "A content update cannot slide the navigation away")
+        XCTAssertNil(state.apply(y: 294, fromPerson: true))
+        XCTAssertNil(state.apply(y: 288, fromPerson: true))
+        XCTAssertLessThan(try XCTUnwrap(state.apply(y: 282, fromPerson: true)), progress)
+        XCTAssertEqual(state.apply(y: 0, fromPerson: false), 0)
+    }
     func testLegalReaderRejectsExecutableFieldsAndAdmitsOnlyCurrentDocumentLinks() throws {
         let object: [String: Any] = ["type": "privacy", "version": "1", "effectiveDate": "October 17, 2026", "summary": "Synthetic public document",
             "sections": [["id": "first", "title": "Section", "blocks": [

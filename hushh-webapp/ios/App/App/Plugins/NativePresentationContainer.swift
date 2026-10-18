@@ -151,6 +151,17 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     private var controls: [String: (view: UIView, group: String?, pane: NativeContentPaneIdentity?, admitted: Bool)] = [:]
     private(set) var bottomChromeScrollOffset: CGFloat = 0
     var bottomChromePressChanged: ((Bool) -> Void)?
+    var workspaceScrollChanged: ((NativeWorkspaceIdentity, CGFloat?, Bool) -> Void)?
+    private(set) var workspaceScrollOwner: NativeWorkspaceIdentity?
+    func ownWorkspaceScroll(_ identity: NativeWorkspaceIdentity) { workspaceScrollOwner = identity }
+    func releaseWorkspaceScroll(_ identity: NativeWorkspaceIdentity) {
+        guard workspaceScrollOwner == identity else { return }
+        workspaceScrollOwner = nil; workspaceScrollChanged?(identity, nil, false)
+    }
+    func reportWorkspaceScroll(_ identity: NativeWorkspaceIdentity, y: CGFloat, fromPerson: Bool) {
+        guard workspaceScrollOwner == identity, allowsControl("route-workspace") else { return }
+        workspaceScrollChanged?(identity, y, fromPerson)
+    }
     private var regionDocument: String?
     private var regionRevision = -1
     private var regionPrivacyGeneration: Int?

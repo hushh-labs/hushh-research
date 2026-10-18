@@ -246,7 +246,7 @@ struct NativeDrawerProjection: Codable {
         ]
         return path.dropFirst().enumerated().allSatisfy { children[path[$0.offset]]?.contains($0.element) == true }
     }
-    private static func text(_ value: String, _ maximum: Int) -> Bool { !value.isEmpty && value.utf16.count <= maximum }
+    static func text(_ value: String, _ maximum: Int) -> Bool { !value.isEmpty && value.utf16.count <= maximum }
     var cleared: NativeDrawerProjection {
         NativeDrawerProjection(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, family: family,
             updateSequence: updateSequence, privacyGeneration: privacyGeneration, appearance: appearance,
@@ -424,19 +424,24 @@ struct NativeDrawerSessionFence {
     private(set) var generation = 0
     private var retiredDocuments = Set<String>()
     mutating func admit(_ identity: NativeDrawerIdentity) -> Bool {
-        guard identity.valid, !retiredDocuments.contains(identity.documentId) else { return false }
-        if let document, document != identity.documentId {
+        guard identity.valid else { return false }
+        return admitOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration)
+    }
+    mutating func admitOwner(documentId: String, ownerEpoch: String, ownerGeneration: Int) -> Bool {
+        guard NativeDrawerIdentity.identifier(documentId), NativeDrawerIdentity.identifier(ownerEpoch), ownerGeneration > 0,
+              ownerGeneration <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration, !retiredDocuments.contains(documentId) else { return false }
+        if let document, document != documentId {
             retiredDocuments.insert(document)
             generation = 0
         }
-        guard identity.ownerGeneration >= generation,
-              identity.ownerGeneration != generation || identity.ownerEpoch == owner else { return false }
-        document = identity.documentId
-        owner = identity.ownerEpoch
-        generation = identity.ownerGeneration
+        guard ownerGeneration >= generation, ownerGeneration != generation || ownerEpoch == owner else { return false }
+        document = documentId; owner = ownerEpoch; generation = ownerGeneration
         return true
     }
     func contains(_ identity: NativeDrawerIdentity) -> Bool {
-        identity.documentId == document && identity.ownerEpoch == owner && identity.ownerGeneration == generation
+        containsOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration)
+    }
+    func containsOwner(documentId: String, ownerEpoch: String, ownerGeneration: Int) -> Bool {
+        documentId == document && ownerEpoch == owner && ownerGeneration == generation
     }
 }

@@ -47,6 +47,7 @@ import { ConsentSheetProvider } from "@/components/consent/consent-sheet-control
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { AppTopShell } from "@/components/app-ui/top-app-bar";
+import { NativeWorkspaceSeat } from "@/components/app-ui/native-workspace-seat";
 import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
 import { AppProfileEdgeGesture } from "@/components/app-ui/app-profile-edge-gesture";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
@@ -713,6 +714,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                             signedInShellContentOffset.mode
                           }
                         >
+                          <NativeWorkspaceSeat />
                           {!hidesPersistentChrome && !isCanonicalChatRoute ? (
                             <AppTopShell model={topShellModel} />
                           ) : null}

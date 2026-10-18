@@ -11,6 +11,8 @@ import { ReferralJourney } from "./referral-journey";
 import { ReferralInviteActions } from "./referral-invite-actions";
 import { ReferralHeroArtwork, REFERRAL_HERO_ARTWORK_SRC } from "./referral-hero-artwork";
 import { IndividualReferralRankings } from "./individual-referral-rankings";
+import { NativeReferralWorkspace } from "./native-referral-workspace";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import type { User } from "firebase/auth";
 import { Coins, Users, Trophy, Flame } from "@/components/icons";
@@ -23,6 +25,7 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { useDailyAppActivity } from "@/lib/referral/use-daily-app-activity";
 import { useReferralStream } from "@/lib/referral/use-referral-stream";
 import { formatWeeklyPrizeCountdown } from "@/lib/referral/weekly-prize-clock";
+import { isAirPodsReward, rewardDisplayTitle, referralRewardBoard, referralClaimStatus } from "@/lib/referral/reward-presentation";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -270,6 +273,7 @@ export function useReferralDashboardModel() {
   }, [connected, reloadAll]);
 
   const link = summaryRes.status === "ready" ? summaryRes.data.link : "";
+  const claims = useReferralClaims(user, milestonesRes, reloadMilestones);
   const shareVisit = useRef<{ active: boolean; owner: string | undefined; link: string } | null>(null);
   useLayoutEffect(() => {
     const visit = { active: true, owner: user?.uid, link };
@@ -292,15 +296,20 @@ export function useReferralDashboardModel() {
 
   return { user, tab, setTab, board, setBoard, showHowItWorks, setShowHowItWorks, summaryRes, pointsRes,
     leaderboardRes, policyRes, milestonesRes, engagementRes, circleRefresh, link, onShare, reloadAll,
-    reloadSummary, reloadPoints, reloadLeaderboard, reloadMilestones, reloadPolicy, reloadEngagement };
+    reloadSummary, reloadPoints, reloadLeaderboard, reloadMilestones, reloadPolicy, reloadEngagement, claims };
 }
 export type ReferralDashboardModel = ReturnType<typeof useReferralDashboardModel>;
 
 /** Presentation consumes the same retained operation model as native. */
 function ReferralDashboardContent() {
+  const model = useReferralDashboardModel();
+  const body = <ReferralDashboardBody model={model} />;
+  return customNativePresentationEnabled() ? <NativeReferralWorkspace model={model} fallback={body} /> : body;
+}
+function ReferralDashboardBody({ model }: { model: ReferralDashboardModel }) {
   const { user, tab, setTab, board, setBoard, showHowItWorks, setShowHowItWorks, summaryRes, pointsRes,
     leaderboardRes, policyRes, milestonesRes, engagementRes, circleRefresh, link, onShare, reloadAll,
-    reloadSummary, reloadPoints, reloadLeaderboard, reloadMilestones, reloadPolicy, reloadEngagement } = useReferralDashboardModel();
+    reloadSummary, reloadPoints, reloadLeaderboard, reloadMilestones, reloadPolicy, reloadEngagement, claims } = model;
   const dataState =
     summaryRes.status === "loading"
       ? "loading"
@@ -356,7 +365,7 @@ function ReferralDashboardContent() {
         />
       </div>
       <section aria-label="Rewards">
-        <RewardsTab milestonesRes={milestonesRes} onRetry={reloadMilestones} />
+        <RewardsTab milestonesRes={milestonesRes} onRetry={reloadMilestones} claims={claims} />
       </section>
       </SwipeViews>}
     </ShellRoot>
@@ -703,14 +712,6 @@ const REWARD_PRODUCTS: Record<string, string> = {
   voucher_10: "voucher", earbuds_100: "earbuds", iphone_10000: "iphone",
 };
 
-function isAirPodsReward(title: string) {
-  return title.startsWith("Apple AirPods");
-}
-
-function rewardDisplayTitle(title: string) {
-  return title === "$25 Amazon voucher" ? "Amazon voucher" : title;
-}
-
 function RewardArtwork({ milestoneKey, title, priority = false }: { milestoneKey: string; title: string; priority?: boolean }) {
   // Catalogue revisions retain their existing milestone identity.
   const product = milestoneKey === "airpods_500" && title === "Apple Watch"
@@ -725,9 +726,11 @@ function RewardArtwork({ milestoneKey, title, priority = false }: { milestoneKey
 function RewardsTab({
   milestonesRes,
   onRetry,
+  claims,
 }: {
   milestonesRes: Res<MilestoneProgress>;
   onRetry: () => void;
+  claims: ReferralClaims;
 }) {
   return (
     <>
@@ -735,11 +738,8 @@ function RewardsTab({
         {(milestones) => {
           // A compatibility gate, never a fallback catalogue or user-value override.
 
-          const catalogue = milestones.available_milestones;
-          if (!catalogue || catalogue.length === 0 ||
-            !Number.isSafeInteger(milestones.joined_referral_count) || milestones.joined_referral_count < 0 ||
-            new Set(catalogue.map((entry) => entry.milestone_key)).size !== catalogue.length ||
-            catalogue.some((entry) => !Number.isSafeInteger(entry.threshold) || entry.threshold <= 0)) {
+          const board = referralRewardBoard(milestones);
+          if (!board) {
             return (
               <Card className="p-[22px]" >
                 <h3 className="ui-text-section-title">Rewards policy unavailable</h3>
@@ -752,19 +752,7 @@ function RewardsTab({
               </Card>
             );
           }
-          const earnedByKey = new Map(milestones.earned.map((entry) => [entry.milestone_key, entry]));
-          // Product removal changes the board presentation, not stored awards.
-          const ladder = [...catalogue]
-            .filter((entry) => !isAirPodsReward(earnedByKey.get(entry.milestone_key)?.reward ?? entry.reward))
-            .sort((a, b) => a.threshold - b.threshold);
-          const finalReward = ladder[ladder.length - 1];
-          const count = milestones.joined_referral_count;
-          const next = milestones.next_milestone;
-          const awaitingAward = next !== null && count >= next.threshold;
-          const earnedKeys = new Set(milestones.earned.map((entry) => entry.milestone_key));
-          const previousRewards = milestones.earned.filter((entry) => !isAirPodsReward(entry.reward)
-            && !ladder.some((item) => item.milestone_key === entry.milestone_key));
-          const nextLabel = next?.reward.split(/,?\s+worth\s+/i) ?? [];
+          const { earnedByKey, ladder, finalReward, count, next, awaitingAward, earnedKeys, previousRewards, nextLabel } = board;
 
           return (
             <div className="referral-rewards-content grid gap-[18px]">
@@ -843,13 +831,13 @@ function RewardsTab({
                         <p className={`mt-auto pt-5 referral-type-caption tabular-nums${earned ? " referral-earned" : ""}`} style={{ color: earned ? "#137a35" : COLORS.text2 }}>
                           {earned ? `Unlocked at ${fmt(entry.threshold)}` : `${fmt(entry.threshold)} referrals`}
                         </p>
-                        {earned ? <MilestoneClaim milestone={milestones.earned.find((item) => item.milestone_key === entry.milestone_key)!} onClaimed={onRetry} /> : null}
+                        {earned ? <MilestoneClaim milestone={milestones.earned.find((item) => item.milestone_key === entry.milestone_key)!} claims={claims} /> : null}
                       </Card>
                     </li>
                   );
                 })}
               </ol></> : <p className="referral-type-support" style={{ color: COLORS.text2 }}>{fmt(count)} joined referrals. Your progress is saved.</p>}
-              {previousRewards.length ? <section aria-label="Previously earned rewards"><h3 className="ui-text-section-title">Previously earned rewards</h3><ul>{previousRewards.map((entry) => <li key={entry.milestone_key} className="mt-3"><strong>{entry.reward}</strong><MilestoneClaim milestone={entry} onClaimed={onRetry} /></li>)}</ul></section> : null}
+              {previousRewards.length ? <section aria-label="Previously earned rewards"><h3 className="ui-text-section-title">Previously earned rewards</h3><ul>{previousRewards.map((entry) => <li key={entry.milestone_key} className="mt-3"><strong>{entry.reward}</strong><MilestoneClaim milestone={entry} claims={claims} /></li>)}</ul></section> : null}
             </div>
           );
         }}
@@ -858,24 +846,40 @@ function RewardsTab({
   );
 }
 
-function MilestoneClaim({ milestone, onClaimed }: { milestone: MilestoneProgress["earned"][number]; onClaimed: () => void }) {
-  const { user } = useAuth();
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(false);
-  if (milestone.claimed_at) {
-    const states: Record<string, string> = { pending_review: "Awaiting review", approved: "Approved for fulfillment", shipped: "Shipped", delivered: "Delivered", cancelled: "Cancelled" };
-    return <p className="mt-2 text-xs">Claimed · {states[milestone.fulfillment_status ?? ""] ?? "Awaiting fulfillment review"}</p>;
-  }
-  const claim = async () => {
-    if (!user || saving) return;
-    setSaving(true); setError(false);
+/** Same server-authoritative writer for either body. Re-reads never claim a
+ * reward, and a lost response never schedules another fulfillment operation. */
+function useReferralClaims(user: User | null | undefined, milestones: Res<MilestoneProgress>, onClaimed: () => void) {
+  const pending = useRef(new Set<string>());
+  const mounted = useRef(true);
+  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const live = useRef({ user, milestones, onClaimed });
+  useLayoutEffect(() => { live.current = { user, milestones, onClaimed }; });
+  const [state, setState] = useState<Record<string, "saving" | "error">>({});
+  const claim = async (key: string) => {
+    const snapshot = live.current, owner = snapshotValidatedAuthSessionOwner();
+    const current = () => mounted.current && !!owner && owner.userId === snapshot.user?.uid && live.current.user?.uid === owner.userId && isValidatedAuthSessionOwnerCurrent(owner);
+    const earned = snapshot.milestones.status === "ready" ? snapshot.milestones.data.earned.find(item => item.milestone_key === key) : undefined;
+    if (!snapshot.user || !current() || !earned || earned.claimed_at || pending.current.has(key)) return;
+    pending.current.add(key); setState(previous => ({ ...previous, [key]: "saving" }));
     try {
-      await ReferralService.claimReward({ idToken: await user.getIdToken(), milestoneKey: milestone.milestone_key });
-      onClaimed();
-    } catch { setError(true); onClaimed(); }
-    finally { setSaving(false); }
+      const idToken = await snapshot.user.getIdToken();
+      if (!current()) return;
+      await ReferralService.claimReward({ idToken, milestoneKey: key });
+      if (current()) { setState(previous => { const next = { ...previous }; delete next[key]; return next; }); live.current.onClaimed(); }
+    } catch {
+      if (current()) { setState(previous => ({ ...previous, [key]: "error" })); live.current.onClaimed(); }
+    } finally { pending.current.delete(key); }
   };
-  return <div className="mt-2"><Button variant="muted" disabled={saving} onClick={() => void claim()}>{saving ? "Claiming…" : "Claim reward"}</Button>{error ? <p role="alert" className="mt-1 text-xs">Unable to claim. Refresh your rewards and try again.</p> : null}</div>;
+  return { state, claim };
+}
+export type ReferralClaims = ReturnType<typeof useReferralClaims>;
+
+function MilestoneClaim({ milestone, claims }: { milestone: MilestoneProgress["earned"][number]; claims: ReferralClaims }) {
+  const saving = claims.state[milestone.milestone_key] === "saving", error = claims.state[milestone.milestone_key] === "error";
+  if (milestone.claimed_at) {
+    return <p className="mt-2 text-xs">{referralClaimStatus(milestone)}</p>;
+  }
+  return <div className="mt-2"><Button variant="muted" disabled={saving} onClick={() => void claims.claim(milestone.milestone_key)}>{saving ? "Claiming…" : "Claim reward"}</Button>{error ? <p role="alert" className="mt-1 text-xs">Unable to claim. Refresh your rewards and try again.</p> : null}</div>;
 }
 
 function RulesTab({ policyRes, onRetry }: { policyRes: Res<ReferralPolicy>; onRetry: () => void }) {

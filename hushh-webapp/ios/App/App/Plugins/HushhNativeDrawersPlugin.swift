@@ -93,6 +93,11 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "confirmProfileConnectorAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settleProfileConnectorAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retireProfileConnectorScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyWorkspace", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireWorkspace", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmWorkspaceChoice", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "settleWorkspaceChoice", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getWorkspaceState", returnType: CAPPluginReturnPromise),
     ]
     private var leases = [String: NativeDrawerLease]()
     private var controllers = [String: NativeDrawerPresentationController]()
@@ -117,6 +122,13 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private var retiringForms = [ObjectIdentifier: NativeProfileOwnedForm]()
     private var formOwner: String?
     private var formRevision = 0
+    private var workspace: NativeWorkspacePresentation?
+    // Metadata tombstone only: retirement cannot be undone by a delayed apply.
+    private var workspaceIdentity: NativeWorkspaceIdentity?
+    private var workspaceRetiredReceipt: [String: Any]?
+    private var retiringWorkspaces = [NativeWorkspaceIdentity: NativeWorkspacePresentation]()
+    private var workspaceRetirementCallbacks = [NativeWorkspaceIdentity: [() -> Void]]()
+    private var workspaceRetirementFence = NativeWorkspaceRetirementFence()
     private var sessionFence = NativeDrawerSessionFence()
     private var privacyObserver: NSObjectProtocol?
     private var isolationObserver: NSObjectProtocol?
@@ -192,7 +204,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let self, self.supported, let parent = self.bridge?.viewController, let container = self.container else {
                 call.reject("NATIVE_DRAWER_UNSUPPORTED"); return
             }
-            guard self.retiringControllers.isEmpty else { call.reject("NATIVE_DRAWER_RETIRING"); return }
+            guard self.retiringControllers.isEmpty, self.retiringWorkspaces.isEmpty else { call.reject("NATIVE_DRAWER_RETIRING"); return }
             // Decode a closed shape without persisting/logging raw options.
             guard let options = call.options as? [String: Any], NativeDrawerProjection.hasClosedShape(options), JSONSerialization.isValidJSONObject(options),
                   let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 2_200_000,
@@ -452,6 +464,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         else { completion() }
     }
     @MainActor private func retireAll() {
+        retireWorkspacePresentation()
         retireProfileForm()
         for family in Array(controllers.keys) {
             if let identity = leases[family]?.identity { _ = leases[family]?.retire(identity) }
@@ -466,6 +479,112 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             retiringControllers.values.contains { $0.coversUnderlyingPresentation } ||
             form?.coversPresentation == true || retiringForms.values.contains { $0.coversPresentation }
         container?.isolateForOwnedDrawer(covered)
+        workspace?.refresh()
+    }
+
+    @MainActor private func retireWorkspacePresentation() {
+        guard let workspace else { return }
+        let state = workspace.model.state
+        let identity = state.identity
+        workspaceRetirementFence.retire(identity)
+        workspaceRetiredReceipt = state.receipt("retired", settled: false)
+        retiringWorkspaces[identity] = workspace
+        self.workspace = nil
+        let shield = HushhSessionPrivacyShield.shared
+        let privacyRetirement = shield.beginPresentationRetirement()
+        workspace.retire { [weak self] in
+            shield.completePresentationRetirement(privacyRetirement)
+            guard let self else { return }
+            self.retiringWorkspaces.removeValue(forKey: identity)
+            if self.workspaceIdentity == identity { self.workspaceRetiredReceipt = state.receipt("retired", settled: true) }
+            let callbacks = self.workspaceRetirementCallbacks.removeValue(forKey: identity) ?? []
+            callbacks.forEach { $0() }
+        }
+    }
+    @objc func applyWorkspace(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.supported, NativeDrawerQualificationPolicy.coherentShell, UIDevice.current.userInterfaceIdiom == .phone,
+                  let parent = self.bridge?.viewController, let container = self.container,
+                  let options = call.options as? [String: Any], NativeWorkspaceProjection.closed(options), JSONSerialization.isValidJSONObject(options),
+                  let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 1_000_000,
+                  let next = try? JSONDecoder().decode(NativeWorkspaceProjection.self, from: bytes), next.valid else { call.reject("NATIVE_WORKSPACE_INVALID"); return }
+            let privacy = HushhSessionPrivacyShield.shared.snapshot()
+            guard privacy.appIsActive, !privacy.shielded, privacy.generation == next.privacyGeneration,
+                  HushhSessionPrivacyShield.shared.acceptsDocument(next.documentId),
+                  abs(container.bounds.width - next.frame.viewportWidth) <= 1, abs(container.bounds.height - next.frame.viewportHeight) <= 1 else { call.reject("NATIVE_WORKSPACE_UNAVAILABLE"); return }
+            var session = self.sessionFence
+            guard session.admitOwner(documentId: next.documentId, ownerEpoch: next.ownerEpoch, ownerGeneration: next.ownerGeneration),
+                  !self.workspaceRetirementFence.retired(next.identity) else { call.reject("NATIVE_WORKSPACE_STALE_OWNER"); return }
+            if !self.sessionFence.containsOwner(documentId: next.documentId, ownerEpoch: next.ownerEpoch, ownerGeneration: next.ownerGeneration) {
+                self.retireAll(); self.leases.removeAll(); self.sessionFence = session
+            }
+            guard self.retiringControllers.isEmpty, self.retiringWorkspaces.isEmpty else { call.reject("NATIVE_WORKSPACE_RETIRING"); return }
+            if let old = self.workspaceIdentity, old != next.identity {
+                let sameOwner = old.documentId == next.documentId && old.ownerEpoch == next.ownerEpoch && old.ownerGeneration == next.ownerGeneration
+                guard old.documentId != next.documentId || sameOwner && next.revision > old.revision || next.ownerGeneration > old.ownerGeneration else { call.reject("NATIVE_WORKSPACE_STALE"); return }
+                self.retireWorkspacePresentation()
+                guard self.retiringWorkspaces.isEmpty else { call.reject("NATIVE_WORKSPACE_RETIRING"); return }
+            }
+            if let presentation = self.workspace {
+                guard presentation.model.update(next) else { call.reject("NATIVE_WORKSPACE_STALE"); return }
+                presentation.refresh()
+            } else {
+                guard self.workspaceIdentity != next.identity, let presentation = NativeWorkspacePresentation(next, parent: parent, container: container) else { call.reject("NATIVE_WORKSPACE_RETIRED"); return }
+                self.workspaceIdentity = next.identity; self.workspaceRetiredReceipt = nil; self.workspace = presentation
+                presentation.model.emit = { [weak self] event in self?.notifyListeners("workspaceChoice", data: event, retainUntilConsumed: false) }
+                presentation.model.emitEdit = { [weak self] name, event in self?.notifyListeners(name, data: event, retainUntilConsumed: false) }
+            }
+            // Decoding isn't completed presentation. Transfer body coverage
+            // only after retained containment and the native layout pass.
+            DispatchQueue.main.async { [weak self] in
+                guard let current = self?.workspace, current.model.state.identity == next.identity,
+                      current.model.state.updateSequence == next.updateSequence, current.ready else { call.reject("NATIVE_WORKSPACE_NOT_READY"); return }
+                call.resolve(next.receipt("active", settled: true))
+            }
+        }
+    }
+    @MainActor private func decodeWorkspaceIdentity(_ call: CAPPluginCall) -> NativeWorkspaceIdentity? {
+        guard let document = call.getString("documentId"), let owner = call.getString("ownerEpoch"), let generation = call.getInt("ownerGeneration"),
+              let revision = call.getInt("revision"), let family = call.getString("workspace") else { return nil }
+        let identity = NativeWorkspaceIdentity(documentId: document, ownerEpoch: owner, ownerGeneration: generation, revision: revision, workspace: family)
+        return identity.valid ? identity : nil
+    }
+    @objc func getWorkspaceState(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.decodeWorkspaceIdentity(call) else { call.resolve(["valid": false]); return }
+            if let workspace = self.workspace, workspace.model.state.identity == identity { call.resolve(workspace.model.state.receipt("active", settled: workspace.ready)) }
+            else if identity == self.workspaceIdentity, let receipt = self.workspaceRetiredReceipt { call.resolve(receipt) }
+            else if self.workspaceRetirementFence.retired(identity) { call.resolve(self.workspaceAbsence(identity)) }
+            else { call.resolve(["valid": false]) }
+        }
+    }
+    @objc func retireWorkspace(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, Set(call.options.keys) == ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace"], let identity = self.decodeWorkspaceIdentity(call),
+                  HushhSessionPrivacyShield.shared.acceptsDocument(identity.documentId) else { call.reject("NATIVE_WORKSPACE_STALE"); return }
+            // Cancellation is a tombstone even when it arrives before apply.
+            self.workspaceRetirementFence.retire(identity)
+            if self.workspace?.model.state.identity == identity { self.retireWorkspacePresentation() }
+            let finish = { [weak self] in guard let self else { return }; call.resolve(self.workspaceAbsence(identity)) }
+            if self.retiringWorkspaces[identity] != nil { self.workspaceRetirementCallbacks[identity, default: []].append(finish) }
+            else { finish() }
+        }
+    }
+    @MainActor private func workspaceAbsence(_ identity: NativeWorkspaceIdentity) -> [String: Any] {
+        identity.event.merging(["phase": "retired", "settled": retiringWorkspaces[identity] == nil, "updateSequence": 0,
+            "privacyGeneration": HushhSessionPrivacyShield.shared.snapshot().generation, "layoutRevision": 0]) { _, new in new }
+    }
+    @objc func confirmWorkspaceChoice(_ call: CAPPluginCall) { resolveWorkspaceChoice(call, confirm: true) }
+    @objc func settleWorkspaceChoice(_ call: CAPPluginCall) { resolveWorkspaceChoice(call, confirm: false) }
+    private func resolveWorkspaceChoice(_ call: CAPPluginCall, confirm: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard Set(call.options.keys).isSubset(of: ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "privacyGeneration", "updateSequence", "sequence", "action", "rowId", "text", "editRevision"]),
+                  let self, let presentation = self.workspace, let identity = self.decodeWorkspaceIdentity(call), identity == presentation.model.state.identity,
+                  call.getInt("privacyGeneration") == presentation.model.state.privacyGeneration,
+                  let sequence = call.getInt("sequence"), let update = call.getInt("updateSequence"), let action = call.getString("action"), sequence > 0 else { call.resolve(["valid": false]); return }
+            let choice = NativeWorkspaceAction(sequence: sequence, updateSequence: update, action: action, row: call.getString("rowId"), text: call.getString("text"), editRevision: call.getInt("editRevision"))
+            call.resolve(["valid": confirm ? presentation.model.confirm(choice) : presentation.model.settle(choice)])
+        }
     }
     @MainActor private func profileFormOwnerIsCurrent(_ identity: NativeDrawerIdentity, privacy: Int, scene: String = "account-name", destinationId: String? = nil) -> Bool {
         let shield = HushhSessionPrivacyShield.shared
