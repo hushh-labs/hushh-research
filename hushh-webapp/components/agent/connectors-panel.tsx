@@ -7,6 +7,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { Capacitor } from "@capacitor/core";
 import { flushSync } from "react-dom";
@@ -22,7 +23,7 @@ import { ProfilePaneConnectorsIcon } from "@/components/profile/profile-pane-ico
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { ConnectorConfirm } from "@/components/agent/connector-confirm";
+import { ConnectorConfirm, connectorConfirmCopy, type ConnectorConfirmCopy } from "@/components/agent/connector-confirm";
 import { Switch } from "@/components/ui/switch";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useAuth } from "@/hooks/use-auth";
@@ -113,6 +114,9 @@ type Props = {
     customConnector?: { connectorId: string; revision: string };
   }) => Promise<"ready" | "busy" | "unavailable">;
   onClearRecovery?: () => Promise<void>;
+  /** Retain this keyed feature owner above either presentation. The web body
+   * may unmount; catalog, OAuth and pending file-review state must not. */
+  render?: (presentation: ConnectorsPanelPresentation) => ReactNode;
 };
 const touch = "min-h-11 min-w-11 whitespace-normal";
 const labels: Record<string, string> = {
@@ -144,6 +148,21 @@ type ConnectorListEntry = {
   pending?: "connect" | "disconnect";
   /** The last disconnect did not finish; the row says so until it does. */
   failure?: string;
+};
+
+/** Private in-process presentation port, never NativeChrome metadata. Actions
+ * enter the existing feature owner; dispatch is not a provider-success receipt.
+ * Invoke them only after commit/admission, never from render or ref callbacks.
+ * Native detail scenes extend this port, not the underlying service authority. */
+export type ConnectorsPanelPresentation = {
+  selectedConnector: { id: string; name: string } | null;
+  catalog: {
+    status: "locked" | "loading" | "unavailable" | "ready";
+    groups: readonly { title: "Connected" | "Available"; entries: readonly ConnectorListEntry[] }[];
+    retry: () => Promise<boolean>;
+  };
+  confirmation: (ConnectorConfirmCopy & { busy: boolean; confirm: () => void; cancel: () => void }) | null;
+  webBody: ReactNode;
 };
 
 /** The row's second line: in-flight and failed changes are always visible. */
@@ -391,6 +410,7 @@ function OwnerConnectorsPanel({
   onExternalModalChange,
   onPrepareRecovery,
   onClearRecovery,
+  render,
 }: Props) {
   const router = useRouter();
   const { user } = useAuth();
@@ -478,6 +498,17 @@ function OwnerConnectorsPanel({
   const panelRootRef = useRef<HTMLDivElement>(null);
   const controller = useRef<AbortController | null>(null);
   const currentToken = useRef(vaultOwnerToken);
+  // A presentation can retain this owner while replacing only its body.
+  // Old adapters must not keep a callable binding after a later commit or
+  // unmount; the owner's established request/token guards still own I/O.
+  const committedPresentation = useRef<object | null>(null);
+  const presentationBinding = {};
+  useLayoutEffect(() => {
+    committedPresentation.current = presentationBinding;
+    return () => {
+      if (committedPresentation.current === presentationBinding) committedPresentation.current = null;
+    };
+  });
   const curatedRequest = useRef(0);
   const curatedDisconnectId = useRef<string | null>(null);
   // The in-session curated sign-in: `session` ends it with the owner session,
@@ -2184,7 +2215,7 @@ function OwnerConnectorsPanel({
       </Button>
     </div>
   ) : null;
-  return (
+  const webBody = (
     <div
       ref={panelRootRef}
       className={
@@ -2917,4 +2948,23 @@ function OwnerConnectorsPanel({
       />
     </div>
   );
+  if (!render) return webBody;
+  const token = vaultOwnerToken;
+  const current = () => committedPresentation.current === presentationBinding && open && !!token &&
+    currentToken.current === token && !!controller.current && !controller.current.signal.aborted;
+  const guard = (action: () => void) => () => { if (current()) action(); };
+  return render({
+    selectedConnector: activeConnector ? { id: activeConnector, name: entries.find(entry => entry.id === activeConnector)?.name ?? "Connector" } : null,
+    catalog: {
+      status: !vaultOwnerToken ? "locked" : catalogLoadFailed ? "unavailable" : !overview && !statusChecked ? "loading" : "ready",
+      groups: listSections.map(([title, items]) => ({ title, entries: items.map(entry => ({ ...entry,
+        ...(entry.onOpen ? { onOpen: guard(entry.onOpen) } : {}),
+        ...(entry.action ? { action: { ...entry.action, onClick: guard(() => { if (!entry.action?.disabled) entry.action?.onClick(); }) } } : {}),
+      })) })),
+      retry: () => current() ? refresh(controller.current?.signal) : Promise.resolve(false),
+    },
+    confirmation: confirm ? { ...connectorConfirmCopy(confirm), busy: confirmBusy,
+      confirm: guard(() => { if (!confirmBusy) confirmAction(); }), cancel: guard(() => { if (!confirmBusy) setConfirm(null); }) } : null,
+    webBody,
+  });
 }

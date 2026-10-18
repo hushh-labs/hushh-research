@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, type ReactNode } from "react";
 
-import { ConnectorsPanel } from "@/components/agent/connectors-panel";
+import { ConnectorsPanel, type ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
 import type { ProfileStackEntry } from "@/components/profile/profile-stack-navigator";
 import { useAuth } from "@/hooks/use-auth";
 import styles from "@/components/profile/profile-auxiliary-tabs.module.css";
@@ -35,11 +35,13 @@ export function ProfileConnectorsSection({
   onConnectorChange,
   open = true,
   onExternalModalChange,
+  render,
 }: {
   connectorId: string | null;
   onConnectorChange: (connectorId: string | null) => void;
   open?: boolean;
   onExternalModalChange?: (open: boolean) => void;
+  render?: (presentation: ConnectorsPanelPresentation) => ReactNode;
 }) {
   const { user } = useAuth();
   // A sign-in that leaves the app must not lose what is underneath the pane.
@@ -83,18 +85,20 @@ export function ProfileConnectorsSection({
   const stayInProfile = useCallback(() => undefined, []);
 
   return (
-    <div className={styles.connectors}>
-      <ConnectorsPanel
-        open={open}
-        surface="profile"
-        activeConnector={connectorId}
-        onActiveConnectorChange={onConnectorChange}
-        onExternalModalChange={onExternalModalChange}
-        onBack={stayInProfile}
-        onPrepareRecovery={prepareSignInReturn}
-        onClearRecovery={clearSignInReturn}
-      />
-    </div>
+    <ConnectorsPanel
+      open={open}
+      surface="profile"
+      activeConnector={connectorId}
+      onActiveConnectorChange={onConnectorChange}
+      onExternalModalChange={onExternalModalChange}
+      onBack={stayInProfile}
+      onPrepareRecovery={prepareSignInReturn}
+      onClearRecovery={clearSignInReturn}
+      render={presentation => {
+        const webBody = <div className={styles.connectors}>{presentation.webBody}</div>;
+        return render ? render({ ...presentation, webBody }) : webBody;
+      }}
+    />
   );
 }
 
@@ -107,12 +111,15 @@ export function ProfileConnectorsSection({
 export function buildProfileConnectorsStackEntry({
   detail,
   updateView,
+  content,
 }: {
   detail: ProfileDetail | null;
   updateView: (
     next: { panel: "connectors"; detail: ProfileDetail | null },
     mode: "push" | "replace",
   ) => void;
+  /** Inject the retained owner's body instead of mounting a second controller. */
+  content?: ReactNode;
 }): ProfileStackEntry {
   const openConnectorId = detail?.startsWith("connector:")
     ? detail.slice("connector:".length)
@@ -123,7 +130,7 @@ export function buildProfileConnectorsStackEntry({
     description: openConnectorId
       ? undefined
       : "Google Workspace and finance connections.",
-    content: (
+    content: content !== undefined ? content : (
       <ProfileConnectorsSection
         connectorId={openConnectorId}
         onConnectorChange={(connectorId) =>

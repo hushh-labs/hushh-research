@@ -89,7 +89,7 @@ vi.mock("@/components/icons", () => ({
 }));
 
 import { Capacitor } from "@capacitor/core";
-import { ConnectorsPanel } from "@/components/agent/connectors-panel";
+import { ConnectorsPanel, type ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
 
 const callbacks = {
   onBack: vi.fn(),
@@ -1243,6 +1243,43 @@ describe("supported connector catalog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(state.calendarRefresh).toHaveBeenCalledOnce();
     expect(state.push).not.toHaveBeenCalled();
+  });
+
+  it("retains one connector owner across body replacement and rejects retired presentation actions", async () => {
+    let shown: ConnectorsPanelPresentation | null = null;
+    let showWeb = false;
+    const present = (model: ConnectorsPanelPresentation) => {
+      shown = model;
+      return showWeb ? model.webBody : <div data-testid="replacement-body" />;
+    };
+    const latest = () => {
+      if (!shown) throw new Error("Presentation not ready");
+      return shown;
+    };
+    const entry = (model: ConnectorsPanelPresentation, id: string) =>
+      model.catalog.groups.flatMap(group => group.entries).find(item => item.id === id)!;
+    const renderPanel = () => <ConnectorsPanel open {...callbacks} render={present} />;
+    const view = render(renderPanel());
+    await waitFor(() => expect(latest().catalog.status).toBe("ready"));
+    expect(screen.queryByText("Gmail")).not.toBeInTheDocument();
+    const first = latest();
+    act(() => entry(first, "gmail").onOpen?.());
+    await waitFor(() => expect(latest().selectedConnector?.id).toBe("gmail"));
+    // A retired list cannot change the current detail or start another read.
+    await act(async () => {
+      entry(first, "calendar").onOpen?.();
+      await first.catalog.retry();
+    });
+    expect(latest().selectedConnector?.id).toBe("gmail");
+    expect(state.overview).toHaveBeenCalledTimes(1);
+    showWeb = true;
+    view.rerender(renderPanel());
+    expect(await screen.findByRole("region", { name: "Gmail" })).toBeInTheDocument();
+    expect(state.overview).toHaveBeenCalledTimes(1);
+    const retired = latest();
+    view.unmount();
+    await act(async () => { await retired.catalog.retry(); });
+    expect(state.overview).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a delayed catalog after same-owner token rotation", async () => {

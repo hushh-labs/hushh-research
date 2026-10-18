@@ -43,6 +43,16 @@ Native menu presence is not feature conversion. The authored normal roster has
 13 destinations; Developer tools is an additional guarded destination. Current
 source coverage, not whole-program or installed-candidate acceptance:
 
+Connectors now has a typed in-process presentation boundary around its existing
+keyed owner. Replacing the body does not create a second catalog, OAuth session,
+file-review draft or writer; Profile can inject that retained owner's web body
+instead of mounting another panel. Catalog and confirmation actions are revoked
+after a superseding commit or owner retirement. This boundary is not native
+Connectors admission: complete detail scenes and the separately owned Drive,
+trust-rule and custom-connector bodies still need their shared mappings. A
+retained owner must also gate inactive reads and cancel the retired connector
+visit before it is placed above the native page's lifetime.
+
 | Destination | Native source coverage / remaining body mapping |
 |---|---|
 | Your account | Rows, name, Phone/OTP and Reset/Delete confirmation; photo actions retain the existing presentation owner |
