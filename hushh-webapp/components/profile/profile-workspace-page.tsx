@@ -53,6 +53,10 @@ import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
 import { useProfileVaultMethodsModel } from "./use-profile-vault-methods-model";
+import { useNativeVaultMethods } from "./use-native-vault-methods";
+import { NativeVaultPasswordEditor } from "./native-vault-password-editor";
+import { NativeRequestPricingEditor, projectNativeRequestPricing } from "./native-request-pricing";
+import { useDocumentRequestPricingModel } from "@/components/consent/use-document-request-pricing-model";
 import { useNativeProfilePortrait } from "./use-native-profile-portrait";
 
 import {
@@ -953,6 +957,24 @@ function ProfilePageContent({
     needsRefresh: vaultMethodsNeedRefresh, owner: vaultMethodsOwner, localBiometricId: localBiometricWrapperId,
     busy: switchingVaultMethod, passphraseOpen: passphraseDialogOpen, removal: passkeyRemovalTarget,
     password: newPassphrase, confirmation: confirmPassphrase } = vaultMethods;
+  const [nativeVaultAvailable, setNativeVaultAvailable] = useState(false);
+  const [nativePricingAvailable, setNativePricingAvailable] = useState(false);
+  const [nativePricingEditorOpen, setNativePricingEditorOpen] = useState(false);
+  const [nativePricingFailed, setNativePricingFailed] = useState(false);
+  const nativePricingActive = presentation === "native-page" && nativeMenuOpen && nativePricingAvailable &&
+    activePanel === "request-pricing" && !activeDetail && vaultAccess.canMutateSecureData && !nativePricingFailed;
+  const nativePricingModel = useDocumentRequestPricingModel({ enabled: presentation === "native-page" && nativeMenuOpen && nativePricingAvailable &&
+    activePanel === "request-pricing" && !activeDetail && vaultAccess.canMutateSecureData });
+  const nativePricing = projectNativeRequestPricing(nativePricingModel, () => setNativePricingEditorOpen(true));
+  useLayoutEffect(() => { if (activePanel !== "request-pricing" || !nativeMenuOpen) { setNativePricingEditorOpen(false); setNativePricingFailed(false); } }, [activePanel, nativeMenuOpen]);
+  const [nativeVaultPasswordFallback, setNativeVaultPasswordFallback] = useState(false);
+  const vaultParent = activePanel === "security" && activeDetail === "vault" ? profilePanelParentForPresentation("security") : null;
+  const vaultNativeActive = presentation === "native-page" && nativeMenuOpen && nativeVaultAvailable &&
+    activePanel === "security" && activeDetail === "vault" && vaultAccess.canMutateSecureData && vaultParent !== null && !nativeVaultPasswordFallback;
+  const nativeVault = useNativeVaultMethods(vaultMethods, vaultNativeActive, vaultAccess.canMutateSecureData);
+  useLayoutEffect(() => { if (!passphraseDialogOpen) setNativeVaultPasswordFallback(false); }, [passphraseDialogOpen]);
+  useBackLayer(pathname, vaultNativeActive && nativeVault.nested ? 3 : 0, nativeVault.back,
+    isPanePresentation ? { profile_pane: "1" } : undefined);
   const routeBlockedByVault =
     hasVault === true &&
     vaultAccess.needsUnlock &&
@@ -4013,6 +4035,7 @@ function ProfilePageContent({
           )}
         >
           <DocumentRequestPricingCard
+            model={presentation === "native-page" && nativePricingAvailable ? nativePricingModel : undefined}
             onSaved={
               pricingReturnTo
                 ? () => {
@@ -4378,6 +4401,103 @@ function ProfilePageContent({
     return null;
   }
 
+  const vaultOverlays = <>
+      <Dialog
+        open={passphraseDialogOpen && (!vaultNativeActive || nativeVaultPasswordFallback)}
+        onOpenChange={(open) => { if (!open) vaultMethods.closePassword(); }}
+      >
+        <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md">
+          <DialogTitle>Change password</DialogTitle>
+          <DialogDescription>
+            Set a new password for Vault unlock. Your passkey and biometric
+            methods stay active.
+          </DialogDescription>
+          <div className="space-y-3 pt-2">
+            <Input
+              type="password"
+              placeholder="New password (min 8 characters)"
+              autoComplete="new-password"
+              value={newPassphrase}
+              onChange={(event) => vaultMethods.editPassword("password", event.target.value)}
+            />
+            <Input
+              type="password"
+              placeholder="Confirm password"
+              autoComplete="new-password"
+              value={confirmPassphrase}
+              onChange={(event) => vaultMethods.editPassword("confirmation", event.target.value)}
+            />
+            <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-end">
+              <Button
+                variant="none"
+                effect="fade"
+                size="default"
+                className="w-full sm:w-auto"
+                onClick={vaultMethods.closePassword}
+                disabled={switchingVaultMethod}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="default"
+                className="w-full sm:w-auto"
+                disabled={
+                  switchingVaultMethod ||
+                  newPassphrase.length < 8 ||
+                  newPassphrase !== confirmPassphrase
+                }
+                onClick={() => void vaultMethods.savePassword()}
+              >
+                {switchingVaultMethod ? "Saving..." : "Save new password"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(passkeyRemovalTarget) && !vaultNativeActive}
+        onOpenChange={(open) => {
+          if (!open) vaultMethods.cancelRemove();
+        }}
+      >
+        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove passkey?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the saved passkey from One. It may still remain in
+              your password manager, and password unlock will stay available.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {passkeyRemovalTarget ? (
+            <p className="rounded-2xl bg-muted/50 px-4 py-3 text-sm leading-6 text-muted-foreground">
+              {describePasskeyWrapper(passkeyRemovalTarget)}
+            </p>
+          ) : null}
+          <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <AlertDialogCancel
+              className="w-full sm:w-auto"
+              disabled={switchingVaultMethod}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="default"
+              className="app-critical-action w-full opacity-90 transition-opacity hover:opacity-100 sm:w-auto"
+              disabled={switchingVaultMethod || !passkeyRemovalTarget}
+              onClick={(event) => {
+                event.preventDefault();
+                if (passkeyRemovalTarget) {
+                  void vaultMethods.remove();
+                }
+              }}
+            >
+              {switchingVaultMethod ? "Removing..." : "Remove passkey"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+  </>;
   const page = (
     <AppPageShell
       data-testid="profile-primary"
@@ -4498,101 +4618,7 @@ function ProfilePageContent({
         />
       )}
 
-      <Dialog
-        open={passphraseDialogOpen}
-        onOpenChange={(open) => { if (!open) vaultMethods.closePassword(); }}
-      >
-        <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md">
-          <DialogTitle>Change password</DialogTitle>
-          <DialogDescription>
-            Set a new password for Vault unlock. Your passkey and biometric
-            methods stay active.
-          </DialogDescription>
-          <div className="space-y-3 pt-2">
-            <Input
-              type="password"
-              placeholder="New password (min 8 characters)"
-              autoComplete="new-password"
-              value={newPassphrase}
-              onChange={(event) => vaultMethods.editPassword("password", event.target.value)}
-            />
-            <Input
-              type="password"
-              placeholder="Confirm password"
-              autoComplete="new-password"
-              value={confirmPassphrase}
-              onChange={(event) => vaultMethods.editPassword("confirmation", event.target.value)}
-            />
-            <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-end">
-              <Button
-                variant="none"
-                effect="fade"
-                size="default"
-                className="w-full sm:w-auto"
-                onClick={vaultMethods.closePassword}
-                disabled={switchingVaultMethod}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="default"
-                className="w-full sm:w-auto"
-                disabled={
-                  switchingVaultMethod ||
-                  newPassphrase.length < 8 ||
-                  newPassphrase !== confirmPassphrase
-                }
-                onClick={() => void vaultMethods.savePassword()}
-              >
-                {switchingVaultMethod ? "Saving..." : "Save new password"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog
-        open={Boolean(passkeyRemovalTarget)}
-        onOpenChange={(open) => {
-          if (!open) vaultMethods.cancelRemove();
-        }}
-      >
-        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-lg">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove passkey?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes the saved passkey from One. It may still remain in
-              your password manager, and password unlock will stay available.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {passkeyRemovalTarget ? (
-            <p className="rounded-2xl bg-muted/50 px-4 py-3 text-sm leading-6 text-muted-foreground">
-              {describePasskeyWrapper(passkeyRemovalTarget)}
-            </p>
-          ) : null}
-          <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
-            <AlertDialogCancel
-              className="w-full sm:w-auto"
-              disabled={switchingVaultMethod}
-            >
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant="default"
-              className="app-critical-action w-full opacity-90 transition-opacity hover:opacity-100 sm:w-auto"
-              disabled={switchingVaultMethod || !passkeyRemovalTarget}
-              onClick={(event) => {
-                event.preventDefault();
-                if (passkeyRemovalTarget) {
-                  void vaultMethods.remove();
-                }
-              }}
-            >
-              {switchingVaultMethod ? "Removing..." : "Remove passkey"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {presentation !== "native-page" ? vaultOverlays : null}
 
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent
@@ -4723,9 +4749,13 @@ function ProfilePageContent({
       { id: "account-confirmation-cancel", label: "Cancel", enabled: !isDeleting && !isResetting },
     ] }],
   } : undefined;
-  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable}
-    detailOverlay={nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
-      onPresentationClose={() => setNativeAccountException(null)} /> : null}
+  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable}
+    workspace={{ kind: "request-pricing", active: nativePricingActive && !showVaultUnlock, pages: [nativePricing.page], rows: nativePricing.rows,
+      root: () => updateProfileView({ panel: null, detail: null }, "replace"), editor: destinationId => nativePricingEditorOpen ?
+        <NativeRequestPricingEditor userId={user.uid} model={nativePricingModel} destinationId={destinationId}
+          onClose={() => setNativePricingEditorOpen(false)} onFallback={() => { setNativePricingEditorOpen(false); setNativePricingFailed(true); }} /> : null }}
+    detailOverlay={<>{nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
+      onPresentationClose={() => setNativeAccountException(null)} /> : null}{vaultOverlays}</>}
     phone={{ active: activePanel === "account" && activeDetail === "phone" && !showVaultUnlock && nativeMenuOpen,
       editor: options => <NativePhoneVerificationFlow {...options} ownerKey={phoneVisit.id} isCurrent={phoneVisitIsCurrent}
         webHost={nativePhoneHost} mode={phoneNumber ? "replace" : "link"} currentPhoneNumber={phoneNumber}
@@ -4750,22 +4780,32 @@ function ProfilePageContent({
         },
       }} /> }}
     settings={{ active: !showVaultUnlock && (activePanel === "preferences" && (!activeDetail || activeDetail === "voice" && voiceParent !== null) ||
-        activePanel === "security" && (!activeDetail || activeDetail === "session" || devicesActive && nativeDevicesAvailable && devicesParent !== null)),
+        activePanel === "security" && (!activeDetail || activeDetail === "session" || devicesActive && nativeDevicesAvailable && devicesParent !== null ||
+          vaultNativeActive && vaultParent !== null && !nativeVaultPasswordFallback)),
       requiresVoice: activePanel === "preferences" && activeDetail === "voice",
       requiresDevices: devicesActive,
+      requiresVault: vaultNativeActive,
       ...(devicesActive && devicesModel.confirmation ? { back: devicesModel.cancel } : {}),
+      ...(vaultNativeActive && nativeVault.nested ? { back: () => { if (switchingVaultMethod) return false; return nativeVault.back(); } } : {}),
       ancestor: choice => {
-        if (choice.rowId !== "security" || !devicesActive || devicesParent !== true || devicesModel.busy) return;
+        if (choice.rowId === "security" && vaultNativeActive && vaultParent === true) {
+          if (switchingVaultMethod) return false;
+          nativeVault.back(); popProfilePaneLocation(pathname, searchParams); return true;
+        }
+        if (choice.rowId !== "security" || !devicesActive || devicesParent !== true || devicesModel.busy) return false;
         // Consume the local confirmation once, then invoke the existing query
         // parent directly. Re-entering Back layers would consume that same
         // not-yet-committed confirmation instead of reaching Security.
-        devicesModel.cancel(); popProfilePaneLocation(pathname, searchParams);
+        devicesModel.cancel(); popProfilePaneLocation(pathname, searchParams); return true;
       },
-      pages: activePanel === "preferences" ? activeDetail === "voice" ? [...(voiceParent === true ? [nativePreferences.page] : []), nativeVoice.page] : [nativePreferences.page] : devicesActive ? [...(devicesParent === true ? [nativeSecurityPage] : []), ...nativeDevices.pages] : [nativeSecurityPage, ...(activeDetail === "session" ? [nativeSessionPage] : [])],
-      rows: new Map([...nativePreferences.rows, ...nativeVoice.rows, ...nativeDevices.rows,
+      pages: activePanel === "preferences" ? activeDetail === "voice" ? [...(voiceParent === true ? [nativePreferences.page] : []), nativeVoice.page] : [nativePreferences.page] : devicesActive ? [...(devicesParent === true ? [nativeSecurityPage] : []), ...nativeDevices.pages] : vaultNativeActive ? [...(vaultParent === true ? [nativeSecurityPage] : []), ...nativeVault.pages] : [nativeSecurityPage, ...(activeDetail === "session" ? [nativeSessionPage] : [])],
+      rows: new Map([...nativePreferences.rows, ...nativeVoice.rows, ...nativeDevices.rows, ...nativeVault.rows,
         ["security-vault", () => updateProfileView({ panel: "security", detail: "vault" }, "push")] as const,
         ["security-sign-out", () => handleSignOut()] as const,
-      ]), root: () => { devicesModel.cancel(); updateProfileView({ panel: null, detail: null }, "replace"); }, editor: nativePreferences.editor }}
+      ]), root: () => { if (switchingVaultMethod) return false; vaultMethods.cancelRemove(); devicesModel.cancel(); updateProfileView({ panel: null, detail: null }, "replace"); return true; },
+      editor: destinationId => <>{nativePreferences.editor(destinationId)}
+        {vaultNativeActive && passphraseDialogOpen && destinationId ? <NativeVaultPasswordEditor model={vaultMethods} userId={user.uid}
+          destinationId={destinationId} onFallback={() => setNativeVaultPasswordFallback(true)} /> : null}</> }}
     account={{ active: activePanel === "account" && (!activeDetail || activeDetail === "phone") && !nativeAccountException && !showVaultUnlock,
       page: nativeAccountPage, confirmation: accountConfirmation,
       root: () => {
@@ -4790,7 +4830,8 @@ function ProfilePageContent({
           onWebFallback={() => setNativeAccountException("name")}
           onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
     menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
-      enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy),
+      enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy) &&
+        !(vaultNativeActive && switchingVaultMethod && !passphraseDialogOpen),
       name: user.displayName || "Your account", email: user.email, portrait: nativePortrait, onClose: closeNativeProfile,
       groups: menuGroups, actions: menuActions }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",

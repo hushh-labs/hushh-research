@@ -4671,6 +4671,36 @@ final class AppUITests: XCTestCase {
                 print("PROFILE_NATIVE_FORM family=support warm=true submitted=false")
                 continue
             }
+            if id == "request-pricing", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                let edit = app.buttons["native-profile-row-request-pricing-edit"].firstMatch
+                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(edit) else {
+                    XCTFail("PROFILE_NATIVE_PRICING_NOT_ADMITTED"); return
+                }
+                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
+                    "PROFILE_NATIVE_PRICING_DUPLICATE_WEB_BODY")
+                edit.tap()
+                let field = app.textFields["native-profile-pricing-editor"].firstMatch
+                let cancel = app.buttons["native-profile-pricing-cancel"].firstMatch
+                guard waitForAdmittedControl(field), waitForAdmittedControl(cancel) else {
+                    XCTFail("PROFILE_NATIVE_PRICING_EDITOR_UNAVAILABLE"); return
+                }
+                field.tap()
+                guard waitForSoftwareKeyboard(app) else { XCTFail("PROFILE_NATIVE_PRICING_KEYBOARD_UNAVAILABLE"); return }
+                let existingLength = (field.value as? String)?.utf16.count ?? 0
+                guard existingLength <= 32 else { XCTFail("PROFILE_NATIVE_PRICING_VALUE_UNBOUNDED"); return }
+                field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existingLength) + "25.50")
+                XCTAssertTrue((field.value as? String) == "25.50", "PROFILE_NATIVE_PRICING_EDIT_NOT_RETAINED")
+                cancel.tap()
+                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(edit) else {
+                    XCTFail("PROFILE_NATIVE_PRICING_EDITOR_NOT_RETIRED"); return
+                }
+                nativeAccountBack.tap()
+                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                    XCTFail("PROFILE_NATIVE_PRICING_ROOT_NOT_RESTORED"); return
+                }
+                print("PROFILE_NATIVE_PRICING editor=true keyboard=true returned=true mutated=false")
+                continue
+            }
             if id == "devices", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                 let refresh = app.buttons["native-profile-row-devices-refresh"].firstMatch
                 guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(refresh) else {
@@ -4771,6 +4801,39 @@ final class AppUITests: XCTestCase {
                             XCTFail("PROFILE_NATIVE_PHONE_PARENT_NOT_RESTORED"); return
                         }
                         print("PROFILE_NATIVE_PHONE_CONTINUITY keyboard=true returned=true sent=false")
+                        continue
+                    }
+                    if childID == "security-vault", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                        let change = app.buttons["native-profile-row-vault-password"].firstMatch
+                        let vaultBack = app.navigationBars.buttons["Security & privacy"].firstMatch
+                        for _ in 0..<4 {
+                            if change.exists && change.isHittable { break }
+                            menu.swipeUp()
+                        }
+                        guard waitForAdmittedControl(change), waitForAdmittedControl(vaultBack) else {
+                            XCTFail("PROFILE_NATIVE_VAULT_NOT_ADMITTED"); return
+                        }
+                        XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
+                            "PROFILE_NATIVE_VAULT_DUPLICATE_WEB_BODY")
+                        change.tap()
+                        let password = app.secureTextFields["native-profile-password-editor"].firstMatch
+                        let confirmation = app.secureTextFields["native-profile-password-confirmation"].firstMatch
+                        let cancel = app.buttons["native-profile-password-cancel"].firstMatch
+                        guard waitForAdmittedControl(password), waitForAdmittedControl(confirmation), waitForAdmittedControl(cancel) else {
+                            XCTFail("PROFILE_NATIVE_PASSWORD_EDITOR_UNAVAILABLE"); return
+                        }
+                        XCTAssertFalse(app.buttons["native-profile-password-save"].firstMatch.isEnabled)
+                        password.tap()
+                        guard waitForSoftwareKeyboard(app) else { XCTFail("PROFILE_NATIVE_PASSWORD_KEYBOARD_UNAVAILABLE"); return }
+                        cancel.tap()
+                        guard waitForAdmittedControl(change), waitForAdmittedControl(vaultBack) else {
+                            XCTFail("PROFILE_NATIVE_PASSWORD_EDITOR_NOT_RETIRED"); return
+                        }
+                        vaultBack.tap()
+                        guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(child) else {
+                            XCTFail("PROFILE_NATIVE_VAULT_PARENT_NOT_RESTORED"); return
+                        }
+                        print("PROFILE_NATIVE_VAULT methods=true protected_editor=true returned=true mutated=false")
                         continue
                     }
                     let nativeMicrophone = app.buttons["native-profile-row-voice-microphone-test"].firstMatch

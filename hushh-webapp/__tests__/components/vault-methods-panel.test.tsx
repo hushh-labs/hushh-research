@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useNativeVaultMethods } from "@/components/profile/use-native-vault-methods";
 
 const modelMocks = vi.hoisted(() => ({
   owner: { userId: "vault-method-owner", generation: 1 }, epoch: 1,
@@ -64,6 +65,32 @@ describe("Vault methods privacy and mutation authority", () => {
     modelMocks.add.mockResolvedValue({ method: passkeyWrapper.method });
     modelMocks.remove.mockResolvedValue({ primaryMethod: "passphrase" });
   });
+  it("navigates native method details and confirmation without projecting wrapper authority or mutating on entry", async () => {
+    const view = renderHook(({ active }) => {
+      const model = useProfileVaultMethodsModel({ ...modelPorts, active });
+      return { model, native: useNativeVaultMethods(model, active, true) };
+    }, { initialProps: { active: true } });
+    await waitFor(() => expect(view.result.current.model.wrappers).toHaveLength(3));
+    const choice = view.result.current.native.pages[0]!.sections[0]!.rows.find(row => row.label === "Device passkey 2")!;
+    expect(choice).toBeDefined();
+    expect(JSON.stringify(view.result.current.native.pages)).not.toContain("fixture-second-passkey");
+    act(() => view.result.current.native.rows.get(choice.id)!());
+    expect(view.result.current.native.pages.map(page => page.id)).toEqual(["vault", "vault-method"]);
+    expect(modelMocks.select).not.toHaveBeenCalled(); expect(modelMocks.remove).not.toHaveBeenCalled();
+    act(() => view.result.current.native.rows.get("vault-remove")!());
+    expect(view.result.current.native.pages.map(page => page.id)).toEqual(["vault", "vault-remove"]);
+    expect(modelMocks.remove).not.toHaveBeenCalled();
+    act(() => view.result.current.native.back());
+    const retiredChoice = view.result.current.native.rows.get(choice.id)!;
+    view.rerender({ active: false });
+    act(() => retiredChoice());
+    view.rerender({ active: true });
+    await waitFor(() => expect(view.result.current.model.loading).toBe(false));
+    expect(view.result.current.native.pages.map(page => page.id)).toEqual(["vault"]);
+    expect(modelMocks.remove).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
   it("keeps credential identifiers private and viewing methods cannot mutate them", () => {
     const make = (id: string): VaultWrapper => ({ method: "generated_default_web_prf", wrapperId: id,
       encryptedVaultKey: "synthetic-ciphertext", salt: "synthetic-salt", iv: "synthetic-iv",

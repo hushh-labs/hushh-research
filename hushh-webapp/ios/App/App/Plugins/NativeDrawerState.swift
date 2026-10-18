@@ -123,11 +123,13 @@ struct NativeDrawerProjection: Codable {
             guard family == "profile", stack.count <= 3, Set(stack.map(\.id)).count == stack.count,
                   stack.isEmpty || backEnabled && profileDestinationId.map(NativeDrawerIdentity.identifier) == true,
                   stack.enumerated().allSatisfy({ index, page in
-                      (index == 0 ? ["account", "preferences", "voice", "security", "devices", "legal", "privacy", "terms"].contains(page.id) :
+                      (index == 0 ? ["request-pricing", "account", "preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
                         ["account-reset", "account-delete"].contains(page.id) && index == 1 && stack.first?.id == "account" ||
                         page.id == "voice" && index == 1 && stack.first?.id == "preferences" ||
                         ["session", "devices"].contains(page.id) && index == 1 && stack.first?.id == "security" ||
                         page.id == "device-unlink" && (index == 1 && stack.first?.id == "devices" || index == 2 && stack.first?.id == "security" && stack[1].id == "devices") ||
+                        page.id == "vault" && index == 1 && stack.first?.id == "security" ||
+                        ["vault-method", "vault-remove"].contains(page.id) && (index == 1 && stack.first?.id == "vault" || index == 2 && stack.first?.id == "security" && stack[1].id == "vault") ||
                         ["privacy", "terms"].contains(page.id) && index == 1 && stack.first?.id == "legal") &&
                           Self.text(page.title, 256) && page.sections.count <= 32 &&
                           (["privacy", "terms"].contains(page.id) ? page.legalDocument?.valid == true &&
@@ -200,7 +202,7 @@ struct NativeDrawerProjection: Codable {
         if action == "root" { return family == "profile" && backEnabled && (profileStack?.count ?? 0) > 1 && row == nil }
         if action == "ancestor" {
             return family == "profile" && backEnabled && row == "security" &&
-                profileStack?.map(\.id) == ["security", "devices", "device-unlink"]
+                [["security", "devices", "device-unlink"], ["security", "vault", "vault-method"], ["security", "vault", "vault-remove"]].contains(profileStack?.map(\.id) ?? [])
         }
         guard action == "row", let row else { return false }
         if text == nil, profileStack?.last?.legalDocument?.actionIds.contains(row) == true { return true }

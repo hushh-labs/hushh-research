@@ -32,11 +32,16 @@ import { NativeProfilePresentation, projectNativeProfileMenu } from "@/component
 import { profileMenuGroups, type ProfileMenuActions } from "@/components/profile/profile-menu-model";
 import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-presentation";
 import { NativeProfileNameFence, validNativeProfileNameProjection, type NativeProfileNameProjection } from "@/lib/capacitor/native-profile-name-scene";
+import { NativePasswordFence, validNativePasswordProjection, type NativePasswordProjection } from "@/lib/capacitor/native-profile-password-scene";
 import { NativeProfileNamePresentation } from "@/lib/capacitor/native-profile-name-presentation";
 import { NativeProfileStyleFence, STYLE_CHOICE_OPTIONS, validNativeProfileStyleProjection, type NativeProfileStyleProjection } from "@/lib/capacitor/native-profile-style-scene";
 import { NativeProfileScenePresentation } from "@/lib/capacitor/native-profile-scene-presentation";
 import { NativePhoneFence, validNativePhoneProjection, type NativePhoneProjection } from "@/lib/capacitor/native-profile-phone-scene";
 import { NativePhoneVerificationFlow } from "@/components/profile/native-phone-verification-flow";
+import { NativeRequestPricingEditor } from "@/components/profile/native-request-pricing";
+import { NativeVaultPasswordEditor } from "@/components/profile/native-vault-password-editor";
+import { registerBackLayer } from "@/lib/navigation/back-layers";
+import { backProfilePane } from "@/lib/navigation/profile-pane-back";
 
 function publicNameScene(): NativeProfileNameProjection {
   return { documentId: "public-form-document", ownerEpoch: "public-form-owner", ownerGeneration: 1,
@@ -46,6 +51,23 @@ function publicNameScene(): NativeProfileNameProjection {
 }
 
 describe("ordinary private Profile form contract", () => {
+  it.each(["pricing", "password"])("keeps Profile-scoped Back in its mounted %s editor while admission is unavailable", kind => {
+    const previous = privacy.state;
+    privacy.state = { ...previous, shielded: true, appIsActive: false };
+    const parent = vi.fn(() => true);
+    const remove = registerBackLayer({ pathname: profile.pathname, depth: 1, query: { profile_pane: "1" }, back: parent });
+    const props = { userId: "synthetic-owner", destinationId: "synthetic-visit", onFallback: vi.fn() };
+    const view = kind === "pricing" ? render(<NativeRequestPricingEditor {...props} model={{ saving: true } as never} onClose={vi.fn()} />) :
+      render(<NativeVaultPasswordEditor {...props} model={{ busy: true } as never} />);
+    try {
+      act(() => backProfilePane(profile.pathname, new URLSearchParams("profile_pane=1")));
+      expect(parent).not.toHaveBeenCalled();
+      view.unmount();
+      act(() => backProfilePane(profile.pathname, new URLSearchParams("profile_pane=1")));
+      expect(parent).toHaveBeenCalledOnce();
+    } finally { view.unmount(); remove(); privacy.state = previous; }
+  });
+
   it("preserves unfinished Phone text through confirmed fallback without sending older digits", async () => {
     bridge.platform = "ios"; publishValidatedAuthSessionOwner("phone-fallback-owner");
     document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
@@ -225,6 +247,32 @@ describe("ordinary private Profile form contract", () => {
       await Promise.resolve();
       expect(remove).toHaveBeenCalledTimes(1);
     } finally { vi.useRealTimers(); }
+  });
+
+  it("keeps password editing private and requires the latest committed pair before a one-shot change", async () => {
+    const state: NativePasswordProjection = { ...fenceIdentity(publicNameScene()), family: "profile", scene: "vault-passphrase", destinationId: "vault-visit",
+      appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111", updateSequence: 1, privacyGeneration: 0,
+      acknowledgedEditRevision: 0, password: "", confirmation: "", busy: false, canSave: false };
+    expect(validNativePasswordProjection(state)).toBe(true);
+    expect(validNativePasswordProjection({ ...state, vaultKey: "forbidden" } as NativePasswordProjection)).toBe(false);
+    const fence = new NativePasswordFence(state);
+    expect(fence.update(state)).toBe(true);
+    const { appearance: _appearance, accentHex: _accent, foregroundHex: _foreground, password: _password, confirmation: _confirmation,
+      acknowledgedEditRevision: _ack, busy: _busy, canSave: _canSave, ...metadata } = state;
+    const edit = { ...metadata, editRevision: 1, password: "Synthetic new password", confirmation: "Synthetic new password", composing: true };
+    expect(fence.consumeEdit({ ...edit, destinationId: "retired-visit" })).toBe(false);
+    expect(fence.consumeEdit(edit)).toBe(true);
+    const action = { ...metadata, action: "save" as const, sequence: 1, editRevision: 1 };
+    expect(fence.allows(action)).toBe(false);
+    expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1, password: edit.password, confirmation: edit.confirmation, canSave: true })).toBe(true);
+    expect(fence.allows({ ...action, updateSequence: 2 })).toBe(false);
+    expect(fence.consumeEdit({ ...edit, updateSequence: 2, editRevision: 2, composing: false })).toBe(true);
+    expect(fence.update({ ...state, updateSequence: 3, acknowledgedEditRevision: 2, password: edit.password, confirmation: edit.confirmation, canSave: true })).toBe(true);
+    const committed = { ...action, updateSequence: 3, editRevision: 2 };
+    expect(await fence.consumeAction(committed, async () => ({ valid: true }), () => true)).toBe(true);
+    expect(await fence.consumeAction(committed, async () => ({ valid: true }), () => true)).toBe(false);
+    fence.retire();
+    expect(fence.consumeEdit({ ...edit, editRevision: 2 })).toBe(false);
   });
 
   it("admits only a bounded name scene, never credentials or another owner's edit", () => {
@@ -873,6 +921,29 @@ describe("private native drawer action boundary", () => {
       expect(await consume).toBe(false); // Older wrappers and Row/Back remain strict.
       expect(operation).not.toHaveBeenCalled();
     }
+  });
+
+  it("rejects a busy feature's native Back instead of acknowledging a pop the route did not commit", async () => {
+    const bridge = presentationBridge();
+    const capabilities = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capabilities, profileNavigationStack: true });
+    bridge.plugin.settleChoice = vi.fn(async () => ({ valid: true }));
+    const projection: NativeDrawerProjection = { ...state(), family: "profile", backEnabled: true, surfaceOpen: true,
+      profileDestinationId: "vault-removal-visit", profileStack: ["security", "vault", "vault-remove"].map(id => ({
+        id: id as "security" | "vault" | "vault-remove", title: "Synthetic navigation", sections: [],
+      })) };
+    const phases = vi.fn(), back = vi.fn(() => false);
+    const presentation = new NativeDrawerPresentation(projection, bridge.plugin, () => true, phases);
+    await presentation.listen();
+    presentation.publish(projection, { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn(), back, root: vi.fn(), ancestor: vi.fn() });
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    const event = { ...choice(), family: "profile" as const, action: "back" as const, rowId: undefined };
+    bridge.emit(event);
+    await waitFor(() => expect(bridge.plugin.settleChoice).toHaveBeenCalledWith({ ...presentation.identity, sequence: 1, privacyGeneration: 0, success: false }));
+    bridge.emit(event);
+    expect(back).toHaveBeenCalledOnce();
+    bridge.plugin.retire = async () => ({ ...projection, phase: "retired" });
+    await presentation.retire();
   });
 
   it.each([true, false])("settles a committed row once with explicit success=%s and never repeats the operation", async success => {

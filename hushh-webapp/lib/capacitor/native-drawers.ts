@@ -1,6 +1,8 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { NativeControlAppearance } from "./native-control-appearance";
 import type { NativeProfileNameScenePort } from "./native-profile-name-scene";
+import type { NativePasswordScenePort } from "./native-profile-password-scene";
+import type { NativeProfilePricingScenePort } from "./native-profile-pricing-scene";
 import type { NativeProfileStyleScenePort } from "./native-profile-style-scene";
 import type { NativeSupportScenePort } from "./native-profile-support-scene";
 import type { NativePhoneScenePort } from "./native-profile-phone-scene";
@@ -35,7 +37,7 @@ export type NativeDrawerRow = {
 };
 export type NativeDrawerSection = { id: string; title?: string; rows: readonly NativeDrawerRow[] };
 /** Bounded native destinations, not URLs or another routing authority. */
-export type NativeProfilePage = { id: "account" | "account-reset" | "account-delete" | "preferences" | "voice" | "security" | "session" | "devices" | "device-unlink" | "legal" | "privacy" | "terms";
+export type NativeProfilePage = { id: "request-pricing" | "account" | "account-reset" | "account-delete" | "preferences" | "voice" | "security" | "session" | "devices" | "device-unlink" | "vault" | "vault-method" | "vault-remove" | "legal" | "privacy" | "terms";
   title: string; sections: readonly NativeDrawerSection[]; legalDocument?: NativeLegalDocument };
 export type NativeDrawerIdentity = {
   documentId: string;
@@ -82,7 +84,15 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean }>;
+  applyProfilePricingScene?(options: Parameters<NativeProfilePricingScenePort["applyProfilePricingScene"]>[0]): ReturnType<NativeProfilePricingScenePort["applyProfilePricingScene"]>;
+  confirmProfilePricingAction?(options: Parameters<NativeProfilePricingScenePort["confirmProfilePricingAction"]>[0]): ReturnType<NativeProfilePricingScenePort["confirmProfilePricingAction"]>;
+  settleProfilePricingAction?(options: Parameters<NativeProfilePricingScenePort["settleProfilePricingAction"]>[0]): ReturnType<NativeProfilePricingScenePort["settleProfilePricingAction"]>;
+  retireProfilePricingScene?(options: Parameters<NativeProfilePricingScenePort["retireProfilePricingScene"]>[0]): ReturnType<NativeProfilePricingScenePort["retireProfilePricingScene"]>;
+  applyProfilePasswordScene?(options: Parameters<NativePasswordScenePort["applyProfilePasswordScene"]>[0]): ReturnType<NativePasswordScenePort["applyProfilePasswordScene"]>;
+  confirmProfilePasswordAction?(options: Parameters<NativePasswordScenePort["confirmProfilePasswordAction"]>[0]): ReturnType<NativePasswordScenePort["confirmProfilePasswordAction"]>;
+  settleProfilePasswordAction?(options: Parameters<NativePasswordScenePort["settleProfilePasswordAction"]>[0]): ReturnType<NativePasswordScenePort["settleProfilePasswordAction"]>;
+  retireProfilePasswordScene?(options: Parameters<NativePasswordScenePort["retireProfilePasswordScene"]>[0]): ReturnType<NativePasswordScenePort["retireProfilePasswordScene"]>;
   getPresentationState?(options: NativeDrawerIdentity): Promise<({ valid: true } & NativeDrawerPresentationState) | { valid: false }>;
   applyProfilePhoneScene?(options: Parameters<NativePhoneScenePort["applyProfilePhoneScene"]>[0]): ReturnType<NativePhoneScenePort["applyProfilePhoneScene"]>;
   confirmProfilePhoneAction?(options: Parameters<NativePhoneScenePort["confirmProfilePhoneAction"]>[0]): ReturnType<NativePhoneScenePort["confirmProfilePhoneAction"]>;
@@ -100,7 +110,7 @@ export interface HushhNativeDrawersPlugin {
   confirmProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["confirmProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["confirmProfileStyleAction"]>;
   settleProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["settleProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["settleProfileStyleAction"]>;
   retireProfileStyleScene?(options: Parameters<NativeProfileStyleScenePort["retireProfileStyleScene"]>[0]): ReturnType<NativeProfileStyleScenePort["retireProfileStyleScene"]>;
-  addListener: NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & NativeSupportScenePort["addListener"] & NativePhoneScenePort["addListener"] & {
+  addListener: NativeProfilePricingScenePort["addListener"] & NativePasswordScenePort["addListener"] & NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & NativeSupportScenePort["addListener"] & NativePhoneScenePort["addListener"] & {
     (eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
     (eventName: "isolationChanged", listener: (event: NativeDrawerIsolation) => void): Promise<PluginListenerHandle>;
     (eventName: "readmissionRequested", listener: (event: NativeDrawerReadmission) => void): Promise<PluginListenerHandle>;
@@ -116,12 +126,14 @@ export const nativeDrawers = registerPlugin<HushhNativeDrawersPlugin>("HushhNati
 /** Admission needs the whole scene handshake, including confirmed withdrawal.
  * A flag alone cannot safely transfer an editor to a partially capable wrapper.
  * Keep this mapping shared by the destination and its editor adapters. */
-export function hasNativeProfileScene(plugin: HushhNativeDrawersPlugin, scene: "account-name" | "writing-style" | "support" | "phone"): boolean {
+export function hasNativeProfileScene(plugin: HushhNativeDrawersPlugin, scene: "account-name" | "writing-style" | "support" | "phone" | "vault-passphrase" | "request-price"): boolean {
   const methods = scene === "account-name"
     ? [plugin.applyProfileNameScene, plugin.confirmProfileNameAction, plugin.settleProfileNameAction, plugin.retireProfileNameScene]
     : scene === "writing-style"
       ? [plugin.applyProfileStyleScene, plugin.confirmProfileStyleAction, plugin.settleProfileStyleAction, plugin.retireProfileStyleScene]
       : scene === "support" ? [plugin.applyProfileSupportScene, plugin.confirmProfileSupportAction, plugin.settleProfileSupportAction, plugin.retireProfileSupportScene]
+      : scene === "vault-passphrase" ? [plugin.applyProfilePasswordScene, plugin.confirmProfilePasswordAction, plugin.settleProfilePasswordAction, plugin.retireProfilePasswordScene]
+      : scene === "request-price" ? [plugin.applyProfilePricingScene, plugin.confirmProfilePricingAction, plugin.settleProfilePricingAction, plugin.retireProfilePricingScene]
       : [plugin.applyProfilePhoneScene, plugin.confirmProfilePhoneAction, plugin.settleProfilePhoneAction, plugin.retireProfilePhoneScene];
   return methods.every(method => typeof method === "function");
 }
@@ -224,11 +236,13 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
   if (value.profileStack !== undefined && (value.family !== "profile" || !Array.isArray(value.profileStack) ||
       value.profileStack.length > 3 || new Set(value.profileStack.map(page => page?.id)).size !== value.profileStack.length ||
       value.profileStack.some((page, index) => !page || !closedShape(page, ["id", "title", "sections", "legalDocument"]) ||
-        !(index === 0 ? ["account", "preferences", "voice", "security", "devices", "legal", "privacy", "terms"].includes(page.id) :
+        !(index === 0 ? ["request-pricing", "account", "preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].includes(page.id) :
           ["account-reset", "account-delete"].includes(page.id) && index === 1 && value.profileStack?.[0]?.id === "account" ||
           page.id === "voice" && index === 1 && value.profileStack?.[0]?.id === "preferences" ||
           ["session", "devices"].includes(page.id) && index === 1 && value.profileStack?.[0]?.id === "security" ||
           page.id === "device-unlink" && (index === 1 && value.profileStack?.[0]?.id === "devices" || index === 2 && value.profileStack?.[0]?.id === "security" && value.profileStack?.[1]?.id === "devices") ||
+          page.id === "vault" && index === 1 && value.profileStack?.[0]?.id === "security" ||
+          ["vault-method", "vault-remove"].includes(page.id) && (index === 1 && value.profileStack?.[0]?.id === "vault" || index === 2 && value.profileStack?.[0]?.id === "security" && value.profileStack?.[1]?.id === "vault") ||
           ["privacy", "terms"].includes(page.id) && index === 1 && value.profileStack?.[0]?.id === "legal") ||
         (["privacy", "terms"].includes(page.id) ? !page.legalDocument || !validNativeLegalDocument(page.legalDocument) ||
           page.legalDocument.type !== page.id || !Array.isArray(page.sections) || page.sections.length !== 0 : page.legalDocument !== undefined) ||
@@ -301,7 +315,7 @@ export function nativeDrawerChoiceAllowed(choice: NativeDrawerChoice, state: Nat
   if (choice.action === "back") return state.backEnabled && choice.rowId === undefined;
   if (choice.action === "root") return state.family === "profile" && state.backEnabled && (state.profileStack?.length ?? 0) > 1 && choice.rowId === undefined;
   if (choice.action === "ancestor") return state.family === "profile" && state.backEnabled && choice.rowId === "security" &&
-    state.profileStack?.map(page => page.id).join("/") === "security/devices/device-unlink";
+    ["security/devices/device-unlink", "security/vault/vault-method", "security/vault/vault-remove"].includes(state.profileStack?.map(page => page.id).join("/") ?? "");
   if (choice.action !== "row" || !validIdentifier(choice.rowId)) return false;
   const document = valueDocument(state);
   if (document && choice.text === undefined && nativeLegalActionIds(document).includes(choice.rowId)) return true;

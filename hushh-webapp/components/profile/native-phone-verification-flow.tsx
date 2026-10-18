@@ -144,6 +144,6 @@ function NativePhoneScene({ model, destinationId, mode, onCancel, onFallback, on
       if (retired && replica.current === current && nativeDrawerOwnerIsCurrent(current.identity)) live.current.onCancel();
     });
     return true;
-  });
+  }, destinationId ? { profile_pane: "1" } : undefined);
   return <div aria-busy={phase === "checking"} data-native-profile-phone-state={phase} />;
 }

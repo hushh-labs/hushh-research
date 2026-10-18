@@ -244,6 +244,40 @@ final class NativeSupportTests: XCTestCase {
             error: "Public validation sample", appearance: appearance, accentHex: "#007aff", foregroundHex: "#808080")
     }
     @MainActor
+    func testNativeVaultPasswordWaitsForTheFinalPairAndScrubsBeforeRetirement() {
+        func state(_ update: Int, _ edit: Int, _ draft: String, _ canSave: Bool) -> NativePasswordProjection {
+            NativePasswordProjection(documentId: "synthetic-vault-document", ownerEpoch: "synthetic-owner", ownerGeneration: 1,
+                revision: 1, family: "profile", scene: "vault-passphrase", destinationId: "synthetic-visit", updateSequence: update,
+                privacyGeneration: 0, acknowledgedEditRevision: edit, password: draft, confirmation: draft,
+                canSave: canSave, busy: false, appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111")
+        }
+        let initial = state(1, 0, "", false)
+        XCTAssertTrue(initial.valid)
+        let model = NativePasswordModel(initial)
+        let password = UITextField(), confirmation = UITextField()
+        model.passwordField = password; model.confirmationField = confirmation
+        model.edit = { _, _, _, _ in true }
+        var chosen: NativeProfileNameAction?
+        model.choose = { chosen = $0; return true }
+        password.text = "Synthetic new password"; confirmation.text = "Synthetic new password"
+        model.capture()
+        model.action("save")
+        XCTAssertNil(chosen, "Native edits cannot submit before React acknowledges its final pair")
+        XCTAssertTrue(model.update(state(2, 1, "Synthetic new password", true)))
+        model.action("save")
+        XCTAssertNotNil(chosen)
+        if let chosen { XCTAssertTrue(model.confirm(chosen)); XCTAssertFalse(model.confirm(chosen)) }
+        model.clear()
+        XCTAssertEqual(password.text, ""); XCTAssertEqual(confirmation.text, "")
+        XCTAssertEqual(model.password, ""); XCTAssertEqual(model.confirmation, "")
+        XCTAssertEqual(model.projection.password, ""); XCTAssertEqual(model.projection.confirmation, "")
+        XCTAssertFalse(model.canEdit); XCTAssertNil(model.pending)
+        XCTAssertEqual(NativeProfilePricingDecimal.canonical("0,50", separator: ","), "0.50")
+        XCTAssertEqual(NativeProfilePricingDecimal.canonical("1.23,45", separator: ","), "1.23,45",
+            "A keyboard adapter must not reinterpret mixed/thousands notation as a valid price")
+    }
+
+    @MainActor
     func testOrdinaryNameSceneRequiresAnAcknowledgedEditAndOneConfirmedSave() throws {
         let model = NativeProfileNameModel(publicNameScene())
         let field = UITextField()
@@ -955,6 +989,19 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(directDeviceEntry.valid, "Direct Devices entry must not invent Security ancestry")
         deviceConfirmation.profileStack![1] = NativeProfilePage(id: "session", title: "Session", sections: [])
         XCTAssertFalse(deviceConfirmation.valid, "Unlink confirmation requires its actual Devices parent")
+        var vaultDetails = account
+        vaultDetails.profileStack = ["security", "vault", "vault-method"].map {
+            NativeProfilePage(id: $0, title: "Synthetic unlock navigation", sections: [])
+        }
+        XCTAssertTrue(vaultDetails.valid)
+        XCTAssertTrue(vaultDetails.allows(action: "ancestor", row: "security"))
+        vaultDetails.profileStack![2] = NativeProfilePage(id: "vault-remove", title: "Remove passkey", sections: [])
+        XCTAssertTrue(vaultDetails.valid)
+        vaultDetails.profileStack!.removeFirst()
+        XCTAssertTrue(vaultDetails.valid, "Direct Vault entry retains its actual ancestry")
+        XCTAssertFalse(vaultDetails.allows(action: "ancestor", row: "security"))
+        vaultDetails.profileStack![0] = NativeProfilePage(id: "account", title: "Account", sections: [])
+        XCTAssertFalse(vaultDetails.valid, "Method operations cannot be attached to an unrelated parent")
         var unrelatedThirdPage = account
         unrelatedThirdPage.profileStack! += [NativeProfilePage(id: "account-reset", title: "Reset", sections: []),
             NativeProfilePage(id: "account-delete", title: "Delete", sections: [])]

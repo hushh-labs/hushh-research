@@ -96,6 +96,6 @@ export function NativeSupportComposer({ model, destinationId, onFallback }: {
       if (retired && replica.current === current && nativeDrawerOwnerIsCurrent(current.identity)) live.current.model.close();
     });
     return true;
-  });
+  }, { profile_pane: "1" });
   return <div aria-busy={phase === "checking"} data-native-profile-support-state={phase} />;
 }

@@ -481,6 +481,7 @@ try {
     { id: "accent", icon: accountIcons.AccentRowIcon },
     { id: "voice", icon: accountIcons.VoiceRowIcon },
     { id: "vault-methods", icon: accountIcons.FingerprintProfileIcon },
+    { id: "vault-password", icon: accountIcons.PassphraseRowIcon },
     { id: "gemini", icon: GeminiLogo, original: true, size: 32 },
   ];
   for (const entry of [...PROFILE_MENU_GROUPS.flatMap(group => group.entries), ...formIcons]) {

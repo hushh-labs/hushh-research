@@ -16,6 +16,35 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Profile Vault and Request pricing conversion — 2026-10-17
+
+The qualification source now maps Security → Vault methods into the retained
+native Profile stack: friendly method rows, method details, default selection,
+enrollment, removal confirmation and a private native password editor. Both
+renderers share `useProfileVaultMethodsModel` and the same label/opaque-handle
+projection. No wrapper material, credential identifiers or Vault authority is
+projected. Password fields use a separate closed memory-only contract and are
+scrubbed before native retirement. Complete capability/ancestry admission owns
+both native selection and web-dialog suppression. Busy page operations disable
+navigation; a refused native pop now receives a negative settlement instead of
+acknowledging an unchanged route.
+
+Request pricing has a native page and decimal amount editor under that same
+stack, with native Save/Cancel and the existing Ask each time action. The web
+card and native adapter use one extracted pricing model, including cents
+validation, expected-version conflicts, confirmed outcomes and the same draft
+through confirmed renderer fallback. Neither native adapter writes directly to
+a provider. The new capabilities are additive to NativeDrawers v1; partial and
+ordinary wrappers retain their established interfaces.
+
+The nearest 205 web behavior cases, typecheck, focused lint, static parity and
+native build pass at their recorded development checkpoints. The new busy-Back
+negative control passes. These are not an installed-build or physical/native
+mutation acceptance claim. Full Profile conversion remains the active program:
+the five rich root families below, provider/Finance preferences and other nested
+exceptions cannot inherit Account, Vault or Pricing acceptance. The ordinary
+custom-native qualification switch remains off; no deployment is implied.
+
 ### Latest-main integration and preview boundary — 2026-10-17
 
 Merge `5f70c584e9` incorporates main through `a01b055edd`. The installed iPhone
@@ -491,11 +520,11 @@ and its unrelated edits were not changed.
 | Shared navigation | Retained UIKit Profile stack; `native-profile-menu.tsx` and existing Profile query/Back owners | Current change fences a completed pop across compatible refreshes and separates admission from completed presentation; physical acceptance pending |
 | Account and identity | Native rows/name form, negotiated Phone/OTP form and Reset/Delete confirmation pages; shared phone model and existing account/identity services | Photo/preview conversion and combined native qualification are separate; disposable-fixture mutation outcomes remain unverified |
 | Preferences | Native Appearance/Accent/haptics, Writing style and complete Voice page; existing Settings/theme/Voice feature writers | Finance and provider scenes need conversion; Voice source/build passes are distinct from pending device qualification |
-| Security and devices | Native Security/Session rows and negotiated Trusted devices list/confirmation; shared device model and existing vault/session services | Protected method forms, enrollment/removal and recovery need conversion; combined device interaction/accessibility and disposable-fixture outcomes remain unverified |
+| Security and devices | Native Security/Session, Trusted devices and negotiated Vault list/details/default/enrollment/removal/password scene; shared feature models and vault/session services | Combined physical interaction/accessibility, recovery and disposable-fixture mutation outcomes remain unverified |
 | Memory and sharing | React `LivingMemoryDocument`, `pkm-data-manager`, `SharedWithYouGroup`, `SecretsListGroup`; existing encrypted PKM/consent operations | Native living document, section editing, search, sharing and secret controls remain to map |
 | Personal World Model | React `PersonalWorldModelPage`; existing research/review services | Native research, facts, sources, review, invitations and preferences remain to map |
 | Connectors/systems | React Profile connectors and `ConnectedSystemsPanel`; existing catalog, provider authorization and CRM owners | Native catalog/detail/configuration and authorization-return states remain to map |
-| Payouts/pricing | React `DocumentHashcoinPayouts`, `DocumentRequestPricingCard`; existing marketplace writers | Native history, bank entry, redemption, receipts, amount editing and conflicts remain to map; fixture fulfillment must stay sandboxed |
+| Payouts/pricing | React Payouts; negotiated native Request pricing rows/amount editor and one shared pricing model | Native payout history, bank entry, redemption and receipts remain to map; physical pricing and sandbox mutation outcomes remain unverified |
 | Help/Legal | Owned native Help sheet and complete native Legal reader; existing support composer/service and authored Legal documents | Installed Legal has bounded contents/switch/return proof; full visual, accessibility, external-link and Release acceptance remain separate |
 | Wallet Profile/cards | React `wallet-card-workspace`, `wallet-card-setup`, `wallet-card-manage`, payment-card owners under `components/wallet` | Complete native workspace/editor/reveal/sharing scenes remain to map; system camera/Share/Apple Wallet owners stay unchanged |
 | Portfolio import | React `portfolio-import-view`; existing import and explicit encrypted-commit owners | Native selection/progress/cancellation/review remain to map; no competing import store |

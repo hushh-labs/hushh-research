@@ -8,7 +8,7 @@ enum NativeProfileArtwork {
         let accent: UIImage?
         let colorHex: String?
     }
-    static let ids = ["account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out", "style-name", "style-tone", "style-length", "style-language", "style-punctuation", "account-mail", "account-phone", "account-wallet", "account-reset", "account-delete", "appearance", "accent", "voice", "vault-methods", "gemini"]
+    static let ids = ["account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out", "style-name", "style-tone", "style-length", "style-language", "style-punctuation", "account-mail", "account-phone", "account-wallet", "account-reset", "account-delete", "appearance", "accent", "voice", "vault-methods", "vault-password", "gemini"]
     static func resolve(_ id: String) -> Artwork? {
         let colorHex: String?
         let hasAccent: Bool
@@ -43,6 +43,7 @@ enum NativeProfileArtwork {
         case "accent": colorHex = nil; hasAccent = true; original = false
         case "voice": colorHex = "#8B5CF6"; hasAccent = false; original = false
         case "vault-methods": colorHex = "#10B981"; hasAccent = false; original = false
+        case "vault-password": colorHex = nil; hasAccent = false; original = false
         case "gemini": colorHex = nil; hasAccent = false; original = true
         default: return nil
         }

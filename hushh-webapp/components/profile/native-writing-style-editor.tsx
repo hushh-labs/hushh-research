@@ -116,6 +116,6 @@ export function NativeStyleSheet({ model, plugin, onClose, onFallback, destinati
     if (!current || live.current.model.saving) return true;
     void current.presentation.retire().then(retired => { if (retired && replica.current === current && nativeDrawerOwnerIsCurrent(current.identity)) live.current.onClose(); });
     return true;
-  });
+  }, destinationId ? { profile_pane: "1" } : undefined);
   return <div aria-busy={phase === "checking"} data-native-profile-style-state={phase} />;
 }

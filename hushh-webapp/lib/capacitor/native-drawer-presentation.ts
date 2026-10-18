@@ -13,9 +13,9 @@ export type NativeDrawerActions = {
   rows: ReadonlyMap<string, (choice: NativeDrawerChoice) => void | Promise<void>>;
   open: () => void;
   close: () => void;
-  back?: () => void;
-  root?: () => void;
-  ancestor?: (choice: NativeDrawerChoice) => void;
+  back?: () => void | boolean;
+  root?: () => void | boolean;
+  ancestor?: (choice: NativeDrawerChoice) => void | boolean;
 };
 export type NativeDrawerPresentationPhase = "preparing" | "active" | "quarantined" | "retired";
 
@@ -245,16 +245,18 @@ export class NativeDrawerPresentation {
     const action = event.action === "row" ? current.actions.rows.get(event.rowId ?? "") : current.actions[event.action];
     if (!action) return;
     let invoked = false;
+    let operationAccepted = true;
     try {
       const accepted = await this.fence.consume(event, () => acknowledged(this.plugin.confirmChoice(event)),
         () => !this.disposed && this.phase === "active" && (terminal || this.current === current) && this.ownerIsCurrent(),
-        () => {
+        async () => {
           const owner = terminal ? this.current : current;
           const latest = event.action === "row" ? owner?.actions.rows.get(event.rowId ?? "") : owner?.actions[event.action];
           if (!latest) return;
-          invoked = true; return latest(event);
+          invoked = true;
+          operationAccepted = await latest(event) !== false;
         });
-      if (invoked) await this.settle(event, true);
+      if (invoked) await this.settle(event, operationAccepted);
       else if (!accepted && (event.action === "row" || (event.action === "back" || event.action === "root" || event.action === "ancestor") && this.backSettlements)) await this.settle(event, false);
       if (!accepted && this.fence.terminalIsCurrent(event)) this.quarantine();
     } catch {

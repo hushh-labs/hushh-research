@@ -6,14 +6,8 @@ import { FingerprintProfileIcon, PassphraseRowIcon, VaultRowIcon } from "@/compo
 import { SettingsGroup, SettingsRow, SettingsDetailPanel } from "@/components/app-ui/settings-ui";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { VaultMethod, VaultWrapper } from "@/lib/services/vault-service";
-
-export function vaultMethodLabel(wrapper: VaultWrapper, biometricLabel?: string, localBiometricId?: string | null) {
-  if (wrapper.method === "passphrase") return "Password";
-  if (wrapper.method === "generated_default_native_biometric") {
-    return (wrapper.wrapperId ?? "default") === localBiometricId ? biometricLabel || "Biometrics" : "Device biometrics";
-  }
-  return wrapper.passkeyDeviceLabel || (wrapper.passkeyProvider === "webauthn_prf" ? "Browser passkey" : "Device passkey");
-}
+import { presentVaultMethods } from "./vault-method-presentation";
+export { vaultMethodLabel } from "./vault-method-presentation";
 
 /** Presentation only: exact wrapper authority remains in the owning Profile
  * handlers. Opaque option handles keep credential-derived IDs out of the DOM. */
@@ -25,19 +19,7 @@ export function VaultMethodsPanel({ wrappers, primaryMethod, primaryWrapperId, b
   onAdd?: () => void; addLabel?: string; onChangePassphrase: () => void; onRefresh: () => void;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
-  const options = useMemo(() => {
-    const labels = wrappers.map((wrapper) => vaultMethodLabel(wrapper, biometricLabel, localBiometricId));
-    const occurrences = new Map<string, number>();
-    return wrappers.map((wrapper, index) => {
-      // A replaced wrapper snapshot gets new opaque presentation handles.
-      // Neither concurrent render nor an old selection may mutate that snapshot.
-      const id = crypto.randomUUID();
-      const label = labels[index] ?? vaultMethodLabel(wrapper, biometricLabel, localBiometricId);
-      const ordinal = (occurrences.get(label) ?? 0) + 1;
-      occurrences.set(label, ordinal);
-      return { wrapper, id, label: labels.filter((candidate) => candidate === label).length > 1 ? `${label} ${ordinal}` : label };
-    });
-  }, [wrappers, biometricLabel, localBiometricId]);
+  const options = useMemo(() => presentVaultMethods(wrappers, biometricLabel, localBiometricId), [wrappers, biometricLabel, localBiometricId]);
   useEffect(() => { setSelected(null); }, [mutable]);
   const isPrimary = (wrapper: VaultWrapper) => primaryWrapperId !== null && wrapper.method === primaryMethod &&
     (wrapper.wrapperId ?? "default") === (primaryWrapperId ?? "default");
