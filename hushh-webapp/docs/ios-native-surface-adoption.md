@@ -63,6 +63,17 @@ capture is not a gesture-only window. It is one diagnostic capture, not the
 three-run gesture/frame-limit acceptance. Ordinary custom-native admission
 remains OFF; the standard native bottom navigation remains independent.
 
+Current source review also confirms the staged-resume gate below is still open:
+Auth waits for its React paint, then releases privacy; native drawer/form
+consumers cannot reconstruct until that release. Old-presenter retirement is
+not replacement readiness. The repair must authorize owner-fenced preparation
+behind the opaque cover, declare the complete expected destination (including
+its form/content pane), and uncover only after actual presentation completion.
+Waiting for readiness without changing shielded admission would deadlock.
+Default iPhone admission must also be distinct from explicit iPad qualification;
+the present coherent qualification switch can admit both. Passing the narrow
+interaction checks above closes neither architectural gate.
+
 Back-label RCA now includes a controlled UIKit comparison: the labelled button
 blurs during both `setViewControllers` and ordinary `pushViewController` with no
 SwiftUI, bridge or product operations. The retained product fixture reproduces
