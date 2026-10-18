@@ -350,12 +350,16 @@ Checkout verifies that account before charging. Plaid is not involved.
 
 The private worker transfers the owner's share to their connected Stripe balance
 only after delivery has ended and Google confirms access to the delivered files.
-Delivery ends with a terminal outcome, the owner's Stop, the request's deadline,
-or a search that stopped before completing (it can freeze no further batch, so
-its request closes). Settlement then runs once on the files approved by that
-time. A Stripe transfer is **not** proof that money has
-arrived in the owner's bank; Stripe's connected-account payout schedule controls
-that later step. No files delivered means a full requester refund and no owner
+Delivery ends with a terminal outcome (`no_match` included), the owner's Stop,
+the request's deadline, or a search that ended for good before completing: one
+Drive reported incomplete (limited), or one whose Drive connection has changed.
+Such a search can never freeze or approve another batch, so its request closes.
+A failed or stopped search on the same connection does not end delivery: the
+owner's Search again resumes it at its cursor, so its request stays open until
+the owner resumes it, presses Stop, or the deadline passes. Settlement then runs
+once on the files approved by that time. A Stripe transfer is **not** proof that
+money has arrived in the owner's bank; Stripe's connected-account payout schedule
+controls that later step. No files delivered means a full requester refund and no owner
 transfer. When only part of the approved set is delivered, the requester receives
 a proportional refund before any owner transfer. Uncertain grant, refund or
 transfer outcomes remain held for reconciliation; the worker never guesses that
@@ -363,7 +367,12 @@ delivery or a refund succeeded. An approved batch that is not yet paid is not
 grant work: the sharing worker never offers it until payment confirms. If its
 request ends unpaid, or its Checkout window closes, its queued grants are
 released once with the public reason `stopped`, and the unpaid earning is void
-when the request ends.
+when the request ends, whatever its outcome. An autoshare request whose search
+finds only files the owner cannot share ends as `no_match`. Checkout never opens
+for an allowed autoshare request whose automatic search start has failed for good
+(the refusal reason is `search_parked`), and a payment on a link opened before
+that is refunded in full. A search that waits for another of the owner's searches
+(one runs at a time) is waiting, never a failed start.
 
 Hussh keeps **3% of the retained charge**. The owner bears the **actual Stripe
 payment processing fee** on that charge, with the deduction capped at the

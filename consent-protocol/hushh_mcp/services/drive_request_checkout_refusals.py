@@ -60,6 +60,7 @@ CHECKOUT_REFUSAL_REASONS = frozenset(
         "not_owner_approved",
         # The request's search and frozen files.
         "search_running",
+        "search_parked",
         "search_failed",
         "search_changed",
         "connection_changed",

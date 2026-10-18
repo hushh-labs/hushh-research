@@ -762,7 +762,10 @@ async def test_owner_approved_25_of_40_reaches_checkout_and_is_granted(
     await freeze(list(range(26, 41)))
     assert flow.order()["status"] == "awaiting_payment"
     assert (await flow.checkout())["checkoutUrl"]
-    assert flow.access_reads == [25]
+    # 25 of 40 is not the final set, so B's existing access cannot waive the
+    # charge and Checkout reads no ACL (the existing-access waiver is tested
+    # for a final set in test_manual_waiver_applies_only_to_a_final_approved_set).
+    assert flow.access_reads == []
     assert flow.effect_count() == 25
     # An unpaid grant is not work (lane hygiene): due() leaves all 25 out, so
     # nothing is granted before payment, and a direct claim defers without any
@@ -803,6 +806,107 @@ async def test_owner_approved_25_of_40_reaches_checkout_and_is_granted(
     await flow.pay()
     assert await flow.grant_all() == 25
     assert set(flow.shared_positions()) == set(range(1, 26))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("approved", [5, 10])
+async def test_manual_waiver_applies_only_to_a_final_approved_set(flow, approved):
+    """B already has every file A approved. That waives the charge only when
+    A's approvals are the final set: the search finished and A approved every
+    shareable match. Approvals so far (5 of 10) may still grow, so B pays."""
+    await flow.request(trusted=False, allow=False)
+    await flow.start_search(owner_review=True, authority="owner")
+    await flow.page(10, unshareable=1)
+    await flow.finish()
+    flow.access_status = "all_existing"
+    for first, last in ((1, 5), (6, 10))[: approved // 5]:
+        review = await flow.bulk.create_review(
+            user_id="owner",
+            search_job_id=flow.job,
+            client_request_id=str(uuid4()),
+            recipients=[_recipient("recipient", "b@example.invalid")],
+            excluded=[],
+            origin_request_id=flow.request_id,
+            selected_positions=list(range(first, last + 1)),
+        )
+        await flow.bulk.approve(
+            user_id="owner",
+            share_id=review["shareId"],
+            revision=review["revision"],
+            review_digest=review["reviewDigest"],
+        )
+    if approved == 10:
+        with pytest.raises(DriveSharingError, match="request_already_accessible"):
+            await flow.checkout()
+        assert flow.create_session.call_count == 0
+        assert flow.access_reads == [10]
+    else:
+        assert (await flow.checkout())["checkoutUrl"]
+        assert flow.access_reads == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("link_opened", ["after_approval", "before_takeover"])
+async def test_allowed_request_a_took_over_is_paid_for_a_approved_batch(flow, caplog, link_opened):
+    """Automatic sharing stopped (the search failed) and A took the allowed
+    request over with Search again: A now selects its files. A approves 25 of
+    40; B can pay for them, on a new link or on the one opened before the
+    takeover, and Stripe's paid event is kept, not refunded."""
+    await flow.request(trusted=False)
+    assert flow.order()["status"] == "awaiting_payment"
+    await flow.start_search()
+    if link_opened == "before_takeover":
+        assert (await flow.checkout())["checkoutUrl"]
+    with flow.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_owner_search_jobs SET status='failed',
+              error_code='provider_unavailable' WHERE job_id=:job"""),
+            {"job": flow.job},
+        )
+    resumed = await DriveOwnerSearchStore(db=flow.db).takeover_request(
+        user_id="owner", request_id=flow.request_id
+    )
+    assert resumed is not None and resumed["status"] == "queued"
+    for _ in range(4):
+        # The owner's search commits pages; the automatic handoff never freezes them.
+        await flow.page(10)
+    await flow.finish()
+    assert flow.batches() == []
+    caplog.set_level(logging.INFO, logger=REFUSAL_LOGGER)
+    if link_opened == "after_approval":
+        with pytest.raises(DriveSharingError, match="payment_not_ready"):
+            # Nothing A approved yet: nothing to pay for.
+            await flow.checkout()
+    review = await flow.bulk.create_review(
+        user_id="owner",
+        search_job_id=flow.job,
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=flow.request_id,
+        selected_positions=list(range(1, 26)),
+    )
+    await flow.bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+    )
+    assert [(batch["approval_source"], batch["status"]) for batch in flow.batches()] == [
+        ("owner", "queued")
+    ]
+
+    if link_opened == "after_approval":
+        assert (await flow.checkout())["checkoutUrl"]
+    assert flow.create_session.call_count == 1
+    await flow.pay()
+    order = flow.order()
+    assert (order["reconciliation_required"], order["reconciliation_reason"]) == (False, None)
+    assert await flow.grant_all() == 25
+    assert set(flow.shared_positions()) == set(range(1, 26))
+    assert "manual_takeover" not in " ".join(
+        record.getMessage() for record in caplog.records if record.name == REFUSAL_LOGGER
+    )
 
 
 @pytest.mark.asyncio

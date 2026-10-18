@@ -24,6 +24,7 @@ from hushh_mcp.services.drive_owner_allowed import (
     package_allow_marker,
 )
 from hushh_mcp.services.drive_request_checkout_refusals import checkout_refusal
+from hushh_mcp.services.drive_request_queue import automatic_start_parked
 from hushh_mcp.services.drive_request_review_policy import (
     autoshare_selection,
     checkpoint_requires_owner_review,
@@ -117,6 +118,48 @@ _LEGACY_FALLBACK = {
 def safe_bulk_reason(value):
     """Release only public reason codes, never provider bodies or diagnostics."""
     return value if value in _SAFE_REASONS else "unavailable"
+
+
+class CheckoutFiles(list):
+    """Checkout's files, and whether they are the request's final purchase set."""
+
+    def __init__(self, files, *, final):
+        super().__init__(files)
+        self.final = final
+
+
+# A search job that is no longer looking at Drive by itself.
+_SEARCH_STOPPED = frozenset({"completed", "limited", "failed", "stopped"})
+
+
+def search_ended_for_good(connection, search) -> bool:
+    """This request's search can never freeze or approve another batch.
+
+    create_review and approve refuse a search marked incomplete, and neither
+    the owner's takeover nor a retry clears that mark: a limited search (always
+    marked) or any stopped search Drive reported incomplete is final. A failed
+    or stopped search on a Drive connection that has changed since is final
+    too: takeover, retry and create_review all refuse it.
+
+    Any other failed or stopped search is not final: the owner's Search again
+    (takeover_request, retry_failed_request) resumes it at its cursor with its
+    committed results. It never ends delivery by itself; the request's
+    deadline or the owner's Stop does.
+    """
+    if search is None or search["status"] not in _SEARCH_STOPPED:
+        return False
+    if search["incomplete_search"]:
+        return True
+    if search["status"] not in {"failed", "stopped"}:
+        return False
+    if search.get("error_code") == "connection_changed":
+        return True
+    return not connection.execute(
+        text("""SELECT EXISTS(SELECT 1 FROM user_external_connector_connections
+          WHERE user_id=:user AND connector_id='google_drive'
+            AND connection_generation=:generation)"""),
+        {"user": search["user_id"], "generation": search["connection_generation"]},
+    ).scalar_one()
 
 
 def legacy_bulk_reason(value):
@@ -1759,6 +1802,11 @@ class DriveBulkShareStore(DriveLivePreferences):
             )
             if search is None:
                 # The owner's Allow priced the request before any search slice.
+                # Charge only while the automatic queue will still start that
+                # search: a start that failed for good (or one the owner took
+                # over) has nothing to deliver, so B is never asked to pay.
+                if automatic_start_parked(request["preparation_error_code"]):
+                    raise checkout_refusal("search_parked")
                 return open_set
             if (
                 search["status"] not in {"queued", "running", "completed"}
@@ -2108,6 +2156,11 @@ class DriveBulkShareStore(DriveLivePreferences):
 
         The owner's exact approval is the consent; the flat order is the price.
         No completeness, file-count or all-shareable rule applies here.
+
+        The files are a final purchase set (``final``) only once the search
+        finished and the owner approved every shareable match. Only then may
+        the buyer's existing access to all of them waive the charge; a later
+        approval could still add a file the buyer lacks.
         """
         request_id = str(request["request_id"])
         frozen = list(
@@ -2183,7 +2236,25 @@ class DriveBulkShareStore(DriveLivePreferences):
             selected.append({**metadata, "generation": generation})
         if len({item["id"] for item in selected}) != len(selected):
             raise checkout_refusal("selection_changed")
-        return selected
+        final = search["status"] == "completed" and not search["incomplete_search"]
+        if final:
+            for row in connection.execute(
+                text("""SELECT position,metadata_envelope FROM drive_owner_search_results
+                WHERE user_id=:user AND job_id=:job
+                  AND position<>ALL(CAST(:positions AS integer[]))
+                ORDER BY position LIMIT 10000"""),
+                {"user": user_id, "job": search["job_id"], "positions": sorted(frozen_by_position)},
+            ).mappings():
+                unapproved = self._open(
+                    row["metadata_envelope"],
+                    user_id=user_id,
+                    resource_id=f"{search['job_id']}:{row['position']}",
+                    purpose="owner-search-result",
+                )
+                if unapproved.get("shareable") is True:
+                    final = False
+                    break
+        return CheckoutFiles(selected, final=final)
 
     async def unclaimed_positions(self, *, user_id, request_id, limit=25):
         request = _uuid(request_id)
@@ -3088,6 +3159,15 @@ class DriveBulkShareStore(DriveLivePreferences):
                 self._finalize_progressive_request(connection, origin["origin_request_id"])
                 return
             request_status = "completed" if status == "completed" else "partial"
+            if not successes and self._released_before_payment(
+                connection, origin["origin_request_id"]
+            ):
+                # B's single Checkout window closed (or the request reached its
+                # deadline) and every queued grant was released unpaid. Nothing
+                # was delivered and nobody paid, so no outcome is news: the
+                # request stays approved, as it did while those grants waited,
+                # and its unpaid earning is void at the deadline.
+                return
             updated_request = self._row(
                 connection,
                 """UPDATE drive_share_requests
@@ -3110,13 +3190,49 @@ class DriveBulkShareStore(DriveLivePreferences):
                         },
                     )
 
+    def _released_before_payment(self, connection, request_id):
+        """A paid-only request that was never paid and now never can be.
+
+        Its single Checkout window closed (or the order needs reconciliation,
+        or belongs to another Stripe mode), or the request reached its
+        deadline: claim released its queued grants unpaid. A request that is
+        still payable, or that the owner stopped, keeps its usual outcome.
+        """
+        return bool(
+            connection.execute(
+                text("""SELECT EXISTS(SELECT 1 FROM drive_share_requests r
+                WHERE r.request_id=:request AND r.payment_required=TRUE
+                  AND r.access_stop_requested_at IS NULL
+                  AND NOT EXISTS(SELECT 1 FROM drive_request_payment_orders o
+                    WHERE o.request_id=r.request_id AND (o.paid_at IS NOT NULL
+                      OR (r.expires_at>clock_timestamp()
+                        AND o.status IN ('awaiting_payment','checkout_open')
+                        AND o.reconciliation_required=FALSE
+                        AND o.stripe_mode=:stripe_mode))))"""),
+                {"request": request_id, "stripe_mode": configured_stripe_mode()},
+            ).scalar_one()
+        )
+
+    def _autoshare_origin(self, request):
+        """The request is sealed for autoshare: A never selects its files."""
+        return autoshare_request(
+            self._open(
+                request["request_envelope"],
+                user_id=request["user_id"],
+                resource_id=str(request["request_id"]),
+                purpose="request",
+            )
+        )
+
     def _finalize_progressive_request(self, connection, request_id):
         """Keep an unfinished search or unreviewed file visible and actionable.
 
-        A search that ended without completing (limited, failed or stopped) can
-        never freeze or approve another batch: create_review and approve both
-        refuse it. Delivery then ends with the batches already approved, and
-        the request closes so its payment settles once, on those files.
+        A search that ended for good without completing (search_ended_for_good:
+        marked incomplete, or on a Drive connection that has changed) can never
+        freeze or approve another batch. Delivery then ends with the batches
+        already approved, and the request closes so its payment settles once,
+        on those files. A failed or stopped search the owner can still resume
+        with Search again keeps the request open, as an unfinished one does.
         """
         request = self._row(
             connection,
@@ -3138,9 +3254,7 @@ class DriveBulkShareStore(DriveLivePreferences):
         )
         if source is None:
             return
-        search_ended = source["status"] in {"limited", "failed", "stopped"} or (
-            source["status"] == "completed" and source["incomplete_search"]
-        )
+        search_ended = search_ended_for_good(connection, source)
         if source["status"] != "completed" and not search_ended:
             return
         checkpoint = self._open(
@@ -3275,6 +3389,8 @@ class DriveBulkShareStore(DriveLivePreferences):
         # An empty, completed search never selected a file or attempted a
         # Google permission. Do not report it as a failed partial share. An
         # incomplete search that ends before any approval has nothing to share.
+        # Nor has an autoshare search whose every match A cannot share (Drive's
+        # canShare): A never selects files there, so no approval can follow.
         outcome = (
             "no_match"
             if not successes
@@ -3282,6 +3398,7 @@ class DriveBulkShareStore(DriveLivePreferences):
             and (
                 search_ended
                 or (len(package["selected_positions"]) if package else source["matched"]) == 0
+                or (package is None and self._autoshare_origin(request))
             )
             else "completed"
             if successes and not errors

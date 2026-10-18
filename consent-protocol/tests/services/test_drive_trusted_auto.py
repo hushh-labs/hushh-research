@@ -424,6 +424,9 @@ def test_another_requests_batch_maps_to_a_wait_not_a_failure():
     from hushh_mcp.services.drive_trusted_auto_service import _defer_code
 
     assert _defer_code(DriveSharingError("drive_share_in_progress")) == "share_in_progress"
+    # Another of the owner's searches is running: one search at a time. Waiting
+    # for it never counts toward the three failed starts that park a request.
+    assert _defer_code(DriveReadError("search_in_progress")) == "share_in_progress"
     assert _defer_code(DriveSharingError("bulk_changed")) == "preparation_unavailable"
 
 

@@ -519,22 +519,28 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
 
     @staticmethod
     def _search_ended(connection, request: dict) -> bool:
-        """The request's search job stopped for good without completing.
+        """The request's search ended for good without completing.
 
-        Limited, failed and stopped searches cannot freeze or approve another
-        batch, and a completed search marked incomplete is equally final.
+        Only a search that can never freeze or approve another batch counts
+        (search_ended_for_good). A failed or stopped search that the owner can
+        still resume with Search again does not: settling it here would close
+        the request, charge for a partial set and leave its matches frozen.
+        That request settles at its deadline or on the owner's Stop instead.
         """
+        from hushh_mcp.services.drive_bulk_share_store import search_ended_for_good
+
         if not request.get("user_id") or request["status"] != "pending":
             return False
-        return bool(
+        search = (
             connection.execute(
-                text("""SELECT EXISTS(SELECT 1 FROM drive_owner_search_jobs
-                  WHERE user_id=:owner AND client_request_id=:request
-                    AND (status IN ('limited','failed','stopped')
-                      OR (status='completed' AND incomplete_search)))"""),
+                text("""SELECT * FROM drive_owner_search_jobs
+                  WHERE user_id=:owner AND client_request_id=:request"""),
                 {"owner": request["user_id"], "request": request["request_id"]},
-            ).scalar_one()
+            )
+            .mappings()
+            .first()
         )
+        return search_ended_for_good(connection, dict(search) if search is not None else None)
 
     async def _close_ended_search(self, request_id: str) -> None:
         """Close a request whose search ended, through the batch store's own fence."""
@@ -556,6 +562,16 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         except DriveSharingError:
             # The request changed meanwhile; the next pass reads it again.
             logger.info("owner_payout.search_close_deferred")
+
+    @staticmethod
+    def _void_awaiting_delivery(connection, request_id: str) -> str:
+        connection.execute(
+            text("""UPDATE drive_request_owner_payouts SET status='void',
+              next_check_at=clock_timestamp(),updated_at=clock_timestamp()
+              WHERE request_id=:request AND status='awaiting_delivery'"""),
+            {"request": request_id},
+        )
+        return "void"
 
     def _advance_delivery(self, connection, request_id: str, *, v1_only: bool = False) -> str:
         # The same order as share/erasure/refund writers: shares, request,
@@ -646,30 +662,33 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             and order["amount_cents"] == obligation["amount_cents"] == payout["gross_amount_cents"]
         )
         if payout["status"] == "awaiting_delivery":
-            if _request_closed(request) or request.get("access_stop_requested_at") is not None:
-                # Nothing more can be delivered. Void an earning whose charge
-                # never happened or came back in full; a paid, unrefunded one
-                # settles below on the files already delivered.
-                unpaid = all(
-                    row["status"] in _UNPAID_ORDER_STATUSES and row.get("paid_at") is None
-                    for row in (order, obligation)
-                )
-                if unpaid or full_refund_confirmed:
-                    connection.execute(
-                        text("""UPDATE drive_request_owner_payouts SET status='void',
-                          next_check_at=clock_timestamp(),updated_at=clock_timestamp()
-                          WHERE request_id=:request AND status='awaiting_delivery'"""),
-                        {"request": request_id},
-                    )
-                    return "void"
             if not _delivery_ended(request):
                 if order["status"] == "paid" and self._search_ended(connection, request):
-                    # The search stopped before completing, so no further batch
-                    # can be frozen or approved. The caller closes the request
-                    # in its own transaction (graph gates before the request
-                    # lock, as for every Feed outcome) and then settles it.
+                    # The search ended for good before completing, so no
+                    # further batch can be frozen or approved. The caller
+                    # closes the request in its own transaction (graph gates
+                    # before the request lock, as for every Feed outcome) and
+                    # then settles it.
                     return "search_ended"
                 return "held"
+            # Nothing more can be delivered: a terminal outcome (no_match too),
+            # a closed request or the owner's Stop. An earning whose charge
+            # never happened is void, whatever the outcome; a payment that
+            # arrives after the request ended is refunded in full. One whose
+            # charge came back in full is void at once when no delivery was
+            # counted (closed or stopped); a finished request records its
+            # delivery counts below first, then voids after the full refund.
+            unpaid = all(
+                row["status"] in _UNPAID_ORDER_STATUSES and row.get("paid_at") is None
+                for row in (order, obligation)
+            )
+            if unpaid or (
+                full_refund_confirmed
+                and (
+                    _request_closed(request) or request.get("access_stop_requested_at") is not None
+                )
+            ):
+                return self._void_awaiting_delivery(connection, request_id)
             if order["status"] not in {"paid", "refunded"}:
                 return "held"
             if (
@@ -723,6 +742,11 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 commission_bps=payout["commission_bps"],
             )
             if summary["expected"] == 0 and request["status"] != "no_match":
+                if full_refund_confirmed:
+                    # A finished request with no approved file (every match
+                    # was one A could not share) and its charge back in full:
+                    # nothing is left to settle, so it never stays pending.
+                    return self._void_awaiting_delivery(connection, request_id)
                 return "held"
             if order["status"] == "refunded" and amounts["retained_amount_cents"] > 0:
                 return "held"

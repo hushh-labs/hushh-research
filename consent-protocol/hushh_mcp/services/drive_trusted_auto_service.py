@@ -36,6 +36,11 @@ def _defer_code(error: BaseException) -> str:
     if str(error) == "drive_share_in_progress":
         # Another request's batch holds the owner's Drive. Wait; not a failure.
         return "share_in_progress"
+    if str(error) == "search_in_progress":
+        # Another of the owner's searches is running (one at a time), or this
+        # search's results are not final yet. Wait; not a failed start, so it
+        # never counts toward the three attempts that park a request for good.
+        return "share_in_progress"
     return "preparation_unavailable"
 
 

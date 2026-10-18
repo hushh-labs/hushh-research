@@ -29,6 +29,7 @@ from hushh_mcp.services.drive_owner_allowed import (
     end_owner_allows_for_disconnected_pair,
     owner_allowed_record,
 )
+from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
 from hushh_mcp.services.drive_permission_store import DrivePermissionStore
 from hushh_mcp.services.drive_request_owner_payout_service import DriveRequestOwnerPayoutService
 from hushh_mcp.services.drive_request_payment_checkout_worker import (
@@ -4029,17 +4030,7 @@ def _assert_settled_once(sharing, request_id, provider, *, expected, confirmed, 
         assert provider.Transfer.create.call_args.kwargs["amount"] == earning
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("search_end", ["completed", "failed"])
-async def test_paid_request_with_no_match_refunds_in_full_exactly_once(
-    request_bulk, sharing, search_end
-):
-    """B paid at A's Allow and the search found nothing, or ended before it could.
-
-    Both settle once with a full refund. A failed search can never freeze a
-    batch, so it closes the request instead of holding the money until the
-    request's 30-day deadline.
-    """
+async def _paid_at_allow(sharing):
     created = await _request(sharing)
     request_id = created["requestId"]
     await sharing.allow_request(
@@ -4060,14 +4051,82 @@ async def test_paid_request_with_no_match_refunds_in_full_exactly_once(
         # The pay-on-Allow order; its INSERT also enrolls the owner earning.
         DriveRequestPaymentStore.ensure_order_for_approved_request(connection, row)
     _mark_paid(sharing, request_id)
+    return request_id
+
+
+@pytest.mark.asyncio
+async def test_paid_request_whose_failed_search_a_can_resume_is_held_not_refunded(
+    request_bulk, sharing
+):
+    """A failed search is not the end of delivery: A's Search again resumes it
+    at its cursor (takeover). It replaces an earlier contract here that closed
+    the request as no_match and refunded B at once; that charged B in full for
+    part of a set, or refunded B while A could still resume. The payment waits
+    for A's resume, A's Stop or the request's deadline."""
+    request_id = await _paid_at_allow(sharing)
+    search = _search(request_bulk, request_id=request_id, count=0)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_owner_search_jobs SET status='failed',
+              error_code='provider_unavailable' WHERE job_id=:job"""),
+            {"job": search},
+        )
+    provider = _settlement_provider(request_id)
+    payment = DriveRequestPaymentService(db=sharing.db, stripe_api=provider)
+    payouts = DriveRequestOwnerPayoutService(db=sharing.db, stripe_api=provider)
+
+    await _settle(payment, payouts)
+    await _settle(payment, payouts)
+    assert _ledger(sharing, request_id)[2] == "pending"
+    rows = _money_rows(sharing, request_id)
+    assert (rows["order"]["status"], rows["payout"]["status"]) == ("paid", "awaiting_delivery")
+    with sharing.db.engine.connect() as connection:
+        assert not connection.execute(
+            text("SELECT count(*) FROM drive_request_payment_refunds WHERE request_id=:request"),
+            {"request": request_id},
+        ).scalar_one()
+    provider.Refund.create.assert_not_called()
+    resumed = await DriveOwnerSearchStore(db=sharing.db).takeover_request(
+        user_id="owner", request_id=request_id
+    )
+    assert resumed is not None and resumed["status"] == "queued"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("search_end", ["completed", "connection_changed", "incomplete"])
+async def test_paid_request_with_no_match_refunds_in_full_exactly_once(
+    request_bulk, sharing, search_end
+):
+    """B paid at A's Allow and the search found nothing, or ended for good before
+    it could (its Drive connection changed, or Drive reported it incomplete).
+
+    Each settles once with a full refund. Such a search can never freeze a
+    batch again, so it closes the request instead of holding the money until
+    the request's 30-day deadline.
+    """
+    request_id = await _paid_at_allow(sharing)
     search = _search(request_bulk, request_id=request_id, count=0)
     if search_end == "completed":
         # The search's own completion hook.
         await request_bulk.refresh_request(user_id="owner", request_id=request_id)
+    elif search_end == "connection_changed":
+        # A reconnected Drive: takeover, retry and review all refuse the old job.
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text("""UPDATE user_external_connector_connections
+                  SET connection_generation=connection_generation+1
+                  WHERE user_id='owner' AND connector_id='google_drive'""")
+            )
+            connection.execute(
+                text("""UPDATE drive_owner_search_jobs SET status='failed',
+                  error_code='provider_unavailable' WHERE job_id=:job"""),
+                {"job": search},
+            )
     else:
         with sharing.db.engine.begin() as connection:
             connection.execute(
-                text("UPDATE drive_owner_search_jobs SET status='failed' WHERE job_id=:job"),
+                text("""UPDATE drive_owner_search_jobs SET status='limited',
+                  incomplete_search=TRUE WHERE job_id=:job"""),
                 {"job": search},
             )
     provider = _settlement_provider(request_id)

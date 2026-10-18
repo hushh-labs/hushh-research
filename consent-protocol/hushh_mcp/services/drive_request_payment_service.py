@@ -37,7 +37,9 @@ from hushh_mcp.services.drive_request_payment_store import (
     DriveRequestPaymentStore,
     _payer_ref,
     _request_id,
+    _search_exists,
 )
+from hushh_mcp.services.drive_request_queue import automatic_start_parked
 from hushh_mcp.services.drive_request_review_policy import request_requires_owner_review
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
@@ -369,15 +371,22 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 cipher=sharing.sharing_cipher,
             )
         ):
+            # The owner took the request over (Search again, or the review
+            # page's own start after automatic sharing stopped): A now selects
+            # its files. A's Allow still prices it, but only A's exact approved
+            # batch is payment authority, as for a manual request.
+            takeover = request["preparation_error_code"] == "manual_search_active"
             preferences = DriveLivePreferences(db=self.db)
             current = preferences.live_active(connection, user_id=owner)
-            preferences.background_current(
-                connection, user_id=owner, generation=current["connection_generation"]
-            )
+            if not takeover:
+                # Only the automatic pipeline searches with background access.
+                preferences.background_current(
+                    connection, user_id=owner, generation=current["connection_generation"]
+                )
             # One fixed refusal code per gate, in the order they always ran.
             if request["status"] != "pending":
                 raise checkout_refusal("request_closed")
-            if request["preparation_error_code"] == "manual_search_active":
+            if takeover and not self.owner_approved_progressive_batch(connection, request):
                 raise checkout_refusal("manual_takeover")
             if not connector_feature_enabled("google_drive_chat_reads", owner):
                 raise checkout_refusal("reads_disabled")
@@ -389,6 +398,15 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 request_id=request_id,
             ):
                 raise checkout_refusal("recipient_not_current")
+            if (
+                not takeover
+                and automatic_start_parked(request["preparation_error_code"])
+                and not _search_exists(connection, request)
+            ):
+                # The automatic start failed for good before any search
+                # existed: nothing can be delivered, so no payment is taken.
+                # A payment already on its way is reconciled and refunded.
+                raise checkout_refusal("search_parked")
         else:
             # A manual request or candidate-only search needs exact owner
             # consent, including one with a historical Trusted/Allow marker.
@@ -556,10 +574,12 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                         )
             except Exception as error:
                 raise checkout_refusal(refusal_reason(error, stage)) from None
-            if flat_request and files and len(files) <= 120:
+            if flat_request and files and len(files) <= 120 and getattr(files, "final", True):
                 # The existing rule stays: proof that the buyer already has
                 # every file of a final set waives the charge. An unreadable or
-                # slow answer is not that proof and never blocks checkout.
+                # slow answer is not that proof and never blocks checkout. The
+                # owner's approvals so far are final only once they hold every
+                # shareable match of a finished search.
                 try:
                     async with asyncio.timeout(FLAT_ACCESS_CHECK_SECONDS):
                         access = await DrivePackageAccessPreflight(

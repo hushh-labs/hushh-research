@@ -4535,3 +4535,141 @@ async def test_unpaid_batch_is_released_once_when_its_request_can_never_pay(
             text("SELECT status FROM drive_request_owner_payouts WHERE request_id=:request"),
             {"request": request_id},
         ).scalar_one() == ("awaiting_delivery" if ending == "checkout_closed" else "void")
+
+
+@pytest.mark.asyncio
+async def test_unpaid_full_review_batch_released_after_checkout_closed_sends_no_outcome(
+    request_bulk, sharing, monkeypatch
+):
+    """A full-review request (one batch, no positions): A's approval moved it to
+    approved and created the order. B's single Checkout window then closed, so
+    its queued grants are released unpaid. Nothing was shared and nobody paid:
+    the request stays approved with no partial-share news for either side,
+    and its unpaid earning is void at the request's deadline."""
+    request_id = (await _request(sharing))["requestId"]
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=_search(request_bulk, request_id=request_id, count=3),
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+    )
+    await request_bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+    )
+    with sharing.db.engine.begin() as connection:
+        assert connection.execute(
+            text("""SELECT r.status,o.status FROM drive_share_requests r
+            JOIN drive_request_payment_orders o ON o.request_id=r.request_id
+            WHERE r.request_id=:request"""),
+            {"request": request_id},
+        ).one() == ("approved", "awaiting_payment")
+        # What the signed checkout.session.expired webhook records.
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders SET status='expired'
+            WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+    worker, adapter = _grant_worker(request_bulk)
+    worker._pace = AsyncMock()
+
+    assert (await worker.run(max_jobs=400, deadline_seconds=80))["outcomes"] == {"not_claimed": 3}
+    assert _effect_outcomes(request_bulk.db, review["shareId"]) == {("skipped", "stopped"): 3}
+    adapter.create_reader.assert_not_awaited()
+    with sharing.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT status FROM drive_share_requests WHERE request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == "approved"
+        )
+        assert (
+            connection.execute(
+                text("""SELECT count(*) FROM drive_share_events
+                WHERE request_id=:request AND event_type='document_share_outcome'"""),
+                {"request": request_id},
+            ).scalar_one()
+            == 0
+        )
+    payouts = DriveRequestOwnerPayoutService(db=sharing.db)
+    await payouts.reconcile_due(max_orders=4)
+    with sharing.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT status FROM drive_request_owner_payouts WHERE request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == "awaiting_delivery"
+        )
+        connection.execute(
+            text("""UPDATE drive_share_requests
+            SET expires_at=created_at+INTERVAL '1 millisecond' WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+    await payouts.reconcile_due(max_orders=4)
+    with sharing.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT status FROM drive_request_owner_payouts WHERE request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == "void"
+        )
+
+
+@pytest.mark.asyncio
+async def test_unpaid_full_review_batch_skipped_while_still_payable_keeps_its_outcome(
+    request_bulk, sharing, monkeypatch
+):
+    """Control for the test above: only a request that can never be paid any
+    more keeps quiet. Here B can still pay when a grant is claimed while the
+    owner's sharing is switched off, so it is skipped: the request reaches its
+    partial outcome, with its news, exactly as before. (The queue itself never
+    offers an unpaid grant; the claim is direct.)"""
+    request_id = (await _request(sharing))["requestId"]
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=_search(request_bulk, request_id=request_id, count=3),
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+    )
+    await request_bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+    )
+    monkeypatch.setattr(DriveBulkShareStore, "_owner_grants_enabled", staticmethod(lambda _: False))
+    for position in range(1, 4):
+        assert (
+            await request_bulk.claim(
+                user_id="owner",
+                share_id=review["shareId"],
+                position=position,
+                recipient_user_id="recipient",
+            )
+            is None
+        )
+    assert ("queued", None) not in _effect_outcomes(request_bulk.db, review["shareId"])
+    with sharing.db.engine.connect() as connection:
+        assert connection.execute(
+            text("""SELECT r.status,o.status FROM drive_share_requests r
+            JOIN drive_request_payment_orders o ON o.request_id=r.request_id
+            WHERE r.request_id=:request"""),
+            {"request": request_id},
+        ).one() == ("partial", "awaiting_payment")
+        assert (
+            connection.execute(
+                text("""SELECT count(*) FROM drive_share_events
+                WHERE request_id=:request AND event_type='document_share_outcome'"""),
+                {"request": request_id},
+            ).scalar_one()
+            == 2
+        )

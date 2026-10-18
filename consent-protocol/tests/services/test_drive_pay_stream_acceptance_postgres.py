@@ -1223,3 +1223,289 @@ async def test_s11_paid_request_that_expires_mid_delivery_settles_once(flow_fact
     assert sum(world.created.values()) == 8
     payout = _settled_once(flow, expected=20, confirmed=8)
     await _settle_again_is_a_no_op(flow, payout)
+
+
+# --- Review fixes: ended searches, parked starts, unpaid and void earnings ---
+
+
+def _end_search(flow, status, *, error_code=None):
+    """The request's search stops: Drive failed it for good or A stopped it."""
+    flow.sql(
+        """UPDATE drive_owner_search_jobs SET status=:status,error_code=:error,
+             lease_id=NULL,lease_expires_at=NULL
+           WHERE user_id='owner' AND client_request_id=:request""",
+        {"request": flow.request_id, "status": status, "error": error_code},
+    )
+
+
+def _ended_by(ended):
+    return {"failed": ("failed", "provider_unavailable"), "stopped": ("stopped", None)}[ended]
+
+
+async def _paid_and_five_delivered(flow, world):
+    """B paid; the five matches are shared while the search is still running."""
+    await flow.ask()
+    assert await flow.until_checkout_opens() is not None, "B can never pay"
+    await flow.pay()
+    for _ in range(3):
+        await flow.search_slice()
+        await flow.sharing_drain()
+        if len(world.created) == 5:
+            break
+    assert sum(world.created.values()) == 5
+    assert (await flow.search())["status"] in {"queued", "running"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ended", ["failed", "stopped"])
+async def test_s12_paid_request_whose_search_a_can_resume_never_settles_early(flow_factory, ended):
+    """A failed or stopped search is not the end of delivery: A's Search again
+    resumes it at its cursor. B is never charged in full for part of the set,
+    and the request stays open for A to resume, until A stops or its deadline."""
+    world = DriveWorld([*in_period(5), *noise(800)])
+    flow = flow_factory(world)
+    await _paid_and_five_delivered(flow, world)
+    status, error_code = _ended_by(ended)
+    _end_search(flow, status, error_code=error_code)
+    for _ in range(3):
+        await flow.settle()
+
+    assert flow.request_status() == "pending"
+    payout = flow.payout()
+    assert (payout["status"], payout["finalized_at"]) == ("awaiting_delivery", None)
+    assert flow.refunds() == [] and flow.stripe.refund_creates == []
+    resumed = await flow.store.takeover_request(user_id="owner", request_id=flow.request_id)
+    assert resumed is not None and resumed["status"] == "queued"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ended", ["failed", "stopped"])
+async def test_s13_held_matches_survive_a_resumable_search_end_after_payment(flow_factory, ended):
+    """The first slice froze five matches before B paid. The search then stops
+    before they are approved: they stay held for A, nothing is refunded as a
+    no-match, and A's Search again resumes the search."""
+    world = DriveWorld([*in_period(5), *noise(800)])
+    flow = flow_factory(world)
+    await flow.ask()
+    assert await flow.until_checkout_opens() is not None, "B can never pay"
+    assert [(b["status"], b["approved"]) for b in flow.batches()] == [("review_ready", False)]
+    await flow.pay()
+    status, error_code = _ended_by(ended)
+    _end_search(flow, status, error_code=error_code)
+    for _ in range(3):
+        await flow.settle()
+
+    assert flow.request_status() == "pending"
+    assert [(b["status"], b["approved"]) for b in flow.batches()] == [("review_ready", False)]
+    assert flow.refunds() == [] and flow.stripe.refund_creates == []
+    assert flow.payout()["status"] == "awaiting_delivery"
+    resumed = await flow.store.takeover_request(user_id="owner", request_id=flow.request_id)
+    assert resumed is not None and resumed["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_s14_paid_request_whose_drive_connection_changed_settles_once(flow_factory):
+    """A search on a Drive connection that has since changed can never resume:
+    takeover, retry and review all refuse it. Delivery ended; it settles once."""
+    world = DriveWorld([*in_period(5), *noise(800)])
+    flow = flow_factory(world)
+    await _paid_and_five_delivered(flow, world)
+    flow.sql(
+        """UPDATE user_external_connector_connections
+           SET connection_generation=connection_generation+1
+           WHERE user_id='owner' AND connector_id='google_drive'"""
+    )
+    _end_search(flow, "failed", error_code="connection_changed")
+    for _ in range(2):
+        await flow.settle()
+
+    assert flow.request_status() == "completed"
+    payout = _settled_once(flow, expected=5, confirmed=5)
+    await _settle_again_is_a_no_op(flow, payout)
+
+
+@pytest.mark.asyncio
+@pay_at_allow_only
+async def test_s15_unpaid_request_that_finds_nothing_voids_its_earning_once(flow_factory):
+    """Pay-at-Allow enrolls A's earning before the search. Nothing matched and
+    B never paid: the earning is void, once, and leaves the payout lane."""
+    world = DriveWorld([*stale(5), *noise(20)])
+    flow = flow_factory(world)
+    await flow.ask()
+    await flow.sharing_drain()
+    assert flow.order()["status"] == "checkout_open"
+    await flow.until_quiet()
+
+    assert flow.request_status() == "no_match"
+    payout = flow.payout()
+    assert (payout["status"], payout["finalized_at"]) == ("void", None)
+    assert flow.refunds() == [] and flow.stripe.refund_creates == []
+    await flow.settle()
+    assert flow.payout()["updated_at"] == payout["updated_at"]
+
+
+def _unshareable(count):
+    """Matches by title and period that A's Drive does not let A share."""
+    return [
+        report(f"u-{index:03d}", FIRST_DAY + timedelta(days=index), can_share=False)
+        for index in range(count)
+    ]
+
+
+@pytest.mark.asyncio
+@pay_at_allow_only
+async def test_s16_paid_request_whose_matches_a_cannot_share_is_refunded_and_void(
+    flow_factory,
+):
+    """Every match fails Drive's canShare for A, so nothing can be sent: a full
+    refund for B, a void earning for A, and no partial-share outcome."""
+    world = DriveWorld([*_unshareable(3), *noise(20)])
+    flow = flow_factory(world)
+    await flow.ask()
+    await flow.sharing_drain()
+    await flow.pay()
+    await flow.until_quiet()
+
+    assert (await flow.search())["status"] == "completed"
+    assert flow.batches() == [] and world.created == Counter()
+    assert flow.request_status() == "no_match"
+    assert [(row["amount_cents"], row["status"]) for row in flow.refunds()] == [
+        (ALLOW_CENTS, "succeeded")
+    ]
+    assert flow.stripe.refund_creates == [ALLOW_CENTS]
+    assert flow.order()["status"] == "refunded"
+    assert flow.payout()["status"] == "void"
+    await flow.settle()
+    assert flow.stripe.refund_creates == [ALLOW_CENTS]
+    assert flow.payout()["status"] == "void"
+
+
+@pytest.mark.asyncio
+@pay_at_allow_only
+async def test_s17_unpaid_request_whose_matches_a_cannot_share_ends_and_stops_asking(
+    flow_factory, monkeypatch
+):
+    """The search finished before B's link was made and found only files A
+    cannot share. The request ends at once: B is not offered a checkout on
+    every drain until the deadline, and A's earning is void."""
+    world = DriveWorld([*_unshareable(3), *noise(20)])
+    flow = flow_factory(world)
+    await flow.ask()
+    for _ in range(3):
+        await flow.search_drain()
+        if (await flow.search())["status"] in TERMINAL_SEARCH:
+            break
+    assert (await flow.search())["status"] == "completed"
+    attempts = Counter()
+    real = DriveRequestPaymentService.checkout
+
+    async def counted(self, **kwargs):
+        attempts[kwargs["request_id"]] += 1
+        return await real(self, **kwargs)
+
+    monkeypatch.setattr(DriveRequestPaymentService, "checkout", counted)
+    for _ in range(3):
+        await flow.sharing_drain()
+
+    assert flow.request_status() == "no_match"
+    assert attempts[flow.request_id] == 0
+    assert flow.order()["status"] == "awaiting_payment"
+    assert flow.payout()["status"] == "void"
+
+
+async def _park_automatic_start(flow):
+    """Three failed starts: the automatic queue never starts this search again."""
+    for _ in range(3):
+        await flow.sharing.defer_trusted_search(
+            user_id="owner", request_id=flow.request_id, code="preparation_unavailable"
+        )
+    flow.sql(
+        """UPDATE drive_share_requests SET preparation_next_at=clock_timestamp()
+           WHERE request_id=:request""",
+        {"request": flow.request_id},
+    )
+    due = await flow.sharing.due_trusted_searches(limit=20)
+    assert flow.request_id not in {item["request_id"] for item in due}
+
+
+@pytest.mark.asyncio
+@pay_at_allow_only
+async def test_s18_b_is_never_asked_to_pay_for_a_search_that_can_never_start(flow_factory, caplog):
+    import logging
+
+    world = DriveWorld([*in_period(4), *noise(10)])
+    flow = flow_factory(world)
+    await flow.ask()
+    await _park_automatic_start(flow)
+    caplog.set_level(logging.INFO, logger="hushh_mcp.services.drive_request_checkout_refusals")
+    for _ in range(2):
+        await flow.sharing_drain()
+
+    order = flow.order()
+    assert (order["status"], order["stripe_checkout_session_id"]) == ("awaiting_payment", None)
+    assert flow.stripe.sessions == {}
+    assert "drive_request_checkout.refused reason=search_parked code=payment_not_ready" in {
+        record.getMessage() for record in caplog.records
+    }
+    assert (await flow.payment_view())["state"] != "payable"
+    # The checkout lane's own gate names it, before any later authority check.
+    with pytest.raises(DriveSharingError) as refused:
+        await flow.bulk.autoshare_checkout_sources(user_id="owner", request_id=flow.request_id)
+    assert (str(refused.value), refused.value.reason) == ("payment_not_ready", "search_parked")
+
+
+@pytest.mark.asyncio
+@pay_at_allow_only
+async def test_s19_a_payment_made_after_the_search_start_parked_is_refunded(flow_factory):
+    """B's link was made while the search was queued; its start then failed for
+    good. A payment on that link is never kept: it is refunded in full."""
+    world = DriveWorld([*in_period(4), *noise(10)])
+    flow = flow_factory(world)
+    await flow.ask()
+    await flow.sharing_drain()
+    assert flow.order()["status"] == "checkout_open"
+    await _park_automatic_start(flow)
+    await flow.pay()
+    order = flow.order()
+    assert (order["reconciliation_required"], order["reconciliation_reason"]) == (
+        True,
+        "authority_changed",
+    )
+    for _ in range(2):
+        await flow.settle()
+
+    assert [(row["amount_cents"], row["status"]) for row in flow.refunds()] == [
+        (ALLOW_CENTS, "succeeded")
+    ]
+    assert flow.stripe.refund_creates == [ALLOW_CENTS]
+    assert world.created == Counter()
+
+
+@pytest.mark.asyncio
+@pay_at_allow_only
+async def test_s20_a_request_waits_for_the_owners_running_search_and_never_parks(flow_factory):
+    """A runs one Drive search at a time. A second allowed request waits for
+    the first search; waiting never counts toward the three failed starts, so
+    it is never parked for good and B can still pay for it."""
+    world = DriveWorld([*in_period(3), *noise(800)])
+    flow = flow_factory(world)
+    await flow.ask()
+    await flow.search_slice()
+    assert (await flow.search())["status"] in {"queued", "running"}
+    second = await flow.ask()
+    for _ in range(4):
+        flow.sql(
+            """UPDATE drive_share_requests SET preparation_next_at=clock_timestamp()
+               WHERE request_id=:request""",
+            {"request": second},
+        )
+        assert await flow.auto.start_pending(max_jobs=1) == {"started": 0, "deferred": 1}
+
+    [row] = flow.sql(
+        """SELECT preparation_attempts,preparation_error_code,bulk_search_started_at
+           FROM drive_share_requests WHERE request_id=:request""",
+        {"request": second},
+    )
+    assert tuple(row.values()) == (0, "trusted_auto_queued", None)
+    await flow.sharing_drain()
+    assert flow.order()["status"] == "checkout_open"
