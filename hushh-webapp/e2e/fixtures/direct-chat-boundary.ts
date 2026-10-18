@@ -6,6 +6,7 @@ import type { DirectMessage, DirectMessageConversation } from "../../lib/service
 export const DIRECT_MESSAGE_MAX_LENGTH = 2000;
 export class DirectMessagesServiceRequestError extends Error { status = 503; }
 const rows = new Map<string, DirectMessage[]>();
+const overflowingInbox = new URLSearchParams(location.search).has("overflowInbox");
 const attachments = new Map<string, Blob>();
 const pendingPhotos = new Map<string, { wait: Promise<void>; release: () => void; started: boolean }>();
 const deliveries: { conversationId: string; messageIds: string[] }[] = [];
@@ -138,7 +139,11 @@ export class DirectMessagesService {
 
   static async listConversations() {
     if (delayInbox) await new Promise<void>((resolve) => { settleInbox = resolve; });
-    return { items: [conversation("maya"), conversation("arjun")], unreadCount: conversation("maya").unreadCount + conversation("arjun").unreadCount };
+    const items = [conversation("maya"), conversation("arjun")];
+    if (overflowingInbox) {
+      items.push(...Array.from({ length: 30 }, (_, index) => ({ ...conversation("arjun"), id: `extra-${index}`, peerDisplayName: `Connection ${index + 1}` })));
+    }
+    return { items, unreadCount: conversation("maya").unreadCount + conversation("arjun").unreadCount };
   }
   static async getConversationMessages(input: { conversationId: string; before?: string; limit?: number }) {
     const items = rows.get(input.conversationId)!;

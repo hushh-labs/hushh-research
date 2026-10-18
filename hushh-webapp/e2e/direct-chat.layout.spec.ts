@@ -67,12 +67,12 @@ test.beforeAll(async () => {
   });
   css = stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle();
 });
-async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean; preview?: boolean } = {}) {
+async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean; preview?: boolean; overflowInbox?: boolean } = {}) {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("http://localhost/fixture-person-*.webp", (route) => route.fulfill({ contentType: "image/webp", body: fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${Number(route.request().url().match(/person-(\d+)/)![1]) + 1}.webp`)) }));
   await page.route("http://localhost/one/messages*", (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html data-command="${command}" data-path="/one/messages" data-modal-fixture="${options.modal === true}" class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
-  await page.goto(`http://localhost/one/messages${inbox ? "" : `?conversation=maya${delayInbox ? "&delayInbox=1" : ""}${options.preview ? "&preview=1" : ""}`}`);
+  await page.goto(`http://localhost/one/messages${inbox ? "" : `?conversation=maya${delayInbox ? "&delayInbox=1" : ""}${options.preview ? "&preview=1" : ""}${options.overflowInbox ? "&overflowInbox=1" : ""}`}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   const input = page.getByRole(inbox ? "searchbox" : "textbox", { name: inbox ? "Search conversations" : "Message Maya Rao" });
@@ -137,6 +137,29 @@ for (const width of [393, 768, 960, 1920]) {
       const conversation = (await thread.boundingBox())!;
       return conversation.y + conversation.height - (await page.locator('[data-agent-bar-shell]').boundingBox())!.y;
     }).toBeLessThanOrEqual(1);
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const lane of ["People", "Circles"] as const) {
+  test(`the last ${lane} row stays above the keyboard in tablet split mode`, async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 1000 });
+    const errors = await mount(page, false, false, false, "idle", { overflowInbox: true });
+    if (lane === "Circles") {
+      await page.getByRole("tab", { name: "Circles 33" }).click();
+      await page.getByRole("button", { name: /Weekend friends/ }).click();
+    }
+    await page.evaluate(() => {
+      document.documentElement.classList.add("kb-open", "native-keyboard-inset");
+      document.documentElement.style.setProperty("--kb-height", "300px");
+    });
+    const list = page.getByRole("complementary", { name: lane === "People" ? "Conversations" : "Circles" });
+    const lastRow = list.getByRole("button", { name: lane === "People" ? /Connection 30/ : /Circle 30/ });
+    await expect(lastRow).toBeAttached();
+    await list.locator(lane === "People" ? "nav" : '[class*="rows"]').evaluate(node => { node.scrollTop = node.scrollHeight; });
+    const row = (await lastRow.boundingBox())!;
+    expect(row.y).toBeGreaterThanOrEqual((await list.boundingBox())!.y);
+    expect(row.y + row.height).toBeLessThanOrEqual(700);
     expect(errors).toEqual([]);
   });
 }
@@ -374,7 +397,7 @@ test("inbox search keyboard keeps a completed command visible and dismissible", 
   await expect(page.locator("[data-bottom-shell-navigation-slot]")).toBeVisible();
   expect(errors).toEqual([]);
 });
-for (const [width, height] of [[320, 568], [393, 844], [430, 932], [767, 852], [768, 852], [959, 852], [960, 852], [1024, 768], [1440, 1000], [1920, 1080], [2560, 1440], [844, 390]]) {
+for (const [width, height] of [[320, 568], [393, 844], [430, 932], [767, 852], [768, 500], [768, 852], [959, 852], [960, 852], [1024, 499], [1024, 500], [1024, 768], [1100, 500], [1440, 1000], [1920, 1080], [2560, 1440], [844, 390]]) {
   test(`keeps chat navigation and keyboard controls reachable at ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width: width!, height: height! });
     const errors = await mount(page, width === 430);
@@ -429,6 +452,8 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [767, 852], [
       expect(Math.abs(layout.aside!.x - layout.canvas.x)).toBeLessThanOrEqual(1);
       expect(Math.abs(layout.aside!.width - width! * 0.3)).toBeLessThanOrEqual(1);
       const inboxHeader = page.getByRole("complementary", { name: "Conversations" }).locator("header");
+      const inboxHeaderBox = (await inboxHeader.boundingBox())!;
+      expect(Math.abs(inboxHeaderBox.y + inboxHeaderBox.height - layout.threadHeader.y - layout.threadHeader.height)).toBeLessThanOrEqual(1);
       const heading = (await inboxHeader.getByRole("heading", { name: "Messages" }).boundingBox())!;
       const actions = (await inboxHeader.locator('[class*="inboxHeaderActions"]').boundingBox())!;
       if (width! < 1100) expect(heading.y + heading.height + 4).toBeLessThanOrEqual(actions.y);

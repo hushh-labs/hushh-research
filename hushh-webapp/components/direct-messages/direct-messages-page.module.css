@@ -1738,6 +1738,10 @@ article[data-message-role="user"] .messageDeliveryState {
     align-self: start;
     height: max(0px, calc(100% - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset) + var(--direct-message-dock-height, 0px) + var(--direct-message-dock-clearance, 0px)))));
   }
+  .inbox {
+    align-self: start;
+    height: max(0px, calc(100% - var(--direct-message-keyboard-inset, 0px)));
+  }
   .messageCluster,
   article[data-message-role="peer"] .messageCluster {
     max-width: min(75%, 40rem);
@@ -1756,7 +1760,10 @@ article[data-message-role="user"] .messageDeliveryState {
     padding: 12px;
     gap: 4px;
   }
-  .threadHeader, .threadHeaderContent { height: 96px; min-height: 96px; }
+  .page .threadHeader, .page .threadHeaderContent { height: 96px; min-height: 96px; }
+}
+@media (min-width: 1100px) and (max-height: 500px) {
+  .page .inboxHeader { height: 44px; min-height: 44px; padding-block: 0; }
 }
 @media (max-width: 767px), (max-width: 1023px) and (max-height: 499px) {
   .page, .page[data-chat-open="true"] { grid-template-columns: minmax(0, 1fr); }
