@@ -385,6 +385,9 @@ private struct NativeProfilePageBody: View {
         // Install the actual View, not a helper called on an uninstalled View:
         // its ScaledMetric and environment properties need SwiftUI ownership.
         NativeDrawerContent(model: model, profileRowObserver: observer, profilePage: pageID.map { .page($0) } ?? .menu)
+            // SwiftUI owns the body controls' accent, not the surrounding
+            // UIKit navigation bar. Keep its environment below that boundary.
+            .tint(Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label))
     }
 }
 
@@ -610,9 +613,14 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     private func applyAppearance() {
         guard let theme = HushhNativeControlAppearance(appearance: model.projection.appearance,
             accentHex: model.projection.accentHex, foregroundHex: model.projection.foregroundHex) else { return }
-        overrideUserInterfaceStyle = theme.style
-        host?.overrideUserInterfaceStyle = theme.style
-        host?.view.tintColor = theme.accent
+        // A content/acknowledgement update is not an appearance change.
+        // Reassigning an ancestor's tint propagates rendering invalidation to
+        // the retained navigation bar, even though its own tint is unchanged.
+        if overrideUserInterfaceStyle != theme.style { overrideUserInterfaceStyle = theme.style }
+        if let host {
+            if host.overrideUserInterfaceStyle != theme.style { host.overrideUserInterfaceStyle = theme.style }
+            if !host.view.tintColor.isEqual(theme.accent) { host.view.tintColor = theme.accent }
+        }
     }
     private func alignHeader() {
         guard model.projection.family == "history", !dragging,
@@ -902,7 +910,6 @@ struct NativeDrawerContent: View {
             // handles its own keyboard clearance; SwiftUI must not shrink this
             // UIKit navigation envelope and expose the route behind it.
             .ignoresSafeArea(.all, edges: .vertical)
-            .tint(Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label))
             .allowsHitTesting(model.interactionEnabled)
             .accessibilityHidden(!model.interactionEnabled)
     }

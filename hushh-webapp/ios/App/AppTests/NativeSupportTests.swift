@@ -1340,9 +1340,20 @@ final class NativeSupportTests: XCTestCase {
         rootNavigationItem.backButtonTitle = originalBackTitle
         XCTAssertEqual(repeatedBackTitleWrites, 1, "Negative control must observe UIKit's redundant Back-label assignment")
         repeatedBackTitleWrites = 0
-        for _ in 0..<3 { envelopeNavigation.reconcile() }
+        var repeatedTintWrites = 0
+        var repeatedStyleWrites = 0
+        let tintObservation = controller.host.view.observe(\.tintColor, options: [.new]) { _, _ in repeatedTintWrites += 1 }
+        let styleObservation = controller.host.observe(\.overrideUserInterfaceStyle, options: [.new]) { _, _ in repeatedStyleWrites += 1 }
+        let originalTint = controller.host.view.tintColor
+        controller.host.view.tintColor = originalTint
+        XCTAssertEqual(repeatedTintWrites, 1, "Negative control must observe a redundant ancestor tint assignment")
+        repeatedTintWrites = 0
+        for _ in 0..<3 { controller.update(account); envelopeNavigation.reconcile() }
         XCTAssertEqual(repeatedBackTitleWrites, 0, "Compatible content refreshes must not rebuild the native Back label")
+        XCTAssertEqual(repeatedTintWrites, 0, "Compatible content refreshes must not reapply the ancestor material tint")
+        XCTAssertEqual(repeatedStyleWrites, 0, "Compatible content refreshes must not reapply the ancestor appearance")
         backTitleObservation.invalidate()
+        tintObservation.invalidate(); styleObservation.invalidate()
         let navigationFrame = envelopeNavigation.view.convert(envelopeNavigation.view.bounds, to: window)
         let panelFrame = controller.host.view.convert(controller.host.view.bounds, to: window)
         XCTAssertEqual(navigationFrame.minY, panelFrame.minY, accuracy: 1, "Profile navigation must cover the panel's top safe area")

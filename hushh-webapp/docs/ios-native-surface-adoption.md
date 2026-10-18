@@ -38,7 +38,9 @@ hide and second-tap Copy policy, and existing encrypted writers. Native Back and
 confirmations stay within Profile. Values remain private in-process replicas;
 vault keys, tokens and wrapping material never enter projections. These new
 paths require additive iPhone qualification capabilities; old wrappers retain
-their complete web bodies. Physical acceptance of this batch is pending.
+their complete web bodies. Installed `7c71028adc` passes the attach-only received
+records/Drive/Secrets and Preferences read/Cancel journeys, without mutations.
+This is functional evidence, not visual or whole-family acceptance.
 
 The reported nested Back-label flicker exposed unconditional UIKit title and
 `backButtonTitle` assignments on every model refresh, including active push/pop.
@@ -46,7 +48,15 @@ The candidate updates navigation metadata only when changed and after UIKit
 settles. Controllers, navigation items and the native transition remain retained;
 appearance/content refreshes are not a reason to rebuild Back. The nearest host
 regression observes actual navigation-item writes and mid-pop refresh ordering.
-Exact-candidate physical transition acceptance remains separate from that check.
+On installed `7c71028adc`, the user still observes Back text appearing, blurring
+and returning. The title-setter fix is therefore insufficient; that candidate
+fails visual acceptance. The next controlled correction makes ancestor style
+and tint updates idempotent and moves the SwiftUI body accent below the UIKit
+navigation boundary, leaving UIKit as the sole navigation-bar tint owner. The
+existing synthetic host regression fails on the prior implementation with three
+redundant ancestor tint/style writes for three compatible content updates. This
+establishes the redundant appearance writes, not their physical pixel effect.
+Expansion is held until the corrected integrated transition is reviewed.
 
 Referrals continuation (qualification-only candidate): the standard route has a
 private body projection independent of Profile's modal lifetime. It maps You,
