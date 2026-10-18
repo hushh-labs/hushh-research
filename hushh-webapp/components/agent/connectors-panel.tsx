@@ -412,7 +412,7 @@ export function ConnectorsPanel(props: Props) {
       access={{ userId: user?.uid ?? "", vaultKey: vaultKey ?? "", vaultOwnerToken: vaultOwnerToken ?? "" }}
       enabled={props.open && Boolean(user?.uid && vaultKey && vaultOwnerToken)} onPrepareRecovery={props.onPrepareRecovery}
       isAccessCurrent={customAccessIsCurrent}
-      render={(model, body) => <OwnerConnectorsPanel {...props} customPresentation={{ model, body }} />} />;
+      render={(model, body) => <OwnerConnectorsPanel {...props} customAccessIsCurrent={customAccessIsCurrent} customPresentation={{ model, body }} />} />;
   }
   return (
     <OwnerConnectorsPanel

@@ -1298,6 +1298,23 @@ describe("supported connector catalog", () => {
     expect(state.gmailStartConnect).not.toHaveBeenCalled();
   });
 
+  it("admits the retained Profile link editor and revokes it immediately on live vault lock", async () => {
+    let shown: ConnectorsPanelPresentation | undefined;
+    render(<ConnectorsPanel open surface="profile" activeConnector="instagram" {...callbacks}
+      render={model => { shown = model; return <div />; }} />);
+    await waitFor(() => expect(shown?.detail?.kind).toBe("social"));
+    const detail = shown?.detail;
+    if (detail?.kind !== "social") throw new Error("Social detail not admitted");
+    expect(detail.current()).toBe(true);
+    const revision = detail.inputRevision();
+    expect(detail.changeLink("https://www.instagram.com/synthetic/", revision)).toBe(true);
+    // The platform getters change before a React rerender or effect cleanup.
+    state.token = null;
+    expect(detail.current()).toBe(false);
+    expect(detail.changeLink("https://www.instagram.com/retired/", revision + 1)).toBe(false);
+    expect(state.startOAuthConnect).not.toHaveBeenCalled();
+  });
+
   it("rejects a delayed catalog after same-owner token rotation", async () => {
     let finish!: (value: ReturnType<typeof overview>) => void;
     state.overview.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
