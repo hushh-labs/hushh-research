@@ -6,7 +6,7 @@ import { productFontStyle, stripAppFontFaces, awaitProductFont } from "./fixture
 
 let script: string;
 let css: string;
-const shortcuts = ["Open To-do List", "Get the app"];
+const shortcuts = ["Get the app"];
 const allShortcuts = [...shortcuts, "Open Connectors"];
 test.setTimeout(120_000);
 // Reuse the production bundle within each browser project, including in CI.
@@ -192,9 +192,8 @@ test("reduced motion stays static, including preference changes mid-cycle", asyn
     await row.hover(); expect(await running(row.locator("svg"))).toBe(0);
     expect(await row.getAttribute("data-shortcut-icon-playing")).toBeNull();
   }
-  expect(await page.getByRole("button", { name: "Open To-do List", exact: true }).locator("svg").evaluate(element => getComputedStyle(element.parentElement!, "::before").transitionDuration)).toBe("0s");
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  const row = page.getByRole("button", { name: "Open To-do List", exact: true });
+  const row = page.getByRole("button", { name: "Get the app", exact: true });
   await row.hover(); await expect(row).toHaveAttribute("data-shortcut-icon-playing", "true");
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect.poll(() => row.getAttribute("data-shortcut-icon-playing")).toBeNull();
@@ -209,7 +208,7 @@ test("touch starts playback and triggers the existing action immediately", async
   for (const [index, label] of allShortcuts.entries()) {
     const row = page.getByRole("button", { name: label, exact: true });
     await row.tap();
-    await expect(page.getByTestId("shortcut-result")).toHaveText(["todo", "app", "connectors"][index]);
+    await expect(page.getByTestId("shortcut-result")).toHaveText(["app", "connectors"][index]);
     await expect(row).toHaveAttribute("data-shortcut-icon-playing", "true");
     await expect.poll(() => row.getAttribute("data-shortcut-icon-playing")).toBeNull();
     expect((await row.locator("svg").boundingBox())!.width).toBe(22);
@@ -311,7 +310,7 @@ test("Weave keeps the approved quarter-turn and alternating colours across repla
     expect(await svg.innerHTML()).toBe(settled);
     await page.mouse.move(700, 50);
   }
-  await page.locator("[data-agent-history-footer]").screenshot({ path: testInfo.outputPath("three-shortcuts-mobile.png") });
+  await page.locator("[data-agent-history-footer]").screenshot({ path: testInfo.outputPath("chat-shortcuts-mobile.png") });
   await page.getByRole("button", { name: "Get the app", exact: true }).focus();
   // Safari uses Option-Tab for full keyboard navigation when its default
   // tab preference skips buttons. Exercise that real browser input path.
@@ -340,9 +339,6 @@ test("all shortcut details use the actual Profile accent and ink tokens", async 
       probe.remove();
       return { accent, ink };
     });
-    const todo = page.getByRole("button", { name: "Open To-do List", exact: true }).locator("svg");
-    expect(await todo.locator("path[d='M11 7h6']").evaluate(element => getComputedStyle(element).stroke)).toBe(tokens.accent);
-    expect(await todo.locator("rect[x='7'][y='2']").last().evaluate(element => getComputedStyle(element).stroke)).toBe(tokens.ink);
     const app = page.getByRole("button", { name: "Get the app", exact: true }).locator("svg");
     expect(await app.locator("g").filter({ has: page.locator("path") }).first().locator(":scope > path").nth(1).evaluate(element => getComputedStyle(element).fill)).toBe(tokens.accent);
     const weave = page.getByRole("button", { name: "Open Connectors", exact: true }).locator("svg");
