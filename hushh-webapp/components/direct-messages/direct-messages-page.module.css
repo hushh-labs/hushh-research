@@ -1743,10 +1743,20 @@ article[data-message-role="user"] .messageDeliveryState {
     max-width: min(75%, 40rem);
   }
 }
-/* Keep the list header on one line at the narrowest tablet split, with
-   the same 44px action targets as the wider workspace. */
-@media (min-width: 768px) and (max-width: 819px) {
-  .page .inboxHeader { padding-inline: 12px; gap: 4px; }
+/* A proportional tablet sidebar keeps its title and actions on separate
+   rows, retaining all 44px targets and matching the conversation header. */
+@media (min-width: 768px) and (max-width: 1099px) and (min-height: 500px), (min-width: 1024px) and (max-width: 1099px) {
+  .page .inboxHeader {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: center;
+    justify-content: stretch;
+    height: 96px;
+    min-height: 96px;
+    padding: 12px;
+    gap: 4px;
+  }
+  .threadHeader, .threadHeaderContent { height: 96px; min-height: 96px; }
 }
 @media (max-width: 767px), (max-width: 1023px) and (max-height: 499px) {
   .page, .page[data-chat-open="true"] { grid-template-columns: minmax(0, 1fr); }

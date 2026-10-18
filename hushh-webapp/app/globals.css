@@ -762,7 +762,7 @@ html.native-keyboard-inset.kb-open
    * The inset is symmetric and clears a landscape notch on either side.
    * Held by e2e/bottom-chrome-width.layout.spec.ts. */
   --app-bottom-shell-max-width: 760px;
-  --app-messages-sidebar-width: 40vw;
+  --app-messages-sidebar-width: 30vw;
   --app-bottom-shell-inline-inset: max(
     1rem,
     env(safe-area-inset-left, 0px),

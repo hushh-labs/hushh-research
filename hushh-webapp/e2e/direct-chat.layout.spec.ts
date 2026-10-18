@@ -112,11 +112,12 @@ for (const width of [393, 768, 960, 1920]) {
       const listBox = (await pane.getByRole("complementary", { name: "Circles" }).boundingBox())!;
       const threadBox = (await thread.boundingBox())!;
       const dockBox = (await dock.boundingBox())!;
-      expect(Math.abs(listBox.width - width * 0.4)).toBeLessThanOrEqual(1);
+      expect(Math.abs(listBox.width - width * 0.3)).toBeLessThanOrEqual(1);
       const header = pane.getByRole("complementary", { name: "Circles" }).locator("header");
       const heading = (await header.getByRole("heading", { name: "Messages" }).boundingBox())!;
       const actions = (await header.locator('[class*="inboxHeaderActions"]').boundingBox())!;
-      expect(heading.x + heading.width + 4).toBeLessThanOrEqual(actions.x);
+      if (width < 1100) expect(heading.y + heading.height + 4).toBeLessThanOrEqual(actions.y);
+      else expect(heading.x + heading.width + 4).toBeLessThanOrEqual(actions.x);
       expect(Math.abs(listBox.y + listBox.height - 1000)).toBeLessThanOrEqual(1);
       expect(Math.abs(threadBox.x - listBox.x - listBox.width)).toBeLessThanOrEqual(1);
       expect(Math.abs(dockBox.x - threadBox.x - 16)).toBeLessThanOrEqual(1);
@@ -426,11 +427,12 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [767, 852], [
     if (split) {
       expect(layout.aside).not.toBeNull();
       expect(Math.abs(layout.aside!.x - layout.canvas.x)).toBeLessThanOrEqual(1);
-      expect(Math.abs(layout.aside!.width - width! * 0.4)).toBeLessThanOrEqual(1);
+      expect(Math.abs(layout.aside!.width - width! * 0.3)).toBeLessThanOrEqual(1);
       const inboxHeader = page.getByRole("complementary", { name: "Conversations" }).locator("header");
       const heading = (await inboxHeader.getByRole("heading", { name: "Messages" }).boundingBox())!;
       const actions = (await inboxHeader.locator('[class*="inboxHeaderActions"]').boundingBox())!;
-      expect(heading.x + heading.width + 4).toBeLessThanOrEqual(actions.x);
+      if (width! < 1100) expect(heading.y + heading.height + 4).toBeLessThanOrEqual(actions.y);
+      else expect(heading.x + heading.width + 4).toBeLessThanOrEqual(actions.x);
       expect(Math.abs(layout.aside!.y + layout.aside!.height - height!)).toBeLessThanOrEqual(1);
       const overflow = await page.locator('[data-app-scroll-root]').evaluate(node => node.scrollHeight - node.clientHeight);
       expect(overflow, "The desktop workspace must not scroll beneath the fixed dock").toBeLessThanOrEqual(1);
