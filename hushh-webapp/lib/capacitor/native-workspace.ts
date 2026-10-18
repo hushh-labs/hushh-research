@@ -11,6 +11,7 @@ export type NativeWorkspaceIdentity = {
 export type NativeWorkspaceFrame = {
   x: number; y: number; width: number; height: number;
   viewportWidth: number; viewportHeight: number; layoutRevision: number;
+  contentInset?: number;
 };
 export type NativeWorkspaceProjection = NativeWorkspaceIdentity & NativeControlAppearance & {
   updateSequence: number; privacyGeneration: number; isolationGeneration: number; frame: NativeWorkspaceFrame;
@@ -61,10 +62,11 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
     !["overview", "rules", "circle-picker", "circle-create", "circle-people"].includes(value.page) || !text(value.title, 256) ||
     typeof value.enabled !== "boolean" || typeof value.backEnabled !== "boolean" || !Array.isArray(value.sections) || value.sections.length > 32) return false;
   const frame = value.frame;
-  if (!frame || !closed(frame, ["x", "y", "width", "height", "viewportWidth", "viewportHeight", "layoutRevision"]) ||
+  if (!frame || !closed(frame, ["x", "y", "width", "height", "viewportWidth", "viewportHeight", "layoutRevision", "contentInset"]) ||
     !seq(frame.layoutRevision) || !Object.values(frame).every(Number.isFinite) || frame.x < 0 || frame.y < 0 || frame.width <= 0 || frame.height <= 0 ||
     frame.viewportWidth <= 0 || frame.viewportHeight <= 0 || frame.viewportWidth > 10000 || frame.viewportHeight > 10000 ||
-    frame.x + frame.width > frame.viewportWidth + 1 || frame.y + frame.height > frame.viewportHeight + 1) return false;
+    frame.x + frame.width > frame.viewportWidth + 1 || frame.y + frame.height > frame.viewportHeight + 1 ||
+    frame.contentInset !== undefined && (frame.contentInset < 0 || frame.contentInset > 64 || frame.contentInset * 2 >= frame.width)) return false;
   const ids = new Set<string>(); let count = 0;
   const insert = (key: unknown) => id(key) && !ids.has(key) && !!ids.add(key);
   for (const section of value.sections) {

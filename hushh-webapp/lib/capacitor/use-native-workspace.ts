@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import type { PluginListenerHandle } from "@capacitor/core";
 import { customNativePresentationEnabled } from "./native-presentation-policy";
 import { captureNativeDrawerOwner, nativeDrawerOwnerIsCurrent } from "./native-drawer-owner";
@@ -18,11 +18,12 @@ let nextRevision = 0, nextLayout = 0;
 
 /** One route body admission. No feature readers, writers, router or per-frame
  * synchronization live here. Uncertain retirement never exposes a duplicate. */
-export function useNativeWorkspace({ owner, content, actions, back, current, editor, onRetirementOwner }: {
+export function useNativeWorkspace({ owner, content, actions, back, current, editor, onRetirementOwner, contentFrame }: {
   owner: string; content: NativeWorkspaceContent; actions: ReadonlyMap<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>;
   back: () => void; current: () => boolean;
   editor?: CircleEditor;
   onRetirementOwner?: (revoke: () => Promise<boolean>) => void;
+  contentFrame?: RefObject<HTMLElement | null>;
 }) {
   const appearance = useNativeControlAppearance("secondary");
   const privacy = useSyncExternalStore(subscribeNativePrivacyObservation, () => nativePrivacyObservation().state, () => undefined);
@@ -186,11 +187,17 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
         if (!seat) throw new Error("NATIVE_WORKSPACE_SEAT_MISSING");
         const measure = () => {
           const rect = seat.getBoundingClientRect();
-          const next = { x: rect.x, y: rect.y, width: rect.width, height: rect.height, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight };
+          const authored = contentFrame?.current;
+          const bounds = authored?.getBoundingClientRect() ?? rect;
+          const inset = authored ? Number.parseFloat(getComputedStyle(authored).paddingLeft) : 16;
+          const next = { x: bounds.x, y: rect.y, width: bounds.width, height: rect.height, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight,
+            contentInset: Number.isFinite(inset) ? inset : 16 };
           if (frame && Object.entries(next).every(([key, value]) => frame![key as keyof typeof next] === value)) return;
           frame = { ...next, layoutRevision: ++nextLayout }; emit();
         };
-        observer = new ResizeObserver(measure); observer.observe(seat); measure();
+        observer = new ResizeObserver(measure); observer.observe(seat);
+        if (contentFrame?.current) observer.observe(contentFrame.current);
+        measure();
       } catch { if (isCurrent()) await fail(); }
     })().finally(() => { if (!active) { void handle?.remove(); void editHandle?.remove(); void isolationHandle?.remove(); observer?.disconnect(); void retire().then(retired => { if (retired || !finalOwnerCurrent()) releaseFinal(); }); } });
     const revoke = async () => {
@@ -200,7 +207,7 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
     };
     live.current.onRetirementOwner?.(revoke);
     return () => { void revoke(); };
-  }, [owner, content.workspace, vaultEpoch, privacy?.generation, privacy?.appIsActive, privacy?.shielded]);
+  }, [owner, content.workspace, vaultEpoch, privacy?.generation, privacy?.appIsActive, privacy?.shielded, contentFrame]);
   // The native isolation owner already disables this retained body locally.
   // A matching update readmits current actions after the drawer disappears.
   useLayoutEffect(() => { publish.current(); }, [isolation, webCovered]);

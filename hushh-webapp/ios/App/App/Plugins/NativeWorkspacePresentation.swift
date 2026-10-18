@@ -25,11 +25,14 @@ struct NativeWorkspaceIdentity: Codable, Equatable, Hashable {
 struct NativeWorkspaceFrame: Codable, Equatable {
     let x: Double; let y: Double; let width: Double; let height: Double
     let viewportWidth: Double; let viewportHeight: Double; let layoutRevision: Int
+    var contentInset: Double? = nil
+    var gutter: CGFloat { CGFloat(contentInset ?? 16) }
     var rect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
     var valid: Bool {
         [x,y,width,height,viewportWidth,viewportHeight].allSatisfy(\.isFinite) && x >= 0 && y >= 0 && width > 0 && height > 0 &&
         viewportWidth > 0 && viewportHeight > 0 && viewportWidth <= 10000 && viewportHeight <= 10000 &&
-        x + width <= viewportWidth + 1 && y + height <= viewportHeight + 1 && layoutRevision > 0 && layoutRevision <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration
+        x + width <= viewportWidth + 1 && y + height <= viewportHeight + 1 && layoutRevision > 0 && layoutRevision <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration &&
+        (contentInset == nil || (contentInset!.isFinite && contentInset! >= 0 && contentInset! <= 64 && contentInset! * 2 < width))
     }
 }
 struct NativeWorkspaceTabs: Codable { let label: String; let options: [NativeDrawerOption] }
@@ -73,7 +76,7 @@ struct NativeWorkspaceProjection: Decodable {
     var identity: NativeWorkspaceIdentity { .init(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, workspace: workspace) }
     static let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "appearance", "accentHex", "foregroundHex", "page", "title", "enabled", "backEnabled", "sections", "tabs", "search", "circleEditor"]
     static func closed(_ value: [String: Any]) -> Bool {
-        guard Set(value.keys).isSubset(of: keys), let frame = value["frame"] as? [String: Any], Set(frame.keys) == ["x", "y", "width", "height", "viewportWidth", "viewportHeight", "layoutRevision"],
+        guard Set(value.keys).isSubset(of: keys), let frame = value["frame"] as? [String: Any], Set(frame.keys).isSubset(of: ["x", "y", "width", "height", "viewportWidth", "viewportHeight", "layoutRevision", "contentInset"]),
               let sections = value["sections"] as? [[String: Any]] else { return false }
         for section in sections {
             guard Set(section.keys).isSubset(of: ["id", "title", "rows"]), let rows = section["rows"] as? [[String: Any]] else { return false }
@@ -221,13 +224,13 @@ struct NativeWorkspaceAction: Equatable {
                         .buttonStyle(.glass).buttonBorderShape(.circle).accessibilityLabel("Back").accessibilityIdentifier("native-workspace-back")
                 }
                 Text(model.state.title).font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading).accessibilityAddTraits(.isHeader)
-            }.padding(.horizontal, 16).padding(.vertical, 8)
+            }.padding(.horizontal, model.state.frame.gutter).padding(.vertical, 8)
             if let tabs = model.state.tabs {
                 Picker(tabs.label, selection: Binding(get: { tabs.options.first(where: \.selected)?.id ?? "" }, set: { model.choice("row", row: $0) })) {
                     ForEach(tabs.options, id: \.id) { option in Text(option.label).tag(option.id) }
-                }.pickerStyle(.segmented).padding(.horizontal, 16).padding(.bottom, 8).accessibilityIdentifier("native-workspace-tabs")
+                }.pickerStyle(.segmented).padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8).accessibilityIdentifier("native-workspace-tabs")
             }
-            if let search = model.state.search { NativeWorkspaceSearchField(model: model, search: search).padding(.horizontal, 16).padding(.bottom, 8) }
+            if let search = model.state.search { NativeWorkspaceSearchField(model: model, search: search).padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8) }
             if let editor = model.editor {
                 NativeWorkspaceCircleForm(model: editor)
             } else {
@@ -250,7 +253,7 @@ struct NativeWorkspaceAction: Equatable {
                             }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
                         }
                     }
-                }.padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 24)
+                }.padding(.horizontal, model.state.frame.gutter).padding(.top, 8).padding(.bottom, 24)
             }.scrollDismissesKeyboard(.interactively).accessibilityIdentifier("native-workspace-scroll")
                 .onScrollPhaseChange { _, phase in scrollingFromPerson = phase == .interacting || phase == .decelerating }
                 .onScrollGeometryChange(for: CGFloat.self, of: { max(0, $0.contentOffset.y + $0.contentInsets.top) }) { _, value in model.scrolled?(value, scrollingFromPerson) }

@@ -1,6 +1,6 @@
 // 1. Removed "use client" so this becomes a React Server Component (RSC)
 
-import type { ComponentPropsWithoutRef, ElementType, CSSProperties } from "react";
+import type { ComponentPropsWithoutRef, ComponentPropsWithRef, ElementType, CSSProperties } from "react";
 
 import {
   NativeTestBeacon,
@@ -71,7 +71,7 @@ type AppPageShellProps<T extends ElementType> = {
     errorCode?: string | null;
     errorMessage?: string | null;
   };
-} & Omit<ComponentPropsWithoutRef<T>, "as">;
+} & Omit<ComponentPropsWithRef<T>, "as">;
 
 type AppPageRegionProps<T extends ElementType> = {
   as?: T;

@@ -23,8 +23,15 @@ private body projection independent of Profile's modal lifetime. It maps You,
 Ranking, Rewards, rules, existing Share, Circle selection/joining, creation and
 people selection through shared feature models. Catalogue filtering and reward
 claims use the same server-authoritative model as web; a threshold never mints
-an entitlement. Ordinary builds remain unchanged and `routeWorkspaces` is not
-advertised while combined integration is checked.
+an entitlement. Ordinary builds remain unchanged. The explicit iPhone qualification
+shell now advertises `routeWorkspaces: ["referrals"]` for integrated device testing;
+this is not general admission or whole-family acceptance. Main is integrated at
+`a8f125475b`. The route's authored `AppPageShell` owns width and gutters, while
+the stationary shell seat owns vertical chrome clearance; scrolling page height
+never becomes native viewport height. Titles and the existing route beacon match
+the web presentation. The latest five native host editor/owner/scroll cases pass;
+the changed-family physical journey also traverses all three tabs and rules/Back.
+That journey must pass on the newly installed candidate before it counts as evidence.
 
 The body uses retained UIKit containment below native drawers, a shared owner
 fence, exact post-confirmation projection checks, cancellation tombstones,

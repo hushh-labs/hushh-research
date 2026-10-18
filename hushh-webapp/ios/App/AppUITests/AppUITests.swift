@@ -5126,9 +5126,38 @@ final class AppUITests: XCTestCase {
                 // the direct-entry fallback, not this warm journey's parent.
                 let routeBack = app.buttons["Go back"].firstMatch
                 // Observe the actual destination without changing the session.
-                guard web.staticTexts["Referrals"].firstMatch.waitForExistence(timeout: 15),
+                guard app.staticTexts["Referrals"].firstMatch.waitForExistence(timeout: 15),
                       waitForAdmittedControl(routeBack) else {
                     XCTFail("PROFILE_BATCH_REFERRALS_ROUTE_UNAVAILABLE"); return
+                }
+                if ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                    let body = app.otherElements["native-route-workspace"].firstMatch
+                    let tabs = app.segmentedControls["native-workspace-tabs"].firstMatch
+                    guard body.waitForExistence(timeout: 10), waitForAdmittedControl(tabs) else {
+                        XCTFail("PROFILE_NATIVE_REFERRALS_BODY_UNAVAILABLE"); return
+                    }
+                    for label in ["Ranking", "Rewards", "You"] {
+                        let option = tabs.buttons[label].firstMatch
+                        guard waitForAdmittedControl(option) else { XCTFail("PROFILE_NATIVE_REFERRALS_TAB_UNAVAILABLE"); return }
+                        option.tap()
+                        let selected = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in option.isSelected }, object: app)
+                        guard XCTWaiter.wait(for: [selected], timeout: 10) == .completed else {
+                            XCTFail("PROFILE_NATIVE_REFERRALS_SELECTION_UNCONFIRMED"); return
+                        }
+                    }
+                    let rules = app.buttons["How it works"].firstMatch
+                    let scroll = app.scrollViews["native-workspace-scroll"].firstMatch
+                    for _ in 0..<10 {
+                        if rules.exists && rules.isHittable { break }
+                        scroll.swipeUp()
+                    }
+                    guard waitForAdmittedControl(rules) else { XCTFail("PROFILE_NATIVE_REFERRALS_RULES_UNAVAILABLE"); return }
+                    rules.tap()
+                    let localBack = app.buttons["native-workspace-back"].firstMatch
+                    guard waitForAdmittedControl(localBack) else { XCTFail("PROFILE_NATIVE_REFERRALS_LOCAL_BACK_UNAVAILABLE"); return }
+                    localBack.tap()
+                    guard waitForAdmittedControl(tabs) else { XCTFail("PROFILE_NATIVE_REFERRALS_ROOT_NOT_RESTORED"); return }
+                    print("PROFILE_NATIVE_REFERRALS tabs=3 rules=true returned=true mutated=false")
                 }
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
                 XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")

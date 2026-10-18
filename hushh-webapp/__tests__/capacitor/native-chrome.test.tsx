@@ -107,6 +107,9 @@ describe("private route-body presentation boundary", () => {
     expect(validNativeWorkspace({ ...state, vaultOwnerToken: "forbidden" } as never)).toBe(false);
     expect(validNativeWorkspace({ ...state, circleEditor: { ...state.circleEditor!, draft: { ...state.circleEditor!.draft, credential: "forbidden" } } } as never)).toBe(false);
     expect(validNativeWorkspace({ ...state, frame: { ...state.frame, height: 900 } })).toBe(false);
+    expect(validNativeWorkspace({ ...state, frame: { ...state.frame, contentInset: 24 } })).toBe(true);
+    expect(validNativeWorkspace({ ...state, frame: { ...state.frame, contentInset: -1 } })).toBe(false);
+    expect(validNativeWorkspace({ ...state, frame: { ...state.frame, contentInset: 200 } })).toBe(false);
     expect(validNativeWorkspace({ ...state, sections: [{ id: "choices", rows: [{ id: "choice", label: "Unsafe", enabled: true, href: "https://example.com" }] }] } as never)).toBe(false);
     const receipt = { ...state, layoutRevision: 1, phase: "active" as const, settled: true };
     expect(workspaceAcknowledged(receipt, state, "active")).toBe(true);

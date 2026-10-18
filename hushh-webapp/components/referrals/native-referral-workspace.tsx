@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import type { ReferralDashboardModel } from "./referral-dashboard-page";
 import { useIndividualReferralRankings } from "./individual-referral-rankings";
 import { useCircleWarsModel } from "@/components/profile/circle-wars-panel";
@@ -65,6 +66,7 @@ export function NativeReferralWorkspace({ model, fallback }: { model: ReferralDa
 
 function NativeReferralBody({ model, token, onFallback, onRetirementOwner }: { model: ReferralDashboardModel; token: string; onFallback: () => void; onRetirementOwner: (revoke: () => Promise<boolean>) => void }) {
   const owner = model.user!.uid;
+  const contentFrame = useRef<HTMLDivElement>(null);
   const [visit] = useState(() => new ReferralVisit(owner));
   useLayoutEffect(() => { visit.activate(); return () => visit.retire(); }, [visit]);
   const current = useCallback(() => visit.current(), [visit]);
@@ -91,7 +93,7 @@ function NativeReferralBody({ model, token, onFallback, onRetirementOwner }: { m
     if (value.refreshFailed) rows.push(action(`${key}-refresh`, "Unable to refresh. Showing the last update.", retry));
     return rows;
   };
-  let page: NativeWorkspaceContent["page"] = "overview", title = "Invite friends";
+  let page: NativeWorkspaceContent["page"] = "overview", title = "Referrals";
   let search: NativeWorkspaceContent["search"];
   const paged = (key: string, rows: NativeDrawerRow[]) => {
     const index = Math.min(windowIndex, Math.max(0, Math.ceil(rows.length / 40) - 1));
@@ -131,7 +133,7 @@ function NativeReferralBody({ model, token, onFallback, onRetirementOwner }: { m
         action("circle-join", circles.busy ? "Joining…" : "Join with this Circle", circles.join, { enabled: !!circles.selected && !circles.busy, pending: circles.busy })]);
     }
   } else if (model.showHowItWorks) {
-    page = "rules"; title = "How referrals work";
+    page = "rules"; title = "How it works";
     section("rules", resource("rules", "referral rules", model.policyRes, model.reloadPolicy, policy => [
       read("rules-invite", "Invite a friend"), read("rules-setup", "They finish setup and use the private agent"), read("rules-earn", `Earn ${policy.points.qualified_referral_points} coins`),
       read("rules-circles", "Win with your circle", "Choose an existing Circle or create one, then explicitly join Circle Wars for the current week. Each member joins separately and chooses one Circle per week."),
@@ -207,7 +209,7 @@ function NativeReferralBody({ model, token, onFallback, onRetirementOwner }: { m
         return paged("rewards", rows);
       }));
     }
-    section("help", [action("rules", "How referrals work", () => model.setShowHowItWorks(true), { chevron: true })]);
+    section("help", [action("rules", "How it works", () => model.setShowHowItWorks(true), { chevron: true })]);
   }
   const tabs = page === "overview" ? { label: "Referrals", options: ([['you','You'],['standings','Ranking'],['rewards','Rewards']] as const).map(([value,label]) => {
     const handle = id(`tab:${value}`); actions.set(handle, () => { if (current()) { model.setTab(value); setWindowIndex(0); } }); return { id: handle, label, selected: model.tab === value };
@@ -217,7 +219,9 @@ function NativeReferralBody({ model, token, onFallback, onRetirementOwner }: { m
   const editor = destination ? { destinationId: destination, current: creation.current, inputRevision: creation.inputRevision, mutationPending: creation.mutationPending,
     draft: { name: creation.name, kind: creation.kind }, changeDraft: creation.changeDraft, busy: circles.busy || creation.saving, canSave: creation.canSubmit,
     error: creation.error, save: creation.prepare, onSaved: creation.advance, onCancel: circles.backToCircles } : undefined;
-  const phase = useNativeWorkspace({ owner, content, actions, current, editor, onRetirementOwner, back: () => { if (current()) unwindBackLayer(ROUTES.ONE_REFERRALS); } });
+  const phase = useNativeWorkspace({ owner, content, actions, current, editor, onRetirementOwner, contentFrame, back: () => { if (current()) unwindBackLayer(ROUTES.ONE_REFERRALS); } });
   useEffect(() => { if (phase === "web") onFallback(); }, [phase, onFallback]);
-  return <div aria-busy={phase === "checking"} data-native-referral-workspace={phase} />;
+  return <AppPageShell as="div" ref={contentFrame} width="agent" aria-busy={phase === "checking"} data-native-referral-workspace={phase}
+    nativeTest={{ routeId: ROUTES.ONE_REFERRALS, marker: "native-route-one-referrals", authState: "authenticated",
+      dataState: model.summaryRes.status === "loading" ? "loading" : model.summaryRes.status === "error" ? "unavailable-valid" : "loaded" }} />;
 }
