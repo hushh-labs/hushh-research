@@ -9,7 +9,6 @@ import {
   Sheet,
   SheetContent,
   SheetClose,
-  SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -22,7 +21,6 @@ import {
   ClipboardList,
   Fingerprint,
   Heart,
-  LockKeyhole,
   Newspaper,
   ArrowUpRight,
   X,
@@ -447,6 +445,7 @@ export function OneAgentProfileSheet({
     <Sheet open={open} onOpenChange={onOpenChange} modal>
       <SheetContent
         side="right"
+        aria-describedby={undefined}
         className={styles.sheet}
         data-app-side-pane
         showCloseButton={false}
@@ -468,10 +467,6 @@ export function OneAgentProfileSheet({
             <OnePresenceAvatar state={presenceState} presentation="profile" className={styles.artwork} />
           </div>
           <SheetTitle className={styles.title}>{profileName}</SheetTitle>
-          <SheetDescription>Your private agent</SheetDescription>
-          <span className={styles.privateBadge}>
-            <LockKeyhole className="size-3.5" aria-hidden /> Private to you
-          </span>
         </div>
         <Tabs value={tab} onValueChange={changeTab} className={styles.tabs}>
           <TabsList
