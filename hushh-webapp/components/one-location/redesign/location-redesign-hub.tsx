@@ -114,7 +114,7 @@ import type {
   OneLocationShareDurationMode,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
-import { LocationHeaderActions, LocationPrimaryShareCard } from "./location-hub-summary";
+import { LocationHeaderActions, LocationPrimaryShareCard, LocationRequestDurationHeader } from "./location-hub-summary";
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
 import {
@@ -6120,16 +6120,7 @@ function AskFlow({
   if (step === "details") {
     return (
       <div className={FLOW_STEP_CONFIRM_CLASSNAME}>
-        {/* Names the two fields under it rather than asking whether the
-            person is ready.
-
-            "Ready to ask?" was a yes/no question about the reader's state of
-            mind, on a screen whose whole job is to collect two answers -- how
-            long, and why. It told somebody arriving here nothing they did not
-            already know (they tapped Continue; they are ready) and nothing
-            about what the screen wanted from them. This is the same two words
-            the section labels below use, in the same order. */}
-        <TaskFlowHeader eyebrow="Step 2 of 2" title="Who, then how long?" />
+        <LocationRequestDurationHeader />
 
         <SelectedRecipientsRail
           title="Request Location"

@@ -4,7 +4,7 @@ import { Switch } from "../../components/ui/switch";
 import { usePageEnterAnimation } from "../../lib/morphy-ux/hooks/use-page-enter";
 import { PageHeader } from "../../components/app-ui/page-sections";
 import { MapPin } from "lucide-react";
-import { LocationHeaderActions, LocationPrimaryShareCard } from "../../components/one-location/redesign/location-hub-summary";
+import { LocationHeaderActions, LocationPrimaryShareCard, LocationRequestDurationHeader } from "../../components/one-location/redesign/location-hub-summary";
 import { LiveShareStatusCard } from "../../components/one-location/redesign/live-share-status-card";
 import { DurationPresetPicker } from "../../components/one-location/redesign/duration-presets";
 import {
@@ -21,6 +21,11 @@ function Fixture() {
   const [duration, setDuration] = useState("0.25");
   const ref = useRef<HTMLDivElement>(null);
   usePageEnterAnimation(ref);
+  if (document.body.dataset.requestDuration) return <main className="app-page-shell" data-app-shell-width="agent">
+    <div className="mx-auto w-full max-w-[560px]">
+      <LocationRequestDurationHeader />
+    </div>
+  </main>;
   if (document.body.dataset.compact) return <main className="app-page-shell" data-app-shell-width="agent">
     <PageHeader title="Location" accent="location" titleRole="agent" actionsInlineMobile
       actions={<LocationHeaderActions vm={{ locationEnabled: checked, locationAcquiring: false, locationBlocked: false,

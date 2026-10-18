@@ -1064,11 +1064,9 @@ async function selectAskRecipient(name: RegExp) {
 
 async function continueAskFlow() {
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  // "Ready to ask?" asked whether the reader was ready, on a screen whose job
-  // is to collect two answers. The title names them, in the order the section
-  // labels under it do.
+  // Continue opens the requested access duration and reason step.
   expect(
-    await screen.findByRole("heading", { name: "Who, then how long?" }),
+    await screen.findByRole("heading", { name: "Request Access Duration" }),
   ).toBeTruthy();
 }
 
@@ -4082,7 +4080,7 @@ describe("OneLocationAgentPage", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: "Who, then how long?" }),
+      await screen.findByRole("heading", { name: "Request Access Duration" }),
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", { name: "Ask for location" }),
@@ -6553,11 +6551,11 @@ describe("OneLocationAgentPage", () => {
     act(() => { navigateTopShellBack({ pathname: ROUTES.ONE_LOCATION, searchParams: new URLSearchParams("action=ask"), navigate: navigateBack }); });
     expect(screen.queryByRole("radiogroup", { name: "Reason" })).toBeNull();
     expect(screen.getByRole("button", { name: "Reason" })).toHaveFocus();
-    expect(screen.getByRole("heading", { name: "Who, then how long?" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Request Access Duration" })).toBeTruthy();
     expect(navigateBack).not.toHaveBeenCalled();
     act(() => { navigateTopShellBack({ pathname: ROUTES.ONE_LOCATION, searchParams: new URLSearchParams("action=ask"), navigate: navigateBack }); });
     expect(await screen.findByRole("heading", { name: "Ask for location" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Who, then how long?" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Request Access Duration" })).toBeNull();
     expect(navigateBack).not.toHaveBeenCalled();
   }, 10_000);
 
@@ -6772,7 +6770,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(2));
     expect(toast.error).toHaveBeenCalled();
     expect(
-      await screen.findByRole("heading", { name: "Who, then how long?" }),
+      await screen.findByRole("heading", { name: "Request Access Duration" }),
     ).toBeTruthy();
     await waitFor(() =>
       expect(

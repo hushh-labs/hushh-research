@@ -8368,6 +8368,12 @@ body[data-persona-surface="ria"] {
     letter-spacing: var(--type-page-title-tracking) !important;
   }
 
+  .location-request-duration-header h1.ui-text-page-title {
+    font-size: clamp(20px, 6vw, var(--type-page-title-size)) !important;
+    line-height: 1.25 !important;
+    white-space: nowrap;
+  }
+
   .app-page-shell h3.receipt-month-heading {
     font-family: var(--font-app-mono) !important;
     font-size: var(--type-eyebrow-size) !important;
@@ -8390,10 +8396,10 @@ body[data-persona-surface="ria"] {
 
   .check-in-drawer-title.check-in-drawer-title {
     font-family: var(--font-app-display) !important;
-    font-size: var(--type-page-title-size) !important;
+    font-size: 24px !important;
     font-weight: var(--type-page-title-weight) !important;
     letter-spacing: var(--type-page-title-tracking) !important;
-    line-height: var(--type-page-title-line) !important;
+    line-height: 30px !important;
   }
 
   .check-in-section-title.check-in-section-title {

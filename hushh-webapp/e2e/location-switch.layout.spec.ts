@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 
 let css: string;
 let script: string;
@@ -123,6 +123,37 @@ async function expectContainedDuringEnter(page: Page) {
     expect(frame.left).toBeGreaterThanOrEqual(0.9);
     expect(frame.right).toBeGreaterThanOrEqual(0.9);
   }
+}
+
+for (const width of [320, 393, 430, 768, 1440]) {
+  test(`request access duration heading fits one line at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.setContent(`<html><head><style>${css}</style></head><body data-request-duration="true"><div id="root"></div></body></html>`);
+    await page.addScriptTag({ content: script });
+    const title = page.getByRole("heading", { name: "Request Access Duration", exact: true });
+    await expect(title).toBeVisible();
+    await awaitProductFont(page);
+    const geometry = await title.evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const text = range.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return { lines: range.getClientRects().length, textLeft: text.left, textRight: text.right,
+        textWidth: text.width, width: node.clientWidth, scrollWidth: node.scrollWidth,
+        size: parseFloat(style.fontSize), height: node.getBoundingClientRect().height,
+        lineHeight: parseFloat(style.lineHeight), textOverflow: style.textOverflow };
+    });
+    expect(geometry.lines).toBe(1);
+    expect(geometry.textLeft).toBeGreaterThanOrEqual(0);
+    expect(geometry.textRight).toBeLessThanOrEqual(width);
+    expect(geometry.textWidth).toBeLessThanOrEqual(geometry.width);
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
+    expect(geometry.size).toBeGreaterThanOrEqual(20);
+    expect(geometry.height).toBeLessThanOrEqual(geometry.lineHeight + 1);
+    expect(geometry.textOverflow).not.toBe("ellipsis");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: test.info().outputPath(`request-duration-heading-${width}.png`), animations: "disabled" });
+  });
 }
 
 for (const width of [320, 393, 430, 1440]) {

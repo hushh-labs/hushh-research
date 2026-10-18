@@ -6,6 +6,7 @@ import { CardTitle } from "@/components/app-ui/typography";
 import { cn } from "@/lib/utils";
 import { locationStatusLabel } from "@/lib/one-location/location-readiness";
 import type { LocationHubViewModel } from "./location-redesign-hub";
+import { TaskFlowHeader } from "./primitives";
 import { LOCATION_HEADER_ACTIONS_CLASSNAME, LOCATION_HEADER_STATUS_CLASSNAME, LOCATION_HEADER_TOGGLE_LABEL_CLASSNAME } from "./location-header-layout";
 
 type LocationHeaderViewModel = Pick<LocationHubViewModel,
@@ -19,6 +20,14 @@ type LocationHeaderViewModel = Pick<LocationHubViewModel,
  * exactly one Location header on screen.
  */
 const LOCATION_HEADER_STATUS_ID = "one-location-header-status";
+
+export function LocationRequestDurationHeader() {
+  return (
+    <div className="location-request-duration-header">
+      <TaskFlowHeader eyebrow="Step 2 of 2" title="Request Access Duration" />
+    </div>
+  );
+}
 
 /** What the header switch currently means, in words. */
 function locationHeaderStatusText(vm: LocationHeaderViewModel): string {
