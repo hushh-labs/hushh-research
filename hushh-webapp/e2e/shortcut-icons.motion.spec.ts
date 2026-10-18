@@ -315,7 +315,7 @@ test("Weave keeps the approved quarter-turn and alternating colours across repla
   await page.getByRole("button", { name: "Get the app", exact: true }).focus();
   // Safari uses Option-Tab for full keyboard navigation when its default
   // tab preference skips buttons. Exercise that real browser input path.
-  await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+  await page.keyboard.press(process.platform === "darwin" && browserName === "webkit" ? "Alt+Tab" : "Tab");
   await expect(row).toBeFocused();
   await expect(row).toHaveAttribute("data-shortcut-icon-playing", "true");
   await page.emulateMedia({ reducedMotion: "reduce" });
