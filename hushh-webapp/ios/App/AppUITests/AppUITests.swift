@@ -1251,6 +1251,34 @@ final class AppUITests: XCTestCase {
             XCTAssertTrue((editor.value as? String) == initialDraft, "COHERENT_SHELL_DRAFT_CHANGED")
             XCTAssertFalse(web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch.isHittable)
         }
+        if ProcessInfo.processInfo.environment["HUSHH_MEASURE_NATIVE_PRODUCT"] == "true" {
+            // The real retained shell, not the isolated study. Keep this
+            // opt-in Release measurement separate from the ten-cycle smoke.
+            #if DEBUG
+            XCTFail("NATIVE_PRODUCT_PERFORMANCE_REQUIRES_RELEASE"); return
+            #else
+            guard #available(iOS 26.0, *) else { throw XCTSkip("Native hitch measurement requires iOS 26") }
+            let options = XCTMeasureOptions()
+            options.iterationCount = 3
+            measure(metrics: [XCTOSSignpostMetric.navigationTransitionMetric, XCTHitchMetric(application: app)], options: options) {
+                profile.tap()
+                let preferences = app.buttons["native-profile-row-preferences"].firstMatch
+                guard waitForAdmittedControl(preferences) else { XCTFail("NATIVE_PRODUCT_PERFORMANCE_PROFILE_MISSING"); return }
+                preferences.tap()
+                let back = nativeProfileBack(app, parent: "Profile")
+                let page = app.navigationBars["Preferences"].firstMatch
+                guard waitForAdmittedControl(page), waitForAdmittedControl(back) else { XCTFail("NATIVE_PRODUCT_PERFORMANCE_NESTED_MISSING"); return }
+                back.tap()
+                let close = app.buttons["Close Profile"].firstMatch
+                guard waitForAdmittedControl(preferences), waitForAdmittedControl(close) else { XCTFail("NATIVE_PRODUCT_PERFORMANCE_BACK_FAILED"); return }
+                close.tap()
+                guard waitForAdmittedControl(editor), waitForAdmittedControl(profile) else { XCTFail("NATIVE_PRODUCT_PERFORMANCE_CLOSE_FAILED"); return }
+                continuity()
+            }
+            print("NATIVE_PRODUCT_PERFORMANCE iterations=3 configuration=release warm=true mutated=false")
+            return
+            #endif
+        }
         for cycle in 0..<10 {
             if !agentSwitchOnly {
                 guard waitForAdmittedControl(history) else { XCTFail("COHERENT_HISTORY_OPENER_NOT_READMITTED"); return }
