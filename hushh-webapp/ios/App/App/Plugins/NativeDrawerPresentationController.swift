@@ -872,7 +872,11 @@ struct NativeDrawerContent: View {
         NativeProfileNavigation(model: model, observer: profileRowObserver)
             // The navigation envelope fills the panel, just like History.
             // UIKit still owns its navigation-bar and scroll content insets.
-            .ignoresSafeArea(.container, edges: .vertical)
+            // The drawer shell stays full height while an owned editor or the
+            // underlying dock has a keyboard. Each native content/editor owner
+            // handles its own keyboard clearance; SwiftUI must not shrink this
+            // UIKit navigation envelope and expose the route behind it.
+            .ignoresSafeArea(.all, edges: .vertical)
             .tint(Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label))
             .allowsHitTesting(model.interactionEnabled)
             .accessibilityHidden(!model.interactionEnabled)

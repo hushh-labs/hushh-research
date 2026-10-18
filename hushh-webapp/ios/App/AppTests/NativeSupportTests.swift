@@ -1064,7 +1064,8 @@ final class NativeSupportTests: XCTestCase {
         let navigationFrame = envelopeNavigation.view.convert(envelopeNavigation.view.bounds, to: window)
         let panelFrame = controller.host.view.convert(controller.host.view.bounds, to: window)
         XCTAssertEqual(navigationFrame.minY, panelFrame.minY, accuracy: 1, "Profile navigation must cover the panel's top safe area")
-        XCTAssertEqual(navigationFrame.maxY, panelFrame.maxY, accuracy: 1, "Profile navigation must cover the panel's bottom safe area")
+        XCTAssertEqual(navigationFrame.maxY, panelFrame.maxY, accuracy: 1,
+            "Profile navigation must cover the panel's bottom safe area; keyboard inset=\(window.keyboardLayoutGuide.layoutFrame.height)")
         XCTAssertTrue(controller.host === host)
         XCTAssertEqual(controller.motion.progress, 1, "An inner push must not move Profile offscreen")
         XCTAssertEqual(controller.model.navigationPath, ["account"])

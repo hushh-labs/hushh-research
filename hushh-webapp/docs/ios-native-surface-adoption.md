@@ -37,13 +37,23 @@ through confirmed renderer fallback. Neither native adapter writes directly to
 a provider. The new capabilities are additive to NativeDrawers v1; partial and
 ordinary wrappers retain their established interfaces.
 
-The nearest 205 web behavior cases, typecheck, focused lint, static parity and
+The nearest 207 web behavior cases, typecheck, focused lint, static parity and
 native build pass at their recorded development checkpoints. The new busy-Back
 negative control passes. These are not an installed-build or physical/native
 mutation acceptance claim. Full Profile conversion remains the active program:
 the five rich root families below, provider/Finance preferences and other nested
 exceptions cannot inherit Account, Vault or Pricing acceptance. The ordinary
 custom-native qualification switch remains off; no deployment is implied.
+
+The first physical host run caught a shared Profile envelope defect: a retained
+keyboard reduced its UIKit navigation view to 516pt inside the 844pt panel.
+Ignoring container safe areas alone was insufficient. The outer navigation
+envelope now ignores keyboard safe-area reduction as well; its content and
+owned editors retain their own keyboard clearance. The same physical contract
+fails on the old source and passes the native-only correction without relaxing
+its one-point threshold. Both native host contracts pass, including final-pair
+acknowledgement and immediate password-replica scrubbing. Host contracts remain
+separate from installed-product warm journeys and Release performance evidence.
 
 ### Latest-main integration and preview boundary — 2026-10-17
 
