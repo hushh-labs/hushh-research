@@ -86,9 +86,6 @@ export function useGmailConnectorStatus() {
 export function useCalendarUpcomingEvents() {
   return { events: [], loaded: false, loading: false, error: null, refresh: () => {} };
 }
-export function useGmailConnectorStatus() {
-  return { status: null };
-}
 let domain: Record<string, unknown> = { _private: { tasks: [] } };
 export const PersonalKnowledgeModelService = {
   loadDomainData: async () => domain,
