@@ -90,10 +90,12 @@ function FeedGlyph({ eventType }: { eventType: string }) {
         </>
       ) : icon === "people" ? (
         <>
-          <circle cx="9" cy="8" r="3.1" />
-          <path d="M3.3 19.2c.3-3.9 2.4-6 5.7-6 1.5 0 2.9.5 3.9 1.3" />
-          <circle cx="17" cy="9" r="2.6" stroke={accent} />
-          <path stroke={accent} d="M14.4 14.4c.8-.8 1.9-1.2 3-1.2 2.3 0 3.7 1.5 3.9 4.6" />
+          {/* Two people side by side, each with both shoulders: the earlier
+              drawing gave each a half body that ended mid-way. */}
+          <circle cx="6.6" cy="8.2" r="2.7" />
+          <path d="M2.4 19.4c.3-3.5 1.9-5.6 4.2-5.6s3.9 2.1 4.2 5.6" />
+          <circle cx="17.4" cy="8.2" r="2.7" stroke={accent} />
+          <path stroke={accent} d="M13.2 19.4c.3-3.5 1.9-5.6 4.2-5.6s3.9 2.1 4.2 5.6" />
         </>
       ) : icon === "pin" ? (
         <>

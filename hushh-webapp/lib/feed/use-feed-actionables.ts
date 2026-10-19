@@ -2158,7 +2158,8 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
               }
             : null,
         title: label,
-        description: request.message?.trim() || "Wants to connect with you.",
+        // "with you" is already clear: the request is in your Feed.
+        description: request.message?.trim() || "Wants to connect",
         href: requiresScopeReview ? reviewHref : null,
         actions: requiresScopeReview
           ? [

@@ -226,6 +226,7 @@ export function TodoRow({
       >
         <MediumRowLabel
           as="h3"
+          data-profile-role="name"
           className={cn(
             "self-center break-words [overflow-wrap:anywhere]",
             task.status === "done" && "text-muted-foreground line-through",
@@ -253,6 +254,7 @@ export function TodoRow({
           <div className="col-span-2 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
             {time ? (
               <CaptionText
+                data-profile-role="description"
                 className={cn(
                   "inline-flex items-center gap-1.5 tabular-nums !text-[color:var(--app-secondary-label)]",
                   isOverdue(task) && "!text-destructive",
@@ -263,7 +265,7 @@ export function TodoRow({
               </CaptionText>
             ) : null}
             {source ? (
-              <CaptionText className="inline-flex items-center gap-1.5 !text-[color:var(--app-secondary-label)]">
+              <CaptionText data-profile-role="description" className="inline-flex items-center gap-1.5 !text-[color:var(--app-secondary-label)]">
                 {source === "calendar" ? (
                   <Calendar className="size-3.5" aria-hidden="true" />
                 ) : source === "gmail" ? (
@@ -305,7 +307,7 @@ export function TodoRow({
           </div>
         ) : null}
         {task.notes ? (
-          <HelperText as="p" className="col-span-2 mt-1 line-clamp-2">
+          <HelperText as="p" data-profile-role="description" className="col-span-2 mt-1 break-words [overflow-wrap:anywhere]">
             {task.notes}
           </HelperText>
         ) : null}
@@ -418,7 +420,7 @@ export function DueReceiptRow({ receipt }: { receipt: DueReceiptItem }) {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <MediumRowLabel as="h3" className="truncate">
+              <MediumRowLabel as="h3" data-profile-role="name" className="truncate">
                 {receipt.merchantName}
               </MediumRowLabel>
               <span
@@ -433,7 +435,7 @@ export function DueReceiptRow({ receipt }: { receipt: DueReceiptItem }) {
                 {receipt.statusLabel}
               </span>
             </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+            <div data-profile-role="description" className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
               {receipt.amount ? (
                 <span className="font-semibold text-foreground">
                   {receipt.amount}
@@ -481,10 +483,10 @@ export function DueReceiptsSection({
   return (
     <section aria-label="Due payments and receipts">
       <div className="mb-2 flex items-center justify-between gap-3 px-1">
-        <SectionLabel as="h2" compact>
+        <SectionLabel as="h2" data-profile-role="group-label" compact>
           <span>Receipts & Due Payments</span>
         </SectionLabel>
-        <CaptionText className="tabular-nums !text-[color:var(--app-secondary-label)]">
+        <CaptionText data-profile-role="group-label" className="tabular-nums !text-[color:var(--app-secondary-label)]">
           {receipts.length}
         </CaptionText>
       </div>
@@ -526,7 +528,7 @@ export function TodoRows({
           }
         >
           <div className="mb-2 flex items-center justify-between gap-3 px-1">
-            <SectionLabel as="h2" compact>
+            <SectionLabel as="h2" data-profile-role="group-label" compact>
               <span
                 className={
                   anytimeGroup.overdue ? "text-destructive" : undefined
@@ -537,7 +539,7 @@ export function TodoRows({
                   : anytimeGroup.label}
               </span>
             </SectionLabel>
-            <CaptionText className="tabular-nums !text-[color:var(--app-secondary-label)]">
+            <CaptionText data-profile-role="group-label" className="tabular-nums !text-[color:var(--app-secondary-label)]">
               {anytimeGroup.tasks.length}
             </CaptionText>
           </div>
@@ -563,12 +565,12 @@ export function TodoRows({
           aria-label={group.overdue ? `${group.label}, overdue` : group.label}
         >
           <div className="mb-2 flex items-center justify-between gap-3 px-1">
-            <SectionLabel as="h2" compact>
+            <SectionLabel as="h2" data-profile-role="group-label" compact>
               <span className={group.overdue ? "text-destructive" : undefined}>
                 {group.overdue ? `${group.label} · Overdue` : group.label}
               </span>
             </SectionLabel>
-            <CaptionText className="tabular-nums !text-[color:var(--app-secondary-label)]">
+            <CaptionText data-profile-role="group-label" className="tabular-nums !text-[color:var(--app-secondary-label)]">
               {group.tasks.length}
             </CaptionText>
           </div>

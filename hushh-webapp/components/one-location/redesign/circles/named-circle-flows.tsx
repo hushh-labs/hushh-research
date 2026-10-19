@@ -16,7 +16,7 @@ import {
   Trash2,
   UsersRound,
 } from "@/components/icons";
-import { JoinRowIcon } from "@/components/icons/agents";
+import { ProfilePaneAddPeopleIcon } from "@/components/profile/profile-pane-icons";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { INPUT_CLASSNAME } from "@/components/ui/input";
@@ -108,7 +108,6 @@ import {
   sortPeopleByName,
 } from "@/lib/one-location/people-search";
 import { sortCircleMembersOwnerFirst } from "@/lib/one-location/circle-member-order";
-import { circleTotalMemberCount } from "@/lib/one-location/circle-member-count";
 import {
   isForeignSmsSystemCircle,
   isSmsSystemCircle,
@@ -237,34 +236,14 @@ function circleDetailMemberCountLabel(count: number): string {
 }
 
 function smsCircleCapacityDescription(
-  circle: Pick<OneLocationCircleSummary, "memberCount">,
-  memberLimit: number,
   remainingCapacity: number,
-  pendingInviteCount: number,
   loading: boolean,
   error: string | null,
 ): string {
-  if (loading) {
-    return `SMS Circle limit: ${memberLimit} people total. Checking available spots…`;
-  }
-  if (error) {
-    return `SMS Circle limit: ${memberLimit} people total. Could not confirm available spots.`;
-  }
-
-  const memberCount = circleTotalMemberCount(circle.memberCount);
-  const memberCountCopy = `${memberCount} ${
-    memberCount === 1 ? "member is" : "members are"
-  } in this Circle`;
-  const capacityCopy = remainingCapacity > 0
-    ? `you can add ${remainingCapacity} more ${remainingCapacity === 1 ? "person" : "people"}`
-    : "no more people can be added right now";
-  const pendingInviteCopy = pendingInviteCount
-    ? ` ${pendingInviteCount} pending ${
-        pendingInviteCount === 1 ? "invitation also counts" : "invitations also count"
-      } toward the limit.`
-    : "";
-
-  return `SMS Circle limit: ${memberLimit} people total. ${memberCountCopy}; ${capacityCopy}.${pendingInviteCopy}`;
+  if (loading) return "Checking available places…";
+  if (error) return "Couldn’t check available places.";
+  if (remainingCapacity === 0) return "Your SMS Circle is full.";
+  return `You can add ${remainingCapacity} more ${remainingCapacity === 1 ? "person" : "people"}.`;
 }
 
 function CircleSummaryRow({
@@ -1894,20 +1873,7 @@ export function CircleDetailFlow({
     circleNameDirty && trimmedCircleName.length >= 1 && trimmedCircleName.length <= 80 && !savingName && !busy;
   const canInviteMembers =
     circle?.viewerCapabilities?.canInviteMembers ?? Boolean(isOwner);
-  const smsCircleMemberLimit = circle && isSmsSystemCircle(circle)
-    ? circle.memberLimit ?? 10
-    : null;
-  const smsCircleCapacityMessage =
-    circle && smsCircleMemberLimit !== null
-      ? smsCircleCapacityDescription(
-          circle,
-          smsCircleMemberLimit,
-          remainingCapacity,
-          pendingInvites.length,
-          peopleLoading,
-          peopleLoadError,
-        )
-      : null;
+  const isSmsCircle = Boolean(circle && isSmsSystemCircle(circle));
   const canViewInviteCode =
     circle?.viewerCapabilities?.canViewInviteCode ?? Boolean(isOwner);
   const canRotateInviteCode =
@@ -2658,7 +2624,8 @@ export function CircleDetailFlow({
                   ) : null}
                   <FlowActionGroup
                     stacked
-                    className="mx-auto max-w-[260px]"
+                    separateSecondary={false}
+                    className={cn(CIRCLE_SHEET_CTA_CLASSNAME, "[&>div]:gap-1.5")}
                     secondary={
                       <Button
                         type="button"
@@ -2676,14 +2643,11 @@ export function CircleDetailFlow({
                     primary={
                       <Button
                         type="button"
-                        size="standard"
+                        size="prominent"
                         disabled={!canSaveCircleName}
                         isLoading={savingName}
                         onClick={() => void renameCircle()}
-                        className={cn(
-                          BLOCKED_CTA,
-                          "h-11 min-h-11 rounded-[14px]",
-                        )}
+                        className={BLOCKED_CTA}
                         data-testid="one-location-circle-name-save"
                       >
                         Save
@@ -2695,16 +2659,32 @@ export function CircleDetailFlow({
             </Sheet>
           ) : null}
 
-          {(!livingCircleExperience && canInviteMembers) || canViewInviteCode ? (
+          {circle.systemKind === "sms" && !livingCircleExperience && canInviteMembers ? (
+            <button
+              type="button"
+              onClick={openPeopleSheet}
+              disabled={busy}
+              data-testid="one-location-circle-add-people-row"
+              className="group inline-flex min-h-11 w-fit items-center gap-2 rounded-lg bg-transparent px-1.5 py-1 text-[17px] font-medium leading-[22px] text-[color:var(--ios-account-label)] transition-colors hover:text-[color:var(--app-accent)] active:text-[color:var(--app-accent)] focus-visible:text-[color:var(--app-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--app-accent)] disabled:opacity-60"
+            >
+              <ProfilePaneAddPeopleIcon
+                size={24}
+                className="shrink-0 group-hover:text-[color:var(--app-accent)] group-active:text-[color:var(--app-accent)] group-focus-visible:text-[color:var(--app-accent)]"
+              />
+              <span>Add people</span>
+            </button>
+          ) : null}
+
+          {(circle.systemKind !== "sms" && !livingCircleExperience && canInviteMembers) || canViewInviteCode ? (
             <SettingsGroup
               title="Invite"
               separatorInset
               shellClassName="!rounded-[18px]"
               testId="one-location-circle-invite-card"
             >
-              {!livingCircleExperience && canInviteMembers ? (
+              {circle.systemKind !== "sms" && !livingCircleExperience && canInviteMembers ? (
                 <SettingsRow
-                  icon={JoinRowIcon}
+                  icon={ProfilePaneAddPeopleIcon}
                   iconTone="capability"
                   title="Add people"
                   chevron
@@ -2936,16 +2916,18 @@ export function CircleDetailFlow({
             >
               <SheetHeader className={CIRCLE_ADD_PEOPLE_HEADER_CLASSNAME}>
                 <SheetTitle>Add people</SheetTitle>
-                <SheetDescription>Choose connections.</SheetDescription>
-                {smsCircleCapacityMessage ? (
-                  <p
-                    className="text-sm leading-5 text-muted-foreground"
-                    aria-live="polite"
-                    data-testid="one-location-sms-circle-capacity"
-                  >
-                    {smsCircleCapacityMessage}
-                  </p>
-                ) : null}
+                <SheetDescription
+                  aria-live={isSmsCircle ? "polite" : undefined}
+                  data-testid={isSmsCircle ? "one-location-sms-circle-capacity" : undefined}
+                >
+                  {isSmsCircle
+                    ? smsCircleCapacityDescription(
+                        remainingCapacity,
+                        peopleLoading,
+                        peopleLoadError,
+                      )
+                    : "Choose connections."}
+                </SheetDescription>
               </SheetHeader>
 
               <div className={CIRCLE_SHEET_SCROLL_BODY_CLASSNAME}>
@@ -2993,8 +2975,8 @@ export function CircleDetailFlow({
                             CIRCLE_SHEET_FIRST_GROUP_HEADING_CLASSNAME
                           }
                           description={
-                            smsCircleMemberLimit !== null
-                              ? `${peopleTotalCount} available.`
+                            isSmsCircle
+                              ? undefined
                               : remainingCapacity > CIRCLE_INVITE_BATCH_LIMIT
                               ? `Add up to ${CIRCLE_INVITE_BATCH_LIMIT} people at a time. ${peopleTotalCount} available; ${remainingCapacity} Circle slots remain.`
                               : remainingCapacity === 1
@@ -3221,7 +3203,7 @@ export function CircleDetailFlow({
                 Members
               </SectionLabel>
               {/* The count, not "Members connect through this Circle." -- the
-                  invite card two cards up already says how membership works,
+                  nearby Add people action already says how to change membership,
                   and a sentence that repeats it is a line of prose between a
                   heading and the thing it heads.
 

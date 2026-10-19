@@ -77,6 +77,13 @@ export function useRouter() {
 export const HushhAuth = {
   connectGmail: async () => ({ serverAuthCode: "synthetic-code" }),
 };
+export const app = null;
+export const auth = null;
+export const prepareRecaptchaVerifier = () => {
+  throw new Error("Authentication is outside the Connections layout fixture");
+};
+export const getRecaptchaVerifier = prepareRecaptchaVerifier;
+export const resetRecaptcha = () => {};
 // Pure task models and rows stay real. This public fixture does not admit
 // encrypted task reads or writes through the private service port.
 export const TodoListPkmService = {

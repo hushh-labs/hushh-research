@@ -468,7 +468,7 @@ export const TodoListPkmService = {
       domain: TODO_LIST_PKM_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => null);
+    });
     return readTodoListState(domainData);
   },
 

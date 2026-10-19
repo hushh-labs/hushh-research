@@ -18,7 +18,7 @@ test.beforeAll(async () => {
   const profileTriggerClass = workspace.match(/data-agent-chat-one-profile-trigger[\s\S]*?className="([^"]+)"/)?.[1];
   if (!profileTriggerClass) throw new Error("Missing production One profile trigger");
   const identityClass = workspace.match(/data-agent-chat-header-region="identity"\s+className="([^"]+)"/)?.[1];
-  const nameClass = workspace.match(/<div className="(truncate text-base[^"]+)">\s*\{isPuppySurface/)?.[1];
+  const nameClass = workspace.match(/<div[^>]*className="(truncate text-base[^"]+)"[^>]*>\s*\{isPuppySurface/)?.[1];
   if (!identityClass || !nameClass) throw new Error("Missing production One header identity");
   const { build } = await import("vite");
   const { Scanner } = await import("@tailwindcss/oxide");
@@ -82,6 +82,7 @@ test.beforeAll(async () => {
         ...[
           "@/hooks/use-auth",
           "@/lib/services/auth-service",
+          "@/lib/firebase/config",
           "@/lib/vault/vault-context",
           "@/lib/services/api-service",
           "@/lib/services/todo-list-pkm-service",
@@ -293,6 +294,7 @@ test.beforeEach(async ({ page }) => {
     throw error;
   }
   expect(fixtureErrors, "Connections fixture initialized").toEqual([]);
+  await expect(page.getByRole("button", { name: "Open drawer", exact: true })).toBeVisible();
   await awaitProductFont(page);
 });
 
@@ -516,6 +518,17 @@ for (const width of [320, 390, 1440]) for (const dark of [false, true])
     await actions.click();
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible();
+    await page.waitForFunction(() => document.querySelector('[role="menu"]')?.getAnimations().every(animation => animation.playState !== "running"));
+    const menuBounds = (await menu.boundingBox())!;
+    expect(menuBounds.width).toBeLessThan(180);
+    expect(menuBounds.x).toBeGreaterThanOrEqual(12);
+    expect(menuBounds.x + menuBounds.width).toBeLessThanOrEqual(width - 12);
+    for (const item of await menu.getByRole("menuitem").all()) {
+      expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    }
+    if (width === 390 && !dark) {
+      await page.screenshot({ path: testInfo.outputPath("chats-compact-menu.png"), animations: "disabled" });
+    }
     expect(await menu.evaluate(element => {
       const style = getComputedStyle(element);
       return { background: style.backgroundColor, radius: style.borderTopLeftRadius, shadow: style.boxShadow };

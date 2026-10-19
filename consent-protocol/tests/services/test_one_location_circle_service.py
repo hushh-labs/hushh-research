@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 
@@ -38,6 +39,30 @@ def test_circle_name_accepts_one_character_and_still_bounds_the_column() -> None
         with pytest.raises(OneLocationCircleError) as excinfo:
             clean(rejected)
         assert excinfo.value.code == "LOCATION_CIRCLE_NAME_INVALID"
+
+
+def test_command_additions_share_one_event_batch_across_requests() -> None:
+    batch_id = circle_service_module._member_add_event_batch_id
+    command = dict(
+        actor_user_id="owner-user",
+        circle_id="550e8400-e29b-41d4-a716-446655440000",
+        operation_id="a" * 64,
+        explicit_batch_id=None,
+    )
+    first_chunk = batch_id(**command)
+    assert UUID(first_chunk).version == 5
+    assert batch_id(**command) == first_chunk
+    assert batch_id(**{**command, "operation_id": "b" * 64}) != first_chunk
+    assert batch_id(**{**command, "actor_user_id": "other-user"}) != first_chunk
+    assert (
+        batch_id(**{**command, "circle_id": "550e8400-e29b-41d4-a716-446655440001"}) != first_chunk
+    )
+    assert batch_id(**{**command, "explicit_batch_id": "550e8400-e29b-41d4-a716-446655440002"}) == (
+        "550e8400-e29b-41d4-a716-446655440002"
+    )
+    assert batch_id(**{**command, "operation_id": None}) != batch_id(
+        **{**command, "operation_id": None}
+    )
 
 
 def test_circle_member_payload_includes_public_recipient_key_for_group_selection() -> None:
@@ -265,6 +290,10 @@ class _Rows:
         self._rows.clear()
         return rows
 
+    def scalar(self):
+        row = self.fetchone()
+        return next(iter(row.values())) if isinstance(row, dict) else row
+
 
 class _CapacityConnection:
     def __init__(self, *rows: dict | None) -> None:
@@ -273,8 +302,13 @@ class _CapacityConnection:
         self.params: list[dict] = []
 
     def execute(self, statement, params):
-        self.sql.append(str(statement))
+        sql = str(statement)
+        self.sql.append(sql)
         self.params.append(dict(params))
+        if "current_setting('hushh.circle_member_add_batch_id'" in sql:
+            return _Rows({"setting": ""})
+        if "set_config('hushh.circle_member_add_batch_id'" in sql:
+            return _Rows({"setting": params["batch_id"]})
         row = self.rows.pop(0) if self.rows else None
         return _Rows(*row) if isinstance(row, list) else _Rows(row)
 
@@ -568,7 +602,7 @@ def test_nobody_is_capped_on_how_many_circles_they_may_belong_to() -> None:
     assert "_lock_user_circle_memberships" in source
 
 
-def test_an_sms_circle_holds_ten_people_where_an_ordinary_circle_holds_a_hundred() -> None:
+def test_an_sms_circle_holds_ten_contacts_plus_owner_where_ordinary_holds_a_hundred() -> None:
     """An SMS Circle is not a small ordinary Circle.
 
     Everyone on it is woken at once, with the owner's address, at the worst
@@ -582,22 +616,21 @@ def test_an_sms_circle_holds_ten_people_where_an_ordinary_circle_holds_a_hundred
     from hushh_mcp.services import one_location_circle_service as module
 
     assert module.CIRCLE_DEFAULT_MEMBER_LIMIT == 100
-    assert module.SMS_SYSTEM_CIRCLE_MEMBER_LIMIT == 10
+    assert module.SMS_SYSTEM_CIRCLE_MEMBER_LIMIT == 11
 
     # The system Circle is created with its own ceiling, not the ordinary one.
     insert = inspect.getsource(module.OneLocationCircleService._insert_system_circle)
     assert '"member_limit": SMS_SYSTEM_CIRCLE_MEMBER_LIMIT' in insert
     assert "CIRCLE_DEFAULT_MEMBER_LIMIT" not in insert
 
-    # And Circles provisioned before that ceiling existed are brought down on
-    # the next bootstrap, the same way the rename heals.
+    # Circles provisioned with an earlier ceiling are reconciled on bootstrap.
     bootstrap = inspect.getsource(module.OneLocationCircleService.ensure_sms_system_circle)
     assert "SET member_limit = :member_limit" in bootstrap
     assert "member_limit <> :member_limit" in bootstrap
 
 
-def test_lowering_the_sms_ceiling_never_evicts_anyone() -> None:
-    """An owner already over ten keeps everyone they have.
+def test_changing_the_sms_ceiling_never_evicts_anyone() -> None:
+    """An owner already over eleven keeps everyone they have.
 
     member_limit is read when someone is ADDED. Nothing consults it to decide
     who may stay, and nothing should: removing people from an emergency list to
@@ -1622,6 +1655,13 @@ def test_adding_connections_writes_memberships_and_tells_each_person(
     assert result["addedUserIds"] == ["friend-one", "friend-two"]
     assert not any("INSERT INTO one_location_circle_member_invites" in sql for sql in conn.sql)
     assert sum("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql) == 2
+    batch_settings = [
+        params["batch_id"]
+        for sql, params in zip(conn.sql, conn.params, strict=True)
+        if "set_config('hushh.circle_member_add_batch_id'" in sql
+    ]
+    assert len(batch_settings) == 2
+    assert UUID(batch_settings[0]) and batch_settings[1] == ""
 
     # Each new member is paired with whoever added them, and with nobody else.
     assert {(call["user_a_id"], call["user_b_id"], call["kind"]) for call in origin_calls} == {
@@ -2269,7 +2309,7 @@ def test_planning_all_connections_uses_the_sms_circle_ceiling() -> None:
         circle_id=_DIRECT_ADD_CIRCLE_ID,
     )
 
-    assert plan["circle"]["memberLimit"] == 10
+    assert plan["circle"]["memberLimit"] == 11
 
 
 def test_only_the_owner_can_plan_adding_all_connections() -> None:

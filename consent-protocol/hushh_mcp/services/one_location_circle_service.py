@@ -73,7 +73,7 @@ CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS = 1
 # How many people one `create_member_invites` call takes; a larger reviewed
 # audience is added as several of these inside one transaction.
 CIRCLE_MEMBER_ADD_CHUNK = 20
-# How many people may be on one SMS Circle.
+# How many people may be on one SMS Circle, including its owner.
 #
 # Deliberately far below an ordinary Circle's hundred, because this is not a
 # smaller version of the same thing: everyone here is woken up at once, with
@@ -85,7 +85,31 @@ CIRCLE_MEMBER_ADD_CHUNK = 20
 # to live here as CIRCLE_MAX_PER_USER; it counted MEMBERSHIPS, so it was really
 # deciding how many Circles other people may put you in, which was never ours
 # to decide.
-SMS_SYSTEM_CIRCLE_MEMBER_LIMIT = 10
+SMS_SYSTEM_CIRCLE_MEMBER_LIMIT = 11
+
+
+def _member_add_event_batch_id(
+    *,
+    actor_user_id: str,
+    circle_id: str,
+    operation_id: str | None,
+    explicit_batch_id: str | None,
+) -> str:
+    if explicit_batch_id:
+        return explicit_batch_id
+    if operation_id:
+        # A reviewed command can send up to five separate 20-person requests.
+        # Its operation ID is stable across retries and chunks, so the chat
+        # timeline can show the whole action as one addition.
+        return str(
+            uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"hushh.circle-member-add:v1:{actor_user_id}:{circle_id}:{operation_id}",
+            )
+        )
+    return str(uuid.uuid4())
+
+
 # Raised from 20 in migration 158. This constant is stamped onto a Circle at
 # INSERT and never edited afterwards, so it governs new Circles only -- the
 # migration lifts the stored ceiling on Circles that already carry the old
@@ -1532,13 +1556,13 @@ class OneLocationCircleService:
                             "legacy_names": list(SMS_SYSTEM_CIRCLE_LEGACY_NAMES),
                         },
                     )
-                    # Circles provisioned before the SMS ceiling existed carry
-                    # the ordinary hundred. Bring them down on the next
-                    # bootstrap, the same way the rename heals, rather than in
-                    # a migration.
+                    # Older Circles can carry the ordinary hundred or the
+                    # previous ten-member ceiling. Reconcile either value on
+                    # bootstrap; migration 363 also updates existing active
+                    # SMS Circles before the new backend serves them.
                     #
-                    # Lowering a ceiling never removes anybody: member_limit is
-                    # read when someone is ADDED, so an owner already over ten
+                    # Changing a ceiling never removes anybody: member_limit is
+                    # read when someone is ADDED, so an owner already over eleven
                     # keeps everyone they have and simply cannot add more.
                     # Evicting people from an emergency list to satisfy a
                     # number chosen afterwards would be the wrong way round.
@@ -1680,8 +1704,8 @@ class OneLocationCircleService:
                       -- Say which system Circle. `is_system` alone was
                       -- unambiguous while there was one kind; it is not any
                       -- more, and this lookup feeds `ensure_sms_system_circle`,
-                      -- which renames what it finds and drops its member_limit
-                      -- to 10. Picking the wrong row here hands SOS the wrong
+                      -- which renames what it finds and sets its member_limit
+                      -- to 11. Picking the wrong row here hands SOS the wrong
                       -- roster.
                       --
                       -- A trusted Circle is deliberately NOT `is_system` (see
@@ -3234,7 +3258,7 @@ class OneLocationCircleService:
             result = self._db.execute_raw(
                 """
                 SELECT
-                  circle.owner_user_id, circle.member_limit,
+                  circle.owner_user_id, circle.member_limit, circle.system_kind,
                   (
                     SELECT COUNT(*)
                     FROM one_location_circle_memberships membership
@@ -3280,7 +3304,12 @@ class OneLocationCircleService:
             )
             circle_remaining = max(
                 0,
-                int(row.get("member_limit") or CIRCLE_DEFAULT_MEMBER_LIMIT) - reserved,
+                (
+                    SMS_SYSTEM_CIRCLE_MEMBER_LIMIT
+                    if row.get("system_kind") == "sms"
+                    else int(row.get("member_limit") or CIRCLE_DEFAULT_MEMBER_LIMIT)
+                )
+                - reserved,
             )
             # Only the owner can add anyone, so the only ceiling left is the
             # Circle's own. A member asking gets the same number; they simply
@@ -3465,6 +3494,7 @@ class OneLocationCircleService:
         command_directive_id: str | None = None,
         batch_index: int = 0,
         batch_count: int = 1,
+        membership_batch_id: str | None = None,
         _connection: Any = None,
         _emit_notifications: bool = True,
         signup_insert_only: bool = False,
@@ -4001,6 +4031,24 @@ class OneLocationCircleService:
                 # would put a 72-hour wait in front of a membership two people
                 # had already earned the right to. The membership is written
                 # now, and what acceptance used to do happens with it.
+                if new_user_ids:
+                    previous_batch_id = conn.execute(
+                        text("SELECT current_setting('hushh.circle_member_add_batch_id', true)"),
+                        {},
+                    ).scalar()
+                    conn.execute(
+                        text(
+                            "SELECT set_config('hushh.circle_member_add_batch_id', :batch_id, true)"
+                        ),
+                        {
+                            "batch_id": _member_add_event_batch_id(
+                                actor_user_id=actor_user_id,
+                                circle_id=cleaned_circle_id,
+                                operation_id=operation_id,
+                                explicit_batch_id=membership_batch_id,
+                            )
+                        },
+                    )
                 for invitee_user_id in sorted(new_user_ids):
                     # Sorted to match the order `_lock_invitees` already took
                     # these people in, so the membership writes cannot reorder
@@ -4083,6 +4131,16 @@ class OneLocationCircleService:
                             inviter_user_id=actor_user_id,
                         )
                     added_user_ids.append(invitee_user_id)
+                if new_user_ids:
+                    # A reviewed action may share this outer transaction with
+                    # later chunks. Restore the caller's setting before those
+                    # writes; an exception rolls the transaction back instead.
+                    conn.execute(
+                        text(
+                            "SELECT set_config('hushh.circle_member_add_batch_id', :batch_id, true)"
+                        ),
+                        {"batch_id": previous_batch_id or ""},
+                    )
                 if signup_insert_only:
                     pending_invite_ids = [
                         str(row.get("id"))
@@ -4435,6 +4493,7 @@ class OneLocationCircleService:
         added_user_ids: list[str] = []
         skipped_reasons: dict[str, str] = {}
         circle_name = ""
+        membership_batch_id = str(uuid.uuid4())
         try:
             with self._db.engine.begin() as conn:
                 for start in range(0, len(ids), CIRCLE_MEMBER_ADD_CHUNK):
@@ -4444,6 +4503,7 @@ class OneLocationCircleService:
                             actor_user_id=actor_user_id,
                             circle_id=cleaned_circle_id,
                             invitee_user_ids=chunk,
+                            membership_batch_id=membership_batch_id,
                             _connection=conn,
                             _emit_notifications=False,
                         )

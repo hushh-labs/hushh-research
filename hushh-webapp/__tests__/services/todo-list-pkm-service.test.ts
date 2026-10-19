@@ -22,6 +22,7 @@ import {
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 
 const persistence = {
   userId: "owner-1",
@@ -67,6 +68,14 @@ function mockSuccessfulWrite() {
 describe("TodoListPkmService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("treats an absent domain as empty but preserves a failed read as an error", async () => {
+    const read = vi.mocked(PersonalKnowledgeModelService.loadDomainData);
+    read.mockResolvedValueOnce(null);
+    await expect(TodoListPkmService.load(persistence)).resolves.toEqual({ tasks: [] });
+    read.mockRejectedValueOnce(new Error("unavailable"));
+    await expect(TodoListPkmService.load(persistence)).rejects.toThrow("unavailable");
   });
 
   it.each(Object.keys(TODO_SOURCE_LABELS))("retains %s attribution through encrypted-record normalization", (source) => {
