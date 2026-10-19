@@ -3369,7 +3369,7 @@ final class NativeSupportTests: XCTestCase {
 
     @MainActor
     func testPrivacyReleasePublishesTheCurrentStateToAllConsumers() async throws {
-        let shield = HushhSessionPrivacyShield.shared
+        let shield = HushhSessionPrivacyShield()
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let previousWindow = scene.windows.first(where: \.isKeyWindow)
         let parent = UIViewController()

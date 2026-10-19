@@ -38,7 +38,12 @@ the safe web gate regains touch even when no native bar is admitted there.
 Focused frontend/bridge checks pass (276), as do typecheck and the initial native
 Release compilation. The native reviewer found four rich-pane races; they are
 patched with withdrawal and rotation negative controls in the existing host
-transaction test. Final compilation, exact-candidate physical acceptance,
+transaction test. That transaction now passes on physical iPhone in 8.849 seconds.
+Its first run exposed test-fixture interference with the live WebView's Auth:
+the synthetic document used the production singleton. An isolated test-owned
+shield passes the same assertions without relaxing document or release guards;
+production adapters continue using the existing singleton. Final compilation
+passes. Exact-candidate product acceptance,
 accessibility and performance remain separate. Native defaults are still OFF;
 this checkpoint establishes no merge, deployment or TestFlight completion.
 

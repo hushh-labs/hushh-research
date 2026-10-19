@@ -222,7 +222,9 @@ final class HushhSessionPrivacyShield: NSObject {
     var onStateChanged: ((Snapshot, String) -> Void)?
     var reloadDocument: (() -> Void)?
 
-    private override init() { super.init() }
+    // Production adapters use shared. Host tests own an isolated window/shield
+    // so the real WebView's Auth receipts cannot retarget a synthetic document.
+    override init() { super.init() }
 
     func attach(to hostView: UIView) {
         dispatchPrecondition(condition: .onQueue(.main))
