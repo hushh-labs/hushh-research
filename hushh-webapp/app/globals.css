@@ -2891,6 +2891,19 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   stroke-width: 1.8 !important;
 }
 
+.profile-pane-icon,
+.profile-account-line-icon {
+  color: var(--ios-account-label);
+}
+
+:is(.profile-pane-icon-accent, .profile-account-icon-accent) {
+  stroke: var(--ios-account-accent);
+}
+
+:is(.profile-pane-icon-accent-fill, .profile-account-icon-accent-fill) {
+  fill: var(--ios-account-accent);
+}
+
 .profile-pane-scroll-root .profile-pane-icon {
   color: var(--ios-account-label) !important;
 }
