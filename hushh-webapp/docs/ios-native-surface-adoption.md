@@ -84,6 +84,14 @@ new native conversion or an on-tap fallback. The nearest functional regression
 fails on the flattened renderer with capabilities enabled; no broad shell inset
 change is needed. The unused native prototype remains reversible and unqualified.
 
+Clarified Invite friends ownership: opening it from Profile must not leave the
+pane for `/one/referrals`. The shared authored row now pushes the existing
+`referrals` Profile location and reuses `ReferralsPanel panePresentation`, its
+typography, scroll container, Back and Close. The standalone dashboard stays
+available separately. The real Profile row-click regression fails on the old
+route push; the corrected Profile/referral suites pass 37 checks. Physical
+qualification now exercises this nested pane rather than dashboard route tabs.
+
 This ordering repair does **not** implement shielded preparation of the replacement
 Profile/form/content-pane/chrome composition. That composition barrier remains
 an explicit release/default-admission blocker; native qualification stays off in

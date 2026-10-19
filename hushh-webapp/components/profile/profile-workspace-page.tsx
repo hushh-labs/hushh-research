@@ -4616,7 +4616,7 @@ function ProfilePageContent({
     security: openSecurityPanel,
     devices: () => openVaultBackedPanel("security", "trusted-devices"),
     connectors: () => openVaultBackedPanel("connectors"),
-    invite: () => router.push(ROUTES.ONE_REFERRALS),
+    invite: () => updateProfileView({ panel: "referrals", detail: null }, "push"),
     support: () => updateProfileView({ panel: "support", detail: null }, "push"),
     "developer-tools": () => router.push("/one/profile/pkm-agent-lab"),
     privacy: () => updateProfileView({ panel: "legal", detail: "privacy" }, "push"),

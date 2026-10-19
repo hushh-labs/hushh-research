@@ -5210,55 +5210,41 @@ final class AppUITests: XCTestCase {
                 continue
             }
             if id == "invite" {
-                // Referrals is a standalone destination. The shared origin
-                // owner restores the initiating Profile query; One is only
-                // the direct-entry fallback, not this warm journey's parent.
-                let routeBack = app.buttons["Go back"].firstMatch
-                // Observe the actual destination without changing the session.
-                guard app.staticTexts["Referrals"].firstMatch.waitForExistence(timeout: 15),
-                      waitForAdmittedControl(routeBack) else {
-                    XCTFail("PROFILE_BATCH_REFERRALS_ROUTE_UNAVAILABLE"); return
+                // Invite friends is a nested Profile pane, not a route-bound
+                // dashboard. Keep its authored content and the same pane Back.
+                guard waitForAdmittedControl(web.buttons["Copy"].firstMatch),
+                      waitForAdmittedControl(web.buttons["Share"].firstMatch) else {
+                    XCTFail("PROFILE_INVITE_PANE_CONTENT_UNAVAILABLE"); return
                 }
-                // Referrals deliberately retains the complete authored rich
-                // dashboard. Qualification must not admit the settings-row
-                // prototype just because the surrounding shell is native.
-                do {
-                    XCTAssertFalse(app.otherElements["native-route-workspace"].firstMatch.exists,
-                                   "PROFILE_REFERRALS_DUPLICATE_RENDERER")
-                    guard web.buttons["Invite"].firstMatch.waitForExistence(timeout: 15) else {
-                        XCTFail("PROFILE_REFERRALS_DASHBOARD_UNAVAILABLE"); return
+                XCTAssertFalse(app.otherElements["native-route-workspace"].firstMatch.exists,
+                               "PROFILE_INVITE_ESCAPED_TO_WORKSPACE")
+                guard admittedBack(), waitForAdmittedControl(app.buttons["profile-close"].firstMatch) else {
+                    XCTFail("PROFILE_INVITE_PANE_CHROME_UNAVAILABLE"); return
+                }
+                // Release qualification observes the actual dialog bounds;
+                // it must not depend on DEBUG-only navigation diagnostics.
+                let candidates = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Invite friends"))
+                let fullPane = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    candidates.allElementsBoundByIndex.contains { element in
+                        guard element.elementType != .staticText else { return false }
+                        let frame = element.frame
+                        return abs(frame.minY - app.frame.minY) <= 1 && abs(frame.maxY - app.frame.maxY) <= 1 &&
+                            (UIDevice.current.userInterfaceIdiom != .phone || abs(frame.width - app.frame.width) <= 1)
                     }
-                    for label in ["Ranking", "Rewards", "You"] {
-                        let option = web.buttons[label].firstMatch
-                        guard waitForAdmittedControl(option) else { XCTFail("PROFILE_REFERRALS_TAB_UNAVAILABLE"); return }
-                        option.tap()
-                        let selected = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in option.isSelected }, object: app)
-                        guard XCTWaiter.wait(for: [selected], timeout: 10) == .completed else {
-                            XCTFail("PROFILE_REFERRALS_SELECTION_UNCONFIRMED"); return
-                        }
-                    }
-                    let rules = web.buttons["How it works"].firstMatch
-                    guard waitForAdmittedControl(rules) else { XCTFail("PROFILE_REFERRALS_RULES_UNAVAILABLE"); return }
-                    rules.tap()
-                    guard web.staticTexts["How it works"].firstMatch.waitForExistence(timeout: 10),
-                          waitForAdmittedControl(routeBack) else { XCTFail("PROFILE_REFERRALS_LOCAL_BACK_UNAVAILABLE"); return }
-                    routeBack.tap()
-                    guard waitForAdmittedControl(web.buttons["You"].firstMatch),
-                          web.buttons["Invite"].firstMatch.exists else { XCTFail("PROFILE_REFERRALS_ROOT_NOT_RESTORED"); return }
-                    print("PROFILE_REFERRALS renderer=react tabs=3 rules=true returned=true mutated=false")
+                }, object: app)
+                guard XCTWaiter.wait(for: [fullPane], timeout: 10) == .completed else {
+                    XCTFail("PROFILE_INVITE_PANE_FRAME_UNAVAILABLE"); return
                 }
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
-                XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")
-                routeBack.tap()
+                back.tap()
                 let parent = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    close.exists && close.isHittable && destination.exists && destination.isHittable
+                    close.exists && close.isHittable && destination.exists && destination.isHittable &&
+                        !web.buttons["Copy"].firstMatch.isHittable
                 }, object: app)
                 guard XCTWaiter.wait(for: [parent], timeout: 15) == .completed else {
-                    printCoherentPresentationAdmission(app)
-                    XCTFail("PROFILE_BATCH_REFERRALS_PARENT_NOT_RESTORED"); return
+                    XCTFail("PROFILE_INVITE_PANE_PARENT_NOT_RESTORED"); return
                 }
-                XCTAssertFalse(web.buttons["Unlock"].exists)
-                print("PROFILE_RETAINED_DESTINATION family=invite warm=true single_host=true")
+                print("PROFILE_RETAINED_DESTINATION family=invite pane=true full_height=true returned=true warm=true single_host=true")
                 continue
             }
                 guard admittedBack() else { printCoherentPresentationAdmission(app); XCTFail("PROFILE_BATCH_BACK_UNAVAILABLE"); return }
@@ -5271,7 +5257,7 @@ final class AppUITests: XCTestCase {
             let detailTitles = ["account": "Account", "preferences": "Appearance & preferences",
                 "payouts": "Payouts", "request-pricing": "Request pricing", "my-data": "Memory", "world-model": "Personal World Model",
                 "security": "Security & privacy", "devices": "Trusted devices", "connectors": "Connectors",
-                "support": "Help & feedback", "privacy": "Privacy Policy", "terms": "Terms of Use"]
+                "invite": "Invite friends", "support": "Help & feedback", "privacy": "Privacy Policy", "terms": "Terms of Use"]
             let containers = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", detailTitles[id] ?? "Profile"))
             _ = containers.firstMatch.waitForExistence(timeout: 5)
             var detailFrame: CGRect?
