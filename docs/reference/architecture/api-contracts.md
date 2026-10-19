@@ -1,5 +1,51 @@
 # API Contracts
 
+## One PLG pilot task evidence
+
+`POST /api/one/plg/snapshot` is a server-only integration hidden from public
+OpenAPI. It requires `ONE_PLG_EXPORT_ENABLED=true`, production runtime identity,
+dedicated `ONE_PLG_EXPORT_SECRET` (at least 32 characters), and private
+`ONE_PLG_EXPORT_ACCOUNT_IDS` (1–100 explicitly enrolled production customer
+Firebase UIDs). No browser proxy or native caller is added. Login, legal
+acceptance and shared Firebase membership do not establish marketing consent.
+
+`X-PLG-Timestamp` (13-digit Unix milliseconds, within five minutes) and
+`X-PLG-Signature` authenticate HMAC-SHA256 over
+`snapshot\n<TIMESTAMP>\n<EXACT_RAW_JSON_BODY>`. Wrong purposes and bodies fail.
+Bodies have a 16,000-byte limit and contain 1–20 distinct accounts:
+`{ "accounts": [{ "accountId": "<enrolled UID>", "journey": "memory",
+"since": "<timezone-qualified ISO timestamp>" }] }`. Journey is `memory` or
+`mail`; since must be within seven days. Unlisted UIDs and more than 100 task
+results per account fail the entire batch. Read-only replay cannot send email.
+
+The version-1 response includes `environment: "production"`, `retainedOnly:
+true`, `asOf`, and matching accounts with original `since`, `deleted` and
+`tasks: [{ actionId, occurredAt }]`. Task IDs are opaque SHA-256 values. Memory
+requires committed mutations with matching confirmed content-write provenance;
+upgrades and maintenance writes are excluded. The writer now records its existing
+validated authorization mode as derived provenance, preserving the prior request
+fingerprint for cross-release retries. Only explicit `owner_confirmed` writes
+with an exact owner/domain/plan-derived commit ID qualify. Historical rows
+without that mode remain unclassified; automatic saves and source refreshes
+never become deliberate usage. Mail requires durable `sent` state
+and a provider message ID; uncertain and scheduled background sends are excluded
+so a background worker cannot count as the owner's returning usage. No content, domains,
+email addresses, recipients, subjects or bodies leave the backend. Existing
+account-deletion tombstones take priority over task export.
+
+Retained rows prove positive outcomes only. Empty results do not prove signup,
+complete feed coverage or inactivity: retention, domain deletion and resets can
+remove rows. The consumer must not emit complete observations from this
+projection. Setup, failure, support and canonical enrollment remain separate
+producers. No new runtime table or migration is introduced.
+
+Responses are `private, no-store`: sanitized 400 for invalid requests or result
+limits, 401 for signatures, 404 for disabled/nonproduction configuration, 413
+for request size, and 503 for source failures. Reads are bounded; synchronous
+deletion checks run off the event loop. Production deployment optionally binds
+the two dedicated secrets; `one_plg_export_enabled` in existing
+`BACKEND_RUNTIME_CONFIG_JSON` maps the enable flag, which defaults off.
+
 ## Visual Map
 
 Which credential plane authorizes which FastAPI route family, and how first-party

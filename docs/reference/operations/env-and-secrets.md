@@ -67,6 +67,19 @@ flowchart TB
 
 ## Parity rule: code ↔ .env ↔ Secret Manager
 
+### One PLG metadata pilot
+
+Production exporter `ONE_PLG_EXPORT_ENABLED` defaults false and maps from
+`one_plg_export_enabled` in `BACKEND_RUNTIME_CONFIG_JSON`.
+`ONE_PLG_EXPORT_SECRET` and `ONE_PLG_EXPORT_ACCOUNT_IDS` are optional dedicated
+Secret Manager bindings with the same names in `hushh-pda`. The UID allowlist is
+private (maximum 100 production customer UIDs); never put it in tracked config,
+logs or Terraform state. The source key must match dashboard
+`metrics-one-plg-source-secret` in `hushh-ai-prod`, transferred through secure
+process memory/stdin. Never reuse application, session, OTP or provider keys.
+Keep the flag off until separately approved releases of both reviewed PRs are
+verified. See [the API contract](../architecture/api-contracts.md#one-plg-pilot-task-evidence).
+
 - **Local:** `.env` (backend) and `.env.local` (frontend) must contain exactly the keys the application code reads. Use the repo `.env.example` files as the template; they are audited to match the code.
 - **Production:** GCP Secret Manager must hold **exactly** the secrets the code expects — no more, no less. The Cloud Build config (`deploy/*.cloudbuild.yaml`) injects only these; do not add secrets that are not read by the code, and do not remove any that are.
 - **Canonical runtime modes:** the supported frontend `local`, `uat`, `dev`, and `prod` files must share one frontend key shape. The backend contributor runtime stays local-only in `consent-protocol/.env`. The hosted `dev` environment is a UAT infrastructure replica that keeps the `uat` runtime identity; see [consent-protocol/docs/reference/dev-environment-setup.md](../../../consent-protocol/docs/reference/dev-environment-setup.md).
