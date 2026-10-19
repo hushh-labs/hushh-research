@@ -23,6 +23,7 @@ import React, {
   ReactNode,
   useCallback,
   useRef,
+  useSyncExternalStore,
 } from "react";
 import { User, ConfirmationResult, onAuthStateChanged } from "firebase/auth";
 import { auth, prepareRecaptchaVerifier, resetRecaptcha } from "./config";
@@ -49,6 +50,11 @@ import { setObservabilityUserId } from "@/lib/observability/identity";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import {
   completeNativeSessionPrivacyValidation,
+  prepareNativeSessionPrivacyValidation,
+  nativeProfilePreparationExpected,
+  nativeProfilePreparationRevision,
+  subscribeNativeProfilePreparation,
+  nativeSessionPreparationRevision,
   getNativeSessionPrivacyState,
   subscribeNativeSessionPrivacy,
   type NativeSessionPrivacyState,
@@ -393,6 +399,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [nativePrivacyReady, setNativePrivacyReady] =
     useState<NativeSessionPrivacyState | null>(null);
   const nativePrivacyLatestRef = useRef<NativeSessionPrivacyState | null>(null);
+  const nativeCompositionRevision = useSyncExternalStore(subscribeNativeProfilePreparation, nativeProfilePreparationRevision, () => 0);
   const nativePrivacyReconcileRef = useRef<() => void>(() => undefined);
   const authGateRef = useRef({ loading, sessionVerificationRequired });
   authGateRef.current = { loading, sessionVerificationRequired };
@@ -1739,6 +1746,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         activePostAuthSettlementRef.current !== null) return;
     let cancelled = false;
     let paintedFrame: number | null = null;
+    const preparationSession = getAuthSessionGeneration() ?? 0;
+    const preparationRevision = nativeSessionPreparationRevision(nativePrivacyReady.generation, preparationSession,
+      nativeCompositionRevision, sessionVerificationRequired);
     const releaseAfterPaint = () => {
       if (cancelled || authGateRef.current.loading ||
           nativePrivacyLatestRef.current?.generation !== nativePrivacyReady.generation ||
@@ -1746,7 +1756,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
           terminalInvalidationLatchRef.current || signOutPromiseRef.current ||
           activePostAuthSettlementRef.current !== null) return;
       void withinAccountSessionValidationBudget(
-        completeNativeSessionPrivacyValidation(nativePrivacyReady.generation),
+        (async () => {
+          const owner = snapshotValidatedAuthSessionOwner();
+          await prepareNativeSessionPrivacyValidation(nativePrivacyReady.generation, preparationSession,
+            sessionVerificationRequired ? null : nativeProfilePreparationExpected(owner?.userId), preparationRevision);
+          const current = snapshotValidatedAuthSessionOwner();
+          if (cancelled || nativeProfilePreparationRevision() !== nativeCompositionRevision ||
+              getAuthSessionGeneration() !== preparationSession || authGateRef.current.sessionVerificationRequired !== sessionVerificationRequired ||
+              current?.generation !== owner?.generation || current?.userId !== owner?.userId) {
+            throw new Error("Native composition owner changed.");
+          }
+          return nativePrivacyReady.profilePreparation === true
+            ? completeNativeSessionPrivacyValidation(nativePrivacyReady.generation, preparationSession, preparationRevision)
+            : completeNativeSessionPrivacyValidation(nativePrivacyReady.generation);
+        })(),
         Date.now() + NATIVE_SESSION_PRIVACY_READ_BUDGET_MS,
       ).then((result) => {
         if (cancelled) return;
@@ -1768,7 +1791,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       cancelAnimationFrame(frame);
       if (paintedFrame !== null) cancelAnimationFrame(paintedFrame);
     };
-  }, [nativePrivacyReady, loading, sessionVerificationRequired, user]);
+  }, [nativePrivacyReady, loading, sessionVerificationRequired, user, nativeCompositionRevision]);
 
   const requirePhoneVerificationOwner = useCallback(
     (expectedUid: string | null | undefined, expectedEpoch: number) => {

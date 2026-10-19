@@ -449,8 +449,11 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     }
     private var settledUpdateSequence = 0
     var presentationSettled: Bool {
+        presentationLayoutSettled && model.allowsPageInteraction
+    }
+    var presentationLayoutSettled: Bool {
         !motion.retired && viewIfLoaded?.window != nil && !view.bounds.isEmpty && animator == nil && !dragging && !intentPending && !awaitingReadmission &&
-            model.allowsPageInteraction && settledUpdateSequence == model.projection.updateSequence &&
+            !model.navigationTransitioning && settledUpdateSequence == model.projection.updateSequence &&
             (!model.projection.open || model.projection.profileStack == nil ||
                 model.profileNavigationController?.hasCompletedProjectedDestination == true)
     }
@@ -471,6 +474,13 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     }
     #endif
     var leadingHeaderFrame: (() -> CGRect?)?
+    private var privacyQuarantined = false
+    func setPrivacyQuarantined(_ quarantined: Bool) {
+        guard privacyQuarantined != quarantined else { return }
+        privacyQuarantined = quarantined
+        view.endEditing(true)
+        reconcileIsolation()
+    }
     func setFormCoverage(_ covered: Bool) {
         guard formCovered != covered else { return }
         formCovered = covered
@@ -666,7 +676,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         pose(current)
     }
     func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
-        guard !motion.retired, !intentPending, !awaitingReadmission, model.projection.enabled, model.projection.navigationLocked != true, model.allowsPageInteraction, covered,
+        guard !privacyQuarantined, !motion.retired, !intentPending, !awaitingReadmission, model.projection.enabled, model.projection.navigationLocked != true, model.allowsPageInteraction, covered,
               let pan = gesture as? UIPanGestureRecognizer else { return false }
         let velocity = pan.velocity(in: view)
         // A nested native page owns its system edge-pop. The outer drawer's
@@ -750,7 +760,9 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
             }
             self.pose(target)
             self.reportPresentationCompletion()
-            UIAccessibility.post(notification: .screenChanged, argument: open ? self.host.view : nil)
+            if !HushhSessionPrivacyShield.shared.snapshot().shielded {
+                UIAccessibility.post(notification: .screenChanged, argument: open ? self.host.view : nil)
+            }
         }
         animator = next
         reconcileIsolation()
@@ -763,16 +775,16 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     }
     private func reconcileIsolation() {
         let covered = covered
-        scrim.isUserInteractionEnabled = covered
+        scrim.isUserInteractionEnabled = covered && !privacyQuarantined
         view.accessibilityViewIsModal = covered
-        host.view.accessibilityElementsHidden = !covered || formCovered
-        let interactive = covered && !formCovered && model.projection.enabled && !intentPending && !awaitingReadmission && !dragging && animator == nil
+        host.view.accessibilityElementsHidden = !covered || formCovered || privacyQuarantined
+        let interactive = covered && !formCovered && !privacyQuarantined && model.projection.enabled && !intentPending && !awaitingReadmission && !dragging && animator == nil
         host.view.isUserInteractionEnabled = interactive
         if model.interactionEnabled != interactive { model.interactionEnabled = interactive }
         isolation?(covered)
     }
     func allowsInteraction(_ action: String, row: String?, text: String? = nil) -> Bool {
-        guard !motion.retired, !formCovered, !awaitingReadmission, !dragging, animator == nil,
+        guard !motion.retired, !privacyQuarantined, !formCovered, !awaitingReadmission, !dragging, animator == nil,
               model.projection.allows(action: action, row: row, text: text) else { return false }
         return !intentPending || action == "open" || action == "close"
     }

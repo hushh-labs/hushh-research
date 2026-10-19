@@ -1,5 +1,7 @@
 "use client";
 
+import { nativeProfileSceneCanPrepare, nativeProfileActionsAllowed } from "@/lib/capacitor/native-profile-preparation";
+
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
@@ -81,7 +83,7 @@ export function NativeProfileTextEditor<T>(props: {
     const current = replica.current;
     const next = live.current;
     if (!current || !next.appearance || !next.model.ready || next.model.uid !== current.owner ||
-        !next.privacy || next.privacy.shielded || !next.privacy.appIsActive) return;
+        !next.privacy || !nativeProfileSceneCanPrepare(next.privacy, current.identity.scene, current.identity.destinationId)) return;
     // A newly admitted scene starts at native edit revision zero. A render
     // from the retiring scene must not acknowledge edits in its replacement.
     const edit = next.edit.identity === current.identity ? next.edit : { revision: 0, composing: false };
@@ -109,10 +111,10 @@ export function NativeProfileTextEditor<T>(props: {
 
   const epoch = snapshotVaultSessionEpoch();
   const privacyGeneration = privacy?.generation;
-  const privacyShielded = privacy?.shielded;
+  const presentationBlocked = !nativeProfileSceneCanPrepare(privacy, props.scene, props.destinationId);
   const privacyActive = privacy?.appIsActive;
   useEffect(() => {
-    if (!admitted || !model.uid || !model.ready || privacyGeneration === undefined || privacyShielded || !privacyActive ||
+    if (!admitted || !model.uid || !model.ready || privacyGeneration === undefined || presentationBlocked || !privacyActive ||
         !hasNativeProfileNameScene(nativeDrawers)) return;
     const base = createNativeDrawerIdentity("profile");
     if (!base) return;
@@ -124,14 +126,14 @@ export function NativeProfileTextEditor<T>(props: {
     const isCurrent = () => active && live.current.model.ready && live.current.model.uid === owner &&
       snapshotValidatedAuthSessionOwner()?.userId === owner && snapshotVaultSessionEpoch() === epoch && nativeDrawerOwnerIsCurrent(identity) &&
       live.current.props.destinationId === identity.destinationId &&
-      live.current.privacy?.generation === generation && !live.current.privacy.shielded && live.current.privacy.appIsActive;
+      live.current.privacy?.generation === generation && nativeProfileSceneCanPrepare(live.current.privacy, identity.scene, identity.destinationId);
     const presentation = new NativeProfileNamePresentation<T>(identity, nativeDrawers, isCurrent, phase => {
       if (!active) return;
       // A confirmed fallback is the renderer for this editor lifetime. An
       // ordinary privacy resume must not swap it back to native mid-edit.
       if (phase === "fallback") setAdmitted(false);
       setRenderer(phase === "active" ? "native" : phase === "fallback" ? "web" : "blocked");
-    });
+    }, () => isCurrent() && nativeProfileActionsAllowed());
     const instance = { owner, epoch, identity, presentation, sequence: 0, fingerprint: null as string | null };
     replica.current = instance;
     closing.current = false;
@@ -143,7 +145,7 @@ export function NativeProfileTextEditor<T>(props: {
       if (replica.current === instance) replica.current = null;
       void presentation.retire();
     };
-  }, [admitted, model.uid, model.ready, epoch, privacyGeneration, privacyShielded, privacyActive, props.scene, props.destinationId, publish]);
+  }, [admitted, model.uid, model.ready, epoch, privacyGeneration, presentationBlocked, privacyActive, props.scene, props.destinationId, publish]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, renderer === "web" ? 0 : 100, () => {
     if (live.current.model.saving || closing.current) return true;

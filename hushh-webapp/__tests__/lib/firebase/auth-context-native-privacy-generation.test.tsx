@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   authServiceSignOut: vi.fn(),
   apiGetAccountSessionStatus: vi.fn(),
   completePrivacyValidation: vi.fn(),
+  preparePrivacyValidation: vi.fn(async () => undefined),
   getPrivacyState: vi.fn(),
   phoneStart: vi.fn(),
   phoneConfirm: vi.fn(),
@@ -46,6 +47,11 @@ vi.mock("@capacitor/core", () => ({
 vi.mock("@/lib/capacitor/session-privacy", () => ({
   getNativeSessionPrivacyState: mocks.getPrivacyState,
   completeNativeSessionPrivacyValidation: mocks.completePrivacyValidation,
+  prepareNativeSessionPrivacyValidation: mocks.preparePrivacyValidation,
+  nativeProfilePreparationExpected: () => null,
+  nativeProfilePreparationRevision: () => 0,
+  subscribeNativeProfilePreparation: () => () => undefined,
+  nativeSessionPreparationRevision: () => 0,
   subscribeNativeSessionPrivacy: vi.fn(async (listener: (state: unknown) => void) => {
     mocks.privacyListener = listener;
     return { remove: async () => { mocks.privacyListener = null; } };

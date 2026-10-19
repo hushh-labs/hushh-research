@@ -132,6 +132,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private var workspaceRetirementFence = NativeWorkspaceRetirementFence()
     private var sessionFence = NativeDrawerSessionFence()
     private var privacyObserver: NSObjectProtocol?
+    private var retiredPrivacyGeneration: Int?
     private var isolationObserver: NSObjectProtocol?
     private var container: NativePresentationContainer? { bridge?.viewController?.view as? NativePresentationContainer }
     private var supported: Bool {
@@ -142,11 +143,37 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     override func load() {
         DispatchQueue.main.async { [weak self] in
+            HushhSessionPrivacyShield.shared.profilePresentationsConcealed = { [weak self] in
+                guard let self else { return false }
+                return self.form == nil && self.retiringForms.isEmpty && self.retiringControllers.isEmpty &&
+                    self.workspace == nil && self.retiringWorkspaces.isEmpty &&
+                    !self.controllers.values.contains { $0.coversUnderlyingPresentation }
+            }
             self?.privacyObserver = NotificationCenter.default.addObserver(
                 forName: HushhSessionPrivacyShield.presentationDidChange, object: nil, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    if HushhSessionPrivacyShield.shared.snapshot().shielded { self?.retireAll() }
+                    guard let self else { return }
+                    let shield = HushhSessionPrivacyShield.shared
+                    let privacy = shield.snapshot()
+                    if privacy.shielded {
+                        // A retirement completion/readiness publication is not
+                        // a second inactive boundary. Keep this cycle's newly
+                        // prepared hosts, but never carry old private replicas.
+                        if self.retiredPrivacyGeneration != privacy.generation {
+                            self.retiredPrivacyGeneration = privacy.generation
+                            if self.controllers["profile"]?.coversUnderlyingPresentation == true || self.form != nil {
+                                shield.requireProfilePreparation()
+                            }
+                            self.retireAll()
+                        } else if !shield.coveredProfilePreparationIsAuthorized && privacy.preparationAuthorized {
+                            self.retireAll() // Auth selected the committed safe/web gate.
+                        }
+                    } else {
+                        for controller in self.controllers.values { controller.setPrivacyQuarantined(false) }
+                        self.form?.refreshPrivacy()
+                        self.reconcileIsolation()
+                    }
                 }
             }
             self?.isolationObserver = NotificationCenter.default.addObserver(
@@ -177,6 +204,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "profileAccountActions": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileLegalReader": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileNameScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profilePreparation": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileReferralPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileStyleScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileSupportScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
@@ -206,6 +234,22 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "generation": self?.container?.isolationGeneration ?? 0, "isolated": self?.container?.interactionIsolated == true])
         }
     }
+    @MainActor private func profilePreparationIsReady(_ target: NativeProfilePreparationTarget) -> Bool {
+        guard supported, sessionFence.contains(target.identity), retiringControllers.isEmpty,
+              retiringForms.isEmpty, workspace == nil, retiringWorkspaces.isEmpty,
+              let controller = controllers["profile"], target.matches(controller.model.projection),
+              controller.presentationLayoutSettled, controller.view.window === bridge?.viewController?.view.window,
+              controller.view.frame == container?.bounds, controller.view.bounds.size == container?.bounds.size,
+              container?.preparationBaseIsConcealed == true,
+              !controllers.contains(where: { $0.key != "profile" && $0.value.coversUnderlyingPresentation }) else { return false }
+        if let scene = target.formScene {
+            guard let form, form.sceneName == scene, form.presentationSettled else { return false }
+            let receipt = form.receipt("active")
+            return target.matchesForm(form.identity, scene: scene, destination: receipt["destinationId"] as? String,
+                privacy: receipt["privacyGeneration"] as? Int ?? -1)
+        }
+        return form == nil
+    }
     @objc func apply(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.supported, let parent = self.bridge?.viewController, let container = self.container else {
@@ -221,7 +265,14 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             let shield = HushhSessionPrivacyShield.shared
             let privacy = shield.snapshot()
             shield.observeDocument(next.documentId)
-            guard privacy.appIsActive, !privacy.shielded, next.privacyGeneration == privacy.generation,
+            let preparationTarget = next.profilePreparation.map { description in
+                NativeProfilePreparationTarget(documentId: next.documentId, ownerEpoch: next.ownerEpoch,
+                    ownerGeneration: next.ownerGeneration, revision: next.revision, updateSequence: next.updateSequence,
+                    privacyGeneration: next.privacyGeneration, visitId: description.visitId,
+                    destinationId: next.profileDestinationId, supportDestinationId: next.profileSupportDestinationId,
+                    formScene: description.formScene)
+            }
+            guard privacy.appIsActive, (!privacy.shielded || preparationTarget.map(shield.canBeginProfilePreparation) == true), next.privacyGeneration == privacy.generation,
                   shield.acceptsDocument(next.documentId) else { call.reject("NATIVE_DRAWER_PRIVATE_STATE_UNAVAILABLE"); return }
             var session = self.sessionFence
             guard session.admit(next.identity) else { call.reject("NATIVE_DRAWER_STALE_OWNER"); return }
@@ -239,19 +290,28 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             guard !next.open || !self.controllers.contains(where: { family, control in
                 family != next.family && (control.model.projection.open || control.motion.progress > 0)
             }) else { call.reject("NATIVE_DRAWER_OVERLAP"); return }
-            self.leases[next.family] = lease
             if let previous = self.controllers[next.family], previous.model.projection.identity != next.identity {
                 self.detach(next.family)
                 guard self.retiringControllers.isEmpty else { call.reject("NATIVE_DRAWER_RETIRING"); return }
             }
+            // Commit a ticket only after the candidate session, ordering,
+            // overlap and retirement checks pass. A rejected Apply cannot
+            // replace a live readiness target or cancel its release.
+            if privacy.shielded, let target = preparationTarget {
+                guard shield.beginProfilePreparation(target, ready: { [weak self] in self?.profilePreparationIsReady(target) == true }) != nil
+                else { call.reject("NATIVE_PROFILE_PREPARATION_REFUSED"); return }
+            }
+            self.leases[next.family] = lease
             if let previous = self.controllers[next.family] {
                 if next.family == "profile", (previous.model.projection.profileDestinationId != next.profileDestinationId ||
                     previous.model.projection.profileSupportDestinationId != next.profileSupportDestinationId),
                    self.form != nil { self.retireProfileForm() }
+                previous.setPrivacyQuarantined(privacy.shielded)
                 previous.update(next)
             }
             else {
                 let controller = NativeDrawerPresentationController(next)
+                controller.setPrivacyQuarantined(privacy.shielded)
                 if next.family == "history" {
                     controller.leadingHeaderFrame = { [weak container] in
                         container?.installedFrame("chat-history-toggle")
@@ -298,10 +358,11 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                     guard let self, let controller, self.controllers[state.family] === controller,
                           self.sessionFence.contains(state.identity) else { return }
                     let privacy = HushhSessionPrivacyShield.shared.snapshot()
-                    guard privacy.appIsActive, !privacy.shielded, privacy.generation == state.privacyGeneration else { return }
+                    guard privacy.appIsActive, (!privacy.shielded || HushhSessionPrivacyShield.shared.acceptsPreparedDrawer(state)), privacy.generation == state.privacyGeneration else { return }
                     var event = self.receipt(state, phase: "active")
                     event["settled"] = true
                     self.notifyListeners("presentationSettled", data: event, retainUntilConsumed: false)
+                    HushhSessionPrivacyShield.shared.profilePreparationDidChange()
                 }
                 controller.activateInitialPresentation()
             }
@@ -326,12 +387,12 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                   controller.model.projection.identity == identity else { call.resolve(["valid": false]); return }
             let state = controller.model.projection
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
-            guard privacy.appIsActive, !privacy.shielded, privacy.generation == state.privacyGeneration else {
+            guard privacy.appIsActive, (!privacy.shielded || HushhSessionPrivacyShield.shared.acceptsPreparedDrawer(state)), privacy.generation == state.privacyGeneration else {
                 call.resolve(["valid": false]); return
             }
             var result = self.receipt(state, phase: "active")
             result["valid"] = true
-            result["settled"] = controller.presentationSettled
+            result["settled"] = privacy.shielded ? controller.presentationLayoutSettled : controller.presentationSettled
             call.resolve(result)
         }
     }
@@ -523,6 +584,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             form?.coversPresentation == true || retiringForms.values.contains { $0.coversPresentation }
         container?.isolateForOwnedDrawer(covered)
         workspace?.refresh()
+        HushhSessionPrivacyShield.shared.profilePreparationDidChange()
     }
 
     @MainActor private func retireWorkspacePresentation() {
@@ -629,11 +691,19 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(["valid": confirm ? presentation.model.confirm(choice) : presentation.model.settle(choice)])
         }
     }
-    @MainActor private func profileFormOwnerIsCurrent(_ identity: NativeDrawerIdentity, privacy: Int, scene: String = "account-name", destinationId: String? = nil) -> Bool {
+    @MainActor private var profileParentPresentationIsReady: Bool {
+        HushhSessionPrivacyShield.shared.snapshot().shielded ? controllers["profile"]?.presentationLayoutSettled == true :
+            controllers["profile"]?.presentationSettled == true
+    }
+    @MainActor private func profileFormPresentationIsCurrent(_ identity: NativeDrawerIdentity, privacy: Int, scene: String = "account-name", destinationId: String? = nil) -> Bool {
+        profileFormOwnerIsCurrent(identity, privacy: privacy, scene: scene, destinationId: destinationId, preparing: true)
+    }
+    @MainActor private func profileFormOwnerIsCurrent(_ identity: NativeDrawerIdentity, privacy: Int, scene: String = "account-name", destinationId: String? = nil, preparing: Bool = false) -> Bool {
         let shield = HushhSessionPrivacyShield.shared
         let state = shield.snapshot()
         guard supported, NativeDrawerQualificationPolicy.coherentShell, UIDevice.current.userInterfaceIdiom == .phone,
-              sessionFence.contains(identity), state.appIsActive, !state.shielded, state.generation == privacy,
+              sessionFence.contains(identity), state.appIsActive,
+              (!state.shielded || preparing && shield.acceptsPreparedForm(identity, scene: scene, destination: destinationId, privacy: privacy)), state.generation == privacy,
               shield.acceptsDocument(identity.documentId), let profile = controllers["profile"]?.model.projection else { return false }
         let nativeAccount = ["account-name", "phone"].contains(scene) && profile.open && profile.profileStack?.last?.id == "account" &&
             destinationId != nil && destinationId == profile.profileDestinationId
@@ -668,13 +738,13 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                   let draft = options["draft"] as? [String: Any], Set(draft.keys) == NativeRuntimeProjection.draftKeys,
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 65_536,
                   let next = try? JSONDecoder().decode(NativeRuntimeProjection.self, from: bytes), next.valid,
-                  self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
+                  self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
                   self.retiringForms.isEmpty else { call.reject("NATIVE_PROFILE_RUNTIME_UNAVAILABLE"); return }
             if let scene = self.runtimeScene {
                 guard scene.identity == next.identity, scene.update(next) else { call.reject("NATIVE_PROFILE_RUNTIME_STALE_STATE"); return }
                 call.resolve(next.receipt("active")); return
             }
-            guard self.form == nil, self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
+            guard self.form == nil, self.profileParentPresentationIsReady else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
             let owner = self.profileFormOwnerKey(next.identity)
             if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
             guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_RUNTIME_RETIRED"); return }
@@ -708,7 +778,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
                 guard let self, let scene else { call.reject("NATIVE_PROFILE_RUNTIME_RETIRED"); return }
                 guard presented, self.runtimeScene === scene,
-                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
+                      self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
                     if self.runtimeScene === scene { self.retireProfileForm() }; call.reject("NATIVE_PROFILE_RUNTIME_RETIRED"); return
                 }
                 call.resolve(next.receipt("active"))
@@ -754,13 +824,13 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                   let draft = options["draft"] as? [String: Any], Set(draft.keys) == NativeConnectorProjection.draftKeys(sceneName),
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 65_536,
                   let next = try? JSONDecoder().decode(NativeConnectorProjection.self, from: bytes), next.valid,
-                  self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
+                  self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
                   self.retiringForms.isEmpty else { call.reject("NATIVE_PROFILE_CONNECTOR_UNAVAILABLE"); return }
             if let scene = self.connectorScene {
                 guard scene.identity == next.identity, scene.update(next) else { call.reject("NATIVE_PROFILE_CONNECTOR_STALE_STATE"); return }
                 call.resolve(next.receipt("active")); return
             }
-            guard self.form == nil, self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
+            guard self.form == nil, self.profileParentPresentationIsReady else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
             let owner = self.profileFormOwnerKey(next.identity)
             if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
             guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_CONNECTOR_RETIRED"); return }
@@ -794,7 +864,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
                 guard let self, let scene else { call.reject("NATIVE_PROFILE_CONNECTOR_RETIRED"); return }
                 guard presented, self.connectorScene === scene,
-                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
+                      self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
                     if self.connectorScene === scene { self.retireProfileForm() }; call.reject("NATIVE_PROFILE_CONNECTOR_RETIRED"); return
                 }
                 call.resolve(next.receipt("active"))
@@ -841,13 +911,13 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                   let draft = options["draft"] as? [String: Any], Set(draft.keys) == Set(["category", "text"]),
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 1_048_576,
                   let next = try? JSONDecoder().decode(NativeMemoryProjection.self, from: bytes), next.valid,
-                  self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
+                  self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
                   self.retiringForms.isEmpty else { call.reject("NATIVE_PROFILE_CONNECTOR_UNAVAILABLE"); return }
             if let scene = self.memoryScene {
                 guard scene.identity == next.identity, scene.update(next) else { call.reject("NATIVE_PROFILE_CONNECTOR_STALE_STATE"); return }
                 call.resolve(next.receipt("active")); return
             }
-            guard self.form == nil, self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
+            guard self.form == nil, self.profileParentPresentationIsReady else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
             let owner = self.profileFormOwnerKey(next.identity)
             if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
             guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_CONNECTOR_RETIRED"); return }
@@ -881,7 +951,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
                 guard let self, let scene else { call.reject("NATIVE_PROFILE_CONNECTOR_RETIRED"); return }
                 guard presented, self.memoryScene === scene,
-                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
+                      self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
                     if self.memoryScene === scene { self.retireProfileForm() }; call.reject("NATIVE_PROFILE_CONNECTOR_RETIRED"); return
                 }
                 call.resolve(next.receipt("active"))
@@ -928,13 +998,13 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                   Set(draft.keys) == NativeWorldModelDraft.keys(sceneName),
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 65_536,
                   let next = try? JSONDecoder().decode(NativeWorldModelProjection.self, from: bytes), next.valid,
-                  self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
+                  self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
                   self.retiringForms.isEmpty else { call.reject("NATIVE_PROFILE_WORLD_MODEL_UNAVAILABLE"); return }
             if let scene = self.worldModelScene {
                 guard scene.identity == next.identity, scene.update(next) else { call.reject("NATIVE_PROFILE_WORLD_MODEL_STALE_STATE"); return }
                 call.resolve(next.receipt("active")); return
             }
-            guard self.form == nil, self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
+            guard self.form == nil, self.profileParentPresentationIsReady else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
             let owner = self.profileFormOwnerKey(next.identity)
             if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
             guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_WORLD_MODEL_RETIRED"); return }
@@ -960,7 +1030,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
                 guard let self, let scene else { call.reject("NATIVE_PROFILE_WORLD_MODEL_RETIRED"); return }
                 guard presented, self.worldModelScene === scene,
-                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
+                      self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
                     if self.worldModelScene === scene { self.retireProfileForm() }
                     call.reject("NATIVE_PROFILE_WORLD_MODEL_RETIRED"); return
                 }
@@ -1008,13 +1078,13 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                   let options = call.options as? [String: Any], Set(options.keys).isSubset(of: NativePasswordProjection.keys),
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 65_536,
                   let next = try? JSONDecoder().decode(NativePasswordProjection.self, from: bytes), next.valid,
-                  self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
+                  self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
                   self.retiringForms.isEmpty else { call.reject("NATIVE_PROFILE_PASSWORD_UNAVAILABLE"); return }
             if let scene = self.passwordScene {
                 guard scene.identity == next.identity, scene.update(next) else { call.reject("NATIVE_PROFILE_PASSWORD_STALE_STATE"); return }
                 call.resolve(next.receipt("active")); return
             }
-            guard self.form == nil, self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
+            guard self.form == nil, self.profileParentPresentationIsReady else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
             let owner = self.profileFormOwnerKey(next.identity)
             if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
             guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_PASSWORD_RETIRED"); return }
@@ -1040,7 +1110,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
                 guard let self, let scene else { call.reject("NATIVE_PROFILE_PASSWORD_RETIRED"); return }
                 guard presented, self.passwordScene === scene,
-                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
+                      self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
                     if self.passwordScene === scene { self.retireProfileForm() }
                     call.reject("NATIVE_PROFILE_PASSWORD_RETIRED"); return
                 }
@@ -1085,7 +1155,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                   let options = call.options as? [String: Any], Set(options.keys).isSubset(of: NativeProfilePricingProjection.keys),
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options),
                   bytes.count <= 32_768, let next = try? JSONDecoder().decode(NativeProfilePricingProjection.self, from: bytes),
-                  next.valid, self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "request-price", destinationId: next.destinationId), self.retiringForms.isEmpty else {
+                  next.valid, self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "request-price", destinationId: next.destinationId), self.retiringForms.isEmpty else {
                 call.reject("NATIVE_PROFILE_PRICING_UNAVAILABLE"); return
             }
             if let scene = self.pricingScene {
@@ -1095,7 +1165,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.resolve(next.receipt(phase: "active")); return
             }
             guard self.form == nil else { call.reject("NATIVE_PROFILE_FORM_OCCUPIED"); return }
-            guard self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
+            guard self.profileParentPresentationIsReady else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
             let owner = self.profileFormOwnerKey(next.identity)
             if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
             guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else {
@@ -1128,7 +1198,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
                 guard let self, let scene else { call.reject("NATIVE_PROFILE_PRICING_RETIRED"); return }
                 guard presented, self.pricingScene === scene,
-                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "request-price", destinationId: next.destinationId) else {
+                      self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "request-price", destinationId: next.destinationId) else {
                     if self.pricingScene === scene { self.retireProfileForm() }
                     call.reject("NATIVE_PROFILE_PRICING_RETIRED"); return
                 }
@@ -1189,13 +1259,13 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                   let options = call.options as? [String: Any], NativePhoneProjection.hasClosedShape(options),
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options),
                   bytes.count <= 131_072, let next = try? JSONDecoder().decode(NativePhoneProjection.self, from: bytes), next.valid,
-                  self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "phone", destinationId: next.destinationId),
+                  self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "phone", destinationId: next.destinationId),
                   self.retiringForms.isEmpty else { call.reject("NATIVE_PROFILE_PHONE_UNAVAILABLE"); return }
             if let scene = self.phoneScene {
                 guard scene.identity == next.identity, scene.update(next) else { call.reject("NATIVE_PROFILE_PHONE_STALE_STATE"); return }
                 call.resolve(next.receipt("active")); return
             }
-            guard self.form == nil, self.controllers["profile"]?.presentationSettled == true else {
+            guard self.form == nil, self.profileParentPresentationIsReady else {
                 call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return
             }
             let owner = self.profileFormOwnerKey(next.identity)
@@ -1227,7 +1297,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
                 guard let self, let scene else { call.reject("NATIVE_PROFILE_PHONE_RETIRED"); return }
                 guard presented, self.form === scene,
-                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "phone", destinationId: next.destinationId) else {
+                      self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "phone", destinationId: next.destinationId) else {
                     if self.form === scene { self.retireProfileForm() }
                     call.reject("NATIVE_PROFILE_PHONE_RETIRED"); return
                 }
@@ -1285,7 +1355,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                   let options = call.options as? [String: Any], Set(options.keys).isSubset(of: NativeProfileNameProjection.keys),
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options),
                   bytes.count <= 32_768, let next = try? JSONDecoder().decode(NativeProfileNameProjection.self, from: bytes),
-                  next.valid, self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId), self.retiringForms.isEmpty else {
+                  next.valid, self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId), self.retiringForms.isEmpty else {
                 call.reject("NATIVE_PROFILE_NAME_UNAVAILABLE"); return
             }
             if let scene = self.nameScene {
@@ -1295,7 +1365,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.resolve(next.receipt(phase: "active")); return
             }
             guard self.form == nil else { call.reject("NATIVE_PROFILE_FORM_OCCUPIED"); return }
-            guard self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
+            guard self.profileParentPresentationIsReady else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
             let owner = self.profileFormOwnerKey(next.identity)
             if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
             guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else {
@@ -1328,7 +1398,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
                 guard let self, let scene else { call.reject("NATIVE_PROFILE_NAME_RETIRED"); return }
                 guard presented, self.nameScene === scene,
-                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
+                      self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
                     if self.nameScene === scene { self.retireProfileForm() }
                     call.reject("NATIVE_PROFILE_NAME_RETIRED"); return
                 }
@@ -1427,7 +1497,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                   let options = call.options as? [String: Any], Set(options.keys).isSubset(of: NativeProfileStyleProjection.keys),
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options),
                   bytes.count <= 32_768, let next = try? JSONDecoder().decode(NativeProfileStyleProjection.self, from: bytes),
-                  next.valid, self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "writing-style", destinationId: next.destinationId), self.retiringForms.isEmpty else {
+                  next.valid, self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "writing-style", destinationId: next.destinationId), self.retiringForms.isEmpty else {
                 call.reject("NATIVE_PROFILE_STYLE_UNAVAILABLE"); return
             }
             if let scene = self.styleScene {
@@ -1435,7 +1505,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.resolve(next.receipt("active")); return
             }
             guard self.form == nil else { call.reject("NATIVE_PROFILE_FORM_OCCUPIED"); return }
-            guard self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
+            guard self.profileParentPresentationIsReady else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
             let owner = self.profileFormOwnerKey(next.identity)
             if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
             guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_STYLE_RETIRED"); return }
@@ -1463,7 +1533,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
                 guard let self, let scene else { call.reject("NATIVE_PROFILE_STYLE_RETIRED"); return }
-                guard presented, self.form === scene, self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "writing-style", destinationId: next.destinationId) else {
+                guard presented, self.form === scene, self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "writing-style", destinationId: next.destinationId) else {
                     if self.form === scene { self.retireProfileForm() }
                     call.reject("NATIVE_PROFILE_STYLE_RETIRED"); return
                 }
@@ -1521,14 +1591,14 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                   let draft = options["draft"] as? [String: Any], Set(draft.keys) == Set(["kind", "message"]),
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 98_304,
                   let next = try? JSONDecoder().decode(NativeSupportProjection.self, from: bytes), next.valid,
-                  self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "support", destinationId: next.destinationId),
+                  self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "support", destinationId: next.destinationId),
                   self.retiringForms.isEmpty else { call.reject("NATIVE_PROFILE_SUPPORT_UNAVAILABLE"); return }
             if let scene = self.supportScene {
                 guard scene.identity == next.identity, scene.update(next) else { call.reject("NATIVE_PROFILE_SUPPORT_STALE_STATE"); return }
                 call.resolve(next.receipt("active")); return
             }
             guard self.form == nil else { call.reject("NATIVE_PROFILE_FORM_OCCUPIED"); return }
-            guard self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
+            guard self.profileParentPresentationIsReady else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
             let owner = self.profileFormOwnerKey(next.identity)
             if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
             guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_SUPPORT_RETIRED"); return }
@@ -1555,7 +1625,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
                 guard let self, let scene else { call.reject("NATIVE_PROFILE_SUPPORT_RETIRED"); return }
-                guard presented, self.form === scene, self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "support", destinationId: next.destinationId) else {
+                guard presented, self.form === scene, self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "support", destinationId: next.destinationId) else {
                     if self.form === scene { self.retireProfileForm() }
                     call.reject("NATIVE_PROFILE_SUPPORT_RETIRED"); return
                 }

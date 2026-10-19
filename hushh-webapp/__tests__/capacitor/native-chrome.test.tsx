@@ -704,6 +704,9 @@ const privacy = vi.hoisted(() => ({ callbacks: new Set<(event: { generation: num
   observations: new Set<() => void>(), epoch: 0,
   state: { generation: 0, shielded: false, appIsActive: true, cause: "inactive" as const } }));
 vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => bridge.documentId,
+  expectNativeProfilePreparation: () => () => undefined,
+  nativePrivacyCanInteract: (state = privacy.state) => !!state?.appIsActive && !state.shielded,
+  nativePrivacyCanPrepareProfile: (state = privacy.state) => !!state?.appIsActive && !state.shielded,
   subscribeNativePrivacyObservation: (callback: () => void) => {
     privacy.observations.add(callback); return () => { privacy.observations.delete(callback); };
   },
@@ -4090,19 +4093,15 @@ describe("native chrome presentation lease", () => {
     });
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
       coherentPresentation: true, ownedContentPane: true, retainedControls: true, inPlaceUpdates: true });
-    bridge.acquireContentPane.mockImplementation(async identity => ({ ...identity, phase: "active" }));
+    const acquisition = deferred<Awaited<ReturnType<typeof bridge.acquireContentPane>>>();
+    let parent: Parameters<typeof bridge.acquireContentPane>[0] | undefined;
+    bridge.acquireContentPane.mockImplementation(async identity => { parent = identity; return acquisition.promise; });
     bridge.releaseContentPane.mockImplementation(async identity => ({ ...identity, phase: "retired" }));
-    const activation = deferred<ChromeAcknowledgement>();
-    let back: ChromeProjection | undefined;
-    bridge.activate.mockImplementation(async state => {
-      if (state.controlId === "profile-back" && !back) { back = state; return activation.promise; }
-      return { ...state, phase: "active" };
-    });
     const groups = profileMenuGroups(false);
     const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
     function PhotoModal() {
-      // The real photo sheet blocks native headers. Mounting it before parent
-      // admission reproduced the device deadlock; do not bypass this isolation.
+      // A photo sheet cannot appear until its whole parent paint plane is
+      // admitted and the outgoing native menu actually disappears.
       useNativeNavigationBlocked(true);
       return <button>Public photo preview</button>;
     }
@@ -4111,10 +4110,11 @@ describe("native chrome presentation lease", () => {
       page={{ pane: true, title: "Your account", owner: "owner-a", context: detail ? "account-photo" : "root", onBack: vi.fn(), onClose: vi.fn() }}
       detailOverlay={<PhotoModal />}><p>Public Account content</p></NativeProfilePresentation>;
     const view = render(scene(true));
-    await waitFor(() => expect(back).toBeDefined());
+    await waitFor(() => expect(parent).toBeDefined());
+    expect(bridge.prepare.mock.calls.some(([state]) => state.controlId === "profile-back")).toBe(false);
     expect(view.queryByText("Public photo preview")).toBeNull();
     if (outcome === "retired-before-parent") await waitFor(() => expect(drawerBridge.retire).toHaveBeenCalledOnce());
-    await act(async () => activation.resolve({ ...back!, phase: "active" }));
+    await act(async () => acquisition.resolve({ ...parent!, phase: "active" }));
     if (outcome === "retired-before-parent") {
       await waitFor(() => expect(view.getByText("Public photo preview")).toBeVisible());
       expect(drawerBridge.apply.mock.calls.every(([state]) => state.open)).toBe(true);

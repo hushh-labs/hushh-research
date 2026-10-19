@@ -68,7 +68,7 @@ export function useReferralsPanelModel(active = true) {
   const ownsState = stateOwner.current === user?.uid;
   // One feature owner for both renderers. An old request cannot publish into
   // a different account or a later visit, including after leaving Profile.
-  const visit = useMemo(() => ({ live: false }), [user?.uid, active]);
+  const visit = useMemo(() => ({ live: false, owner: user?.uid, active }), [user?.uid, active]);
   useLayoutEffect(() => { visit.live = active; return () => { visit.live = false; }; }, [visit, active]);
   const [state, setState] = useState<LoadState>("loading");
   const [showProgress, setShowProgress] = useState(false);

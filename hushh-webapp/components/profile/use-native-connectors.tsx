@@ -252,6 +252,8 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
   return { pages, rows, blocking, navigationBlocked, back, ancestor, nested: pages.length > 1,
     mapped: Boolean(model),
     failed: local.failedEditor,
+    formScene: custom?.editing ? "connector-custom-server" as const : detail?.kind === "social" && local.link?.network === detail.network
+      ? "connector-profile-link" as const : drive?.packet.editingPrice ? "connector-packet-price" as const : null,
     editor: (destinationId: string) => {
       const onFallback = () => change(value => ({ ...value, failedEditor: true }));
       if (custom?.editing) return <NativeConnectorEditor model={custom.nativeEditor} owner={owner} destinationId={destinationId} onClose={custom.nativeEditor.cancelEditor} onFallback={onFallback} />;

@@ -3397,11 +3397,13 @@ final class NativeSupportTests: XCTestCase {
             if let host = previousWindow?.rootViewController?.view { shield.attach(to: host) }
             previousWindow?.makeKeyAndVisible()
         }
-        func release(_ generation: Int, documentId: String? = nil, active: Bool = true) async -> Bool {
+        func release(_ generation: Int, documentId: String? = nil, active: Bool = true,
+                     sessionRevision: Int? = nil, compositionRevision: Int? = nil, preparationId: String? = nil) async -> Bool {
             let done = expectation(description: "Bounded release callback")
             var result = false
             shield.completeSessionValidation(generation: generation, documentId: documentId ?? document,
-                appIsActive: active) {
+                appIsActive: active, sessionRevision: sessionRevision, compositionRevision: compositionRevision,
+                preparationId: preparationId) {
                 result = $0; done.fulfill()
             }
             await fulfillment(of: [done], timeout: 2)
@@ -3490,6 +3492,95 @@ final class NativeSupportTests: XCTestCase {
         let afterPopup = await release(shield.snapshot().generation)
         XCTAssertTrue(afterPopup)
         XCTAssertEqual(nativeReleases, 3)
+        // Parent completion alone is not proof of its required editor. The
+        // readiness closure here is the transaction port; Drawers supplies
+        // actual controller/window/layout and form-completion checks.
+        shield.protectForAppInactive(); shield.markAppActive()
+        let preparedGeneration = shield.snapshot().generation
+        shield.requireProfilePreparation()
+        let generationOnly = await release(preparedGeneration)
+        XCTAssertFalse(generationOnly, "A generation-only receipt cannot bypass a required Profile composition")
+        XCTAssertTrue(shield.authorizePreparation(document: document, generation: preparedGeneration,
+            sessionRevision: 1, profile: true, compositionRevision: 1, visitId: "public-account-visit", formScene: "account-name"))
+        let target = NativeProfilePreparationTarget(documentId: document, ownerEpoch: "public-owner", ownerGeneration: 1,
+            revision: 1, updateSequence: 1, privacyGeneration: preparedGeneration, visitId: "public-account-visit",
+            destinationId: "public-account", supportDestinationId: nil, formScene: "account-name")
+        var completeComposition = false
+        let preparationId = try XCTUnwrap(shield.beginProfilePreparation(target) { completeComposition })
+        let missingFormTarget = NativeProfilePreparationTarget(documentId: document, ownerEpoch: "public-owner", ownerGeneration: 1,
+            revision: 1, updateSequence: 1, privacyGeneration: preparedGeneration, visitId: "public-account-visit",
+            destinationId: "public-account", supportDestinationId: nil, formScene: nil)
+        XCTAssertNil(shield.beginProfilePreparation(missingFormTarget) { true })
+        XCTAssertEqual(shield.snapshot().profilePreparationId, preparationId, "A rejected target must leave the current ticket untouched")
+        XCTAssertFalse(shield.authorizePreparation(document: document, generation: preparedGeneration,
+            sessionRevision: 0, profile: false, compositionRevision: 2, visitId: nil, formScene: nil))
+        XCTAssertFalse(shield.authorizePreparation(document: document, generation: preparedGeneration,
+            sessionRevision: 1, profile: false, compositionRevision: 1, visitId: nil, formScene: nil))
+        XCTAssertTrue(shield.snapshot().shielded, "Preparation grants layout, never interaction")
+        XCTAssertFalse(shield.acceptsPreparedForm(target.identity, scene: "phone", destination: "public-account", privacy: preparedGeneration))
+        let missingEditor = await release(preparedGeneration, sessionRevision: 1, compositionRevision: 1, preparationId: preparationId)
+        XCTAssertFalse(missingEditor)
+        completeComposition = true
+        let staleComposition = await release(preparedGeneration, sessionRevision: 1, compositionRevision: 0, preparationId: preparationId)
+        XCTAssertFalse(staleComposition)
+        let interruptedPreparation = expectation(description: "A changed composition cancels its fade")
+        shield.completeSessionValidation(generation: preparedGeneration, documentId: document, appIsActive: true,
+            sessionRevision: 1, compositionRevision: 1, preparationId: preparationId) { released in
+            XCTAssertFalse(released); interruptedPreparation.fulfill()
+        }
+        XCTAssertTrue(shield.authorizePreparation(document: document, generation: preparedGeneration,
+            sessionRevision: 1, profile: false, compositionRevision: 2, visitId: nil, formScene: nil))
+        await fulfillment(of: [interruptedPreparation], timeout: 2)
+        XCTAssertTrue(shield.snapshot().shielded)
+        let staleTicket = await release(preparedGeneration, sessionRevision: 1, compositionRevision: 2, preparationId: preparationId)
+        XCTAssertFalse(staleTicket)
+        let safeGate = await release(preparedGeneration, sessionRevision: 1, compositionRevision: 2)
+        XCTAssertTrue(safeGate, "The committed safe gate supersedes private preparation without operation replay")
+
+        // A rich exception is one complete React pane. Neither its acquired
+        // paint plane nor a stale body receipt can release window privacy.
+        shield.protectForAppInactive(); shield.markAppActive()
+        let paneGeneration = shield.snapshot().generation
+        let previousConcealment = shield.profilePresentationsConcealed
+        var menuGone = false
+        var paneLaidOut = false
+        shield.profilePresentationsConcealed = { menuGone }
+        defer { shield.profilePresentationsConcealed = previousConcealment }
+        XCTAssertTrue(shield.authorizePreparation(document: document, generation: paneGeneration,
+            sessionRevision: 1, profile: true, compositionRevision: 3, visitId: "public-rich-visit", formScene: nil, body: "pane"))
+        let pane = NativeContentPaneIdentity(document: document, ownerEpoch: "public-pane-owner", generation: 1,
+            privacyGeneration: paneGeneration)
+        XCTAssertFalse(shield.canPrepareProfilePane(pane, visit: "public-stale-visit"))
+        XCTAssertTrue(shield.beginProfilePanePreparation(pane, visit: "public-rich-visit", viewport: window.bounds.size) { paneLaidOut })
+        let paneTicket = try XCTUnwrap(shield.snapshot().profilePreparationId)
+        XCTAssertFalse(shield.confirmProfilePanePreparation(pane, visit: "public-rich-visit", id: paneTicket))
+        paneLaidOut = true
+        XCTAssertFalse(shield.confirmProfilePanePreparation(pane, visit: "public-rich-visit", id: paneTicket))
+        menuGone = true
+        let unpainted = await release(paneGeneration, sessionRevision: 1, compositionRevision: 3, preparationId: paneTicket)
+        XCTAssertFalse(unpainted)
+        XCTAssertFalse(shield.confirmProfilePanePreparation(pane, visit: "public-rich-visit", id: "public-stale-ticket"))
+        XCTAssertTrue(shield.confirmProfilePanePreparation(pane, visit: "public-rich-visit", id: paneTicket))
+        XCTAssertTrue(shield.snapshot().shielded)
+        let withdrawn = expectation(description: "Pane withdrawal cancels its fade immediately")
+        shield.completeSessionValidation(generation: paneGeneration, documentId: document, appIsActive: true,
+            sessionRevision: 1, compositionRevision: 3, preparationId: paneTicket) {
+            XCTAssertFalse($0); withdrawn.fulfill()
+        }
+        shield.retireProfilePanePreparation(pane)
+        await fulfillment(of: [withdrawn], timeout: 2)
+        XCTAssertTrue(shield.snapshot().shielded)
+        XCTAssertTrue(shield.beginProfilePanePreparation(pane, visit: "public-rich-visit", viewport: window.bounds.size) { true })
+        let beforeRotation = try XCTUnwrap(shield.snapshot().profilePreparationId)
+        XCTAssertTrue(shield.confirmProfilePanePreparation(pane, visit: "public-rich-visit", id: beforeRotation))
+        let rotated = CGSize(width: window.bounds.height, height: window.bounds.width)
+        XCTAssertTrue(shield.beginProfilePanePreparation(pane, visit: "public-rich-visit", viewport: rotated) { true })
+        let afterRotation = try XCTUnwrap(shield.snapshot().profilePreparationId)
+        XCTAssertNotEqual(beforeRotation, afterRotation)
+        XCTAssertFalse(shield.confirmProfilePanePreparation(pane, visit: "public-rich-visit", id: beforeRotation))
+        XCTAssertTrue(shield.confirmProfilePanePreparation(pane, visit: "public-rich-visit", id: afterRotation))
+        let painted = await release(paneGeneration, sessionRevision: 1, compositionRevision: 3, preparationId: afterRotation)
+        XCTAssertTrue(painted)
     }
 
     func testPrivacyCannotUncoverBeforeEveryOwnedPresenterRetires() {

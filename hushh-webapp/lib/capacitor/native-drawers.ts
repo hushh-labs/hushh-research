@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { NativeControlAppearance } from "./native-control-appearance";
+import { PROFILE_PREPARATION_SCENES, type ProfilePreparationDescription } from "./native-profile-preparation";
 import type { NativeProfileNameScenePort } from "./native-profile-name-scene";
 import type { NativePasswordScenePort } from "./native-profile-password-scene";
 import type { NativeProfilePricingScenePort } from "./native-profile-pricing-scene";
@@ -77,6 +78,7 @@ export type NativeDrawerProjection = NativeDrawerIdentity & NativeControlAppeara
   profileDestinationId?: string;
   /** A bounded support sheet anchored to the retained root, not an empty page. */
   profileSupportDestinationId?: string;
+  profilePreparation?: ProfilePreparationDescription;
 };
 export type NativeDrawerReceipt = NativeDrawerIdentity & {
   updateSequence: number;
@@ -113,7 +115,7 @@ export interface HushhNativeDrawersPlugin extends Partial<NativeWorkspacePort> {
   confirmProfileRuntimeAction?: NativeRuntimeScenePort["confirmProfileRuntimeAction"];
   settleProfileRuntimeAction?: NativeRuntimeScenePort["settleProfileRuntimeAction"];
   retireProfileRuntimeScene?: NativeRuntimeScenePort["retireProfileRuntimeScene"];
-  getCapabilities(): Promise<NativeDrawerIsolation & { profileReferralPages?: boolean; closeSettlements?: boolean;
+  getCapabilities(): Promise<NativeDrawerIsolation & { profileReferralPages?: boolean; closeSettlements?: boolean; profilePreparation?: boolean;
     contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; compatibleBackRefreshes?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileSharedMemoryPages?: boolean; profileSecretMemoryPages?: boolean; profileMemoryScene?: boolean; profileWorldModelPages?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean; profileRuntimeScene?: boolean; profileConnectorScene?: boolean; profileConnectorPages?: boolean; routeWorkspaces?: readonly "referrals"[] }>;
   applyProfileWorldModelScene?: NativeWorldModelScenePort["applyProfileWorldModelScene"];
   confirmProfileWorldModelAction?: NativeWorldModelScenePort["confirmProfileWorldModelAction"];
@@ -348,7 +350,7 @@ export function validNativeWorldModelPath(pages: readonly NativeProfilePage[]): 
  * arbitrary view tree, provider payload or action transport in this contract. */
 export function validNativeDrawerProjection(value: NativeDrawerProjection): boolean {
   if (!value || !closedShape(value, ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "appearance", "accentHex", "foregroundHex",
-      "updateSequence", "privacyGeneration", "title", "sections", "open", "enabled", "backEnabled", "navigationLocked", "searchable", "loading", "surfaceOpen", "profileStack", "profileDestinationId", "profileSupportDestinationId"]) ||
+      "updateSequence", "privacyGeneration", "title", "sections", "open", "enabled", "backEnabled", "navigationLocked", "searchable", "loading", "surfaceOpen", "profileStack", "profileDestinationId", "profileSupportDestinationId", "profilePreparation"]) ||
       !validIdentifier(value.documentId) || !validIdentifier(value.ownerEpoch) ||
       !validSequence(value.ownerGeneration) || !validSequence(value.revision) || !validSequence(value.updateSequence) ||
       !["history", "profile", "agent-profile"].includes(value.family) ||
@@ -360,6 +362,10 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
       !["light", "dark"].includes(value.appearance) ||
       ![value.accentHex, value.foregroundHex].every(color => /^#(?:[\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(color)) ||
       !validText(value.title, 256) || !Array.isArray(value.sections) || value.sections.length > 32) return false;
+  if (value.profilePreparation !== undefined && (value.family !== "profile" || !value.open ||
+      !closedShape(value.profilePreparation, ["visitId", "formScene"]) || !validIdentifier(value.profilePreparation.visitId) ||
+      value.profilePreparation.formScene !== null && (!PROFILE_PREPARATION_SCENES.includes(value.profilePreparation.formScene) ||
+        !value.profileDestinationId && !value.profileSupportDestinationId))) return false;
   const ids = new Set<string>();
   let rows = 0;
   if (value.profileStack !== undefined && (value.family !== "profile" || !Array.isArray(value.profileStack) ||

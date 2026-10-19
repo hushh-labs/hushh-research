@@ -5208,9 +5208,10 @@ final class AppUITests: XCTestCase {
                 }
                 XCTAssertFalse(app.otherElements["native-route-workspace"].firstMatch.exists,
                                "PROFILE_INVITE_ESCAPED_TO_WORKSPACE")
-                guard admittedBack(), waitForAdmittedControl(app.buttons["profile-close"].firstMatch) else {
+                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_INVITE_PANE_CHROME_UNAVAILABLE"); return
                 }
+                XCTAssertFalse(app.buttons["Back in Profile"].firstMatch.exists, "PROFILE_INVITE_DUPLICATE_WEB_BACK")
                 // Measure this native owner. Modal AX isolation correctly
                 // excludes the covered WebView while the native page is open.
                 let nativePane = app.otherElements["native-private-drawer"].firstMatch
@@ -5223,7 +5224,7 @@ final class AppUITests: XCTestCase {
                 guard XCTWaiter.wait(for: [fullPane], timeout: 10) == .completed else {
                     XCTFail("PROFILE_INVITE_PANE_FRAME_UNAVAILABLE"); return
                 }
-                back.tap()
+                nativeAccountBack.tap()
                 let parent = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                     close.exists && close.isHittable && destination.exists && destination.isHittable && !copy.isHittable
                 }, object: app)

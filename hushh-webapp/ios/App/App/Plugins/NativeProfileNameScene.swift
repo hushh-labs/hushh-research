@@ -266,6 +266,8 @@ final class NativeProfileNameScene: NSObject, NativeProfileOwnedForm {
     }()
     var coverage: (() -> Void)? { didSet { sheet.coverage = coverage } }
     var coversPresentation: Bool { sheet.coversPresentation }
+    var presentationSettled: Bool { sheet.presentationSettled }
+    func refreshPrivacy() { sheet.refresh() }
     init(_ projection: NativeProfileNameProjection) { model = NativeProfileNameModel(projection) }
 
     func present(from parent: UIViewController, completion: @escaping (Bool) -> Void) -> Bool {

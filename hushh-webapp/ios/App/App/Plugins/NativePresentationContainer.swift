@@ -173,6 +173,11 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     private(set) var overlayIsolated = false
     private(set) var fullWindowCovered = false
     private var privacyConcealed = false
+    var preparationBaseIsConcealed: Bool {
+        func focused(_ view: UIView) -> Bool { view.isFirstResponder || view.subviews.contains(where: focused) }
+        return privacyConcealed && underlay.isHidden && contentChrome.isHidden &&
+            groups.values.allSatisfy(\.isHidden) && !focused(underlay) && !focused(contentChrome)
+    }
     #if DEBUG
     private(set) var lastRegionRefusal = 0
     private(set) var lastRejectedInitialFrame: CGRect?
@@ -377,8 +382,8 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
 
     /// A full-height React pane owns WK's whole paint plane, not frame-by-frame
     /// clipping. Base hosts survive behind WK; only its authored header is above.
-    func acquireContentPane(_ identity: NativeContentPaneIdentity, viewport: CGSize) -> Bool {
-        guard wholeNativeDrawers, viewport == bounds.size, !privacyConcealed,
+    func acquireContentPane(_ identity: NativeContentPaneIdentity, viewport: CGSize, preparing: Bool = false) -> Bool {
+        guard wholeNativeDrawers, viewport == bounds.size, !privacyConcealed || preparing && preparationBaseIsConcealed,
               identity.privacyGeneration == HushhSessionPrivacyShield.shared.snapshot().generation,
               contentPaneFence.acquire(identity) else { return false }
         underlay.layer.zPosition = -1
@@ -501,8 +506,8 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
         guard wholeNativeDrawers, ownedDrawerIsolation != covered else { return }
         ownedDrawerIsolation = covered
         isolationGeneration += 1
-        webView.isUserInteractionEnabled = !covered
-        webView.accessibilityElementsHidden = covered
+        webView.isUserInteractionEnabled = !covered && !privacyConcealed
+        webView.accessibilityElementsHidden = covered || privacyConcealed
         underlay.isUserInteractionEnabled = !covered
         underlay.accessibilityElementsHidden = covered
         if covered {
@@ -603,6 +608,9 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
         lastRejectedInitialFrame = nil
         #endif
         privacyConcealed = true
+        webView.isUserInteractionEnabled = false
+        webView.accessibilityElementsHidden = true
+        webView.endEditing(true)
         contentChrome.isHidden = true
         reconcileBaseVisibility()
         groups.values.forEach { $0.isHidden = true }
@@ -614,8 +622,18 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
         guard privacy.appIsActive, !privacy.shielded,
               acceptsPresentationRevision(presentationRegionRevision, privacyGeneration: privacyGeneration) else { return }
         privacyConcealed = false
+        releasePrivacyIsolation()
         contentChrome.isHidden = false
         reconcileBaseVisibility()
+    }
+
+    /// Releasing window privacy restores the web safe gate even when no native
+    /// bar is admitted there. It does not reveal a stale native underlay.
+    func releasePrivacyIsolation() {
+        let privacy = HushhSessionPrivacyShield.shared.snapshot()
+        guard privacy.appIsActive, !privacy.shielded else { return }
+        webView.isUserInteractionEnabled = !ownedDrawerIsolation
+        webView.accessibilityElementsHidden = ownedDrawerIsolation
     }
 
     private func reconcileBaseVisibility() {

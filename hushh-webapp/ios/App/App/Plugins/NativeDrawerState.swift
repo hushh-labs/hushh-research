@@ -71,6 +71,20 @@ struct NativeProfilePage: Codable, Identifiable {
     var memorySearch: NativeMemorySearch? = nil
 }
 
+struct NativeProfilePreparationDescription: Codable {
+    let visitId: String
+    let formScene: String?
+    var valid: Bool {
+        NativeDrawerIdentity.identifier(visitId) && (formScene == nil || NativeProfilePreparationTarget.scenes.contains(formScene!))
+    }
+    enum CodingKeys: String, CodingKey { case visitId, formScene }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(visitId, forKey: .visitId)
+        try container.encode(formScene, forKey: .formScene)
+    }
+}
+
 struct NativeDrawerProjection: Codable {
     let documentId: String
     let ownerEpoch: String
@@ -95,6 +109,7 @@ struct NativeDrawerProjection: Codable {
     var profileStack: [NativeProfilePage]? = nil
     var profileDestinationId: String? = nil
     var profileSupportDestinationId: String? = nil
+    var profilePreparation: NativeProfilePreparationDescription? = nil
     var activeSections: [NativeDrawerSection] { profileStack?.last?.sections ?? sections }
     var identity: NativeDrawerIdentity {
         NativeDrawerIdentity(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, family: family)
@@ -102,7 +117,10 @@ struct NativeDrawerProjection: Codable {
     static func hasClosedShape(_ options: [String: Any]) -> Bool {
         let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "updateSequence", "privacyGeneration",
             "appearance", "accentHex", "foregroundHex", "title", "sections", "open", "enabled", "backEnabled", "navigationLocked", "searchable", "loading", "surfaceOpen", "profileStack", "profileDestinationId", "profileSupportDestinationId"]
-        guard Set(options.keys).isSubset(of: keys), let sections = options["sections"] as? [[String: Any]] else { return false }
+        guard Set(options.keys).isSubset(of: keys.union(["profilePreparation"])), let sections = options["sections"] as? [[String: Any]] else { return false }
+        if let preparation = options["profilePreparation"] {
+            guard let preparation = preparation as? [String: Any], Set(preparation.keys) == ["visitId", "formScene"] else { return false }
+        }
         var allSections = sections
         if let stack = options["profileStack"] {
             guard let pages = stack as? [[String: Any]] else { return false }
@@ -139,6 +157,10 @@ struct NativeDrawerProjection: Codable {
               Self.text(title, 256), sections.count <= 32,
               navigationLocked == nil || family == "profile",
               surfaceOpen == nil || family == "profile" && (!open || surfaceOpen == true) else { return false }
+        if let preparation = profilePreparation {
+            guard family == "profile", open, preparation.valid,
+                  preparation.formScene == nil || profileDestinationId != nil || profileSupportDestinationId != nil else { return false }
+        }
         if let stack = profileStack {
             guard family == "profile", stack.count <= (stack.first?.id == "payouts" ? 8 : ["memory", "connectors"].contains(stack.first?.id ?? "") ? 5 : stack.first?.id == "world-model" ? 4 : 3), Set(stack.map(\.id)).count == stack.count,
                   stack.first?.id != "payouts" || Self.validPayoutPath(stack.map(\.id)),

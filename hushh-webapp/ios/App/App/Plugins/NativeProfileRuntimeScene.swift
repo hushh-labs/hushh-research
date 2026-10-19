@@ -275,6 +275,8 @@ typealias NativeRuntimeModel = NativeProfileEditorModel<NativeRuntimeProjection>
     }()
     var coverage: (() -> Void)? { didSet { sheet.coverage = coverage } }
     var coversPresentation: Bool { sheet.coversPresentation }
+    var presentationSettled: Bool { sheet.presentationSettled }
+    func refreshPrivacy() { sheet.refresh() }
     init(_ projection: NativeRuntimeProjection) { model = NativeRuntimeModel(projection) }
     func present(from parent: UIViewController, completion: @escaping (Bool) -> Void) -> Bool { sheet.present(from: parent, completion: completion) }
     func update(_ projection: NativeRuntimeProjection) -> Bool { guard model.update(projection) else { return false }; sheet.refresh(); return true }

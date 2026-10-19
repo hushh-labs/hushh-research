@@ -16,6 +16,32 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Covered Profile preparation — implementation checkpoint, 2026-10-19
+
+NativeDrawers v1 now negotiates preparation of the exact current Profile visit
+and required editor behind the existing full-window privacy cover. Auth grants
+layout preparation only after committing its validated destination or safe gate;
+raw privacy continues to block actions. Native release checks the ordered
+authorization, document, owner, destination, privacy generation and actual
+controller/form completion again when its cover disappears. A missing editor,
+retiring popup, stale receipt or replaced composition cannot release coverage.
+
+Rich/unaccepted Profile exceptions choose one complete React header and body
+before reveal. Their existing single-WebView content plane can prepare under
+the cover; an exact body-paint receipt, current geometry and actual native-menu
+absence are required. Pane withdrawal cancels an admitted fade immediately;
+rotation requires fresh painted evidence. No per-frame cross-renderer animation,
+second editor, credential persistence or new workspace conversion is introduced.
+Release notifications no longer invalidate matching native chrome again, and
+the safe web gate regains touch even when no native bar is admitted there.
+
+Focused frontend/bridge checks pass (276), as do typecheck and the initial native
+Release compilation. The native reviewer found four rich-pane races; they are
+patched with withdrawal and rotation negative controls in the existing host
+transaction test. Final compilation, exact-candidate physical acceptance,
+accessibility and performance remain separate. Native defaults are still OFF;
+this checkpoint establishes no merge, deployment or TestFlight completion.
+
 ### Invite friends native Profile correction — 2026-10-19
 
 Invite friends now has an authored `referrals` page in the retained Profile
@@ -51,7 +77,7 @@ main `f7b77b6781`; it is not a reset target.
 | One/Puppy switching replaced the composer DOM node | Stable editor/portal work in `141ec62448` and `7cf18524a4`; `5c86617f2c` coupled placement to the selected agent | Restored stable portals with separate active claims and hidden/inert inactive owners. The existing test fails on replaced nodes before the fix, then passes identity, selection, separate-draft and inactive-submit checks for both agents. |
 | Compact Chat header and inline History connectors | `c9236dfd84`/`e4c25b71b1` and `f7890fae39` | Intentional requested replacements, retained. |
 | Team Chat performance improvements | Originating batching, memoization, transcript scroll, drawer-retirement and deferred-work changes inspected through integrated main | Retained: frame-batched deltas, reader override/sticky follow, scoped gesture listeners, context preparation and avatar optimizations. No additional semantic loss was established by this bounded audit; physical frame pacing remains separate. |
-| Subsequent main verified-phone recovery | `c0175d308d`, `01a33dfd5a` and `3bffa17c78`, merged at `c075c85262` | Integrated without conflict. Auth, identity service and backend remain byte-identical to main; Profile retains pending/retry semantics and avoids repeat OTP in both renderers. |
+| Subsequent main verified-phone recovery | `c0175d308d`, `01a33dfd5a` and `3bffa17c78`, merged at `c075c85262` | Integrated without conflict. Profile retains main's pending/retry semantics and avoids repeat OTP in both renderers. The subsequent additive Auth change coordinates native privacy preparation without another session/account refresh; identity service and backend remain unchanged. |
 | Payment, Wallet and encrypted-answer protection | Pre-landing and integrated AST comparison of five affected payment/wallet services and routes | No lost protection established; no backend rewrite or restoration made. |
 
 This table is bounded audit evidence, not proof that every historical semantic

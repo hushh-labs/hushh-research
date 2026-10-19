@@ -1,10 +1,10 @@
 "use client";
 
-import { useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { customNativePresentationEnabled } from "./native-presentation-policy";
 import { getNativeChromeCapabilities, nativeChrome, type NativeContentPaneIdentity, type NativeContentPaneReceipt } from "./native-chrome";
 import { nativeDrawerAcknowledged } from "./native-drawers";
-import { nativeDocumentId, getNativeSessionPrivacyState, subscribeNativeSessionPrivacy, subscribeNativePrivacyObservation } from "./session-privacy";
+import { nativeDocumentId, getNativeSessionPrivacyState, nativePrivacyCanPrepareProfile, subscribeNativeSessionPrivacy, subscribeNativePrivacyObservation } from "./session-privacy";
 import { useNativeNavigationBlocked } from "./native-navigation";
 
 let generation = 0;
@@ -18,8 +18,16 @@ export function contentPaneAcknowledged(receipt: NativeContentPaneReceipt, ident
 
 /** The existing overlay registry owns touch isolation through the actual DOM
  * exit. This hook owns only the acknowledged WK/native paint-plane lifetime. */
-export function useNativeContentPane(node: HTMLElement | null, owner: string | null, enabled: boolean, layer = "profile-pane") {
+export function useNativeContentPane(node: HTMLElement | null, owner: string | null, enabled: boolean, layer = "profile-pane",
+  preparation?: { visitId: string; ready: boolean }) {
   const [state, setState] = useState<{ phase: "preparing" | "web" | "native" | "blocked"; identity?: NativeContentPaneIdentity }>({ phase: "preparing" });
+  const preparationRef = useRef(preparation);
+  const refreshRef = useRef<() => void>(() => undefined);
+  const preparationVisit = preparation?.visitId, preparationReady = preparation?.ready;
+  useLayoutEffect(() => {
+    preparationRef.current = preparationVisit ? { visitId: preparationVisit, ready: preparationReady === true } : undefined;
+    refreshRef.current();
+  }, [preparationVisit, preparationReady]);
   useNativeNavigationBlocked(!!node && enabled, layer);
   useLayoutEffect(() => {
     if (!owner || !enabled || !customNativePresentationEnabled()) { setState({ phase: "web" }); return; }
@@ -41,27 +49,59 @@ export function useNativeContentPane(node: HTMLElement | null, owner: string | n
       return releasing;
     };
     let capable = false;
+    let preparationCapable = false;
+    let acknowledged: { privacy: number; width: number; height: number; visit?: string } | undefined;
+    let paintReceipt: string | undefined;
     const reconcile = async () => {
       const ordinal = ++request;
       try {
         const privacy = await getNativeSessionPrivacyState();
         if (!live || ordinal !== request) return;
-        if (!privacy.appIsActive || privacy.shielded) { setState({ phase: "blocked" }); return; }
+        const preparation = preparationRef.current;
+        const preparing = preparationCapable && !!preparation && nativePrivacyCanPrepareProfile(privacy) &&
+          privacy.preparationBody === "pane" && privacy.preparationVisitId === preparation.visitId;
+        if (!privacy.appIsActive || privacy.shielded && !preparing) { setState({ phase: "blocked" }); return; }
         await retirement;
         if (!live || ordinal !== request) return;
         const next = { ...lifetime, privacyGeneration: privacy.generation };
-        identity = next; // Reserve cleanup authority before asynchronous admission.
-        const receipt = await nativeDrawerAcknowledged(nativeChrome.acquireContentPane({ ...next,
-          viewport: { width: window.innerWidth, height: window.innerHeight } }));
-        if (!live) { release(); return; }
-        if (ordinal !== request) return;
-        if (!contentPaneAcknowledged(receipt, next, "active")) throw new Error("NATIVE_CONTENT_PANE_UNCONFIRMED");
-        setState({ phase: "native", identity: next });
+        const width = window.innerWidth, height = window.innerHeight;
+        const visit = privacy.shielded && preparing ? preparation?.visitId : undefined;
+        if (!acknowledged || acknowledged.privacy !== privacy.generation || acknowledged.width !== width ||
+            acknowledged.height !== height || visit && acknowledged.visit !== visit) {
+          identity = next; // Reserve cleanup authority before asynchronous admission.
+          const receipt = await nativeDrawerAcknowledged(nativeChrome.acquireContentPane({ ...next,
+            viewport: { width, height }, ...(visit ? { preparationVisitId: visit } : {}) }));
+          if (!live) { release(); return; }
+          if (ordinal !== request) return;
+          if (!contentPaneAcknowledged(receipt, next, "active")) throw new Error("NATIVE_CONTENT_PANE_UNCONFIRMED");
+          acknowledged = { privacy: privacy.generation, width, height, visit };
+        }
+        // A prior covered/failed observation may have concealed the React
+        // pane without retiring its acquired plane. Restore this committed
+        // state on cached admission too, before measuring any body paint.
+        setState(previous => previous.phase === "native" && previous.identity?.privacyGeneration === next.privacyGeneration
+          ? previous : { phase: "native", identity: next });
+        if (privacy.shielded && preparing && preparation?.ready && privacy.profileMenuConcealed &&
+            privacy.profilePreparationId && paintReceipt !== privacy.profilePreparationId) {
+          // This is a body-paint receipt, not an auth or operation receipt.
+          // Covered native chrome and the whole React header/body stay inert.
+          await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+          if (!live || ordinal !== request || preparationRef.current?.visitId !== visit || !preparationRef.current?.ready) return;
+          const frame = node.getBoundingClientRect();
+          if (!node.isConnected || getComputedStyle(node).visibility !== "visible" || frame.width <= 0 || frame.height <= 0) return;
+          if (!nativeChrome.confirmContentPanePreparation) throw new Error("NATIVE_CONTENT_PANE_PAINT_UNAVAILABLE");
+          const receipt = await nativeDrawerAcknowledged(nativeChrome.confirmContentPanePreparation({ ...next,
+            preparationVisitId: visit!, preparationId: privacy.profilePreparationId }));
+          if (!live || ordinal !== request) return;
+          if (!contentPaneAcknowledged(receipt, next, "active")) throw new Error("NATIVE_CONTENT_PANE_PAINT_UNCONFIRMED");
+          paintReceipt = privacy.profilePreparationId;
+        }
       } catch {
         if (live && ordinal === request) setState({ phase: "blocked" });
       }
     };
     const refresh = () => { if (live && capable) void reconcile(); };
+    refreshRef.current = refresh;
     const unsubscribe = subscribeNativePrivacyObservation(refresh);
     setState({ phase: "preparing" });
     void (async () => {
@@ -69,6 +109,7 @@ export function useNativeContentPane(node: HTMLElement | null, owner: string | n
         const capabilities = await getNativeChromeCapabilities();
         if (!live) return;
         if (capabilities?.ownedContentPane !== true) { setState({ phase: "web" }); return; }
+        preparationCapable = capabilities.contentPanePreparation === true;
         const pendingObserver = subscribeNativeSessionPrivacy(refresh);
         void pendingObserver.then(handle => { if (!live) void handle.remove(); }).catch(() => undefined);
         observer = await pendingObserver;
@@ -78,7 +119,7 @@ export function useNativeContentPane(node: HTMLElement | null, owner: string | n
       } catch { if (live) setState({ phase: "blocked" }); }
     })();
     window.addEventListener("resize", refresh);
-    return () => { live = false; request++; unsubscribe(); release(); void observer?.remove(); window.removeEventListener("resize", refresh); };
+    return () => { live = false; request++; refreshRef.current = () => undefined; unsubscribe(); release(); void observer?.remove(); window.removeEventListener("resize", refresh); };
   }, [node, owner, enabled]);
   return state;
 }

@@ -82,7 +82,8 @@ export function useNativeReferrals(active: boolean, uid: string | null) {
   const [editing, setEditing] = useState(false);
   useLayoutEffect(() => { if (!active) setEditing(false); }, [active]);
   const projection = projectNativeReferrals(model, () => setEditing(true));
-  return { ...projection, model, editor: (destinationId: string, onFallback: () => void) => editing && uid ?
+  return { ...projection, model, formScene: editing && uid ? "referral-handle" as const : null,
+    editor: (destinationId: string, onFallback: () => void) => editing && uid ?
     <NativeProfileTextEditor scene="referral-handle" destinationId={destinationId}
       model={{ uid, ready: model.current(), draft: model.handleInput, draftRevision: model.handleRevision(),
         changeDraft: model.changeHandle, canSave: !!model.handleInput.trim() && !model.handleSaving,
