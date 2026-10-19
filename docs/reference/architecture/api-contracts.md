@@ -970,6 +970,11 @@ output behind the same routes. Fresh `pwm-azure-bing-v1` consent remains require
 `GET /api/one/world-model/jobs/stream` retains `progress`, cumulative validated
 `partial`, `ping` and terminal `result` events with private/no-store headers.
 Status and stream reads recheck authority before releasing checkpoint findings.
+Owner-authorized JSON responses may include numeric `X-Hussh-PWM-Usage` metadata
+from encrypted provider receipts, including paused or failed work. Missing token
+receipts remain unknown. The Next.js proxy forwards this private header; the
+strict JSON and SSE event bodies remain unchanged. Prices are not part of this
+receipt and any currency calculation is an estimate at the stated rates.
 Reports remain view-only (`pkm_written:false`); source and identity review precede
 the owner's existing encrypted memory save. See the [PWM contract](../one/personal-world-model.md)
 and [stream implementation](../streaming/streaming-implementation-guide.md).

@@ -306,6 +306,12 @@ class WorldModelJobs(ProfileResearchJobs):
             state, now=self.clock(), revision_at=self.activity_at(user_id, state)
         )
         facts = validated_facts_from_work(state.get("work"))
+        if POLICY["provider"] == "azure_openai_web_search":
+            from hushh_mcp.one_adk.world_model_azure import checkpoint_usage
+
+            usage = checkpoint_usage(state.get("work"), state.get("attempted_combinations", []))
+            if usage is not None:
+                result = {**result, "_provider_usage": usage}
         return {**result, "progress": progress, "validated_facts": facts}
 
     def committed(self):

@@ -82,6 +82,16 @@ Shorter names and unlinked institutional/company/aggregator records remain
 uncertain. Raw citations are not independent verification of their contents, so
 Azure candidates remain for owner review. No minimum finding count is forced.
 
+Azure usage receipts contain only input, output and cached-token counts plus
+provider elapsed milliseconds. They use the existing charged model slots in the
+encrypted work checkpoint and are excluded from model-visible research history.
+Owner-authorized JSON research responses expose their aggregate in
+`X-Hussh-PWM-Usage`; the web proxy preserves that header. JSON and SSE result
+bodies keep their existing strict shape. Unacknowledged calls or missing SDK
+usage produce nullable totals, never an assumed zero. Bing request totals use
+the provider's reported `tool_usage.web_search.num_requests`. Currency requires
+identified provider rates and remains an estimate rather than an invoice total.
+
 | Environment | Vertex project | Text/PWM | Live | Embeddings |
 | --- | --- | --- | --- | --- |
 | Local | `hushh-pda-uat` | `gemini-3.8-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
