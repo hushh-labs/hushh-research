@@ -86,6 +86,14 @@ belongs to the new observation window. Browser reports use server receipt time,
 not verified execution start time. Admission failures are best effort and there
 is no durable client retry queue.
 
+The deployment config writer defaults both PLG flags to false and retains only
+explicit booleans from the existing config (JSON booleans or exact `true`/`false`
+strings). Retaining an enabled flag requires both the target and stored config
+to identify production project `hushh-pda`. Invalid values or cross-lane
+activation fail config generation. Production candidate releases retain these
+settings in their candidate config without updating the serving canonical
+config. Deploying this code does not activate the pilot.
+
 Production exporter `ONE_PLG_EXPORT_ENABLED` defaults false and maps from
 `one_plg_export_enabled` in `BACKEND_RUNTIME_CONFIG_JSON`.
 `ONE_PLG_EXPORT_SECRET` and `ONE_PLG_EXPORT_ACCOUNT_IDS` are optional dedicated
