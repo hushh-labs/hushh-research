@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from httpx import ReadTimeout
 
 from hushh_mcp.runtime_providers.dependency_health import (
     APPLICATION_BROKEN,
@@ -124,6 +125,7 @@ def test_timeouts_and_connection_failures_are_provider_outages(error: BaseExcept
         (AttributeError("invalid application state"), APPLICATION_BROKEN),
         (_ProviderError("bad request", 400), CANDIDATE_MISCONFIGURED),
         (_ProviderError("upstream deadline", 504), PROVIDER_UNAVAILABLE),
+        (ReadTimeout("transport deadline"), PROVIDER_UNAVAILABLE),
         (asyncio.CancelledError(), PROVIDER_UNAVAILABLE),
     ],
 )

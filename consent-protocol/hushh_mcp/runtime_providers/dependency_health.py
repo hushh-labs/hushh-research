@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import asyncio
 
+from httpx import TimeoutException
+
 from .vertex_failover import _status_code
 
 DEPENDENCY_OK = "dependency_ok"
@@ -133,7 +135,7 @@ def classify_provider_error(error: BaseException) -> str:
             if cause is not None and not isinstance(cause, asyncio.CancelledError):
                 continue
             return PROVIDER_UNAVAILABLE
-        if isinstance(current, ConnectionError):
+        if isinstance(current, (ConnectionError, TimeoutException)):
             return PROVIDER_UNAVAILABLE
 
         status = _status_code(current) if isinstance(current, Exception) else None
