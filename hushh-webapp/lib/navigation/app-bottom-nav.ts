@@ -93,10 +93,10 @@ export function resolveOneNavSlot(
 ): OneNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   if (normalizedPathname === ROUTES.HOME) return "chat";
-  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)) {
-    return "chat";
-  }
-  if (normalizedPathname === ROUTES.ONE_HOME) {
+  if (
+    normalizedPathname === ROUTES.ONE_HOME ||
+    isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)
+  ) {
     return "dashboard";
   }
   if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {
@@ -241,12 +241,11 @@ export function resolveBottomNavActiveKey(
 ): AppBottomNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   if (normalizedPathname === ROUTES.HOME) return "chat";
-  // Direct messages are Chat: keep their visible bottom-tab state in sync
-  // with the conversation surface rather than highlighting the One dashboard.
-  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)) {
-    return "chat";
-  }
-  if (normalizedPathname === ROUTES.ONE_HOME) {
+  // People and Circles are One subagents and retain the One footer tab.
+  if (
+    normalizedPathname === ROUTES.ONE_HOME ||
+    isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)
+  ) {
     return "dashboard";
   }
   if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {
