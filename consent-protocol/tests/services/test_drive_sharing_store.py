@@ -2022,6 +2022,38 @@ def test_semantic_search_creation_is_uat_only_and_sealed_policy_is_strict(monkey
     assert not semantic_search_request({**sealed, "request_flow": "older"})
 
 
+def test_azure_semantic_admission_requires_current_owner_approval(monkeypatch):
+    from hushh_mcp.services import drive_request_package_assessment as assessment
+    from hushh_mcp.services.drive_sharing_store import _new_semantic_model_binding
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
+    generation = str(uuid4())
+    selected = {"provider": "azure_openai", "approval_generation": generation}
+    resolver = Mock(return_value=selected)
+    monkeypatch.setattr(assessment, "semantic_request_model_binding", resolver)
+    connection = Mock()
+    connection.execute.return_value.mappings.return_value.first.return_value = {
+        "generation": UUID(generation)
+    }
+    assert _new_semantic_model_binding(connection, owner_user_id="owner") == selected
+    resolver.assert_called_once_with(provider="azure_openai", approval_generation=generation)
+    query = str(connection.execute.call_args.args[0])
+    assert "enabled IS TRUE" in query and "accepted_at IS NOT NULL" in query
+    assert connection.execute.call_args.args[1]["user"] == "owner"
+
+    # A missing approval retains the established Gemini request contract.
+    connection.execute.return_value.mappings.return_value.first.return_value = None
+    resolver.reset_mock()
+    assert _new_semantic_model_binding(connection, owner_user_id="owner") is None
+    resolver.assert_not_called()
+
+    # An unavailable approval store must not be mistaken for an ordinary denial.
+    connection.execute.side_effect = RuntimeError("approval store unavailable")
+    with pytest.raises(RuntimeError, match="approval store unavailable"):
+        _new_semantic_model_binding(connection, owner_user_id="owner")
+
+
 @pytest.mark.asyncio
 async def test_new_semantic_request_policy_survives_creation_kill_switch(sharing, monkeypatch):
     live_drive(sharing, monkeypatch)

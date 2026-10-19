@@ -8,6 +8,9 @@ the linux/amd64 manifest digest and mirrors the registry before reporting it.
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
+import sys
 from copy import deepcopy
 from pathlib import Path
 
@@ -85,6 +88,70 @@ def test_paused_release_requires_disabled_worker_in_fresh_revision(actual: str |
     else:
         with pytest.raises(ValueError, match="background processing state mismatch"):
             _verify(revision, drain_enabled="false")
+
+
+@pytest.mark.parametrize("lane", ["ordinary", "v1"])
+@pytest.mark.parametrize("provider", ["gemini", "azure_openai"])
+@pytest.mark.parametrize("tamper", [None, "missing", "wrong", "duplicate", "secret_ref"])
+def test_release_cli_attests_exact_explicit_semantic_provider(
+    monkeypatch, lane: str, provider: str, tamper: str | None
+) -> None:
+    verifier = MODULE
+    if lane == "v1":
+        monkeypatch.setitem(sys.modules, "verify_worker_revision", MODULE)
+        spec = importlib.util.spec_from_file_location(
+            "verify_v1_worker_revision", VERIFIER_PATH.with_name("verify_v1_worker_revision.py")
+        )
+        assert spec is not None and spec.loader is not None
+        verifier = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(verifier)
+
+    revision = _deployed_revision()
+    revision["spec"]["serviceAccountName"] = (
+        "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
+    )
+    flags = [
+        {"name": "DRIVE_WORK_DRAIN_ENABLED", "value": "true"},
+        {"name": "DRIVE_WORKER_MODE", "value": "true"},
+        {"name": "DRIVE_WORKER_V1_ONLY", "value": "true"},
+        {"name": "ENVIRONMENT", "value": "uat"},
+    ]
+    selection = {"name": "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "value": provider}
+    if tamper == "wrong":
+        selection["value"] = "gemini" if provider == "azure_openai" else "azure_openai"
+    elif tamper == "secret_ref":
+        selection = {
+            "name": selection["name"],
+            "valueFrom": {"secretKeyRef": {"name": "synthetic", "key": "latest"}},
+        }
+    if tamper != "missing":
+        flags.append(selection)
+    if tamper == "duplicate":
+        flags.append(dict(selection))
+    revision["spec"]["containers"][0]["env"] = flags
+    for name, value in {
+        "EXPECTED_SHA": DEPLOY_SHA,
+        "EXPECTED_APP_IMAGE": APP_IMAGE,
+        "EXPECTED_SCANNER_INDEX_DIGEST": SCANNER_INDEX_DIGEST,
+        "EXPECTED_SCANNER_AMD64_DIGEST": SCANNER_AMD64_DIGEST,
+        "EXPECTED_DRAIN_ENABLED": "true",
+        "EXPECTED_SEMANTIC_MODEL_PROVIDER": provider,
+    }.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("EXPECTED_MAX_INSTANCES", raising=False)
+    monkeypatch.delenv("EXPECTED_CONCURRENCY", raising=False)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(revision)))
+
+    assert verifier.main() == (0 if tamper is None else 1)
+
+
+def test_refuses_unknown_expected_semantic_provider() -> None:
+    revision = _deployed_revision()
+    revision["spec"]["containers"][0]["env"] = [
+        {"name": "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "value": "unknown"}
+    ]
+    with pytest.raises(ValueError, match="semantic model provider mismatch"):
+        _verify(revision, semantic_model_provider="unknown")
 
 
 @pytest.mark.parametrize(

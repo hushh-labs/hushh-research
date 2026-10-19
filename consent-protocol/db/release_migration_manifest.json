@@ -327,7 +327,8 @@
     "359_independent_email_otp.sql",
     "361_system_push_outbox.sql",
     "362_circle_chat_member_add_batches.sql",
-    "363_sms_circle_ten_contacts.sql"
+    "363_sms_circle_ten_contacts.sql",
+    "364_one_private_text_processing_approvals.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -498,7 +499,8 @@
       "337_initial_contacts_onboarding.sql",
       "340_pwm_provider_budget.sql",
       "341_pwm_research_lifecycle.sql",
-      "359_independent_email_otp.sql"
+      "359_independent_email_otp.sql",
+      "364_one_private_text_processing_approvals.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -695,6 +697,7 @@
     "360_uat_drive_collection_retirement.sql": "rollback/360_uat_drive_collection_retirement.rollback.sql",
     "361_system_push_outbox.sql": "rollback/361_system_push_outbox.rollback.sql",
     "362_circle_chat_member_add_batches.sql": "rollback/362_circle_chat_member_add_batches.rollback.sql",
-    "363_sms_circle_ten_contacts.sql": "rollback/363_sms_circle_ten_contacts.rollback.sql"
+    "363_sms_circle_ten_contacts.sql": "rollback/363_sms_circle_ten_contacts.rollback.sql",
+    "364_one_private_text_processing_approvals.sql": "rollback/364_one_private_text_processing_approvals.rollback.sql"
   }
 }

@@ -1,6 +1,7 @@
 """Azure ADK transport preserves authority-bearing protocol shapes offline."""
 
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -196,24 +197,72 @@ async def test_structured_contract_is_native_and_remains_subject_to_strict_host_
         Output.model_validate({"title": "Observed", "confidence": 101})
 
 
-async def test_real_adk_single_turn_decodes_output_from_manifest_with_injected_azure_model():
+@pytest.mark.parametrize(
+    "gene_id", ["agent_documents_request_search", "agent_documents_request_assessment"]
+)
+async def test_real_adk_single_turn_decodes_output_from_manifest_with_injected_azure_model(gene_id):
     from pathlib import Path
 
     from hushh_mcp.hushh_adk.manifest import ManifestLoader
     from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+    from hushh_mcp.services.drive_request_package_assessment import DocumentBatchAssessment
+    from hushh_mcp.services.drive_suggestion_service import SemanticLiveSearchModelPlan
 
-    class Output(BaseModel):
-        model_config = ConfigDict(extra="forbid", strict=True)
-        answer: str
-
-    adapter, client, _, _ = model([response(message('{"answer":"Observed synthetic evidence"}'))])
+    if gene_id == "agent_documents_request_search":
+        schema = SemanticLiveSearchModelPlan
+        payload = {
+            "terms": [],
+            "mode": "find",
+            "file_kind": "any",
+            "subject_scope": "specific_records",
+            "subject_complete": True,
+            "semantic_intent": "other",
+            "discovery_clues": ["Synthetic subject"],
+            "required_entities": [],
+            "expected_document_anatomy": "Substantive content.",
+            "semantic_query": {
+                "version": 1,
+                "status": "ready",
+                "metadata_listing": False,
+                "date_basis": "title_created_modified",
+                "clarification": None,
+                "clauses": [
+                    {
+                        "predicates": [
+                            {
+                                "id": "subject",
+                                "kind": "semantic",
+                                "value": "Synthetic subject",
+                                "match": "phrase",
+                                "negated": False,
+                                "discovery_terms": [],
+                            }
+                        ]
+                    }
+                ],
+            },
+        }
+    else:
+        schema = DocumentBatchAssessment
+        payload = {
+            "documents": [
+                {
+                    "document_ref": "p1",
+                    "decision": "exclude",
+                    "confidence": 90,
+                    "reason": "No substantive requested content.",
+                    "citations": [],
+                    "covered_periods": [],
+                }
+            ]
+        }
+    expected = schema.model_validate(payload)
+    adapter, client, _, _ = model([response(message(expected.model_dump_json()))])
     manifest = ManifestLoader.load(
         str(Path(__file__).resolve().parents[2] / "hushh_mcp/agents/documents/agent.yaml")
     )
-    gene = next(
-        child for child in manifest.subagents if child.id == "agent_documents_request_assessment"
-    )
-    agent = build_single_turn_agent(gene, output_schema=Output, model=adapter)
+    gene = next(child for child in manifest.subagents if child.id == gene_id)
+    agent = build_single_turn_agent(gene, output_schema=schema, model=adapter)
     result = await run_single_turn(
         agent,
         prompt_parts="Synthetic request",
@@ -221,7 +270,11 @@ async def test_real_adk_single_turn_decodes_output_from_manifest_with_injected_a
         consent_token="",
         timeout_seconds=5,
     )
-    assert result.answer == "Observed synthetic evidence"
+    assert result == expected
+    import jsonschema
+
+    wire_schema = client.requests[0]["text"]["format"]["schema"]
+    jsonschema.validate(json.loads(expected.model_dump_json()), wire_schema)
     assert client.requests[0]["instructions"].startswith(gene.system_instruction.strip())
     assert len(client.requests) == 1
 
@@ -471,3 +524,37 @@ def test_endpoint_is_not_a_caller_controlled_credential_exfiltration_target(endp
         AzureOpenAIAdkModel(
             model="synthetic", endpoint=endpoint, token_supplier=lambda: "synthetic"
         )
+
+
+@pytest.mark.parametrize("stream", [False, True])
+async def test_private_authority_is_rechecked_after_token_before_every_send(stream):
+    output = response(message("safe"))
+    if stream:
+        output = Stream([{"type": "response.completed", "response": output}])
+    adapter, client, _, token = model([output])
+    order = []
+    token.side_effect = lambda: order.append("token") or "synthetic-bearer"
+
+    async def current():
+        order.append("guard")
+        assert order[-2] == "token"
+        raise PermissionError("authority revoked during token acquisition")
+
+    adapter.require_current = current
+    for _ in range(2):
+        with pytest.raises(PermissionError):
+            _ = [item async for item in adapter.generate_content_async(request(), stream=stream)]
+    assert order == ["token", "guard", "token", "guard"]
+    assert client.requests == []  # Removing the adapter guard sends private text.
+
+    async def allowed():
+        order.append("guard")
+
+    adapter.require_current = allowed
+    if stream:
+        client.outputs = iter(
+            [Stream([{"type": "response.completed", "response": response(message("safe"))}])]
+        )
+    result = [item async for item in adapter.generate_content_async(request(), stream=stream)]
+    assert result[-1].turn_complete and len(client.requests) == 1
+    assert order[-2:] == ["token", "guard"]
