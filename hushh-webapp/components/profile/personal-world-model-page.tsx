@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type SetStateAction } from "react";
+import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { useWorldModelOwnerState as useWorldModelSessionState } from "./world-model-owner-state";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   AppPageShell,
@@ -358,17 +360,19 @@ function yesButtons(inPage: HTMLElement | null) {
   ];
 }
 
-export function PersonalWorldModelPage({
-  embedded = false,
-  onManageDetails,
-  onOpenAccount,
-}: {
+export type PersonalWorldModelPageOptions = {
   embedded?: boolean;
-  /** Opens the owner's data, where details saved from added sources are managed. */
   onManageDetails?: () => void;
-  /** Opens the Account pane, where a name and verified contact are added. */
   onOpenAccount?: () => void;
-}) {
+};
+
+type WorldModelSession = { live: boolean; generation: number; decisions: Set<string>; preferencePending: boolean;
+  enabled: boolean; owner: string | null; key: string | null; token: string | null; epoch: number };
+const EMPTY_WORLD_MODEL_KEYS: ReadonlySet<string> = new Set();
+
+/** One feature controller below the existing app-level research reader. Its
+ * private owner/session values never belong in a native presentation payload. */
+export function usePersonalWorldModelModel({ embedded = false, enabled = true }: { embedded?: boolean; enabled?: boolean } = {}) {
   const pathname = usePathname() || ROUTES.PROFILE_WORLD_MODEL;
   const searchParams = useSearchParams();
   const paneState = resolveProfilePaneUrlState(searchParams);
@@ -377,6 +381,9 @@ export function PersonalWorldModelPage({
     (paneState.open
       ? paneState.location.panel === "world-model"
       : resolveProfileRouteState(pathname, searchParams).panel === "world-model");
+  const { user, loading, sessionVerificationRequired, phoneNumber } = useAuth();
+  const { vaultKey, vaultOwnerToken, isVaultUnlocked, tokenExpiresAt } =
+    useVault();
   // mounted is false only while no app-level reader is attached. retryAt is
   // when a named wait ends, anchored by the store when the answer arrived;
   // the store owns the retry itself.
@@ -391,14 +398,11 @@ export function PersonalWorldModelPage({
     live,
     lastActivityAt,
     retryAt,
-    reload,
-    refresh,
-  } = useWorldModelResearch();
-  const { user, loading, sessionVerificationRequired, phoneNumber } = useAuth();
-  const { vaultKey, vaultOwnerToken, isVaultUnlocked, tokenExpiresAt } =
-    useVault();
+    reload: reloadResearch,
+    refresh: refreshResearch,
+  } = useWorldModelResearch(enabled);
   const ready = Boolean(
-    !loading &&
+    enabled && !loading &&
     user &&
     !sessionVerificationRequired &&
     isVaultUnlocked &&
@@ -406,51 +410,64 @@ export function PersonalWorldModelPage({
     vaultOwnerToken &&
     (tokenExpiresAt === null || Date.now() < tokenExpiresAt),
   );
-  const [loaded, setLoaded] = useState<{
+  const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
+  const session = useMemo<WorldModelSession>(() => ({ live: false, generation: 0, decisions: new Set(), preferencePending: false,
+    enabled: ready, owner: user?.uid ?? null, key: vaultKey, token: vaultOwnerToken, epoch }),
+    [ready, user?.uid, vaultKey, vaultOwnerToken, epoch]);
+  const scope = useMemo(() => ({ live: false, controller: null as AbortController | null, session, present }), [session, present]);
+  useLayoutEffect(() => { session.live = ready; return () => { session.live = false; session.decisions.clear(); }; }, [session, ready]);
+  useLayoutEffect(() => {
+    scope.live = ready && present; scope.controller = new AbortController();
+    return () => { scope.live = false; scope.controller?.abort(); scope.controller = null; };
+  }, [scope, ready, present]);
+  const [loaded, setLoaded] = useWorldModelSessionState<{
     owner: string;
     key: string;
     memory: PwmMemory;
-  } | null>(null);
-  const [readFailed, setReadFailed] = useState(false);
+  } | null>(session, null);
+  const [readFailed, setReadFailed] = useWorldModelSessionState(session, false);
   // Details saved through "Add a public source" keep their own encrypted records.
-  const [sourced, setSourced] = useState<{
+  const [sourced, setSourced] = useWorldModelSessionState<{
     owner: string;
     key: string;
     facts: WorldModelFact[];
-  } | null>(null);
-  const [readRevision, setReadRevision] = useState(0);
+  } | null>(session, null);
+  const [readRevision, setReadRevision] = useWorldModelSessionState(session, 0);
   // Each claim moves the inviter's preview into this owner's sources.
-  const [claims, setClaims] = useState(0);
-  const [keyed, setKeyed] = useState<{
+  const [claims, setClaims] = useWorldModelSessionState(session, 0);
+  const [keyed, setKeyed] = useWorldModelSessionState<{
     draftId: string;
     facts: WorldModelDraftFact[];
-  } | null>(null);
-  const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
-  const [errors, setErrors] = useState<ReadonlySet<string>>(new Set());
-  const inFlight = useRef(new Set<string>());
-  const [detail, setDetail] = useState<WorldModelFactDetail | null>(null);
-  const [preferenceBusy, setPreferenceBusy] = useState(false);
-  const [preferenceFailed, setPreferenceFailed] = useState(false);
+  } | null>(session, null);
+  const [pending, setPending] = useWorldModelSessionState(session, EMPTY_WORLD_MODEL_KEYS);
+  const [errors, setErrors] = useWorldModelSessionState(session, EMPTY_WORLD_MODEL_KEYS);
+  const [detail, setDetailState] = useWorldModelSessionState<WorldModelFactDetail | null>(session, null);
+  const [preferenceBusy, setPreferenceBusy] = useWorldModelSessionState(session, false);
+  const [preferenceFailed, setPreferenceFailed] = useWorldModelSessionState(session, false);
   const statusRegion = useRef<HTMLElement>(null);
   // Set when a decision commits: statements after it, in page order.
-  const [focusAfter, setFocusAfter] = useState<{
+  const [focusAfter, setFocusAfter] = useWorldModelSessionState<{
     later: readonly string[];
-  } | null>(null);
-  // Committed write results always win over a read that started earlier.
-  const memoryGeneration = useRef(0);
-  const revision = usePkmDomainChangeRevision(user?.uid, MARKDOWN_MEMORY_DOMAIN);
+  } | null>(session, null);
+  const revision = usePkmDomainChangeRevision(ready ? user?.uid : null, MARKDOWN_MEMORY_DOMAIN);
   const authority = useRef({
-    ready,
+    ready: ready && present, scope,
     owner: user?.uid,
     key: vaultKey,
     token: vaultOwnerToken,
   });
   authority.current = {
-    ready,
+    ready: ready && present, scope,
     owner: user?.uid,
     key: vaultKey,
     token: vaultOwnerToken,
   };
+  const scopeCurrent = useCallback(() => scope.live && session.live && authority.current.scope === scope, [scope, session]);
+  const setDetail = useCallback((value: SetStateAction<WorldModelFactDetail | null>) => {
+    if (scopeCurrent()) setDetailState(value);
+  }, [scopeCurrent, setDetailState]);
+  const reload = useCallback((confirmed?: PwmPreferences) => { if (scopeCurrent()) reloadResearch(confirmed); }, [scopeCurrent, reloadResearch]);
+  const refresh = useCallback(() => { if (scopeCurrent()) refreshResearch(); }, [scopeCurrent, refreshResearch]);
   const memory =
     ready && loaded && loaded.owner === user?.uid && loaded.key === vaultKey
       ? loaded.memory
@@ -461,13 +478,13 @@ export function PersonalWorldModelPage({
       : [];
 
   const ownerAuthority = useCallback(() => {
-    const { ready: isReady, owner, key, token } = authority.current;
-    if (!isReady || !owner || !key || !token) return null;
+    const { enabled: isReady, owner, key, token } = session;
+    if (!isReady || !owner || !key || !token || !scopeCurrent() || !scope.controller) return null;
     const guard = createAgentPkmCaptureGuard({
       userId: owner,
-      signal: new AbortController().signal,
+      signal: scope.controller.signal,
       isEnabled: () =>
-        authority.current.ready &&
+        scopeCurrent() && authority.current.ready &&
         authority.current.owner === owner &&
         authority.current.key === key &&
         authority.current.token === token,
@@ -481,7 +498,7 @@ export function PersonalWorldModelPage({
       } satisfies PwmMemoryAuthority,
       isCurrent: guard.isCurrent,
     };
-  }, []);
+  }, [scopeCurrent, scope, session]);
 
   const ownerId = user?.uid;
   useEffect(() => {
@@ -489,13 +506,14 @@ export function PersonalWorldModelPage({
       setSourced(null);
       return;
     }
+    if (!present) return;
     const owner = ownerId;
     const controller = new AbortController();
     const guard = createAgentPkmCaptureGuard({
       userId: owner,
       signal: controller.signal,
       isEnabled: () =>
-        authority.current.ready &&
+        scopeCurrent() && authority.current.ready &&
         authority.current.owner === owner &&
         authority.current.key === vaultKey &&
         authority.current.token === vaultOwnerToken,
@@ -512,25 +530,26 @@ export function PersonalWorldModelPage({
       })
       .catch(() => undefined);
     return () => controller.abort();
-  }, [ready, ownerId, vaultKey, vaultOwnerToken, mounted, readRevision]);
+  }, [ready, present, ownerId, vaultKey, vaultOwnerToken, mounted, readRevision, scopeCurrent, setSourced]);
 
   useEffect(() => {
     if (!ready || !ownerId || !vaultKey || !vaultOwnerToken || !mounted) {
       setLoaded(null);
       return;
     }
+    if (!present) return;
     const owner = ownerId;
     const controller = new AbortController();
     const guard = createAgentPkmCaptureGuard({
       userId: owner,
       signal: controller.signal,
       isEnabled: () =>
-        authority.current.ready &&
+        scopeCurrent() && authority.current.ready &&
         authority.current.owner === owner &&
         authority.current.key === vaultKey &&
         authority.current.token === vaultOwnerToken,
     });
-    const generation = memoryGeneration.current;
+    const generation = session.generation;
     setReadFailed(false);
     void WorldModelDecisionService.load({
       userId: owner,
@@ -539,29 +558,30 @@ export function PersonalWorldModelPage({
       assertCurrent: guard.assertCurrent,
     })
       .then((next) => {
-        if (guard.isCurrent() && generation === memoryGeneration.current)
+        if (guard.isCurrent() && generation === session.generation)
           setLoaded({ owner, key: vaultKey, memory: next });
       })
       .catch(() => {
-        if (guard.isCurrent() && generation === memoryGeneration.current)
+        if (guard.isCurrent() && generation === session.generation)
           setReadFailed(true);
       });
     return () => controller.abort();
-  }, [ready, ownerId, vaultKey, vaultOwnerToken, mounted, revision, readRevision]);
+  }, [ready, present, ownerId, vaultKey, vaultOwnerToken, mounted, revision, readRevision, scopeCurrent, session, setLoaded, setReadFailed]);
 
   const offered: Offered | null = result?.status === "offered" ? result : null;
   useEffect(() => {
-    if (!offered) {
+    if (!ready || !offered) {
       setKeyed(null);
       return;
     }
+    if (!present) return;
     let active = true;
     const flat = offered.report.sections.flatMap((section) =>
       section.facts.map((fact) => ({ ...fact, topic: section.kind })),
     );
     void Promise.all(flat.map((fact) => pwmClaimKey(fact.statement))).then(
       (keys) => {
-        if (!active) return;
+        if (!active || !scopeCurrent()) return;
         const seen = new Set<string>();
         const facts: WorldModelDraftFact[] = [];
         flat.forEach((fact, index) => {
@@ -587,7 +607,7 @@ export function PersonalWorldModelPage({
     return () => {
       active = false;
     };
-  }, [offered]);
+  }, [offered, ready, present, scopeCurrent, setKeyed]);
 
   /** Shows a decision only after the service resolves with committed memory. */
   const commit = useCallback(
@@ -595,15 +615,16 @@ export function PersonalWorldModelPage({
       const owner = ownerAuthority();
       if (!owner) throw new Error("Vault is locked");
       const next = await write(owner.authority);
-      memoryGeneration.current += 1;
-      if (owner.isCurrent())
+      if (owner.isCurrent()) {
+        session.generation += 1;
         setLoaded({
           owner: owner.authority.userId,
           key: owner.authority.vaultKey,
           memory: next,
         });
+      }
     },
-    [ownerAuthority],
+    [ownerAuthority, session, setLoaded],
   );
 
   // Runs after the commit that removed the decided row, then waits a frame so
@@ -633,9 +654,11 @@ export function PersonalWorldModelPage({
    * sheet. Resolves only after the encrypted memory write commits.
    */
   async function decide(fact: WorldModelDraftFact, save: () => Promise<void>) {
-    if (inFlight.current.has(fact.key))
+    const owner = ownerAuthority();
+    if (!owner) throw new Error("World model is no longer active.");
+    if (session.decisions.has(fact.key))
       throw new Error("This detail is already saving.");
-    inFlight.current.add(fact.key);
+    session.decisions.add(fact.key);
     const order = yesButtons(statusRegion.current).map(
       (button) => button.dataset.pwmFactYes ?? "",
     );
@@ -646,13 +669,14 @@ export function PersonalWorldModelPage({
     try {
       await save();
     } catch (error) {
-      setErrors((set) => new Set(set).add(fact.key));
+      if (owner.isCurrent()) setErrors((set) => new Set(set).add(fact.key));
       throw error;
     } finally {
-      inFlight.current.delete(fact.key);
-      setPending(without);
+      session.decisions.delete(fact.key);
+      if (owner.isCurrent()) setPending(without);
     }
     // Decided: an open detail for it is stale, and focus moves to what's next.
+    if (!owner.isCurrent()) return;
     setDetail((open) =>
       open?.kind === "draft" && open.key === fact.key ? null : open,
     );
@@ -706,27 +730,31 @@ export function PersonalWorldModelPage({
     const owner = ownerAuthority();
     if (!owner) throw new Error("Vault is locked");
     if (!preferences) throw new Error("Research preferences are unavailable");
-    // The confirmed switches stay on screen while research restarts.
-    reload(await WorldModelResearchService.updatePreferences(owner.authority, {
-      ...value,
-      research_provider: preferences.research_provider,
-    }));
+    if (session.preferencePending) throw new Error("Research preferences are already saving.");
+    session.preferencePending = true;
+    setPreferenceBusy(true); setPreferenceFailed(false);
+    try {
+      const confirmed = await WorldModelResearchService.updatePreferences(owner.authority, {
+        ...value, research_provider: preferences.research_provider,
+      });
+      if (owner.isCurrent()) reload(confirmed);
+    } catch (error) {
+      if (owner.isCurrent()) setPreferenceFailed(true);
+      throw error;
+    } finally {
+      session.preferencePending = false;
+      if (owner.isCurrent()) setPreferenceBusy(false);
+    }
   }
 
   async function turnOn() {
-    if (preferenceBusy) return;
-    setPreferenceBusy(true);
-    setPreferenceFailed(false);
+    if (session.preferencePending || !scopeCurrent()) return;
     try {
       await updatePreferences({
         enabled: true,
         email_enabled: preferences?.email_enabled ?? true,
       });
-    } catch {
-      setPreferenceFailed(true);
-    } finally {
-      setPreferenceBusy(false);
-    }
+    } catch { /* The shared preference owner presents its sanitized outcome. */ }
   }
 
   const draftsReady = !offered || keyed?.draftId === offered.draft_id;
@@ -817,7 +845,7 @@ export function PersonalWorldModelPage({
     ? (PWM_SECTIONS.find((section) => section.id === pwmSectionForTopic(detailTopic))
         ?.label ?? "Detail")
     : "Detail";
-  const closeDetail = useCallback(() => setDetail(null), []);
+  const closeDetail = useCallback(() => setDetail(null), [setDetail]);
   // An action under the card unmounts with its state; focus moves to the
   // status region first, whose row then announces what happened.
   const focusStatus = () => statusRegion.current?.focus({ preventScroll: true });
@@ -827,6 +855,21 @@ export function PersonalWorldModelPage({
   const checkpoint = !preparing && (retry || spent || retrying) ? progress : null;
   const StatusIcon = STATUS_ICON[status.kind];
 
+  return { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, provisionalFacts, sections, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, detail, detailTitle, closeDetail, memory };
+}
+export type PersonalWorldModelModel = ReturnType<typeof usePersonalWorldModelModel>;
+
+function OwnedWorldModelPage(props: PersonalWorldModelPageOptions) {
+  const model = usePersonalWorldModelModel({ embedded: props.embedded });
+  return <WorldModelPageView {...props} model={model} />;
+}
+
+export function PersonalWorldModelPage({ model, ...props }: PersonalWorldModelPageOptions & { model?: PersonalWorldModelModel }) {
+  return model ? <WorldModelPageView {...props} model={model} /> : <OwnedWorldModelPage {...props} />;
+}
+
+function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAccount }: PersonalWorldModelPageOptions & { model: PersonalWorldModelModel }) {
+  const { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, provisionalFacts, sections, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, detail, detailTitle, closeDetail, memory } = model;
   const content = (
     <SurfaceStack compact data-pwm-page>
       <SettingsPresentationProvider density="compact">
@@ -1134,6 +1177,8 @@ export function PersonalWorldModelPage({
                 fact={detail}
                 title={detailTitle}
                 pathname={pathname}
+                present={present}
+                backQuery={paneState.open ? { profile_pane: "1", profile_panel: "world-model" } : undefined}
                 actions={actions}
                 pending={detail.kind === "draft" && pending.has(detail.key)}
                 onClose={closeDetail}

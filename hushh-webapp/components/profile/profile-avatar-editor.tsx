@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import {
   CameraIcon as CameraIcon,
@@ -44,11 +44,18 @@ function initialsOf(name?: string | null): string | null {
  * sheet to upload a new one (native camera/library or web file picker) or
  * revert to the default. Write-through updates every avatar surface at once.
  */
-export function ProfileAvatarEditor() {
+export function ProfileAvatarEditor({ openOnMount = false, optionsOnMount = false, onPresentationClose }: {
+  openOnMount?: boolean; optionsOnMount?: boolean; onPresentationClose?: () => void;
+} = {}) {
   const { user } = useAuth();
-  const photo = useEffectiveAvatarUrl();
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [photoOpen, setPhotoOpen] = useState(false);
+  const photo = useEffectiveAvatarUrl(768);
+  const [sheetOpen, setSheetOpen] = useState(openOnMount && (optionsOnMount || !photo));
+  const [photoOpen, setPhotoOpen] = useState(openOnMount && !optionsOnMount && !!photo);
+  const wasPresented = useRef(openOnMount);
+  useEffect(() => {
+    if (sheetOpen || photoOpen) { wasPresented.current = true; return; }
+    if (wasPresented.current) { wasPresented.current = false; onPresentationClose?.(); }
+  }, [sheetOpen, photoOpen, onPresentationClose]);
   const [busy, setBusy] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
@@ -212,6 +219,10 @@ export function ProfileAvatarEditor() {
             <SheetTitle>Profile photo</SheetTitle>
           </SheetHeader>
           <div className="flex flex-col gap-1 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            {shownPhoto ? <button type="button" className={rowClass}
+              onClick={() => { setSheetOpen(false); setPhotoOpen(true); }}>
+              <UserIcon className="h-5 w-5 text-primary" />View photo
+            </button> : null}
             <button type="button" onClick={handleChange} className={rowClass}>
               <ImagePlus className="h-5 w-5 text-primary" />
               {isNative() ? "Take photo or choose from library" : "Upload a photo"}

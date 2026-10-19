@@ -126,7 +126,7 @@ import { ActionMenu } from "@/components/app-ui/action-menu";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { cn } from "@/lib/utils";
 import { useBackLayer } from "@/lib/navigation/back-layers";
-import { CreateCirclePeopleStep, type CirclePeoplePageLoader } from "./create-circle-people-step";
+import { CreateCirclePeopleBody, useCreateCirclePeopleModel, type CirclePeoplePageLoader } from "./create-circle-people-step";
 import {
   CIRCLE_INVITE_BATCH_LIMIT,
   circleInviteSelectionLimit,
@@ -639,16 +639,8 @@ const CIRCLE_KIND_OPTIONS: {
   { value: "other", label: "Other" },
 ];
 
-export function CreateCircleFlow({
-  busy,
-  onSubmit,
-  showCircleType = true,
-  onLoadPeople,
-  onAddPeople,
-  onComplete,
-  pathname = ROUTES.ONE_LOCATION,
-  backLayerQuery = { action: "create-circle" },
-}: {
+export type CreateCircleFlowProps = {
+  active?: boolean;
   busy: boolean;
   onSubmit: (name: string, kind: OneLocationCircleKind, existingCircleId?: string) => Promise<OneLocationCircleDetail>;
   /** Location hides the choice and retains the existing family default. */
@@ -658,7 +650,20 @@ export function CreateCircleFlow({
   onComplete: (circleId: string) => void;
   pathname?: string;
   backLayerQuery?: Readonly<Record<string, string>>;
-}) {
+};
+
+/** One create/update writer and one people draft, shared by both renderers. */
+export function useCreateCircleFlow({
+  active = true,
+  busy,
+  onSubmit,
+  showCircleType = true,
+  onLoadPeople,
+  onAddPeople,
+  onComplete,
+  pathname = ROUTES.ONE_LOCATION,
+  backLayerQuery = { action: "create-circle" },
+}: CreateCircleFlowProps) {
   const [name, setName] = useState("");
   const [nameRequirementActive, setNameRequirementActive] = useState(false);
   const [nameFocused, setNameFocused] = useState(false);
@@ -668,6 +673,17 @@ export function CreateCircleFlow({
   const [savedCircle, setSavedCircle] = useState<OneLocationCircleDetail | null>(null);
   const [saving, setSaving] = useState(false);
   const [addingPeople, setAddingPeople] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const input = useRef({ name: "", kind: "family" as OneLocationCircleKind, revision: 0 });
+  const inputRevision = useCallback(() => input.current.revision, []);
+  const changeDraft = useCallback((draft: { name: string; kind: OneLocationCircleKind }, expectedRevision?: number) => {
+    if (!mounted.current || submittingRef.current || expectedRevision !== undefined && input.current.revision !== expectedRevision ||
+      draft.name.length > 80 || !["family", "friends", "other"].includes(draft.kind)) return false;
+    if (input.current.name === draft.name && input.current.kind === draft.kind) return true;
+    input.current = { ...draft, revision: input.current.revision + 1 };
+    setName(draft.name); setKind(draft.kind); if (draft.name.trim()) setNameRequirementActive(false);
+    return true;
+  }, []);
   // One typed character is a name. Requiring two silently withheld the button
   // from anyone naming a circle "A", with nothing on screen saying why.
   const trimmedName = name.trim();
@@ -691,48 +707,81 @@ export function CreateCircleFlow({
     setStep("details");
     window.requestAnimationFrame(() => nameInputRef.current?.focus());
   };
-  useBackLayer(pathname, step === "people" ? 2 : 0, () => {
+  useBackLayer(pathname, active && step === "people" ? 2 : 0, () => {
     backToDetails();
     return true;
   }, backLayerQuery);
 
-  const submit = async () => {
-    if (submittingRef.current || busy || saving) return;
-    if (nameMissing) {
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const current = useCallback(() => mounted.current, []);
+  const stepRef = useRef(step), addingRef = useRef(addingPeople);
+  const mutationPending = useCallback(() => (submittingRef.current && stepRef.current === "details") || addingRef.current, []);
+  stepRef.current = step; addingRef.current = addingPeople;
+  useEffect(() => {
+    if (active) return;
+    input.current = { name: "", kind: "family", revision: input.current.revision + 1 };
+    submittingRef.current = false; setName(""); setKind("family"); setNameRequirementActive(false); setNameFocused(false);
+    setStep("details"); setSavedCircle(null); setSaving(false); setAddingPeople(false);
+    setError(null);
+  }, [active]);
+  const prepare = async (draft = input.current) => {
+    if (!mounted.current || submittingRef.current || busy || saving) return false;
+    const nextName = draft.name.trim();
+    if (nextName.length < 1 || draft.name.length > 80) {
       setNameRequirementActive(true);
       window.requestAnimationFrame(() => nameInputRef.current?.focus());
-      return;
+      return false;
     }
     submittingRef.current = true;
-    setSaving(true);
+    setSaving(true); setError(null);
     try {
-      const circle = savedCircle && savedCircle.name === trimmedName && savedCircle.kind === kind
+      const circle = savedCircle && savedCircle.name === nextName && savedCircle.kind === draft.kind
         ? savedCircle
-        : await onSubmit(trimmedName, kind, savedCircle?.id);
+        : await onSubmit(nextName, draft.kind, savedCircle?.id);
+      if (!mounted.current) return false;
       setSavedCircle(circle);
-      setStep("people");
       try {
         if (!savedCircle) trackEvent("one_location_circle_created", {
           route_id: "one_location",
           result: "success",
-          circle_kind: kind,
+          circle_kind: draft.kind,
         });
       } catch {}
+      return true;
     } catch (error) {
+      if (!mounted.current) return false;
       submittingRef.current = false;
-      toast.error(
-        circleFlowErrorMessage(error, "Could not create this Circle."),
-      );
+      const message = circleFlowErrorMessage(error, "Could not create this Circle.");
+      setError(message); toast.error(message);
+      return false;
     } finally {
-      setSaving(false);
+      if (mounted.current) setSaving(false);
     }
   };
+  const advance = () => { if (mounted.current && submittingRef.current) setStep("people"); };
+  const submit = async () => { if (await prepare()) advance(); };
+  const peopleProps = { circleId: savedCircle?.id ?? "", circleName: savedCircle?.name ?? "", active: active && step === "people", onLoad: onLoadPeople,
+    onAdd: onAddPeople, onComplete, onBack: backToDetails, onSavingChange: setAddingPeople };
+  const people = useCreateCirclePeopleModel(peopleProps);
+  return { name, setName: (name: string) => changeDraft({ ...input.current, name }), nameRequirementActive, setNameRequirementActive, nameFocused, setNameFocused,
+    kind, setKind: (kind: OneLocationCircleKind) => changeDraft({ ...input.current, kind }), inputRevision, changeDraft,
+    nameInputRef, step, savedCircle, saving, addingPeople, nameMissing, canSubmit, nameHelpId, showNameError, nameHelpText,
+    backToDetails, submit, prepare, advance, people, peopleProps, current, mutationPending, busy, showCircleType, error };
+}
+
+export type CreateCircleFlowModel = ReturnType<typeof useCreateCircleFlow>;
+export function CreateCircleFlow(props: CreateCircleFlowProps) {
+  return <CreateCircleFlowBody model={useCreateCircleFlow(props)} />;
+}
+export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }) {
+  const { name, setName, setNameRequirementActive, setNameFocused, kind, setKind, nameInputRef, step, savedCircle,
+    saving, nameMissing, canSubmit, nameHelpId, showNameError, nameHelpText, submit, people, peopleProps, busy, showCircleType } = model;
 
   return (
     <div data-testid="one-location-create-circle-flow">
       {savedCircle ? <div hidden={step !== "people"}>
-        <CreateCirclePeopleStep circleId={savedCircle.id} circleName={savedCircle.name} active={step === "people"} onLoad={onLoadPeople}
-          onAdd={onAddPeople} onComplete={onComplete} onBack={backToDetails} onSavingChange={setAddingPeople} />
+        <CreateCirclePeopleBody {...peopleProps} model={people} />
       </div> : null}
       <div hidden={step !== "details"} className="space-y-5">
       <h1 className="sr-only">Create a Circle</h1>

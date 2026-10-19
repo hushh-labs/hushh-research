@@ -59,6 +59,9 @@ const serviceMock = vi.hoisted(() => ({
   getCard: vi.fn(),
   addCard: vi.fn(),
 }));
+vi.mock("@/lib/services/wallet-card-service", () => ({
+  WalletCardService: { getCard: vi.fn().mockResolvedValue({ card: null, shareUrl: null }), subscribe: vi.fn(() => () => {}), readShareLink: vi.fn(() => null), ensureCard: vi.fn() },
+}));
 
 // Keep the real dropdown and limit its catalog to the regions used by this suite.
 vi.mock("@/lib/constants/country-phone-options", () => ({ COUNTRY_PHONE_OPTIONS: [

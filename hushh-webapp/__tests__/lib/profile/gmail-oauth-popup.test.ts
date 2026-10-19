@@ -118,12 +118,20 @@ describe("gmail-oauth-popup", () => {
     );
   });
 
-  it("reads and clears the fallback popup attempt marker", () => {
+  it("clears only the requested attempt across session and fallback storage", () => {
     const attempt = makeAttempt();
     window.localStorage.setItem(FALLBACK_ATTEMPT_KEY, JSON.stringify(attempt));
 
     expect(readGmailOAuthPopupAttempt()).toEqual(attempt);
 
+    const newer = { ...attempt, attemptId: "newer-mail-attempt" };
+    window.sessionStorage.setItem("one_gmail_oauth_popup_attempt_v1", JSON.stringify(attempt));
+    window.localStorage.setItem(FALLBACK_ATTEMPT_KEY, JSON.stringify(newer));
+    clearGmailOAuthPopupAttempt(undefined, attempt.attemptId);
+    expect(window.sessionStorage.getItem("one_gmail_oauth_popup_attempt_v1")).toBeNull();
+    expect(readGmailOAuthPopupAttempt()).toEqual(newer);
+
+    // Existing explicit, unconditional cleanup retains its compatibility.
     clearGmailOAuthPopupAttempt();
     expect(readGmailOAuthPopupAttempt()).toBeNull();
   });

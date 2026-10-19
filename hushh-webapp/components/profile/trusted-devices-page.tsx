@@ -1,12 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import {
   SpinnerGapIcon as Loader2,
   TrashIcon as Trash2,
 } from "@/components/icons";
 import { DevicesProfileIcon } from "@/components/icons/agents";
-import { ProfilePaneDevicesIcon } from "@/components/profile/profile-pane-icons";
 import typographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 
 import {
@@ -30,86 +28,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/hooks/use-auth";
-import { useStaleResource } from "@/lib/cache/use-stale-resource";
-import { ApiService } from "@/lib/services/api-service";
-import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { deriveSyncDisplay } from "@/lib/trusted-device/sync-display";
 import { cn } from "@/lib/utils";
-
-interface TrustedDevice {
-  device_id: string;
-  device_name: string;
-  platform: string;
-  status: "active" | "revoked";
-  created_at: number;
-  last_used_at: number | null;
-  // Added by migration 176; optional so an older payload still type-checks and
-  // falls through to the honest "unavailable" / "not yet synced" states.
-  revoked_at?: number | null;
-  last_synced_at?: number | null;
-  sealed_at?: number | null;
-  // Added by migration 189; a fresh value is the only evidence the agent is
-  // actually running, which last_synced_at can never establish.
-  last_heartbeat_at?: number | null;
-  heartbeat?: { current_model?: string; busy?: boolean } | null;
-}
+import { UNLINK_WARNING, type TrustedDevicesModel } from "./use-trusted-devices-model";
 
 /** Trusted devices is a recursive Profile-pane detail, not a standalone page. */
 export default function TrustedDevicesPage({
-  panePresentation = false,
+  panePresentation = false, model,
 }: {
   panePresentation?: boolean;
+  model: TrustedDevicesModel;
 }) {
-  const { user } = useAuth();
-  const [error, setError] = useState("");
-  const [pendingRevocation, setPendingRevocation] =
-    useState<TrustedDevice | null>(null);
-  const [revoking, setRevoking] = useState(false);
-
-  // Cache-first: a warm cache paints the list immediately and the refresh runs
-  // in the background, so revisiting this screen never shows a blocking spinner
-  // over data we already hold. Revoking force-refreshes through the same
-  // resource so the cache can never serve a device the server just revoked.
-  const devicesResource = useStaleResource<TrustedDevice[]>({
-    cacheKey: CACHE_KEYS.TRUSTED_DEVICES(user?.uid || "anonymous"),
-    enabled: Boolean(user),
-    resourceLabel: "trusted-devices",
-    load: async () => {
-      const response = await ApiService.listTrustedDevices();
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.detail?.message || "Devices unavailable.");
-      }
-      return Array.isArray(payload.devices) ? payload.devices : [];
-    },
-  });
-
-  const devices = devicesResource.data ?? [];
-  // Only a cold load with nothing cached may block; a background refresh must
-  // never hide list content that is already on screen.
-  const loading = devicesResource.loading && devicesResource.data === null;
-  const visibleError = error || devicesResource.error || "";
-
-  async function revoke(deviceId: string) {
-    if (!user) return;
-    setRevoking(true);
-    try {
-      const response = await ApiService.revokeTrustedDevice(deviceId);
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        setError(
-          payload?.detail?.message || "The device could not be revoked.",
-        );
-        return;
-      }
-      setPendingRevocation(null);
-      setError("");
-      await devicesResource.refresh({ force: true });
-    } finally {
-      setRevoking(false);
-    }
-  }
+  const { devices, confirmation: pendingRevocation, busy: revoking, loading, error: visibleError } = model;
 
   const nowMs = Date.now();
 
@@ -144,7 +74,7 @@ export default function TrustedDevicesPage({
                 panePresentation && typographyStyles.status,
               )}
             >
-              {visibleError}
+              {visibleError} <button type="button" disabled={revoking} onClick={() => void model.refresh()}>Refresh</button>
             </p>
           ) : null}
           {devices.length > 0 ? (
@@ -155,7 +85,7 @@ export default function TrustedDevicesPage({
                 return (
                   <SettingsRow
                     key={device.device_id}
-                    icon={panePresentation ? ProfilePaneDevicesIcon : DevicesProfileIcon}
+                    icon={DevicesProfileIcon}
                     iconTone="capability"
                     title={device.device_name}
                     description={sync.label}
@@ -163,7 +93,8 @@ export default function TrustedDevicesPage({
                       isActive ? (
                         <Button
                           aria-label={`Unlink ${device.device_name}`}
-                          onClick={() => setPendingRevocation(device)}
+                          onClick={() => model.choose(device.device_id)}
+                          disabled={revoking || model.uncertain}
                           size="icon"
                           variant="ghost"
                         >
@@ -192,7 +123,7 @@ export default function TrustedDevicesPage({
       <AlertDialog
         open={pendingRevocation !== null}
         onOpenChange={(open) => {
-          if (!open && !revoking) setPendingRevocation(null);
+          if (!open && !revoking) model.cancel();
         }}
       >
         <AlertDialogContent>
@@ -201,19 +132,16 @@ export default function TrustedDevicesPage({
               Unlink {pendingRevocation?.device_name || "this device"}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This device will stop syncing immediately, and its local copy of
-              your vault will be sealed on the device. Reconnecting requires
-              approving it again in your browser and setting up the local vault
-              from scratch.
+              {UNLINK_WARNING}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={revoking}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={revoking || pendingRevocation === null}
+              disabled={revoking || model.uncertain || pendingRevocation === null}
               onClick={(event) => {
                 event.preventDefault();
-                if (pendingRevocation) void revoke(pendingRevocation.device_id);
+                void model.confirm();
               }}
             >
               {revoking ? "Unlinking…" : "Unlink device"}

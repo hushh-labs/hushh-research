@@ -1,11 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import PrivacyPolicyPage from "@/app/privacy/page";
 import TermsOfUsePage from "@/app/terms/page";
+import { buildProfileLegalStackEntries } from "@/components/profile/profile-legal-section";
 import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import {
   LEGAL_DOCUMENTS,
@@ -192,9 +193,21 @@ describe("Privacy Policy and Terms of Use pages", () => {
   // Profile reads them in place in its Legal section; it never leaves the
   // pane for the public page (founder, 2026-10-02).
   it("are read in place from Profile, never by leaving for the public page", () => {
+    const updateView = vi.fn();
+    const [section] = buildProfileLegalStackEntries({ detail: null, updateView });
+    const { unmount } = render(section.content);
+    for (const detail of ["privacy", "terms"] as const) {
+      fireEvent.click(screen.getByRole("button", { name: LEGAL_DOCUMENTS[detail].title }));
+      expect(updateView).toHaveBeenLastCalledWith({ panel: "legal", detail }, "push");
+    }
+    expect(updateView).toHaveBeenCalledTimes(2);
+    unmount();
+
+    const reader = buildProfileLegalStackEntries({ detail: "privacy", updateView }).at(-1)!;
+    render(reader.content);
+    fireEvent.click(screen.getByRole("button", { name: LEGAL_DOCUMENTS.terms.title }));
+    expect(updateView).toHaveBeenLastCalledWith({ panel: "legal", detail: "terms" }, "replace");
     const profile = read("components/profile/profile-workspace-page.tsx");
-    expect(profile).toContain("<ProfileLegalRows");
-    expect(profile).toContain('{ panel: "legal", detail: document }');
     expect(profile).not.toContain("router.push(ROUTES.PRIVACY)");
     expect(profile).not.toContain("router.push(ROUTES.TERMS)");
   });

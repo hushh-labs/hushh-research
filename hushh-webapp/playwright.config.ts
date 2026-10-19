@@ -228,7 +228,10 @@ export default defineConfig({
         /receipt-pagination\.layout\.spec\.ts/,
         /receipt-storage\.layout\.spec\.ts/,
         /connections-drawer\.layout\.spec\.ts/,
+        /agent-history-motion\.layout\.spec\.ts/,
         /profile-legal-connectors\.layout\.spec\.ts/,
+        // Native drawer admission samples this authored CSS before coverage;
+        // prove its cascade in the same engine as the shipped WKWebView.
         /profile-pane-close\.layout\.spec\.ts/,
         /legal-pages\.spec\.ts/,
         /connect-living-circles\.layout\.spec\.ts/,

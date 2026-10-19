@@ -79,7 +79,7 @@ case "$TARGET_ENV" in
   production)
     GCP_PROJECT_ID="hushh-pda"
     RUNTIME_SERVICE_ACCOUNT="consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com"
-    APP_FRONTEND_ORIGIN="https://one.hushh.ai"
+    APP_FRONTEND_ORIGIN="https://one.hussh.ai"
     CONSENT_API_PUBLIC_ORIGIN="https://api.hushh.ai"
     CLOUDSQL_INSTANCE="hushh-pda:us-central1:hushh-vault-db"
     DB_UNIX_SOCKET="/cloudsql/hushh-pda:us-central1:hushh-vault-db"
@@ -89,7 +89,7 @@ case "$TARGET_ENV" in
   uat)
     GCP_PROJECT_ID="hushh-pda-uat"
     RUNTIME_SERVICE_ACCOUNT="consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
-    APP_FRONTEND_ORIGIN="https://uat.one.hushh.ai"
+    APP_FRONTEND_ORIGIN="https://uat.one.hussh.ai"
     CONSENT_API_PUBLIC_ORIGIN="https://api.uat.hushh.ai"
     CLOUDSQL_INSTANCE="hushh-pda-uat:us-central1:hushh-uat-pg"
     DB_UNIX_SOCKET="/cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg"

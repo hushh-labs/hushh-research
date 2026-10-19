@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "@/components/icons";
 
-import { SegmentedTabs as SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -209,7 +209,8 @@ export function WalletCardSetup({
               Shown first after a scan.
             </p>
           </div>
-          <SettingsSegmentedTabs
+          <SegmentedControl
+            ariaLabel="Primary contact"
             value={draft.preferredContact}
             onValueChange={(value) =>
               onChange("preferredContact", value as WalletCardPreferredContact)
@@ -218,8 +219,8 @@ export function WalletCardSetup({
               value: option.value,
               label: option.label,
             }))}
+            className="min-h-11 w-full"
             mobileColumns={2}
-            className="min-h-11"
           />
           <div data-wallet-grid-item="selected-contact-input">
             <DraftField

@@ -43,6 +43,8 @@ export type SourceBoundEmailReplyAdapter = {
   reportsSendStart?: boolean;
 };
 
+export type GmailDraftSaveState = "idle" | "saving" | "saved" | "outcome_unknown";
+
 type EmailDraftCardProps = {
   initialInstruction: string;
   initialDraft?: EmailDraft | null;
@@ -79,6 +81,8 @@ type EmailDraftCardProps = {
    * source-bound reply.
    */
   onDeliveryPrepared?: (actionId: string, attemptId: string | null) => void;
+  /** Keep the owning response from retiring an in-flight or uncertain write. */
+  onSaveStateChange?: (state: GmailDraftSaveState, attemptId: string) => void;
   /** Voice and tap share this already reviewed service action. */
   reviewedSend?: {
     actionId: string; expiresAt: string; senderToken: string; senderLabel: string;
@@ -168,6 +172,7 @@ export function EmailDraftCard({
   onDraftingChange,
   onOpenConnections,
   onDeliveryPrepared,
+  onSaveStateChange,
   reviewedSend = null,
   sendUnavailable = false,
   onDraftEdit,
@@ -575,8 +580,11 @@ export function EmailDraftCard({
   const saveToGmailDrafts = async () => {
     if (busy || saveStartedRef.current || draft.driveFileId || sourceBoundReply) return;
     saveStartedRef.current = true;
+    const saveAttemptId = newIdempotencyKey();
+    onSaveStateChange?.("saving", saveAttemptId);
     setBusy("save");
     setError(null);
+    let outcome: GmailDraftSaveState = "idle";
     try {
       const auth = await withAuth();
       if (!auth) {
@@ -584,6 +592,7 @@ export function EmailDraftCard({
         return;
       }
       await EmailDeliveryService.saveGmailDraft({ ...auth, draft: { ...draft } });
+      outcome = "saved";
       setSavedToGmail(true);
     } catch (cause) {
       const failure = cause instanceof EmailDeliveryError
@@ -593,10 +602,13 @@ export function EmailDraftCard({
           );
       if (failure.code === "GMAIL_COMPOSE_PERMISSION_REQUIRED" || failure.status === 400) {
         saveStartedRef.current = false;
+      } else {
+        outcome = "outcome_unknown";
       }
       setError(failure);
     } finally {
       setBusy(null);
+      onSaveStateChange?.(outcome, saveAttemptId);
     }
   };
 

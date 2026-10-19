@@ -35,7 +35,7 @@ final class LocationPickerLocateMeTests: XCTestCase {
         if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"]
             ?? environment["REVIEWER_VAULT_PASSPHRASE"],
            !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchArguments += ["-UITestVaultPassphrase", vaultPassphrase]
+            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] = vaultPassphrase
         }
         app.launch()
         return app

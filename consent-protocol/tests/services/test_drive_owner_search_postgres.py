@@ -198,7 +198,15 @@ async def test_thousand_results_checkpoint_every_page_and_resume_new_worker_inst
         # Each slice reads at most four pages; a drain chains a bounded number.
         assert 1 <= len(calls) - before <= 4 * MAX_SLICES_PER_RUN
     final = await store.status(user_id="owner", job_id=state["jobId"])
-    assert final["status"] == "completed" and final["matched"] == 1000
+    # The disposable fixture contains synthetic files only. Preserve the
+    # terminal-state requirement while exposing its sanitized failure class;
+    # never print checkpoint/file envelopes merely to diagnose a failed slice.
+    assert final["status"] == "completed", (
+        final["errorCode"],
+        final["pagesScanned"],
+        final["matched"],
+    )
+    assert final["matched"] == 1000
     assert final["pagesScanned"] == 11 and final["incompleteSearch"] is False
     assert concurrency["peak"] == 1
     assert len([call for call in calls if call[0] == "search_files"]) == 10

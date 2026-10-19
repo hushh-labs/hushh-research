@@ -375,6 +375,17 @@ function getSnapshot(): number {
   return state.progress;
 }
 
+/** Presentation subscribers reuse the same gesture owner without introducing
+ * per-frame React renders or attaching another scroll listener. */
+export function subscribeKaiBottomChromeProgress(listener: (progress: number) => void): () => void {
+  listener(state.progress);
+  return subscribe(() => listener(state.progress));
+}
+
+export function bottomChromeScrollTravel(navigationHeight: number): number {
+  return Number.isFinite(navigationHeight) && navigationHeight >= 0 ? Math.ceil(navigationHeight) + 6 : 0;
+}
+
 export function useKaiBottomChromeVisibility(enabled: boolean): {
   hidden: boolean;
   progress: number;

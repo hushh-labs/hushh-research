@@ -71,6 +71,7 @@ vi.mock("@/lib/services/circle-wars-service", () => ({ CircleWarsService: { getS
 import { VaultContext } from "@/lib/vault/vault-context";
 
 import { CacheService } from "@/lib/services/cache-service";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { useDailyAppActivity } from "@/lib/referral/use-daily-app-activity";
 
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
@@ -251,18 +252,24 @@ describe("ReferralDashboardPage", () => {
   });
 
   it("opens the device share sheet directly without social icons or a disclosure layer", async () => {
-    render(<ReferralDashboardPage />);
+    publishValidatedAuthSessionOwner("user-a");
+    const view = render(<ReferralDashboardPage />);
     const invite = await screen.findByRole("button", { name: "Invite" });
     fireEvent.click(invite);
     await waitFor(() => expect(mocks.shareLink).toHaveBeenCalledExactlyOnceWith({
       title: "Join me on Hushh One", text: "Join me on Hushh One", dialogTitle: "Share your invite", url: SUMMARY.link,
-    }));
+    }, expect.any(Function)));
+    const isCurrent = mocks.shareLink.mock.calls.at(-1)![1] as () => boolean;
+    expect(isCurrent()).toBe(true);
     expect(invite).not.toHaveAttribute("aria-expanded");
     expect(invite.querySelector("svg")).toBeNull();
     expect(screen.queryByRole("link", { name: "Share on WhatsApp" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Share by SMS" })).toBeNull();
     expect(screen.queryByRole("button", { name: "More share options" })).toBeNull();
     expect(unwindBackLayer("/one/referrals")).toBe(false);
+    view.unmount();
+    expect(isCurrent()).toBe(false);
+    publishValidatedAuthSessionOwner(null);
   });
   it("renders Rules amounts from the active backend policy", async () => {
     mocks.getPolicy.mockResolvedValue({ version: 3, points: { qualified_referral_points: 123, flash_window_total_points: 246 }, streak_rules: { run_length_days: 3, bonus_points: 17 }, challenge_duration_days: 7, weekly_prizes_enabled: false });

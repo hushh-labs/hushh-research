@@ -2305,7 +2305,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-connected-systems",
+      "native_surface_id": null,
       "page_file": "app/connected-systems/page.tsx",
       "pathname": "/connected-systems",
       "route_mode": "redirect",
@@ -3056,7 +3056,28 @@
       "page_file": "app/one/connect/page.tsx",
       "pathname": "/one/connect",
       "route_mode": "standard",
-      "semantic_routes": [],
+      "semantic_routes": [
+        {
+          "canonical_url": "/one/connect?tab=circles",
+          "id": "connect.circles",
+          "lifecycle": "canonical",
+          "pathname": "/one/connect",
+          "query": {
+            "tab": "circles"
+          },
+          "tab_set": "connect"
+        },
+        {
+          "canonical_url": "/one/connect?tab=all",
+          "id": "connect.connections",
+          "lifecycle": "canonical",
+          "pathname": "/one/connect",
+          "query": {
+            "tab": "all"
+          },
+          "tab_set": "connect"
+        }
+      ],
       "voice": {
         "action_ids": [
           "connect.accept_request",
@@ -3110,7 +3131,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-connected-systems",
+      "native_surface_id": null,
       "page_file": "app/one/connected-systems/page.tsx",
       "pathname": "/one/connected-systems",
       "route_mode": "standard",
@@ -3288,7 +3309,28 @@
       "page_file": "app/one/gmail/page.tsx",
       "pathname": "/one/gmail",
       "route_mode": "standard",
-      "semantic_routes": [],
+      "semantic_routes": [
+        {
+          "canonical_url": "/one/gmail?workspace=kyc",
+          "id": "mail.kyc",
+          "lifecycle": "canonical",
+          "pathname": "/one/gmail",
+          "query": {
+            "workspace": "kyc"
+          },
+          "tab_set": "gmail-workspace"
+        },
+        {
+          "canonical_url": "/one/gmail?workspace=receipts",
+          "id": "mail.receipts",
+          "lifecycle": "canonical",
+          "pathname": "/one/gmail",
+          "query": {
+            "workspace": "receipts"
+          },
+          "tab_set": "gmail-workspace"
+        }
+      ],
       "voice": {
         "action_ids": [
           "route.one_gmail_kyc",
@@ -3791,16 +3833,6 @@
       "pathname": "/one/location",
       "route_mode": "standard",
       "semantic_routes": [
-        {
-          "canonical_url": "/one/location?view=inbox",
-          "id": "location.inbox",
-          "lifecycle": "canonical",
-          "pathname": "/one/location",
-          "query": {
-            "view": "inbox"
-          },
-          "tab_set": "location"
-        },
         {
           "canonical_url": "/one/location?view=links",
           "id": "location.links",
@@ -5418,7 +5450,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-connected-systems",
+      "native_surface_id": null,
       "page_file": "app/one/setup/connected-systems/page.tsx",
       "pathname": "/one/setup/connected-systems",
       "route_mode": "standard",
@@ -6489,10 +6521,10 @@
     "data_plane": "bf4e5b5a6f6f40ae2156ec45c5d54d393a534cc9c5a40cea3b22c64cc9bfae9b",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "89cfeabb190475072e5d3aebe5f0b8d1838ea0565560fc2e7ad133a231396e40",
-    "route_index": "ad31ab1fbb2b02cacf204cb4514204408ef9e9f14d5c55f2b154ca42b7e09e8f",
-    "route_layout": "18921792d19da9e2bb5749f8bd481ceae8653f73a12e01b53b02849ad0c73505",
-    "surface_map": "33fba58acc73593fe4597f8d0d3422b03622b2b403f064748f53591c3d8447bd",
-    "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
+    "route_index": "4cd65e7bc9e301f346f78a08fd3c50ad821c4793690295ed66e15c8ed06bf324",
+    "route_layout": "40fad3e65a5417f7aba21a8ce02f03b7840d504fbfd841e6c5cb46d6c520c322",
+    "surface_map": "2443cd57df8aab877f89420d3eeab89666c07c92e4005bacaee2b88035d9060a",
+    "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
@@ -6504,7 +6536,7 @@
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
     "physical_routes": 154,
-    "semantic_routes": 14,
+    "semantic_routes": 17,
     "table_families": 111
   }
 }

@@ -4,7 +4,7 @@
 # Problem it solves: skills + cron jobs (PR governance, contributor-impact,
 # founder briefs, audits) write scratch + reports into tmp/ on every run and
 # nothing ever cleans them, so tmp/ bloats (observed: 124M / 600+ files, ~94M
-# of it >7 days stale). tmp/ is gitignored, so this only touches throwaway data.
+# of it >7 days stale). Registered worktrees inside tmp/ are NOT throwaway data.
 #
 # Policy:
 #   1. Age-out: delete any tmp/ file older than RETENTION_DAYS (default 7).
@@ -34,8 +34,24 @@ case "$TMP_DIR" in
 esac
 [ -d "$TMP_DIR" ] || { echo "No tmp/ dir at $TMP_DIR — nothing to do."; exit 0; }
 
+# Never traverse an active worktree, including its ignored dependencies and
+# build products. Fail closed if Git cannot enumerate the protected roots.
+worktree_records="$(git -C "$REPO_ROOT" worktree list --porcelain)"
+worktree_prunes=(-false)
+while IFS= read -r record; do
+  case "$record" in
+    "worktree $TMP_DIR/"*)
+      worktree_prunes+=(-o -path "${record#worktree }")
+      ;;
+  esac
+done <<< "$worktree_records"
+
+find_scratch() {
+  find "$TMP_DIR" \( "${worktree_prunes[@]}" \) -prune -o "$@"
+}
+
 before_size="$(du -sh "$TMP_DIR" 2>/dev/null | cut -f1)"
-before_count="$(find "$TMP_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')"
+before_count="$(find_scratch -type f -print 2>/dev/null | wc -l | tr -d ' ')"
 
 # Dated report families to keep-last-N (newest survive regardless of age).
 # Match by basename prefix; one glob per family.
@@ -58,7 +74,7 @@ trap 'rm -f "$protected_list"' EXIT
 # Build the protected set: newest KEEP_PER_FAMILY per family (by mtime).
 for fam in "${FAMILIES[@]}"; do
   # shellcheck disable=SC2010
-  find "$TMP_DIR" -maxdepth 2 -type f -name "${fam}*" -print0 2>/dev/null \
+  find_scratch -maxdepth 2 -type f -name "${fam}*" -print0 2>/dev/null \
     | xargs -0 ls -t 2>/dev/null \
     | head -n "$KEEP_PER_FAMILY" >> "$protected_list" || true
 done
@@ -77,22 +93,23 @@ while IFS= read -r -d '' f; do
     rm -f "$f"
   fi
   removed=$((removed+1))
-done < <(find "$TMP_DIR" -type f -mtime "+$RETENTION_DAYS" -print0 2>/dev/null)
+done < <(find_scratch -type f -mtime "+$RETENTION_DAYS" -print0 2>/dev/null)
 
 # 3. Prune __pycache__ + *.pyc anywhere under tmp, empty dirs, worktrees.
 if [ "$DRY_RUN" = "1" ]; then
-  pyc=$(find "$TMP_DIR" -type d -name __pycache__ 2>/dev/null | wc -l | tr -d ' ')
+  pyc=$(find_scratch -type d -name __pycache__ -print 2>/dev/null | wc -l | tr -d ' ')
   echo "WOULD PRUNE: $pyc __pycache__ dir(s), *.pyc, empty dirs"
   echo "WOULD RUN:   git worktree prune"
 else
-  find "$TMP_DIR" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-  find "$TMP_DIR" -type f -name '*.pyc' -delete 2>/dev/null || true
-  find "$TMP_DIR" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+  find_scratch -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+  find_scratch -type f -name '*.pyc' -exec rm -f {} + 2>/dev/null || true
+  # -delete implies depth-first traversal on BSD find, defeating -prune.
+  find_scratch -mindepth 1 -type d -empty -exec rmdir {} + 2>/dev/null || true
   git -C "$REPO_ROOT" worktree prune 2>/dev/null || true
 fi
 
 after_size="$(du -sh "$TMP_DIR" 2>/dev/null | cut -f1)"
-after_count="$(find "$TMP_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')"
+after_count="$(find_scratch -type f -print 2>/dev/null | wc -l | tr -d ' ')"
 
 if [ "$DRY_RUN" = "1" ]; then
   echo "--- DRY RUN — nothing deleted. $removed file(s) would be removed. ---"

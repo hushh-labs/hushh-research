@@ -394,13 +394,18 @@ def test_ios_dry_run_retains_ipa_without_requiring_upload_receipts() -> None:
     assert export_options["signingStyle"] == "automatic"
     ipa = _named(steps, "Preserve dry-run UAT IPA in private bucket")
     assert "inputs.dry_run == true" in ipa["if"]
-    assert "upload-private-native-artifact.py" in ipa["run"]
-    assert '--source-sha "$RELEASE_SHA"' in ipa["run"]
     assert ipa["env"]["RELEASE_SHA"] == "${{ needs.preflight.outputs.release_sha }}"
+    assert 'test "${#ipa_files[@]}" -eq 1' in ipa["run"]
+    assert "scripts/ci/upload-private-native-artifact.py" in ipa["run"]
+    assert '--file "${ipa_files[0]}"' in ipa["run"]
+    assert '--source-sha "$RELEASE_SHA"' in ipa["run"]
+    assert '--run-id "$GITHUB_RUN_ID"' in ipa["run"]
     receipt = _named(steps, "Upload redacted private IPA receipt")
     assert "inputs.dry_run == true" in receipt["if"]
-    assert receipt["with"]["path"].endswith("private-native-artifact-receipt.json")
+    assert "steps.private_artifact.outcome == 'success'" in receipt["if"]
+    assert receipt["with"]["path"] == "${{ runner.temp }}/private-native-artifact-receipt.json"
     assert receipt["with"]["if-no-files-found"] == "error"
+    assert "${{ needs.preflight.outputs.release_sha }}" in receipt["with"]["name"]
     for step in steps:
         if str(step.get("uses", "")).startswith("actions/upload-artifact"):
             assert ".ipa" not in str(step.get("with", {}).get("path", ""))

@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppChatHistoryEdgeGesture } from "@/components/app-ui/app-chat-history-edge-gesture";
 
-const native = vi.hoisted(() => ({ blocked: false, dragging: false }));
+const native = vi.hoisted(() => ({ blocked: false, dragging: false, coherent: false }));
+vi.mock("@/lib/capacitor/native-presentation-policy", () => ({
+  customNativePresentationEnabled: () => native.coherent,
+}));
 vi.mock("@/lib/capacitor/native-navigation", () => ({
   nativeShellOverlayBlocked: () => native.blocked,
   useNativeNavigationBlocked: (dragging: boolean) => { native.dragging = dragging; },
@@ -33,7 +36,7 @@ function mountChat() {
     // The scrim and panel are portalled to <body>, outside the workspace, so
     // they can stack above the fixed bottom bar (founder direction, 2026-09-28).
     '<div data-agent-history-scrim class="fixed invisible"></div>' +
-    '<div role="dialog" data-agent-history-drawer aria-label="Agent chat history" aria-hidden="true" style="width: 320px"></div>';
+    '<div role="dialog" data-agent-history-drawer class="invisible" aria-label="Agent chat history" aria-hidden="true" style="width: 320px; visibility: hidden"></div>';
   const drawer = document.querySelector<HTMLElement>('[role="dialog"]')!;
   Object.defineProperty(drawer, "offsetWidth", { value: 320 });
   return {
@@ -58,10 +61,47 @@ describe("chat history body gesture", () => {
   afterEach(() => {
     cleanup();
     native.blocked = false;
+    native.coherent = false;
     document.documentElement.classList.remove("kb-open");
     document.body.innerHTML = "";
     vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  it("does not start a competing React gesture when the complete native family owns History", () => {
+    native.coherent = true;
+    const { drawer, transcript, onOpen } = mountGesture();
+    touch("touchstart", 80, 300, transcript);
+    touch("touchmove", 180, 302, transcript);
+    touch("touchend", 220, 303, transcript);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(drawer.style.transform).toBe("");
+    expect(drawer.style.visibility).toBe("hidden");
+  });
+
+  it("re-grabs a button-driven opening transition at its rendered position rather than its endpoint", () => {
+    const { drawer, overlay, transcript } = mountChat();
+    drawer.setAttribute("aria-hidden", "false");
+    const motion = document.createElement("section"); drawer.append(motion);
+    Object.defineProperty(motion, "offsetWidth", { value: 320 });
+    const onClose = vi.fn();
+    const view = render(<AppChatHistoryEdgeGesture enabled open onOpen={vi.fn()} onClose={onClose}
+      surfaceRef={{ current: transcript }} drawerRef={{ current: drawer }} motionRef={{ current: motion }} scrimRef={{ current: overlay }} />);
+    const computed = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(element => {
+      const style = computed(element);
+      return element === motion ? new Proxy(style, { get: (target, key) => key === "transform"
+        ? "matrix(1, 0, 0, 1, -120, 0)" : Reflect.get(target, key, target) }) : style;
+    });
+    touch("touchstart", 200, 300, motion);
+    expect(motion.style.transform).toBe("translate3d(-120px, 0, 0)");
+    expect(native.dragging).toBe(true); // Native choices stay fenced during a re-grab.
+    touch("touchmove", 170, 301, motion);
+    expect(motion.style.transform).toBe("translate3d(-150px, 0, 0)");
+    expect(drawer.style.transform).toBe("");
+    touch("touchcancel", 170, 301, motion);
+    expect(onClose).not.toHaveBeenCalled();
+    view.unmount();
   });
 
   it("tracks the finger with the portalled panel and visible scrim without moving the body; commits through the owner", () => {
@@ -71,6 +111,8 @@ describe("chat history body gesture", () => {
     touch("touchmove", 140, 302, transcript);
     expect(drawer.style.transform).toBe("translate3d(-260px, 0, 0)");
     expect(drawer.style.transition).toBe("none");
+    expect(drawer.style.visibility).toBe("visible");
+    expect(drawer.getAttribute("aria-hidden")).toBe("true");
     expect(Number(overlay.style.opacity)).toBeCloseTo(60 / 320, 3);
     expect(overlay.style.visibility).toBe("visible");
     expect(native.dragging).toBe(true);
@@ -94,6 +136,7 @@ describe("chat history body gesture", () => {
     expect(drawer.style.transform).toBe("translate3d(-320px, 0, 0)");
     view.unmount();
     expect(drawer.style.transform).toBe("");
+    expect(drawer.style.visibility).toBe("");
     const next = render(<AppChatHistoryEdgeGesture enabled onOpen={onOpen} onClose={vi.fn()}
       surfaceRef={{ current: transcript }} drawerRef={{ current: drawer }} scrimRef={{ current: document.querySelector<HTMLElement>("[data-agent-history-scrim]") }} />);
 

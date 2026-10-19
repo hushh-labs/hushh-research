@@ -13,6 +13,7 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
 
 import { planSecretCaptures } from "@/lib/pkm/secret-span-guard";
 import { SecretsLockedError, SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
+import { KycIdentityDocumentsService } from "@/lib/services/kyc-identity-documents-service";
 import { decryptData, encryptData, type EncryptedPayload } from "@/lib/vault/encrypt";
 
 /**
@@ -33,6 +34,7 @@ beforeEach(() => {
   stored = null;
   sent.length = 0;
   saveMergedDomain.mockReset().mockImplementation(async (params) => {
+    await params.beforeEffect?.();
     const currentDomainData = stored ? JSON.parse(await decryptData(stored, VAULT_KEY)) : {};
     const plan = await params.build({ currentDomainData, currentManifest: null, attempt: 0 });
     // What the coordinator does with a plan: encrypt the domain under the vault key.
@@ -45,6 +47,21 @@ beforeEach(() => {
 });
 
 describe("SecretsVaultService", () => {
+  it("preserves read failures and carries owner guards to the existing removal and identity writers", async () => {
+    loadDomainData.mockRejectedValueOnce(new Error("read_unavailable"));
+    await expect(SecretsVaultService.listSecrets(CONTEXT)).rejects.toThrow("read_unavailable");
+    const beforeEffect = vi.fn().mockRejectedValue(new Error("retired"));
+    await expect(SecretsVaultService.removeSecret({ ...CONTEXT, secretId: "sec_00000000000000a1", beforeEffect })).rejects.toThrow("retired");
+    await expect(KycIdentityDocumentsService.fileDocument({ ...CONTEXT, documentType: "passport", number: "SYNTHETIC_NUMBER", label: "Synthetic", beforeEffect })).rejects.toThrow("retired");
+    expect(beforeEffect).toHaveBeenCalledTimes(2);
+    expect(sent).toHaveLength(0);
+    const input = { ...CONTEXT, documentType: "passport" as const, number: "SYNTHETIC_NUMBER", label: "First synthetic document", sourceSecretId: "sec_00000000000000a1" };
+    await KycIdentityDocumentsService.fileDocument(input);
+    await KycIdentityDocumentsService.fileDocument({ ...input, label: "Repeated offer must not overwrite", number: "DIFFERENT_SYNTHETIC_NUMBER" });
+    const domain = JSON.parse(await decryptData(stored!, VAULT_KEY));
+    expect(Object.keys(domain.identity_documents)).toEqual(["doc_00000000000000a1"]);
+    expect(domain.identity_documents.doc_00000000000000a1).toMatchObject({ number: "SYNTHETIC_NUMBER", label: input.label });
+  });
   it("round-trips a value as ciphertext, with no value or label in the plaintext envelope", async () => {
     const plan = planSecretCaptures([`openai key ${API_KEY}`]);
     const saved = await SecretsVaultService.saveCaptures({ ...CONTEXT, captures: plan.captures, surface: "chat" });

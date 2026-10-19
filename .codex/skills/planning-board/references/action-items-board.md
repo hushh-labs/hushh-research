@@ -1,7 +1,7 @@
 # Hussh Action Items board (Project 79)
 
 Second board profile supported by `board_ops.py` via `--board action-items`.
-Verified live against the GitHub org on 2026-09-01.
+Verified live against the GitHub org on 2026-10-12.
 
 ## Identity
 
@@ -16,7 +16,7 @@ Verified live against the GitHub org on 2026-09-01.
 
 `Inbox → Accepted → In Progress → Ready for QA → Done`
 
-Re-verified live 2026-09-28: there is no `Ready For UAT` option (the helper resolves options
+Re-verified live 2026-10-12: there is no `Ready For UAT` option (the helper resolves options
 against the live catalog, so re-list the fields before assuming one). Shipped work that still
 awaits acceptance sits in `Ready for QA`. Setting `Done` through `board_ops.py` also closes the
 issue, so post the completion evidence as a comment in the same pass, or the item closes with
@@ -61,3 +61,10 @@ python3 .codex/skills/planning-board/scripts/board_ops.py --board action-items \
 All Engineering Core invariants (issue-backed items only, create issue first, resolve
 IDs dynamically, re-read after mutation, `#<number> <title>` reporting) apply to this
 board identically.
+
+## Concise task presentation
+
+Keep one outcome-focused title, a short acceptance checklist and a link to the
+existing evidence owner. Update that checklist as proof changes; avoid repeated
+status comments or copying full implementation logs into the board. Preserve
+material blockers and release gates rather than shortening away their meaning.

@@ -134,11 +134,11 @@ To prevent CI check-sprawl, only these queue/PR checks are hard-blocking by defa
 4. `scripts/ci/integration-check.sh`
 
 Web validation is intentionally split. The targeted node job runs once and the
-browser packs run across two Playwright shards; each job has a 30-minute budget.
+browser packs run across three Playwright shards; each job has a 30-minute budget.
 Individual interaction and performance assertions keep their own deadlines.
 
 1. PRs run `web-core` for install, preflight, docs/design contracts, typecheck, lint, and the required Next production build.
-2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity. Its three jobs are `Web Targeted Contracts (node)`, `(browser-1-of-2)` and `(browser-2-of-2)`. `WEB_TARGETED_PART=node` runs the Vitest and verifier packs once without downloading a browser. Both `WEB_TARGETED_PART=browser` jobs run the matched Playwright packs with `PLAYWRIGHT_WORKERS=3` and complementary `PLAYWRIGHT_SHARD=1/2` or `2/2`; the matrix aggregate must succeed for frontend changes. Each pack is classified by whether its npm script reaches `playwright`; a local unsharded run (`all`) still runs every pack. `scripts/ci/test_web_ci_lane_partition.py`, run by the governance check, proves the partition against the real script.
+2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity. Its four jobs are `Web Targeted Contracts (node)` and `(browser-1-of-3)` through `(browser-3-of-3)`. `WEB_TARGETED_PART=node` runs the Vitest and verifier packs once without downloading a browser. The three `WEB_TARGETED_PART=browser` jobs run matched Playwright packs with `PLAYWRIGHT_WORKERS=3` and complementary `PLAYWRIGHT_SHARD=1/3`, `2/3` or `3/3`; the matrix aggregate must succeed for frontend changes. Each pack is classified by whether its npm script reaches `playwright`; a local unsharded run (`all`) still runs every pack. `scripts/ci/test_web_ci_lane_partition.py`, run by the governance check, proves the partition against the real script.
 3. PRs run `web-full-suite` (job `Web Full Suite (Vitest)`) for the whole Vitest suite (`npm run test:ci`, ~9,700 tests) plus the voice gateway, One Voice, surface-map, Capacitor static-parity and Capacitor plugin-contract checks. It runs in parallel with `web-core` as three Vitest shards (`WEB_FULL_SUITE_SHARD=<i>/3`, `vitest --shard`, jobs `Web Full Suite (Vitest) 1/3` to `3/3`); shard 1 also runs the contract verifiers, once. `CI Status Gate` reads the matrix's aggregate result, which is `success` only when every shard succeeded, and requires it to have **succeeded** (not merely not failed) whenever the frontend filter matches. Until 2026-09-26 this suite ran only in `Queue Validation`, which nothing merged through, so it gated no merge.
 4. `web-full` is `web-core` followed by `web-full-suite`, for local and exhaustive runs. The legacy `web` stage remains an alias for `web-full` so older local wrappers keep their exhaustive behavior.
 
@@ -149,6 +149,13 @@ and budget. Each browser shard's `Install Playwright browsers` step, which
 also runs the web dependency install, is bounded at 8 minutes and retries a
 failed browser install once, so a stalled apt mirror or browser download
 fails the shard early instead of holding a runner to the job limit.
+
+Failed final Wallet layout runs retain `wallet-layout-failures-<matrix-label>`
+for seven days: only the synthetic workspace fixture's trace, failure screenshot
+and error context are admitted. This is not a blanket `test-results` upload;
+protected reviewer journeys must never enter these artifacts. Earlier browser
+commands can clear their output, so this receipt does not establish retention
+for every preceding pack or for first-attempt failures that pass their retry.
 
 Fail-fast contract:
 
@@ -174,7 +181,7 @@ Core CI and deploy surfaces are sealed separately from blanket owner-review poli
   - `deploy/**`
   - `config/ci-governance.json`
 - Enforcement happens inside the blocking governance lane through [scripts/ci/verify-protected-pipeline-edits.py](../../../scripts/ci/verify-protected-pipeline-edits.py).
-- This does not change the repo-wide `0`-approval policy on `main`; it only seals core pipeline and CI authority to the sanctioned maintainer cohort.
+- This does not waive the required independent approval of the latest push on `main`; the separately governed review-bypass cohort remains explicit. It seals core pipeline and CI authority to the sanctioned maintainer cohort.
 
 ### PKM rollout blocker
 
@@ -243,10 +250,21 @@ readiness or model calls caused by an explicitly exercised product journey.
 **Path filters:** `PR Validation` runs jobs only when relevant paths change. A dispatched run with scope `auto` applies the same filters to the dispatched commit's changes against the default branch; `all`, `frontend` and `backend` choose the lanes by hand. `Queue Validation` runs no lane of its own (see [The merge queue in practice](#the-merge-queue-in-practice)), and `Main Post-Merge Smoke` stays compact rather than path-filtered.
 
 - **Frontend jobs** run when `hushh-webapp/**`, protected CI workflow files, `scripts/ci/orchestrate.sh`, or `scripts/ci/web-*.sh` change.
-- **Backend jobs** run when `consent-protocol/**`, `packages/hushh-mcp/**`, protected CI workflow files, or any `scripts/ci/**` file **except** `scripts/ci/web-*.sh` change.
+- **Backend jobs** run when `consent-protocol/**`, `packages/hushh-mcp/**`, protected CI workflow files, or backend/shared `scripts/ci/**` files change. Dedicated web-only lane scripts are excluded; `web-common.sh` also schedules the backend contracts that exercise its build defaults.
 - **iOS native job** (`ios-native-check`) runs when the `ios` filter matches; that filter lists the web surfaces the XCUITests render alongside the native shell paths, and it is pinned by `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`, so a native test that starts rendering a new web surface fails CI until the filter names it. Inside the job, the simulator boots in the background after the web export (not during it, so it never competes with `next build` for the runner's memory) while resolution and compilation run, and the authoritative `xcodebuild -resolvePackageDependencies` runs after `cap sync`, into a Swift package clone directory restored from `main` when `main` already resolved the same package graph (see [Build Caches](#build-caches)).
 - **Editor performance job** (`web-editor-performance-check`, `Web Editor Performance (macOS)`) runs when the `editor` filter matches, not on every frontend change. The filter lists what `npm run test:layout-editor-performance` builds and reads: the spec, the fixture it bundles and their transitive imports, `app/globals.css`, the inlined Plus Jakarta Sans font files, and the Playwright, TypeScript, Tailwind and PostCSS configs, `package.json` and `package-lock.json`. It took one of the org's five macOS slots on every frontend run, while its inputs changed in 78 of the 378 merged PRs that touched the frontend from 2026-10-01 to 2026-10-15. `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py` derives those inputs from the job itself and fails when one would not schedule it, and `.github/workflows/editor-performance-nightly.yml` runs the same steps on `main` every night at 23:17 UTC and opens (or comments on) one `Editor performance nightly failed on main` issue when it fails.
 - **Integration job** runs when either frontend or backend paths change.
+
+The existing macOS performance job also runs the shared History motion contract
+in both Chromium and WebKit: first visibility under 100 ms, intermediate opening
+and exit frames, interrupted-drag alignment and unchanged surrounding layout.
+Its focused fixture mounts the real drawer/sidebar without unrelated agent or
+connector workflows. The Linux Connections pack keeps the other layout and
+interaction checks. Native collection verifies both timing identities reach
+macOS and that the remaining Connections identities still reach Linux. Disabling
+transitions or delaying opening beyond 100 ms must fail the timing test; dropping
+a drawer input from the path filter must fail its dependency guard. These browser
+checks do not replace physical Release frame-pacing qualification.
 
 **How `scripts/ci/` is split (2026-09-26).** Each file schedules the lanes that
 actually run it, instead of every lane:
@@ -254,15 +272,16 @@ actually run it, instead of every lane:
 | `scripts/ci/` file | Schedules | Why |
 |---|---|---|
 | `orchestrate.sh` | frontend and backend | dispatches every stage |
-| `web-*.sh` (`web-common.sh`, `web-core-check.sh`, `web-targeted-check.sh`, `web-full-suite-check.sh`, `web-full-check.sh`, `web-check.sh`) | frontend | the only `scripts/ci/` files the web lanes run |
+| `web-common.sh` | frontend and backend | shared web helper plus backend contracts for build-origin defaults |
+| `web-core-check.sh`, `web-targeted-check.sh`, `web-full-suite-check.sh`, `web-full-check.sh`, `web-check.sh` | frontend | dedicated web lane execution |
 | every other file, including any added later | backend | covers the protocol, MCP and integration lanes (`protocol-check.sh`, `verify-protocol-*`, `hushh-mcp-package-check.sh`, `integration-check.sh` and what it calls) and the deploy scripts the protocol test suite exercises directly |
 
-The backend side is written as `scripts/ci/**` minus `!scripts/ci/web-*.sh`, so
-a new script is backend by default rather than scheduling nothing. The filter
+The backend side includes `scripts/ci/**` and excludes the named web-only lane
+scripts, so a new script is backend by default rather than scheduling nothing. The filter
 step sets `predicate-quantifier: 'some-with-excludes'` for that `!` pattern;
-filters without a `!` pattern behave exactly as before. The iOS filter uses
-the same mechanism to leave out `hushh-webapp/components/onboarding/setup/**`,
-which nothing the CI-run XCUITest renders imports.
+filters without a `!` pattern behave exactly as before. The iOS filter includes
+the onboarding setup screens now reached through the login render graph, plus
+the shared Profile owner-state, Gemini and World Model controller inputs.
 
 Guards, both in the backend CI manifest:
 `consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py` derives
@@ -270,8 +289,9 @@ which `scripts/ci/` files each path-filtered job runs (through
 `orchestrate.sh <stage>` and everything those scripts reference, plus every
 script the lane's own code names) and fails when one of them would not
 schedule that job. `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`
-traces the XCUITest render path's imports and fails if it ever reaches
-`components/onboarding/setup/`.
+traces the XCUITest render path's imports and requires the reached onboarding
+screens and selected shared Profile inputs to schedule the native lane. It does
+not schedule iOS for every unrelated frontend change.
 
 One gap is known: the guard runs in the backend lane, so a PR that changes
 only `web-*.sh` does not run it. If such a PR makes a web script call a
@@ -575,7 +595,7 @@ See [Branch Governance](./branch-governance.md).
 
 | Tool | CI Version | Local requirement |
 |------|------------|-------------------|
-| Node.js | 20 | 20+ (run `./bin/hushh ci`) |
+| Node.js | 24 for web/Node lanes | Local preflight accepts 20+; use 24 to reproduce CI |
 | Python | 3.13 | 3.13 (CI asserts exactly 3.13) |
 | npm | latest | Use latest (script upgrades before run) |
 | uv | pinned by workflow | install `uv` locally and use `uv sync --frozen --group dev` |
@@ -769,7 +789,7 @@ Minimum checks for streaming changes:
 This script, which also powers `./bin/hushh codex pre-pr`:
 
 1. Validates required files (e.g. `package-lock.json`, `next.config.ts`, `pyproject.toml`, `uv.lock`, generated runtime artifacts, test files).
-2. Checks Node (24+) and Python (3.13) and uses `uv` as the canonical backend toolchain.
+2. Checks Node (20+ minimum; use 24 for CI parity) and Python (3.13) and uses `uv` as the canonical backend toolchain.
 3. Runs **frontend** checks: install, `tsc`, lint, Next build, audit-budget gate, curated test suite.
 4. Runs **backend** checks: shared parity verification, install, Ruff, mypy, Bandit, curated test suite.
 5. Runs **integration**: route/runtime contract verification.

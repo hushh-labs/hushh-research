@@ -166,7 +166,7 @@ export function WalletCardManage({
         </WalletCardQrActions>
       </SettingsGroup>
 
-      <SettingsGroup title="Sharing controls">
+      <SettingsGroup title="Sharing controls" rowSizing="uniform">
         <SettingsRow
           icon={ProfilePanePreviewIcon}
           iconTone="capability"

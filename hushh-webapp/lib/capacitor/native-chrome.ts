@@ -1,15 +1,28 @@
 "use client";
 
-import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import { nativeDrawerIsolation } from "./native-drawers";
 import { nativeDocumentId } from "@/lib/capacitor/session-privacy";
+import { customNativePresentationEnabled } from "./native-presentation-policy";
 import type { NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
+import { nativePanelGeometry, type NativePanelPose, type NativePanelReceipt, type NativePanelIdentity } from "./native-panel-presentation";
+import { setNativeBaseAperture, removeNativeBaseAperture } from "./native-base-apertures";
+import { nativePresentationAdmission, syncNativePresentationRegions, type NativePresentationRegions } from "./native-presentation-regions";
 
 // Presentation only. No route, UID, token, credential or content body crosses this bridge.
 export type ChromeFrame = { x: number; y: number; width: number; height: number };
-export type ChromeControlId = "top-shell-back" | "chat-history-toggle" | "chat-agent-surface";
-export type ChromeFamily = "back" | "history" | "agent-surface";
+export type ChromeControlId = "top-shell-back" | "profile-back" | "chat-history-toggle" | "chat-history-close" | "chat-agent-surface" | "stationary-more" | "bounded-selection" | "bounded-date" | "profile-close" | "profile-appearance" | "profile-accent";
+export type ChromeFamily = "back" | "profile-back" | "history" | "history-close" | "agent-surface" | "more" | "selection" | "date" | "close" | "appearance" | "accent";
 export type ChromeAgentSurface = "one" | "puppy";
-type ChromeControl = { kind: "back" | "history" } | { kind: "agent-surface"; value: ChromeAgentSurface };
+export type ChromeOption = { value: string; label: string; disabled?: boolean };
+export type ChromeAccentPalette = { blue: string; gold: string };
+export type ChromeControl = { kind: "back" | "profile-back" | "close" } | { kind: "history" | "history-close"; expanded?: boolean } |
+  { kind: "agent-surface"; value: ChromeAgentSurface } |
+  { kind: "appearance"; value: "light" | "dark" | "system" } |
+  { kind: "accent"; value: "blue" | "gold"; fullTrigger?: boolean; palette?: ChromeAccentPalette } |
+  { kind: "more"; options: readonly ChromeOption[] } |
+  { kind: "selection"; value: string; options: readonly ChromeOption[] } |
+  { kind: "date"; value: string; minimum: string; maximum: string };
 export type ChromeIdentity = {
   documentId: string;
   ownerEpoch: string;
@@ -21,41 +34,151 @@ export type ChromeControlProjection = NativeControlAppearance & ChromeControl & 
   enabled: boolean;
   frame: ChromeFrame;
   viewport: { width: number; height: number };
+  presentationGroup?: "profile" | "history";
+  presentationOwnerEpoch?: string;
+  presentationGeneration?: number;
+  contentPane?: NativeContentPaneIdentity;
 };
+export type NativeContentPaneIdentity = { documentId: string; ownerEpoch: string; generation: number; privacyGeneration: number };
+export type NativeContentPaneReceipt = NativeContentPaneIdentity & { phase: "active" | "retired" };
 export type ChromeProjection = ChromeIdentity & ChromeControlProjection;
 export type ChromeAcknowledgement = ChromeIdentity & {
-  phase: "prepared" | "active" | "retired";
+  presentationApplied?: boolean;
+  phase: "prepared" | "active" | "suspended" | "retired";
   frame?: ChromeFrame;
 };
-export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneration: number; value?: ChromeAgentSurface };
+export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneration: number; updateSequence?: number; value?: string; presentationGeneration?: number; presentationSequence?: number };
+/** Bounded local diagnostics only; never echo an identity, value or provider error. */
+export type ChromeChoiceOutcome = "applied" | "inactive" | "disabled" | "not-allowed" | "update-pending" |
+  "identity-stale" | "sequence-stale" | "value-refused" | "confirmation-refused" | "isolation-changed" | "uncertain";
+export type ChromeUpdate = NativeControlAppearance & { enabled: boolean; value?: string; expanded?: boolean };
+export type ChromeUpdateAcknowledgement = ChromeIdentity & { updateSequence: number; presentationApplied?: boolean };
+type ChromeGeometry = Pick<ChromeControlProjection, "frame" | "viewport" | "presentationGroup" | "presentationOwnerEpoch" | "presentationGeneration">;
+export type ChromeFocusAcknowledgement = ChromeIdentity & { updateSequence: number; focusSequence: number; restored: boolean; cancellation?: "keyboard" };
+export class NativeChromeFocusCancelled extends Error {}
+export type NativeChromeCapabilities = {
+  contractVersion: number; families: readonly ChromeFamily[]; canvasAppearance?: boolean;
+  independentControls?: boolean; inPlaceUpdates?: boolean; focusReturn?: boolean; rehearsalDiagnostics?: boolean;
+  /** Same-owner, same-frame stationary Back only; retirement still means removal. */
+  backReplacement?: boolean;
+  /** Same-owner, same-frame Profile Back; never inherits shell Back's slot. */
+  profileBackReplacement?: boolean;
+  /** Same-mounted-owner History only, never a relocation to the drawer's Close. */
+  historyReplacement?: boolean;
+  fullAccentTrigger?: boolean;
+  retainedControls?: boolean;
+  panelPresentation?: boolean;
+  contentBackedPresentation?: boolean;
+  coherentPresentation?: boolean;
+  ownedContentPane?: boolean;
+  reservedPresentationRegions?: boolean;
+  fullWindowOverlays?: boolean;
+  /** Debug qualification: rectangular exposure of retained stationary chrome. */
+  drawerClipping?: boolean;
+  atomicDrawerCoverage?: boolean;
+  interactionFeedback?: boolean;
+};
 
 export interface HushhNativeChromePlugin {
-  getCapabilities(): Promise<{ contractVersion: number; families: ChromeFamily[]; canvasAppearance?: boolean; independentControls?: boolean }>;
-  setCanvasAppearance(options: { documentId: string; revision: number; backgroundHex: string }): Promise<{ documentId: string; revision: number }>;
+  acquireContentPane(options: NativeContentPaneIdentity & { viewport: { width: number; height: number } }): Promise<NativeContentPaneReceipt>;
+  releaseContentPane(options: NativeContentPaneIdentity): Promise<NativeContentPaneReceipt>;
+  setPresentationRegions(options: NativePresentationRegions): Promise<NativePresentationRegions>;
+  interactionFeedback(options: { documentId: string; privacyGeneration: number; intentId: string; kind: "light" | "selection"; issuedAtMs: number }): Promise<{ played: boolean }>;
+  applyPanelPose(options: NativePanelPose): Promise<NativePanelReceipt>;
+  retirePanel(options: NativePanelIdentity): Promise<NativePanelIdentity>;
+  getCapabilities(): Promise<NativeChromeCapabilities>;
+  restoreFocus(options: ChromeIdentity & { updateSequence: number; focusSequence: number }): Promise<ChromeFocusAcknowledgement>;
+  update(options: ChromeIdentity & ChromeUpdate & { updateSequence: number; presentationRegionRevision?: number; privacyGeneration?: number }): Promise<ChromeUpdateAcknowledgement>;
+  setCanvasAppearance(options: { documentId: string; revision: number; backgroundHex: string; appearance?: "light" | "dark" }): Promise<{ documentId: string; revision: number }>;
   prepare(options: ChromeProjection): Promise<ChromeAcknowledgement>;
-  activate(options: ChromeIdentity): Promise<ChromeAcknowledgement>;
+  prepareBackReplacement(options: ChromeProjection & { previousRevision: number }): Promise<ChromeAcknowledgement>;
+  prepareHistoryReplacement(options: ChromeProjection & { previousRevision: number }): Promise<ChromeAcknowledgement>;
+  activate(options: ChromeIdentity & { presentationRegionRevision?: number; privacyGeneration?: number }): Promise<ChromeAcknowledgement>;
+  suspend(options: ChromeIdentity): Promise<ChromeAcknowledgement>;
   retire(options: ChromeIdentity & { targetRevision?: number }): Promise<ChromeAcknowledgement>;
   confirmChoice(options: ChromeChoice): Promise<{ valid: boolean }>;
   addListener(eventName: "choiceRequested", listener: (event: ChromeChoice) => void): Promise<PluginListenerHandle>;
   addListener(eventName: "invalidated", listener: () => void): Promise<PluginListenerHandle>;
+  addListener(eventName: "readmissionRequested", listener: () => void): Promise<PluginListenerHandle>;
 }
 
 export const nativeChrome = registerPlugin<HushhNativeChromePlugin>("HushhNativeChrome");
 let revision = 0;
 let canvasRevision = 0;
+// Immutable wrapper metadata only, scoped to this WebView document. Never
+// cache a lease, owner, geometry, permission or presentation admission here.
+let discovery: { documentId: string; promise: Promise<NativeChromeCapabilities>; value?: NativeChromeCapabilities } | undefined;
+export function peekNativeChromeCapabilities(): NativeChromeCapabilities | undefined {
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return undefined;
+  return discovery?.documentId === nativeDocumentId() ? discovery.value : undefined;
+}
+export function getNativeChromeCapabilities(): Promise<NativeChromeCapabilities | null> {
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return Promise.resolve(null);
+  const documentId = nativeDocumentId();
+  if (discovery?.documentId === documentId) return discovery.promise;
+  const pending: NonNullable<typeof discovery> = { documentId, promise: bounded(nativeChrome.getCapabilities()).then((value) => {
+    const snapshot = Object.freeze({ ...value, families: Object.freeze([...value.families]) });
+    if (discovery === pending && nativeDocumentId() === documentId) pending.value = snapshot;
+    return snapshot;
+  }).catch((error: unknown) => {
+    if (discovery === pending) discovery = undefined;
+    throw error; // A later request may recover; an uncertain operation is never replayed.
+  }) };
+  discovery = pending;
+  return pending.promise;
+}
+export function supportsNativeChrome(family: ChromeFamily): boolean {
+  if (!customNativePresentationEnabled()) return false;
+  const capability = peekNativeChromeCapabilities();
+  return capability?.contractVersion === 2 && capability.independentControls === true && capability.families.includes(family);
+}
+
+/** Measure only the authored slot. Resize notifications are not proof that
+ * its admitted geometry changed; clipping and inert ancestors still matter. */
+export function measureNativeChromeGeometry(slot: HTMLElement, kind: ChromeFamily): ChromeGeometry | null {
+  if (slot.closest("[inert]")) return null;
+  const bounds = slot.getBoundingClientRect();
+  const panel = nativePanelGeometry(slot);
+  if (peekNativeChromeCapabilities()?.panelPresentation && slot.closest("[data-native-panel-group]") && !panel) return null;
+  const frame = { x: bounds.x - (panel?.offset ?? 0), y: bounds.y,
+    width: bounds.width, height: bounds.height,
+    left: bounds.left - (panel?.offset ?? 0), right: bounds.right - (panel?.offset ?? 0), top: bounds.top, bottom: bounds.bottom };
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  const minimumWidth = kind === "appearance" ? 132 : kind === "agent-surface" ? 88 : 44;
+  const widthAdmitted = kind === "agent-surface" || kind === "appearance"
+    ? frame.width >= minimumWidth && frame.width <= 320 : kind === "accent"
+      ? frame.width === 44 || frame.width >= 132 && frame.width <= 320 : frame.width === 44;
+  if (!widthAdmitted || frame.height !== 44 ||
+      ![frame.x, frame.y, viewport.width, viewport.height].every(Number.isFinite) ||
+      frame.left < 0 || frame.top < 0 || frame.right > viewport.width || frame.bottom > viewport.height) return null;
+  if (kind === "appearance" || kind === "accent") {
+    for (let parent = slot.parentElement; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      const bounds = parent.getBoundingClientRect();
+      if (/(auto|scroll|hidden|clip)/.test(style.overflowY) && (frame.top < bounds.top || frame.bottom > bounds.bottom) ||
+          /(auto|scroll|hidden|clip)/.test(style.overflowX) && (frame.left < bounds.left - (panel?.offset ?? 0) || frame.right > bounds.right - (panel?.offset ?? 0))) return null;
+    }
+  }
+  return { frame: { x: frame.x, y: frame.y, width: frame.width, height: frame.height }, viewport,
+    ...(panel ? { presentationGroup: panel.presentationGroup, presentationOwnerEpoch: panel.presentationOwnerEpoch,
+      presentationGeneration: panel.presentationGeneration } : {}) };
+}
 
 /** The existing CSS canvas is authoritative even when no native control is visible. */
 export async function syncNativeCanvasAppearance(): Promise<boolean> {
   const backgroundHex = getComputedStyle(document.documentElement).getPropertyValue("--background").trim();
+  const appearance = document.documentElement.classList.contains("dark") ? "dark" as const : "light" as const;
   if (!/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(backgroundHex)) return false;
   // Reserve ordering before discovery: a delayed older request must never
   // repaint a theme that React has already replaced.
   const projection = { documentId: nativeDocumentId(), revision: ++canvasRevision, backgroundHex };
-  const capability = await bounded(nativeChrome.getCapabilities());
-  if (capability.canvasAppearance !== true) return false; // Older wrappers retain their existing canvas.
+  const capability = await getNativeChromeCapabilities();
+  if (capability?.canvasAppearance !== true) return false; // Older wrappers retain their existing canvas.
   if (projection.revision !== canvasRevision ||
-      getComputedStyle(document.documentElement).getPropertyValue("--background").trim() !== backgroundHex) return false;
-  const ack = await bounded(nativeChrome.setCanvasAppearance(projection));
+      getComputedStyle(document.documentElement).getPropertyValue("--background").trim() !== backgroundHex ||
+      document.documentElement.classList.contains("dark") !== (appearance === "dark")) return false;
+  const ack = await bounded(nativeChrome.setCanvasAppearance({ ...projection,
+    ...(capability.contentBackedPresentation ? { appearance } : {}) }));
   if (ack.documentId !== projection.documentId || ack.revision !== projection.revision) {
     throw new Error("NATIVE_CANVAS_ACK_UNCONFIRMED");
   }
@@ -64,10 +187,83 @@ export async function syncNativeCanvasAppearance(): Promise<boolean> {
 // A lease survives a React remount until native retirement is confirmed. This is
 // not persisted; the native document fence handles a WebView reload.
 const outstanding = new Map<ChromeControlId, ChromeIdentity>();
+export function currentChromeInstallation(controlId: ChromeControlId): ChromeIdentity | undefined {
+  const installed = outstanding.get(controlId);
+  return installed?.documentId === nativeDocumentId() ? { ...installed } : undefined;
+}
+// Bounded by authored control IDs and this document; no callbacks or operations.
+const epochs = new Map<ChromeControlId, { owner: string; documentId: string; epoch: string }>();
+const suspended = new Map<ChromeControlId, { projection: ChromeProjection; ready: Promise<void> }>();
+export function chromeOwnerEpoch(owner: string | null, controlId: ChromeControlId): string {
+  const documentId = nativeDocumentId();
+  const existing = epochs.get(controlId);
+  if (owner && existing?.owner === owner && existing.documentId === documentId) return existing.epoch;
+  const epoch = crypto.randomUUID();
+  if (owner) epochs.set(controlId, { owner, documentId, epoch });
+  else epochs.delete(controlId);
+  return epoch;
+}
+function retainedShape(projection: ChromeProjection | ChromeControlProjection) {
+  const { kind, label, frame, viewport } = projection;
+  return JSON.stringify({ kind, label, frame, viewport, contentPane: projection.contentPane,
+    options: "options" in projection ? projection.options : undefined,
+    bounds: projection.kind === "date" ? [projection.minimum, projection.maximum] : undefined,
+    accent: projection.kind === "accent" ? [projection.fullTrigger, projection.palette] : undefined });
+}
+/** Suspension removes interaction and completes popup dismissal, not containment. */
+export async function suspendOwnedNativeChrome(lease: NativeChromeLease): Promise<void> {
+  if (!lease.ownsInstallation) return;
+  const projection = lease.projection;
+  const existing = suspended.get(projection.controlId);
+  if (existing?.projection.revision === projection.revision) return existing.ready;
+  lease.invalidate();
+  const ready = bounded(nativeChrome.suspend(projection)).then(ack => {
+    if (!matches(ack, projection, "suspended")) throw new Error("NATIVE_CHROME_SUSPEND_UNCONFIRMED");
+  });
+  const entry = { projection, ready };
+  suspended.set(projection.controlId, entry);
+  try { await ready; } catch (error) {
+    if (suspended.get(projection.controlId) === entry) suspended.delete(projection.controlId);
+    throw error;
+  }
+}
+/** Re-admission always mints fresh authority; only the native host may survive. */
+export async function canResumeNativeChrome(projection: ChromeControlProjection, ownerEpoch: string): Promise<boolean> {
+  const id = chromeControlId(projection.kind);
+  const entry = suspended.get(id);
+  if (!entry || entry.projection.ownerEpoch !== ownerEpoch || entry.projection.documentId !== nativeDocumentId() ||
+      retainedShape(entry.projection) !== retainedShape(projection)) return false;
+  await entry.ready;
+  return suspended.get(id) === entry && outstanding.get(id)?.revision === entry.projection.revision;
+}
 export function chromeControlId(kind: ChromeFamily): ChromeControlId {
+  if (kind === "history-close") return "chat-history-close";
+  if (kind === "profile-back") return "profile-back";
   if (kind === "history") return "chat-history-toggle";
   if (kind === "agent-surface") return "chat-agent-surface";
+  if (kind === "appearance") return "profile-appearance";
+  if (kind === "accent") return "profile-accent";
+  if (kind === "more") return "stationary-more";
+  if (kind === "selection") return "bounded-selection";
+  if (kind === "date") return "bounded-date";
+  if (kind === "close") return "profile-close";
   return "top-shell-back";
+}
+
+function admittedValue(projection: ChromeControlProjection, value: string | undefined): boolean {
+  if (projection.kind === "agent-surface") return value === "one" || value === "puppy";
+  if (projection.kind === "appearance") return value === "light" || value === "dark" || value === "system";
+  if (projection.kind === "accent") return value === "blue" || value === "gold";
+  if (projection.kind === "selection" || projection.kind === "more") {
+    return projection.options.some((option) => !option.disabled && option.value === value);
+  }
+  if (projection.kind === "date") {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const instant = Date.parse(value);
+    return Number.isFinite(instant) && new Date(instant).toISOString().slice(0, 10) === value &&
+      value >= projection.minimum && value <= projection.maximum;
+  }
+  return value === undefined;
 }
 export function nextChromeIdentity(ownerEpoch: string, controlId: ChromeControlId = "top-shell-back"): ChromeIdentity {
   return { documentId: nativeDocumentId(), ownerEpoch, controlId, revision: ++revision };
@@ -95,7 +291,21 @@ export async function retireNativeChrome(ownerEpoch: string, target?: ChromeIden
   const ack = await bounded(nativeChrome.retire({ ...identity, targetRevision: target?.revision }));
   if (!matches(ack, identity, "retired")) throw new Error("NATIVE_CHROME_RETIRE_UNCONFIRMED");
   const latest = outstanding.get(controlId);
-  if (!latest || latest.revision <= identity.revision) outstanding.delete(controlId);
+  if (!latest || latest.revision <= identity.revision) {
+    if (pending) removeNativeBaseAperture(controlId, pending.revision);
+    outstanding.delete(controlId);
+    suspended.delete(controlId);
+  }
+}
+
+/** An unmount owns only its installation, never another mounted instance of
+ * the same slot. Remove either revision of its own uncertain handoff without
+ * targeting a predecessor that may still be installed natively. */
+export async function retireOwnedNativeChrome(target: ChromeIdentity): Promise<void> {
+  const pending = outstanding.get(target.controlId);
+  if (target.documentId !== nativeDocumentId() || !pending || pending.documentId !== target.documentId || pending.ownerEpoch !== target.ownerEpoch ||
+      pending.revision > target.revision) return;
+  await retireNativeChrome(target.ownerEpoch, undefined, target.controlId);
 }
 
 /** Two-phase installation: the native control stays hidden until React commits
@@ -104,42 +314,223 @@ export class NativeChromeLease {
   readonly projection: ChromeProjection;
   private current = true;
   private active = false;
+  private layoutConfirmed = false;
   private sequence = 0;
-  constructor(projection: ChromeControlProjection, ownerEpoch: string, readonly context = "") {
+  private requestedUpdate = 0;
+  private appliedUpdate = 0;
+  private activation: Promise<void> | undefined;
+  private appliedAdmission: ReturnType<typeof nativePresentationAdmission> = {};
+  private focusSequence = 0;
+  constructor(projection: ChromeControlProjection, ownerEpoch: string, readonly context = "", readonly inPlaceUpdates = false) {
     this.projection = { ...projection, ...nextChromeIdentity(ownerEpoch, chromeControlId(projection.kind)) };
   }
   invalidate() { this.current = false; this.active = false; }
-  async prepare(): Promise<boolean> {
-    outstanding.set(this.projection.controlId, this.projection);
-    const ack = await bounded(nativeChrome.prepare(this.projection));
+  /** Capture before invalidation. A pending update/activation is not a handoff candidate. */
+  get replacementReady(): boolean {
+    return this.current && this.active && this.layoutConfirmed && this.requestedUpdate === this.appliedUpdate;
+  }
+  /** Local references alone cannot establish current slot or document ownership. */
+  get ownsInstallation(): boolean {
+    const installed = outstanding.get(this.projection.controlId);
+    return nativeDocumentId() === this.projection.documentId &&
+      !!installed && matches({ ...installed, phase: "active" }, this.projection, "active");
+  }
+  get admissionReady(): boolean { return this.current && this.active; }
+  /** Focus may reuse only the acknowledged installation still owning this slot. */
+  get focusReady(): boolean {
+    return this.replacementReady && this.projection.enabled && this.ownsInstallation;
+  }
+  canReplaceBack(previous: NativeChromeLease): boolean {
+    return previous.canReplaceBackWith(this.projection, this.projection.ownerEpoch, this.context) &&
+      this.projection.documentId === previous.projection.documentId;
+  }
+  canReplaceHistoryWith(projection: ChromeControlProjection, ownerEpoch: string, context: string): boolean {
+    return this.canReplaceWith("history", projection, ownerEpoch, context) &&
+      projection.kind === "history" && this.projection.kind === "history" &&
+      (projection.expanded ?? false) === (this.projection.expanded ?? false);
+  }
+  /** Compare before reserving a revision: ordinary preparation must be newer
+   * than the removal tombstone, not merely newer than its predecessor. */
+  canReplaceBackWith(projection: ChromeControlProjection, ownerEpoch: string, context: string): boolean {
+    const kind = this.projection.kind;
+    return (kind === "back" || kind === "profile-back") && this.canReplaceWith(kind, projection, ownerEpoch, context);
+  }
+  private canReplaceWith(kind: "back" | "profile-back" | "history", projection: ChromeControlProjection, ownerEpoch: string, context: string): boolean {
+    const pane = projection.contentPane, previousPane = this.projection.contentPane;
+    const samePane = pane === previousPane || !!pane && !!previousPane &&
+      pane.documentId === previousPane.documentId && pane.ownerEpoch === previousPane.ownerEpoch &&
+      pane.generation === previousPane.generation && pane.privacyGeneration === previousPane.privacyGeneration;
+    return projection.kind === kind && this.projection.kind === kind &&
+      nativeDocumentId() === this.projection.documentId && ownerEpoch === this.projection.ownerEpoch &&
+      projection.label === this.projection.label && context !== this.context && samePane && this.sameGeometry(projection);
+  }
+  /** Exact equality, not the one-pixel acknowledgement tolerance. A real move,
+   * changed viewport, or unconfirmed/invalidated lease must be re-admitted. */
+  matchesGeometry(geometry: ChromeGeometry): boolean {
+    return this.current && this.layoutConfirmed && this.sameGeometry(geometry);
+  }
+  /** A return request may wait on this reserved admission, never enable it.
+   * Actual focus still requires confirmed layout, activation and update receipt. */
+  canAwaitFocusAt(geometry: ChromeGeometry): boolean {
+    return this.current && !this.focusReady && this.ownsInstallation && this.sameGeometry(geometry);
+  }
+  private sameGeometry(geometry: ChromeGeometry): boolean {
+    return geometry.presentationGroup === this.projection.presentationGroup &&
+      geometry.presentationOwnerEpoch === this.projection.presentationOwnerEpoch &&
+      geometry.presentationGeneration === this.projection.presentationGeneration &&
+      (Object.keys(this.projection.frame) as (keyof ChromeFrame)[]).every((key) =>
+        geometry.frame[key] === this.projection.frame[key]) &&
+      geometry.viewport.width === this.projection.viewport.width &&
+      (geometry.viewport.height === this.projection.viewport.height ||
+        peekNativeChromeCapabilities()?.coherentPresentation === true &&
+        document.documentElement.classList.contains("kb-open"));
+  }
+  private acceptPreparation(ack: ChromeAcknowledgement): boolean {
     if (!matches(ack, this.projection, "prepared") || !ack.frame ||
         (Object.keys(this.projection.frame) as (keyof ChromeFrame)[]).some((key) =>
           !Number.isFinite(ack.frame![key]) || Math.abs(ack.frame![key] - this.projection.frame[key]) > 1)) {
       throw new Error("NATIVE_CHROME_LAYOUT_UNCONFIRMED");
     }
+    this.layoutConfirmed = true;
+    const capability = peekNativeChromeCapabilities();
+    if (capability?.panelPresentation && !capability.contentBackedPresentation && !this.projection.presentationGroup) {
+      setNativeBaseAperture(this.projection.controlId, this.projection.revision, this.projection.frame);
+    }
     return this.current;
+  }
+  async prepare(): Promise<boolean> {
+    if (!await this.acknowledgeRegions()) return false;
+    suspended.delete(this.projection.controlId);
+    outstanding.set(this.projection.controlId, this.projection);
+    const ack = await bounded(nativeChrome.prepare(this.projection));
+    return this.acceptPreparation(ack);
+  }
+  /** Replace public presentation, never retain the predecessor's action authority. */
+  async prepareBackReplacement(previous: NativeChromeLease): Promise<boolean> {
+    if (!this.canReplaceBack(previous)) throw new Error("NATIVE_CHROME_REPLACEMENT_REFUSED");
+    return this.prepareReplacement(previous, nativeChrome.prepareBackReplacement.bind(nativeChrome));
+  }
+  async prepareHistoryReplacement(previous: NativeChromeLease): Promise<boolean> {
+    if (!previous.canReplaceHistoryWith(this.projection, this.projection.ownerEpoch, this.context)) {
+      throw new Error("NATIVE_CHROME_REPLACEMENT_REFUSED");
+    }
+    return this.prepareReplacement(previous, nativeChrome.prepareHistoryReplacement.bind(nativeChrome));
+  }
+  private async prepareReplacement(previous: NativeChromeLease,
+    prepare: (projection: ChromeProjection & { previousRevision: number }) => Promise<ChromeAcknowledgement>): Promise<boolean> {
+    if (!await this.acknowledgeRegions()) return false;
+    previous.invalidate();
+    outstanding.set(this.projection.controlId, this.projection);
+    const ack = await bounded(prepare({
+      ...this.projection, previousRevision: previous.projection.revision,
+    }));
+    return this.acceptPreparation(ack);
+  }
+  private async acknowledgeRegions(): Promise<boolean> {
+    if (!peekNativeChromeCapabilities()?.reservedPresentationRegions) return this.current;
+    // A sibling shell can supersede a pending receipt. Reconcile once, without
+    // reinstalling the host or retrying any choice/operation. Cancellation wins.
+    for (let attempt = 0; attempt < 2 && this.current; attempt++) {
+      if (await syncNativePresentationRegions()) return this.current;
+    }
+    return false;
   }
   async activate(): Promise<void> {
     if (!this.current) return;
-    const ack = await bounded(nativeChrome.activate(this.projection));
-    if (!matches(ack, this.projection, "active")) throw new Error("NATIVE_CHROME_ACTIVATE_UNCONFIRMED");
-    this.active = this.current;
+    this.activation ??= (async () => {
+      const admission = nativePresentationAdmission();
+      const ack = await bounded(nativeChrome.activate({ ...this.projection, ...admission }));
+      if (!matches(ack, this.projection, "active")) throw new Error("NATIVE_CHROME_ACTIVATE_UNCONFIRMED");
+      if (ack.presentationApplied === false) { this.activation = undefined; return; }
+      this.active = this.current;
+      this.appliedAdmission = admission;
+    })();
+    await this.activation;
   }
-  async choose(event: ChromeChoice, allowed: () => boolean, action: () => void): Promise<void> {
-    if (!this.active || !this.current || !this.projection.enabled || !allowed() ||
-        !matches({ ...event, phase: "active" }, this.projection, "active") ||
-        !Number.isSafeInteger(event.sequence) || event.sequence <= this.sequence) return;
-    if (this.projection.kind === "agent-surface" ? event.value !== "one" && event.value !== "puppy" : event.value !== undefined) return;
+  /** Presentation only; a focus transfer cannot replay an authored action. */
+  async restoreFocus(allowed: () => boolean): Promise<boolean> {
+    if (!this.focusReady || !allowed()) return false;
+    const updateSequence = this.appliedUpdate;
+    const focusSequence = ++this.focusSequence;
+    const ack = await bounded(nativeChrome.restoreFocus({ ...this.projection, updateSequence, focusSequence }));
+    if (!matches({ ...ack, phase: "active" }, this.projection, "active") ||
+        ack.updateSequence !== updateSequence || ack.focusSequence !== focusSequence) {
+      throw new Error("NATIVE_CHROME_FOCUS_UNCONFIRMED");
+    }
+    if (ack.cancellation === "keyboard" && ack.restored === false) throw new NativeChromeFocusCancelled();
+    if (ack.restored !== true) throw new Error("NATIVE_CHROME_FOCUS_UNCONFIRMED");
+    return this.focusReady && allowed() && this.focusSequence === focusSequence &&
+      this.requestedUpdate === updateSequence && this.appliedUpdate === updateSequence;
+  }
+  private matchesPresentation(presentation: ChromeUpdate): boolean {
+    return presentation.appearance === this.projection.appearance && presentation.accentHex === this.projection.accentHex &&
+      presentation.foregroundHex === this.projection.foregroundHex && presentation.enabled === this.projection.enabled &&
+      presentation.value === ("value" in this.projection ? this.projection.value : undefined) &&
+      presentation.expanded === ("expanded" in this.projection ? this.projection.expanded : undefined);
+  }
+  /** Fence choices synchronously; only the latest acknowledged snapshot is usable.
+   * A stale update failure cannot retire or overwrite a newer presentation. */
+  async update(presentation: ChromeUpdate, refreshAdmission = false): Promise<boolean> {
+    if (!this.current || !this.inPlaceUpdates) return false;
+    if (this.projection.kind !== "more" && !admittedValue(this.projection, presentation.value) ||
+        this.projection.kind === "more" && presentation.value !== undefined) {
+      throw new Error("NATIVE_CHROME_UPDATE_INVALID");
+    }
+    if (!refreshAdmission && this.requestedUpdate === this.appliedUpdate && this.matchesPresentation(presentation) &&
+        JSON.stringify(this.appliedAdmission) === JSON.stringify(nativePresentationAdmission())) {
+      // Admission already contains this snapshot. Waiting for activation must
+      // not manufacture an update or recreate the native control afterward.
+      await this.activate();
+      return this.current && this.active && this.requestedUpdate === this.appliedUpdate &&
+        this.matchesPresentation(presentation);
+    }
+    const updateSequence = ++this.requestedUpdate;
+    try {
+      await this.activate();
+      if (!this.current || !this.active || updateSequence !== this.requestedUpdate) return false;
+      const admission = nativePresentationAdmission();
+      const ack = await bounded(nativeChrome.update({ ...this.projection, ...presentation, updateSequence, ...admission }));
+      if (!this.current || updateSequence !== this.requestedUpdate) return false;
+      if (!matches({ ...ack, phase: "active" }, this.projection, "active") || ack.updateSequence !== updateSequence) {
+        throw new Error("NATIVE_CHROME_UPDATE_UNCONFIRMED");
+      }
+      if (ack.presentationApplied === false) return false;
+      Object.assign(this.projection, presentation);
+      this.appliedUpdate = updateSequence;
+      this.appliedAdmission = admission;
+      return true;
+    } catch (error) {
+      if (!this.current || updateSequence !== this.requestedUpdate) return false;
+      throw error;
+    }
+  }
+  async choose(event: ChromeChoice, allowed: () => boolean, action: () => void): Promise<ChromeChoiceOutcome> {
+    if (!this.active || !this.current) return "inactive";
+    if (!this.projection.enabled) return "disabled";
+    if (!allowed()) return "not-allowed";
+    if (this.inPlaceUpdates && (this.requestedUpdate !== this.appliedUpdate || event.updateSequence !== this.appliedUpdate)) return "update-pending";
+    if (!matches({ ...event, phase: "active" }, this.projection, "active")) return "identity-stale";
+    if (!Number.isSafeInteger(event.sequence) || event.sequence <= this.sequence) return "sequence-stale";
+    if (!admittedValue(this.projection, event.value)) return "value-refused";
     // Consume locally before awaiting: duplicate notifications cannot race.
     this.sequence = event.sequence;
+    const isolation = nativeDrawerIsolation();
     const { valid } = await bounded(nativeChrome.confirmChoice({
       documentId: event.documentId, ownerEpoch: event.ownerEpoch, controlId: event.controlId,
       revision: event.revision, sequence: event.sequence, privacyGeneration: event.privacyGeneration,
+      ...(this.inPlaceUpdates ? { updateSequence: event.updateSequence } : {}),
+      ...(event.presentationGeneration === undefined ? {} : { presentationGeneration: event.presentationGeneration }),
+      ...(event.presentationSequence === undefined ? {} : { presentationSequence: event.presentationSequence }),
       ...(event.value === undefined ? {} : { value: event.value }),
     }));
-    if (valid && this.active && this.current && event.sequence === this.sequence && allowed()) {
-      action();
-    }
+    if (!valid) return "confirmation-refused";
+    if (isolation.isolated || nativeDrawerIsolation().isolated || isolation.generation !== nativeDrawerIsolation().generation) return "isolation-changed";
+    if (!this.active || !this.current) return "inactive";
+    if (event.sequence !== this.sequence) return "sequence-stale";
+    if (this.inPlaceUpdates && (this.requestedUpdate !== this.appliedUpdate || event.updateSequence !== this.appliedUpdate)) return "update-pending";
+    if (!allowed()) return "not-allowed";
+    action();
+    return "applied";
   }
 }
 

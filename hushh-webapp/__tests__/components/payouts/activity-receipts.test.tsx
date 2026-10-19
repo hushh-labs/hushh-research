@@ -28,6 +28,8 @@ vi.mock("@/lib/services/api-client", () => ({ apiJson: state.apiJson }));
 import { PayoutReceiptSheet } from "@/components/consent/payouts/receipts/payout-receipt-sheet";
 import { receiptDateTime, receiptDay } from "@/components/consent/payouts/receipts/activity-copy";
 import { holdNextStepCopy, holdReasonCopy } from "@/lib/payouts/review-copy";
+import { projectNativePayoutReceipt } from "@/components/profile/native-payout-receipt";
+import { parsePayoutReceipt } from "@/lib/services/payout-activity-service";
 
 const requestId = "11111111-1111-4111-8111-111111111111";
 const redemptionId = "22222222-2222-4222-8222-222222222222";
@@ -65,6 +67,29 @@ const realNow = Date.now.bind(Date);
 let skew = 0;
 
 describe("payout receipts", () => {
+  it("projects native receipts without provider IDs or invented settlement and keeps bank steps separate from money movement", () => {
+    const actions = new Map<string, () => void | Promise<void>>();
+    const open = vi.fn(), step = vi.fn();
+    const parsed = parsePayoutReceipt(redemption, redemption.id);
+    const rows = projectNativePayoutReceipt(parsed, "synthetic-receipt", actions, open, step, () => true);
+    const serialized = JSON.stringify(rows);
+    expect(serialized).not.toMatch(PROVIDER_IDS);
+    expect(serialized).not.toContain(requestId);
+    expect(serialized).toContain("Sent to Stripe");
+    expect(serialized).not.toContain("Bank payout completed");
+    expect(serialized).toContain("Old Bank");
+    expect(open).not.toHaveBeenCalled(); expect(step).not.toHaveBeenCalled();
+    const linked = rows.find(row => row.chevron)!;
+    actions.get(linked.id)!();
+    expect(open).toHaveBeenCalledWith(deposit.id);
+    expect(step).not.toHaveBeenCalled();
+    actions.clear();
+    const depositRows = projectNativePayoutReceipt(parsePayoutReceipt({ ...deposit, actionRequired: "update_bank" }, deposit.id),
+      "synthetic-deposit", actions, open, step, () => false);
+    actions.get(depositRows.find(row => row.label === "Update your bank")!.id)!();
+    expect(step).toHaveBeenCalledWith("manage_bank");
+    expect(depositRows.find(row => row.label === "March statements")!.enabled).toBe(false);
+  });
   beforeEach(() => {
     state.stream = "live";
     state.tasks.clear();

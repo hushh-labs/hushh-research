@@ -60,9 +60,11 @@ describe("Puppy One chat layout", () => {
 
   it("uses One's compact composer size and type scale", () => {
     const panel = read("components/agent/hermes-chat-panel.tsx");
-    expect(panel).toContain("min-h-[3.75rem]");
-    expect(panel).toContain("rounded-[var(--app-input-radius)]");
+    // The shared retained bar owns radius and height for both agents.
+    expect(panel).toContain("<AgentBarSurface");
+    expect(panel).toContain("agent-chat-composer-compact");
     expect(panel).toContain("agent-chat-composer-field");
+    expect(panel).toContain("text-[16px]");
     expect(panel).toContain('aria-label="Message Puppy One"');
     // The old 40px bordered field.
     expect(panel).not.toContain("min-h-[2.5rem]");

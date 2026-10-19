@@ -6,15 +6,15 @@ message text or change agent decisions.
 
 | Activity | State | Static fallback | Animation in header and profile |
 | --- | --- | --- | --- |
-| Foreground tool/task execution or email draft generation | `working` | `drafting-hd.png` | `hd/working.riv` |
+| Foreground tool/task execution, email draft generation or written response output | `working` | `drafting-hd.png` | `hd/working.riv` |
 | One waiting for a response | `thinking` | `thinking-hd.png` | `hd/thinking.riv` |
-| Response tokens arriving or voice speaking | `answering` | `answering-hd.png` | `hd/answering.riv` |
+| Voice speaking | `answering` | `answering-hd.png` | `hd/answering.riv` |
 | No foreground work | `connected` | Original `profile-hd.png` | `hd/connected.riv` |
 
 An open editor, completed draft, queued proposal or pending confirmation is
 not drafting. Draft activity comes from `EmailDraftCard`'s actual generation
-request and clears on completion, failure and unmount. Answering starts only
-on the current turn's first nonempty response delta, or voice playback. Loading,
+request and clears on completion, failure and unmount. Written output starts
+Working on the current turn's first nonempty response delta; voice playback uses Answering. Loading,
 provisional progress messages and a restored partial answer remain thinking.
 New and reattached turns reset the output marker. Background memory persistence
 does not keep the artwork busy.

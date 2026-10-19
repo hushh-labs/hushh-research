@@ -23,7 +23,10 @@
  * visible) and takes every reading of those bundles, and of the share list,
  * whoever made it. An ended item's values leave memory at once.
  */
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Capacitor } from "@capacitor/core";
+import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "@/lib/capacitor/session-privacy";
+import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
@@ -117,22 +120,25 @@ export function normalizeSharedItems(items: readonly SharedWithMeCardItem[]): Sh
     || left.key.localeCompare(right.key));
 }
 
-export function SharedWithYouCard({ person, items: rawItems, variant = "chat", className }: {
+/** One retained feature owner for either renderer. Decrypted records stay in
+ * this hook's memory; presentation adapters receive no connector/vault keys. */
+export function useSharedWithYouCardModel({ person, items: rawItems, active = true }: {
   person: SharedWithYouPerson;
   items: SharedWithMeCardItem[];
-  variant?: "chat" | "profile";
-  className?: string;
+  active?: boolean;
 }) {
   const { user } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [results, setResults] = useState<Record<string, { identity: string; result: SharedItemOpenResult }>>({});
   const [timedOut, setTimedOut] = useState<ReadonlySet<string>>(() => new Set());
   const [ended, setEnded] = useState<Record<string, Ended>>({});
-  const [unlockOpen, setUnlockOpen] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const sectionRef = useRef<HTMLDivElement | null>(null);
-  const revealInTranscript = useContext(AgentTranscriptRevealContext);
+  const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
+  const privacy = useSyncExternalStore(subscribeNativePrivacyObservation, () => nativePrivacyObservation().state, () => undefined);
+  const [visible, setVisible] = useState(() => typeof document === "undefined" || document.visibilityState !== "hidden");
+  const [visibilityGeneration, setVisibilityGeneration] = useState(0);
+  const presentationAllowed = active && visible && !privacy?.shielded && privacy?.appIsActive !== false && (!Capacitor.isNativePlatform() || !!privacy);
 
   // Identity of the content, not of the array: a parent re-render with the
   // same items keeps every open that is in flight.
@@ -149,8 +155,8 @@ export function SharedWithYouCard({ person, items: rawItems, variant = "chat", c
   );
 
   const viewerUid = user?.uid ?? null;
-  const session = isVaultUnlocked && viewerUid && vaultKey && vaultOwnerToken
-    ? `${viewerUid}|${vaultOwnerToken}|${person.personRef}` : null;
+  const session = presentationAllowed && isVaultUnlocked && viewerUid && vaultKey && vaultOwnerToken
+    ? `${viewerUid}|${vaultOwnerToken}|${person.personRef}|${epoch}|${privacy?.generation ?? 0}|${visibilityGeneration}` : null;
   /** What an opened value is bound to; a result for another identity is never shown. */
   const identityOf = useCallback((item: SharedWithMeCardItem) =>
     `${session}|${item.key}|${item.bundleId ?? ""}|${item.requestId ?? ""}|${item.grantRef ?? ""}`, [session]);
@@ -161,6 +167,9 @@ export function SharedWithYouCard({ person, items: rawItems, variant = "chat", c
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const timers = useRef(new Set<number>());
+  const denied = useRef(new Set<string>());
+  const itemOwner = useRef({ items, identityOf });
+  useLayoutEffect(() => { itemOwner.current = { items, identityOf }; }, [items, identityOf]);
   useEffect(() => {
     const pending = timers.current;
     const opens = inFlight.current;
@@ -172,9 +181,18 @@ export function SharedWithYouCard({ person, items: rawItems, variant = "chat", c
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     wanted.current = new Set(openable.map(identityOf));
   }, [identityOf, openable]);
+  useLayoutEffect(() => {
+    setResults(previous => {
+      const retained = Object.fromEntries(Object.entries(previous).filter(([key, entry]) => {
+        const item = items.find(item => item.key === key);
+        return item && entry.identity === identityOf(item);
+      }));
+      return Object.keys(retained).length === Object.keys(previous).length ? previous : retained;
+    });
+  }, [items, identityOf]);
 
   // Open what is not open yet, once per item.
   useEffect(() => {
@@ -231,12 +249,29 @@ export function SharedWithYouCard({ person, items: rawItems, variant = "chat", c
   }, [attempt, identityOf, openable, person.personRef, results, session, vaultKey, vaultOwnerToken, viewerUid]);
 
   // A lock, a sign-out or a different person drops every opened value at once.
-  useEffect(() => {
-    if (session) return;
+  useLayoutEffect(() => {
+    // Also scrub non-null viewer/person replacements, not only a lock.
     inFlight.current.clear();
+    denied.current.clear();
     setResults((current) => Object.keys(current).length ? {} : current);
     setTimedOut((current) => current.size ? new Set() : current);
   }, [session]);
+  useLayoutEffect(() => {
+    const conceal = () => {
+      sessionRef.current = null; wanted.current.clear(); inFlight.current.clear();
+      setVisibilityGeneration(value => value + 1);
+      setResults(current => Object.keys(current).length ? {} : current);
+      setTimedOut(current => current.size ? new Set() : current);
+    };
+    const visibility = () => { const next = document.visibilityState !== "hidden"; if (!next) conceal(); setVisible(next); };
+    const stop = subscribeNativePrivacyObservation(() => {
+      const next = nativePrivacyObservation().state;
+      if (next?.shielded || next?.appIsActive === false) conceal();
+    });
+    document.addEventListener("visibilitychange", visibility);
+    return () => { stop(); document.removeEventListener("visibilitychange", visibility); };
+  }, []);
+  useLayoutEffect(() => { setEnded(current => Object.keys(current).length ? {} : current); }, [viewerUid, person.personRef]);
 
   // What access to watch: each bundle an item names or opened through.
   const resolvedBundles = useMemo(() => {
@@ -256,19 +291,26 @@ export function SharedWithYouCard({ person, items: rawItems, variant = "chat", c
   const needsShareList = items.some((item) => !item.bundleId && !ended[endKey(item)] && item.decryptable !== false);
 
   const endItems = useCallback((entries: Array<{ key: string; end: string; reason: Ended["reason"] }>) => {
-    if (!entries.length) return;
+    const owner = itemOwner.current;
+    const matching = entries.flatMap(entry => {
+      const item = owner.items.find(item => item.key === entry.key && endKey(item) === entry.end);
+      return item ? [{ ...entry, identity: owner.identityOf(item) }] : [];
+    });
+    if (!matching.length) return;
+    // Revoke synchronously as well as scheduling React's replica cleanup.
+    for (const entry of matching) { denied.current.add(entry.end); wanted.current.delete(entry.identity); }
     // Values leave memory now, not at the next open.
     setResults((current) => {
-      if (!entries.some((entry) => current[entry.key])) return current;
+      if (!matching.some(entry => current[entry.key]?.identity === entry.identity)) return current;
       const next = { ...current };
-      for (const entry of entries) delete next[entry.key];
+      for (const entry of matching) if (next[entry.key]?.identity === entry.identity) delete next[entry.key];
       return next;
     });
     setEnded((current) => {
-      if (entries.every((entry) => current[entry.end])) return current;
+      if (matching.every((entry) => current[entry.end])) return current;
       const next = { ...current };
       const at = new Date().toISOString();
-      for (const entry of entries) next[entry.end] ??= { reason: entry.reason, at };
+      for (const entry of matching) next[entry.end] ??= { reason: entry.reason, at };
       return next;
     });
   }, []);
@@ -347,13 +389,21 @@ export function SharedWithYouCard({ person, items: rawItems, variant = "chat", c
     const timer = window.setTimeout(() => setNowMs(Date.now()), Math.min(wait + 50, 2_147_483_647));
     return () => window.clearTimeout(timer);
   }, [current, items, nowMs]);
+  useEffect(() => {
+    endItems(items.flatMap(item => {
+      const entry = results[item.key];
+      const result = entry?.identity === identityOf(item) ? entry.result : undefined;
+      return result && (isPast(item.accessEndsAt, nowMs) || item.status === "expired" || item.status === "revoked" || result.state === "open" && result.expiresAtMs <= nowMs)
+        ? [{ key: item.key, end: endKey(item), reason: item.status === "revoked" ? "revoked" as const : "expired" as const }] : [];
+    }));
+  }, [results, identityOf, items, nowMs, endItems]);
 
   const settled = (item: SharedWithMeCardItem) => current.has(item.key) || timedOut.has(identityOf(item));
   const failed = (item: SharedWithMeCardItem) => {
     const result = current.get(item.key);
     return result ? result.state === "unavailable" : timedOut.has(identityOf(item));
   };
-  const status: SharedWithYouCardStatus = !isVaultUnlocked
+  const status: SharedWithYouCardStatus = !session
     ? "locked"
     : !openable.length ? "ready"
       : openable.every(failed) ? "error"
@@ -378,15 +428,6 @@ export function SharedWithYouCard({ person, items: rawItems, variant = "chat", c
     };
   });
 
-  // In a live chat turn, bring the card above the composer once, when it
-  // first appears. A restored conversation is left where the reader is.
-  const [reveal] = useState(() => variant === "chat" ? revealInTranscript : null);
-  useEffect(() => {
-    const element = sectionRef.current;
-    if (!reveal || !element?.closest('[data-message-status="streaming"]')) return;
-    reveal(element);
-  }, [reveal]);
-
   // A calm retry: only what failed or timed out opens again. A late result
   // from the first try is still accepted if it lands first.
   const onRetry = useCallback(() => {
@@ -401,6 +442,36 @@ export function SharedWithYouCard({ person, items: rawItems, variant = "chat", c
     setAttempt((value) => value + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identityOf, openable, current, timedOut]);
+
+  const lifetime = useMemo(() => ({ active: session !== null, populated: itemsSignature.length > 0 }), [session, itemsSignature]);
+  const mayRead = (key: string, expectedData?: Record<string, unknown> | null) => {
+    const item = items.find(item => item.key === key);
+    const livePrivacy = nativePrivacyObservation().state;
+    if (!session || sessionRef.current !== session || !item || denied.current.has(endKey(item)) ||
+      !wanted.current.has(identityOf(item)) || document.visibilityState === "hidden" || livePrivacy?.shielded || livePrivacy?.appIsActive === false ||
+      (privacy?.generation ?? 0) !== (livePrivacy?.generation ?? 0) || isPast(item.accessEndsAt, Date.now())) return false;
+    const entry = results[key];
+    return entry?.identity === identityOf(item) && entry.result.state === "open" && entry.result.expiresAtMs > Date.now() &&
+      (expectedData === undefined || entry.result.value.data === expectedData);
+  };
+  return { user, status, items: views, retry: onRetry, lifetime, mayRead };
+}
+
+export type SharedWithYouCardModel = ReturnType<typeof useSharedWithYouCardModel>;
+
+/** Compatibility facade: original web geometry and transcript reveal owner. */
+export function SharedWithYouCard({ person, items, variant = "chat", className }: {
+  person: SharedWithYouPerson; items: SharedWithMeCardItem[]; variant?: "chat" | "profile"; className?: string;
+}) {
+  const { user, status, items: views, retry: onRetry } = useSharedWithYouCardModel({ person, items });
+  const [unlockOpen, setUnlockOpen] = useState(false);
+  const sectionRef = useRef<HTMLDivElement | null>(null);
+  const revealInTranscript = useContext(AgentTranscriptRevealContext);
+  const [reveal] = useState(() => variant === "chat" ? revealInTranscript : null);
+  useEffect(() => {
+    const element = sectionRef.current;
+    if (reveal && element?.closest('[data-message-status="streaming"]')) reveal(element);
+  }, [reveal]);
 
   return (
     <div ref={sectionRef}>

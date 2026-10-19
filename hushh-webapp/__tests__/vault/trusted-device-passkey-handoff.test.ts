@@ -191,9 +191,15 @@ describe("trusted-device passkey vault handoff", () => {
     );
   });
 
-  it.each(["one.hushh.ai", "one.hussh.ai"])(
-    "binds the existing production wrapper to production on %s",
-    async (hostname) => {
+  it.each([
+    ["production", "one.hushh.ai", "one.hushh.ai"],
+    ["production", "one.hussh.ai", "one.hushh.ai"],
+    ["production", "one.hussh.si", "one.hushh.ai"],
+    ["uat", "uat.one.hussh.si", "uat.one.hushh.ai"],
+    ["dev", "dev.one.hussh.si", "dev.one.hushh.ai"],
+  ])(
+    "binds the existing %s wrapper on %s without changing its RP",
+    async (environment, hostname, rpId) => {
       mocks.getVaultState.mockResolvedValue({
         vaultKeyHash: "hash",
         wrappers: [{
@@ -203,12 +209,13 @@ describe("trusted-device passkey vault handoff", () => {
           iv: "iv",
           passkeyCredentialId: "credential",
           passkeyPrfSalt: "prf-salt",
-          passkeyRpId: "one.hushh.ai",
+          passkeyRpId: rpId,
         }],
       });
       mocks.authenticateWithPrf.mockResolvedValue({ vaultKeyHex: "a".repeat(64) });
       mocks.unlockVault.mockResolvedValue("b".repeat(64));
       mocks.wrapExportKeyForConnector.mockResolvedValue({});
+      expect(resolvePasskeyEnvironment(hostname)).toBe(environment);
       await buildTrustedDevicePasskeyHandoff({
         userId: "user-1", deviceId: "device-1", state: "state-1",
         authorizationId: "authorization-1", expiresAt: 123456,
@@ -216,21 +223,26 @@ describe("trusted-device passkey vault handoff", () => {
         environment: resolvePasskeyEnvironment(hostname)!,
       });
       expect(mocks.authenticateWithPrf).toHaveBeenCalledWith(
-        "user-1", "prf-salt", "credential", "one.hushh.ai",
+        "user-1", "prf-salt", "credential", rpId,
       );
       expect(mocks.wrapExportKeyForConnector).toHaveBeenCalledWith(
         expect.objectContaining({
-          additionalData: expect.stringContaining("|one.hushh.ai|production|recipient"),
+          additionalData: expect.stringContaining(`|${rpId}|${environment}|recipient`),
         }),
       );
     },
   );
 
-  it("rejects a mismatched environment before retrieving or using vault material", async () => {
+  it.each([
+    ["one.hussh.ai", "uat"],
+    ["one.hussh.si", "uat"],
+    ["uat.one.hussh.si", "production"],
+    ["dev.one.hussh.si", "production"],
+  ] as const)("rejects a mismatched environment on %s before using vault material", async (hostname, environment) => {
     await expect(buildTrustedDevicePasskeyHandoff({
       userId: "user-1", deviceId: "device-1", state: "state-1",
       authorizationId: "authorization-1", expiresAt: 123456,
-      recipientPublicKey: "recipient", hostname: "one.hussh.ai", environment: "uat",
+      recipientPublicKey: "recipient", hostname, environment,
     })).rejects.toThrow("environment does not match");
     expect(mocks.getVaultState).not.toHaveBeenCalled();
     expect(mocks.authenticateWithPrf).not.toHaveBeenCalled();

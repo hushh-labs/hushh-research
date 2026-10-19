@@ -9,10 +9,25 @@ another reviewer store or a privileged app-unlock route.
 
 1. Record candidate source SHA, built-product identity and selected physical
    destination. A successful compile/install does not prove UI automation.
+   Bind the app **and** runner/test executable to that source. An attach-only
+   definition using `UseDestinationArtifacts` runs the installed test bundle;
+   rebuilding a runner on the Mac does not update it on the phone. Install its
+   matching signed runner separately, without reinstalling One merely for a
+   harness change. Keep executable digests and install receipts with the run,
+   and require the requested case's observed markers before interpreting its
+   result. A stale installed runner is not evidence against the new feature.
 2. Inspect `xcrun devicectl list devices` and
    `xcrun devicectl device info lockState --device <udid>`. Pairing does not prove
    unlocked transport; a connection reset is not a vault rejection. Recheck once
    after reconnection, not in an unbounded retry loop.
+   For Wi-Fi, inspect live Bonjour discovery and the current network rather than
+   reusing an earlier IP. A reachable endpoint or an `available (paired)` row is
+   not an authenticated tunnel. Inspect this version's `devicectl manage pair
+   --help`; reconnect the existing paired UDID without unpairing or clearing app
+   state, then require a successful details/service probe with `Transport Type:
+   localNetwork`. Hostname lookup and paired-UDID lookup can differ. Separate a
+   failed tunnel handshake from DDI compatibility and XCTest admission. Do not
+   restart shared CoreDevice/Xcode services while another session owns work.
 3. Inspect this Xcode version's `devicectl device settings --help` before claiming
    a supported authorization or unlock command. Do not infer one from permission
    to operate the device or from the possession of its passcode.
@@ -31,6 +46,11 @@ another reviewer store or a privileged app-unlock route.
    entering the named secure field; submit normal Unlock once. A device passcode
    is not a vault passphrase. Persist neither in skills, env files, launch
    arguments, xctestrun files, screenshots, traces or diagnostics.
+7. Check that the native privacy cover has actually retired before private
+   input. XCTest can report an underlying WebKit control as hittable while
+   UIKit still covers it. Use only the authored recovery action or cancel a
+   positively identified authenticator prompt; never remove the shield, tap
+   an unrelated system alert or interpret blocked input as credential rejection.
 
 ## Preserve the session and classify the result
 
@@ -48,3 +68,61 @@ another reviewer store or a privileged app-unlock route.
 - Once admitted, continue warm journeys without sign-out, reset or direct cold
   route jumps. Preserve passcode and privacy protection; do not promise the OS
   will keep its authorization forever.
+
+## Account for screens, then batch the candidate
+
+1. Join the existing generated surface map, native route inventory and semantic
+   route projection. Account separately for physical pages, query/local tabs,
+   legacy redirects, callbacks, exclusions and missing authorized fixtures.
+   Do not create another route registry or count source coverage as interaction.
+2. Group by shared family: shell/Chat, Profile/vault, Connect/Consent, Memory,
+   Mail/Calendar/Drive, Finance/Wallet/RIA and public/auth flows. Keep every
+   required row tied to current source, destination and prerequisites.
+3. Correct verified shared defects together; run nearest contracts and core at
+   the combined SHA. Prepare one product per runtime target, verify its actual
+   packaged identity, then install separately from continuity testing.
+4. Run one attach-only batch per physical device, serially within that device;
+   independent devices may run concurrently. Keep credentials out of subsequent
+   warm batches once normal admission is established.
+   When order is part of the proof, verify observed test-start order; an ordered
+   CLI selection does not establish XCTest execution order. Use separate
+   attach-only runs when necessary, without relaunching or resetting the app.
+5. Check destination/admission before content. Finance setup is not a passed
+   Finance workspace; missing fixtures are not successful empty states. Keep
+   rapid interruption tests, and distinguish tap delivery from later settlement.
+6. If one journey stops a family batch, account for its remaining steps as not
+   reached. Restore through authored Back/Chat, verify admission, and run only
+   those isolated journeys. Never hide the original failure with a green retry.
+7. Require the requested family/test identity and its observed completion receipt,
+   not merely exit zero or a passing count: an incorrectly selected generic smoke
+   does not prove the requested workspace. Record exact candidate/runtime, actions reached, assertions, exclusions and
+   blockers. Rebuild the runner alone for harness-only corrections. Preserve
+   unrelated edits and keep physical iPad, iPhone and simulator acceptance distinct.
+8. Route landing and redeployment through the full Admin SOP in `repo-operations`.
+   Local install, source checks and a partial device batch do not authorize or
+   prove a successful deployment.
+
+## Native drawer continuity
+
+Use the current renderer boundaries in `hushh-webapp/docs/ios-native-surface-adoption.md`.
+A React drawer and asynchronous native clipping do not share a display transaction;
+retained hosts or pose receipts cannot qualify that composition. Keep recovery
+drawers coherently React; a native study owns its entire overlapping presentation.
+
+Hold a partial drag before release, then cancel, re-grab and close through authored
+controls. Inspect synthetic transition frames, not only settled screenshots or
+host identities. Keep underlying input and accessibility isolated until visible
+exit completion: an animator's target property is not a retirement receipt.
+
+Runner preparation may interrupt and legitimately retire an owned study. Re-enter
+only through its explicit opt-in public action after privacy admission; never
+remove the shield or automatically resurrect a retired popup. Account separately
+for harness admission, visual composition, interaction, privacy and frame pacing.
+Keep recordings public-only throughout their lifetime, including exit/background.
+
+Reject unusable performance evidence: a zero rendered-frame count alongside a
+positive frame rate does not establish zero hitches. Keep display-link cadence
+separate from compositor metrics. An unsupported recording capability is not a
+transition-frame pass. Check the installed executable's debugger entitlement and
+the current process identity after installation before diagnosing attach failure;
+an alive app does not establish an available XCTest accessibility server.

@@ -1,4 +1,6 @@
-/** Browser-runtime generation only; never contains key/token material or authority. */
+/** Browser-runtime credential generation; never contains key/token material or
+ * authority. Token renewal also advances it, so it is not an unlock-lifetime
+ * identity. Keep old-credential response fencing distinct from UI continuity. */
 let vaultSessionEpoch = 0;
 const vaultSessionEpochListeners = new Set<() => void>();
 
@@ -16,7 +18,7 @@ export function isVaultSessionEpochCurrent(epoch: number): boolean {
   return snapshotVaultSessionEpoch() === epoch;
 }
 
-/** Subscribe to lock/unlock/key-rotation boundaries without exposing key material. */
+/** Subscribe to lock/unlock/key rotation and credential renewal without key material. */
 export function subscribeVaultSessionEpoch(listener: () => void): () => void {
   if (typeof window === "undefined") return () => undefined;
   vaultSessionEpochListeners.add(listener);

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -56,6 +56,7 @@ import {
   normalizeSharedItems,
   SHARED_OPEN_TIMEOUT_MS,
   SharedWithYouCard,
+  useSharedWithYouCardModel,
 } from "@/components/agent/consent/shared-with-you-card";
 import type { SharedWithMeCardItem } from "@/lib/agent/agui-structured-experiences";
 import { readInformationRequest, readSharedWithMe } from "@/lib/consent/information-request-reads";
@@ -371,6 +372,22 @@ const MANISH = { personRef: PERSON, displayName: "Manish Sainani" };
 // open needing three slow reads never finished ("Opening on this device…"
 // for over 20 minutes).
 describe("opening is idempotent and survives re-renders", () => {
+  it("conceals shared replicas on background and readmits a new presentation lifetime", async () => {
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const hook = renderHook(() => useSharedWithYouCardModel({ person: MANISH, items: [taxItem()] }));
+    try {
+      await waitFor(() => expect(hook.result.current.items[0]?.data).toEqual(TAX_VALUES));
+      const first = hook.result.current.lifetime;
+      act(() => { visibility.mockReturnValue("hidden"); document.dispatchEvent(new Event("visibilitychange")); });
+      expect(hook.result.current.status).toBe("locked");
+      expect(hook.result.current.items[0]?.data).toBeUndefined();
+      expect(hook.result.current.lifetime).not.toBe(first);
+      act(() => { visibility.mockReturnValue("visible"); document.dispatchEvent(new Event("visibilitychange")); });
+      await waitFor(() => expect(hook.result.current.items[0]?.data).toEqual(TAX_VALUES));
+      expect(hook.result.current.lifetime).not.toBe(first);
+      expect(mocks.decryptScopedExport.mock.calls.length).toBeGreaterThan(1);
+    } finally { hook.unmount(); visibility.mockRestore(); }
+  });
   it("completes one open across re-renders and unrelated consent events", async () => {
     let releaseExports: (value: unknown) => void = () => undefined;
     mocks.getInformationRequestExports.mockReturnValue(new Promise((resolve) => { releaseExports = resolve; }));

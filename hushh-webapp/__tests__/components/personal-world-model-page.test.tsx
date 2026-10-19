@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PwmClaim, PwmMemory } from "@/lib/services/world-model-decision-service";
@@ -98,11 +98,28 @@ vi.mock("@/lib/services/world-model-decision-service", async (importActual) => (
   },
 }));
 
-import { PersonalWorldModelPage } from "@/components/profile/personal-world-model-page";
+import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
 import { pwmClaimKey } from "@/lib/services/world-model-decision-service";
+import { WorldModelFactSheet, type WorldModelDraftFact } from "@/components/profile/world-model-fact-sheet";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 const DRAFT_ID = "00000000-0000-4000-8000-000000000001";
 const source = { title: "Hushh team page", url: "https://hushh.ai/team" };
+
+it("does not let a retained World Model detail consume another Profile page’s Back", () => {
+  const close = vi.fn();
+  const fact: WorldModelDraftFact = { kind: "draft", key: "public-detail", statement: "Public example", topic: "career",
+    confidence: "supported", matchStatus: "matched", sources: [source], reason: "Public example" };
+  const props = { fact, title: "Career", pathname: "/one", actions: { confirm: vi.fn(), reject: vi.fn(), edit: vi.fn(), remove: vi.fn() },
+    onClose: close, backQuery: { profile_pane: "1", profile_panel: "world-model" } };
+  const view = render(<WorldModelFactSheet {...props} />);
+  act(() => { expect(unwindBackLayer("/one", new URLSearchParams("profile_pane=1&profile_panel=account"))).toBe(false); });
+  expect(close).not.toHaveBeenCalled();
+  act(() => { expect(unwindBackLayer("/one", new URLSearchParams("profile_pane=1&profile_panel=world-model"))).toBe(true); });
+  expect(close).toHaveBeenCalledOnce();
+  view.rerender(<WorldModelFactSheet {...props} present={false} />);
+  act(() => { expect(unwindBackLayer("/one", new URLSearchParams("profile_pane=1&profile_panel=world-model"))).toBe(false); });
+});
 
 function offered(
   facts: { statement: string; kind: string; confidence?: string }[],
@@ -236,6 +253,46 @@ afterEach(() => {
 });
 
 describe("Personal World Model page", () => {
+  it("rejects retained statement callbacks after owner replacement and controller retirement", async () => {
+    research(offered([{ statement: "Works at Hushh", kind: "career" }]));
+    const view = renderHook(() => usePersonalWorldModelModel({ embedded: true }));
+    await waitFor(() => expect(view.result.current.sections[0]?.drafts).toHaveLength(1));
+    const fact = view.result.current.sections[0]!.drafts[0]!;
+    const old = view.result.current.actions;
+    act(() => view.result.current.setDetail(fact));
+    mock.auth.user = { uid: "owner-b", displayName: "Bob" };
+    view.rerender();
+    expect(view.result.current.detail).toBeNull();
+    await expect(old.confirm(fact)).rejects.toThrow("World model is no longer active");
+    expect(mock.confirm).not.toHaveBeenCalled();
+    const current = view.result.current.actions;
+    view.unmount();
+    await expect(current.confirm(fact)).rejects.toThrow("World model is no longer active");
+    expect(mock.confirm).not.toHaveBeenCalled();
+  });
+
+  it("does not let a late previous-owner commit suppress the new owner's pending read", async () => {
+    research(offered([{ statement: "Works at Hushh", kind: "career" }]));
+    const firstClaim = await claim("Works at Hushh");
+    const nextClaim = await claim("Lives in a different city");
+    let finishWrite!: (value: PwmMemory) => void, finishRead!: (value: PwmMemory) => void;
+    mock.confirm.mockReturnValue(new Promise<PwmMemory>(resolve => { finishWrite = resolve; }));
+    mock.load.mockImplementation(({ userId }) => userId === "owner-a" ? Promise.resolve(memoryOf()) :
+      new Promise<PwmMemory>(resolve => { finishRead = resolve; }));
+    const view = renderHook(() => usePersonalWorldModelModel({ embedded: true }));
+    await waitFor(() => expect(view.result.current.sections[0]?.drafts).toHaveLength(1));
+    const fact = view.result.current.sections[0]!.drafts[0]!;
+    let writing!: Promise<void>;
+    act(() => { writing = view.result.current.actions.confirm(fact); });
+    expect(mock.confirm).toHaveBeenCalledTimes(1);
+    mock.auth.user = { uid: "owner-b", displayName: "Bob" }; view.rerender();
+    await waitFor(() => expect(finishRead).toBeTypeOf("function"));
+    expect(view.result.current.pending.size).toBe(0);
+    await act(async () => { finishWrite(memoryOf([firstClaim])); await writing; });
+    await act(async () => { finishRead(memoryOf([nextClaim])); });
+    await waitFor(() => expect(view.result.current.memory?.saved[0]?.text).toBe(nextClaim.text));
+    expect(view.result.current.memory?.saved.some(item => item.text === firstClaim.text)).toBe(false);
+  });
   it("waits calmly for the app-level reader instead of linking to its own route", async () => {
     // proxy.ts presents /one/profile/world-model as the Profile pane, so a
     // link to it from the pane would only reopen the pane.

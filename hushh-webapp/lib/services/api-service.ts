@@ -1691,8 +1691,9 @@ export class ApiService {
     );
   }
 
-  static async listTrustedDevices(): Promise<Response> {
+  static async listTrustedDevices(isCurrentOwner?: () => boolean): Promise<Response> {
     const authToken = await this.getFirebaseToken();
+    if (isCurrentOwner && !isCurrentOwner()) return new Response(null, { status: 409 });
     if (!authToken) {
       return new Response(
         JSON.stringify({ error: "Missing Firebase ID token" }),
@@ -1703,13 +1704,15 @@ export class ApiService {
     }
     return apiFetch("/api/account/trusted-devices", {
       method: "GET",
+      isEffectCurrent: isCurrentOwner,
       headers: { Authorization: `Bearer ${authToken}` },
       cache: "no-store",
     });
   }
 
-  static async revokeTrustedDevice(deviceId: string): Promise<Response> {
+  static async revokeTrustedDevice(deviceId: string, isCurrentOwner?: () => boolean): Promise<Response> {
     const authToken = await this.getFirebaseToken();
+    if (isCurrentOwner && !isCurrentOwner()) return new Response(null, { status: 409 });
     if (!authToken) {
       return new Response(
         JSON.stringify({ error: "Missing Firebase ID token" }),
@@ -1722,6 +1725,7 @@ export class ApiService {
       `/api/account/trusted-devices/${encodeURIComponent(deviceId)}`,
       {
         method: "DELETE",
+        isEffectCurrent: isCurrentOwner,
         headers: { Authorization: `Bearer ${authToken}` },
       },
     );

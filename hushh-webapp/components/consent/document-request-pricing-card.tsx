@@ -1,120 +1,36 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useId } from "react";
+import { useDocumentRequestPricingModel } from "./use-document-request-pricing-model";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ProfileAccountPriceIcon, ProfileAccountWalletIcon } from "@/components/profile/profile-your-account-icons";
 import { FormLabel, HelperText } from "@/components/app-ui/typography";
 import { Input } from "@/components/ui/input";
-import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
-import { formatDocumentRequestPrice, parseDocumentRequestPrice } from "@/lib/consent/document-request-price";
+import { formatDocumentRequestPrice } from "@/lib/consent/document-request-price";
 import { Button } from "@/lib/morphy-ux/button";
-import { apiErrorCode } from "@/lib/services/api-client";
-import {
-  DriveRequestPricingService,
-  type DriveRequestPricing,
-} from "@/lib/services/drive-request-pricing-service";
-import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
-import { useVault } from "@/lib/vault/vault-context";
 
 /** Future-request default; an existing quote keeps its agreed price. */
-export function DocumentRequestPricingCard({ onSaved }: {
+export function DocumentRequestPricingCard({ onSaved, model }: {
   /**
    * Runs once per confirmed default price, after the consent-state dispatch.
    * "Ask each time" leaves waiting requests unpriced, so the owner stays here.
    */
   onSaved?: () => void;
+  model?: ReturnType<typeof useDocumentRequestPricingModel>;
 }) {
-  const { vaultOwnerToken } = useVault();
+  return model ? <RequestPricingForm model={model} /> : <OwnedRequestPricingForm onSaved={onSaved} />;
+}
+
+function OwnedRequestPricingForm({ onSaved }: { onSaved?: () => void }) {
+  const model = useDocumentRequestPricingModel({ onSaved });
+  return <RequestPricingForm model={model} />;
+}
+
+function RequestPricingForm({ model }: { model: ReturnType<typeof useDocumentRequestPricingModel> }) {
   const priceId = useId();
-  const session = useRef(0);
-  const inFlight = useRef(false);
-  const [saved, setSaved] = useState<DriveRequestPricing | null>(null);
-  const [dollars, setDollars] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [reload, setReload] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  useEffect(() => {
-    const operation = ++session.current;
-    const epoch = snapshotVaultSessionEpoch();
-    const current = () => session.current === operation && isVaultSessionEpochCurrent(epoch);
-    inFlight.current = false;
-    setSaved(null);
-    setDollars("");
-    setSaving(false);
-    setError(null);
-    setNotice(null);
-    setLoading(Boolean(vaultOwnerToken));
-    if (vaultOwnerToken) {
-      void DriveRequestPricingService.owner(vaultOwnerToken)
-        .then((next) => {
-          if (!current()) return;
-          setSaved(next);
-          setDollars(next.enabled ? String(next.amountCents / 100) : "");
-        })
-        .catch(() => {
-          if (current()) setError("Couldn't load your price. Try again.");
-        })
-        .finally(() => {
-          if (current()) setLoading(false);
-        });
-    }
-    return () => { session.current = operation + 1; };
-  }, [vaultOwnerToken, reload]);
-
-  if (!vaultOwnerToken) return null;
-  // New requests take cents from $0.50; older whole-dollar requests keep their own rule.
-  const amountCents = parseDocumentRequestPrice(dollars);
-  const dirty = saved && (!saved.enabled || amountCents !== saved.amountCents);
-  const save = async (enabled: boolean) => {
-    const targetAmountCents = enabled ? amountCents : saved?.amountCents ?? null;
-    if (!saved || targetAmountCents === null || inFlight.current ||
-        (enabled ? !dirty : !saved.enabled)) return;
-    const operation = session.current;
-    const epoch = snapshotVaultSessionEpoch();
-    const current = () => session.current === operation && isVaultSessionEpochCurrent(epoch);
-    inFlight.current = true;
-    setSaving(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const next = await DriveRequestPricingService.save(vaultOwnerToken, {
-        enabled,
-        amountCents: targetAmountCents,
-        expectedVersion: saved.version,
-      });
-      if (!current()) return;
-      setSaved(next);
-      setDollars(next.enabled ? String(next.amountCents / 100) : "");
-      setNotice(next.enabled ? "Default price saved." : "You'll set a price for each request.");
-      dispatchConsentStateChanged({ source: "document_request_pricing" });
-      if (next.enabled) onSaved?.();
-    } catch (cause) {
-      if (!current()) return;
-      if (apiErrorCode(cause) === "price_changed") {
-        try {
-          const next = await DriveRequestPricingService.owner(vaultOwnerToken);
-          if (!current()) return;
-          setSaved(next);
-          const currentPrice = next.enabled ? formatDocumentRequestPrice(next.amountCents) : "Ask each time";
-          // Keep the owner's draft; updating the version is not permission to save it.
-          setError(`Changed elsewhere to ${currentPrice}. Review your amount and save again.`);
-        } catch {
-          if (current()) setError("Couldn't refresh your price. Try again.");
-        }
-      } else {
-        setError("Couldn't save your price. Try again.");
-      }
-    } finally {
-      if (current()) {
-        inFlight.current = false;
-        setSaving(false);
-      }
-    }
-  };
+  const { available, saved, dollars, loading, saving, error, notice, amountCents, dirty, save, change, retry } = model;
+  if (!available) return null;
 
   return (
     <section aria-label="Request pricing" className="space-y-3">
@@ -129,7 +45,7 @@ export function DocumentRequestPricingCard({ onSaved }: {
             <div className="space-y-[var(--app-form-field-gap)]">
               <FormLabel as="label" htmlFor={priceId}>Default price (USD)</FormLabel>
               <Input id={priceId} type="text" inputMode="decimal" value={dollars}
-                placeholder="Amount" onChange={(event) => { setDollars(event.target.value); setNotice(null); }}
+                placeholder="Amount" onChange={(event) => change(event.target.value)}
                 disabled={saving} aria-invalid={dollars !== "" && amountCents === null}
                 aria-describedby={`${priceId}-help`} />
               <HelperText id={`${priceId}-help`}>$0.50–$500, including cents.</HelperText>
@@ -146,7 +62,7 @@ export function DocumentRequestPricingCard({ onSaved }: {
             </div>
           </form>
         ) : !loading ? (
-          <SettingsRow title="Retry" iconTone="capability" onClick={() => setReload((value) => value + 1)} />
+          <SettingsRow title="Retry" iconTone="capability" onClick={retry} />
         ) : null}
       </SettingsGroup>
       {saved ? <HelperText className="profile-account-note">{saved.enabled

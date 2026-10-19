@@ -197,7 +197,6 @@ function profileDetailLabel(detail: string | null): string | null {
   if (detail === "appearance") return "Appearance";
   if (detail === "kai-preferences") return "Finance preferences";
   if (detail === "gemini") return "Gemini";
-  if (detail === "device") return "On-device first";
   if (detail === "vault") return "Vault methods";
   if (detail === "session") return "Session";
   if (detail === "danger") return "Danger zone";

@@ -28,7 +28,14 @@ capability discoverable. The generator produces:
 - [Generated action gateway](../../../contracts/kai/kai-action-gateway.vnext.json)
 - [Route orchestration index](../../../contracts/kai/one-route-orchestration-index.v1.json)
 
-Generated output is never hand-edited. Run:
+Generated output is never hand-edited.
+
+Discovery includes new/untracked authored contracts but excludes root
+`.next-*` build caches, alongside the existing dependency and build exclusions.
+Generated copies are not authoring input. This keeps verification independent
+of accumulated local Next build outputs without skipping contract validation.
+
+Run:
 
 ```bash
 cd hushh-webapp && npm run build:voice-gateway

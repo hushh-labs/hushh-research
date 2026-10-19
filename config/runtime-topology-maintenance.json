@@ -133,13 +133,43 @@
       "lifecycle": "canonical"
     },
     {
-      "id": "location.inbox",
-      "pathname": "/one/location",
+      "id": "connect.connections",
+      "pathname": "/one/connect",
       "query": {
-        "view": "inbox"
+        "tab": "all"
       },
-      "canonical_url": "/one/location?view=inbox",
-      "tab_set": "location",
+      "canonical_url": "/one/connect?tab=all",
+      "tab_set": "connect",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "connect.circles",
+      "pathname": "/one/connect",
+      "query": {
+        "tab": "circles"
+      },
+      "canonical_url": "/one/connect?tab=circles",
+      "tab_set": "connect",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "mail.kyc",
+      "pathname": "/one/gmail",
+      "query": {
+        "workspace": "kyc"
+      },
+      "canonical_url": "/one/gmail?workspace=kyc",
+      "tab_set": "gmail-workspace",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "mail.receipts",
+      "pathname": "/one/gmail",
+      "query": {
+        "workspace": "receipts"
+      },
+      "canonical_url": "/one/gmail?workspace=receipts",
+      "tab_set": "gmail-workspace",
       "lifecycle": "canonical"
     }
   ],

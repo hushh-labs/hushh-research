@@ -8,37 +8,27 @@ import {
   useState,
   type FormEvent,
   type Ref,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 import Link from "next/link";
 
 import {
-  Calendar,
-  Check,
   ChevronDown,
   ClipboardCheck,
-  Clock,
-  ExternalLink,
   Lock,
-  Mail,
   Plus,
-  Receipt,
   RefreshCw,
-  Trash2,
 } from "@/components/icons";
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceCard } from "@/components/app-ui/surfaces";
 import {
   CaptionText,
   HelperText,
   MediumRowLabel,
-  SectionLabel,
 } from "@/components/app-ui/typography";
 import {
   AlertDialog,
@@ -71,7 +61,6 @@ import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   TodoListPkmService,
-  TODO_SOURCE_LABELS,
   agentTodoInput,
   buildTodo,
   calendarTodoInput,
@@ -90,8 +79,24 @@ import {
   getCachedGmailReceipts,
   cachedGmailReceiptDisplayItems,
 } from "@/lib/profile/gmail-receipts-cache";
-import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
-import { buildGmailWorkspaceRoute } from "@/lib/navigation/routes";
+
+import {
+  TodoRows,
+  extractDueReceipts,
+  localDateKey,
+  taskSort,
+} from "./todo-list-presentation";
+// Compatibility exports preserve existing callers while previews use the leaf.
+export {
+  TodoRow,
+  TodoRows,
+  DueReceiptRow,
+  DueReceiptsSection,
+  extractDueReceipts,
+  groupByDate,
+  taskSort,
+} from "./todo-list-presentation";
+export type { DueReceiptItem } from "./todo-list-presentation";
 
 type EditableTodoFields = {
   title: string;
@@ -100,31 +105,6 @@ type EditableTodoFields = {
   notes: string | null;
 };
 
-type DateGroup = {
-  id: string;
-  label: string;
-  overdue: boolean;
-  tasks: TodoItem[];
-};
-
-function localDateKey(value: Date): string {
-  return [
-    value.getFullYear(),
-    String(value.getMonth() + 1).padStart(2, "0"),
-    String(value.getDate()).padStart(2, "0"),
-  ].join("-");
-}
-
-function isSameLocalDay(left: Date, right: Date): boolean {
-  return localDateKey(left) === localDateKey(right);
-}
-
-function dateFromKey(value: string | null): Date | null {
-  if (!value) return null;
-  const date = new Date(`${value}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
 function calendarStart(event: RedactedCalendarEvent): Date | null {
   const value =
     event.start?.dateTime ??
@@ -132,60 +112,6 @@ function calendarStart(event: RedactedCalendarEvent): Date | null {
   if (!value) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function formatDateLabel(value: string | null): string {
-  const date = dateFromKey(value);
-  if (!date) return "No date";
-  const today = new Date();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(today.getDate() + 1);
-  if (isSameLocalDay(date, today)) return "Today";
-  if (isSameLocalDay(date, tomorrow)) return "Tomorrow";
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  }).format(date);
-}
-
-function isOverdue(task: TodoItem): boolean {
-  const date = dateFromKey(task.date);
-  if (!date || task.status !== "pending") return false;
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  return date < startOfToday;
-}
-
-export function taskSort(left: TodoItem, right: TodoItem): number {
-  const date = (left.date ?? "9999-12-31").localeCompare(
-    right.date ?? "9999-12-31",
-  );
-  if (date !== 0) return date;
-  const time = (left.time ?? "99:99").localeCompare(right.time ?? "99:99");
-  if (time !== 0) return time;
-  return left.title.localeCompare(right.title);
-}
-
-export function groupByDate(tasks: TodoItem[]): DateGroup[] {
-  const groups = new Map<string, DateGroup>();
-  for (const task of [...tasks].sort(taskSort)) {
-    const id = task.date ?? "anytime";
-    const group = groups.get(id) ?? {
-      id,
-      label: task.date ? formatDateLabel(task.date) : "Any time",
-      overdue: isOverdue(task),
-      tasks: [],
-    };
-    group.tasks.push(task);
-    group.overdue ||= isOverdue(task);
-    groups.set(id, group);
-  }
-  return [...groups.values()].sort((left, right) => {
-    if (left.id === "anytime") return -1;
-    if (right.id === "anytime") return 1;
-    return left.id.localeCompare(right.id);
-  });
 }
 
 function calendarTask(
@@ -245,460 +171,6 @@ function mergeAutomaticTasks(
     if (task.status === "pending" && !seen.has(key)) projected.push(task);
   }
   return projected.sort(taskSort);
-}
-
-function hapticTick(): void {
-  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-    navigator.vibrate(8);
-  }
-}
-
-function CircularCheckbox({
-  checked,
-  disabled,
-  label,
-  onChange,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  label: string;
-  onChange: () => void;
-}) {
-  return (
-    <ShellActionSurface
-      role="checkbox"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => {
-        hapticTick();
-        onChange();
-      }}
-      className={cn(
-        "h-11 w-11 disabled:cursor-wait",
-        checked
-          ? "!bg-[color:var(--app-accent)] !text-[color:var(--app-accent-fg)]"
-          : "!text-[color:var(--app-accent)]",
-      )}
-    >
-      <Check className="size-5" aria-hidden="true" />
-    </ShellActionSurface>
-  );
-}
-
-function useRowSwipe({
-  enabled,
-  onComplete,
-  onDelete,
-}: {
-  enabled: boolean;
-  onComplete: () => void;
-  onDelete: () => void;
-}) {
-  const start = useRef<{ x: number; y: number; pointerId: number } | null>(
-    null,
-  );
-
-  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!enabled || event.pointerType === "mouse") return;
-    if ((event.target as HTMLElement).closest("button, a, input, textarea"))
-      return;
-    start.current = {
-      x: event.clientX,
-      y: event.clientY,
-      pointerId: event.pointerId,
-    };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-  };
-
-  const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const initial = start.current;
-    start.current = null;
-    if (!initial || initial.pointerId !== event.pointerId) return;
-    const dx = event.clientX - initial.x;
-    const dy = event.clientY - initial.y;
-    if (Math.abs(dx) < 64 || Math.abs(dx) <= Math.abs(dy)) return;
-    if (dx > 0) onComplete();
-    else onDelete();
-  };
-
-  return {
-    onPointerDown,
-    onPointerUp,
-    onPointerCancel: () => {
-      start.current = null;
-    },
-  };
-}
-
-export function TodoRow({
-  task,
-  saving,
-  onToggle,
-  onDelete,
-}: {
-  task: TodoItem;
-  saving: boolean;
-  onToggle: (task: TodoItem, complete: boolean) => void;
-  onDelete: (task: TodoItem, trigger?: HTMLButtonElement) => void;
-}) {
-  const swipe = useRowSwipe({
-    enabled: !saving,
-    onComplete: () => onToggle(task, true),
-    onDelete: () => onDelete(task),
-  });
-  const source = task.sourceAgent;
-  const time = task.time
-    ? new Intl.DateTimeFormat(undefined, {
-        hour: "numeric",
-        minute: "2-digit",
-      }).format(new Date(`1970-01-01T${task.time}:00`))
-    : source === "calendar" && task.date
-      ? "All day"
-      : null;
-
-  return (
-    <SurfaceCard data-todo-item={task.id}>
-      <div
-        data-no-route-swipe
-        className="grid touch-pan-y grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 px-4 py-3 sm:gap-x-4 sm:px-5 sm:py-4"
-        {...swipe}
-      >
-        <MediumRowLabel
-          as="h3"
-          className={cn(
-            "self-center break-words [overflow-wrap:anywhere]",
-            task.status === "done" && "text-muted-foreground line-through",
-          )}
-        >
-          {task.title}
-        </MediumRowLabel>
-        <div className="flex shrink-0 items-center gap-1">
-          <CircularCheckbox
-            checked={task.status === "done"}
-            disabled={saving}
-            label={`Mark ${task.title} as ${task.status === "done" ? "not completed" : "completed"}`}
-            onChange={() => onToggle(task, task.status !== "done")}
-          />
-          <ShellActionSurface
-            className="h-11 w-11 hover:text-destructive"
-            aria-label={`Delete ${task.title}`}
-            onClick={(event) => onDelete(task, event.currentTarget)}
-            disabled={saving}
-          >
-            <Trash2 className="size-4" aria-hidden="true" />
-          </ShellActionSurface>
-        </div>
-        {time || source || task.link ? (
-          <div className="col-span-2 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-            {time ? (
-              <CaptionText
-                className={cn(
-                  "inline-flex items-center gap-1.5 tabular-nums !text-[color:var(--app-secondary-label)]",
-                  isOverdue(task) && "!text-destructive",
-                )}
-              >
-                <Clock className="size-3.5" aria-hidden="true" />
-                {time}
-              </CaptionText>
-            ) : null}
-            {source ? (
-              <CaptionText className="inline-flex items-center gap-1.5 !text-[color:var(--app-secondary-label)]">
-                {source === "calendar" ? (
-                  <Calendar className="size-3.5" aria-hidden="true" />
-                ) : source === "gmail" ? (
-                  <Mail className="size-3.5" aria-hidden="true" />
-                ) : (
-                  <ClipboardCheck className="size-3.5" aria-hidden="true" />
-                )}
-                {TODO_SOURCE_LABELS[source]}
-              </CaptionText>
-            ) : null}
-            {task.link ? (
-              <Button
-                asChild
-                variant="none"
-                effect="fade"
-                size="compact"
-                className="ml-auto !px-2 !text-[color:var(--app-accent)]"
-              >
-                {task.link.startsWith("/") ? (
-                  <Link href={task.link} aria-label={`Open ${task.title}`}>Open</Link>
-                ) : (
-                  <a href={task.link} target="_blank" rel="noreferrer"
-                    aria-label={`${source === "calendar" ? "Join" : "Open"} ${task.title}`}>
-                    {source === "calendar" ? "Join" : "Open"}
-                    <ExternalLink className="ml-1 size-3.5" aria-hidden="true" />
-                  </a>
-                )}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-        {task.notes ? (
-          <HelperText as="p" className="col-span-2 mt-1 line-clamp-2">
-            {task.notes}
-          </HelperText>
-        ) : null}
-      </div>
-    </SurfaceCard>
-  );
-}
-
-export interface DueReceiptItem {
-  id: string;
-  merchantName: string;
-  title: string;
-  amount: string | null;
-  date: string | null;
-  status: "overdue" | "renewal_due" | "payment_failed" | "attention";
-  statusLabel: string;
-  href: string;
-}
-
-export function extractDueReceipts(
-  items: readonly ReceiptListItem[],
-): DueReceiptItem[] {
-  const dueItems: DueReceiptItem[] = [];
-  for (const item of items) {
-    const isOverdue =
-      item.status === "overdue" || item.attention_reason === "overdue";
-    const isFailed =
-      item.status === "payment_failed" ||
-      item.attention_reason === "payment_failed";
-    const isRenewal =
-      item.status === "renewal_due" ||
-      item.attention_reason === "renewal_due";
-    const isSuspended =
-      item.status === "suspended" || item.attention_reason === "suspended";
-    const needsAttention =
-      item.attention_state === "needs_attention" ||
-      item.attention_state === "coming_up" ||
-      item.attention_state === "needs_review";
-
-    if (!isOverdue && !isFailed && !isRenewal && !isSuspended && !needsAttention) {
-      continue;
-    }
-
-    const status: DueReceiptItem["status"] = isFailed
-      ? "payment_failed"
-      : isOverdue
-        ? "overdue"
-        : isRenewal
-          ? "renewal_due"
-          : "attention";
-
-    const statusLabel = isFailed
-      ? "Payment failed"
-      : isOverdue
-        ? "Payment overdue"
-        : isRenewal
-          ? "Renewal due"
-          : isSuspended
-            ? "Payment suspended"
-            : "Review payment";
-
-    const merchant = item.merchant_name || item.from_name || "Payment due";
-    const amountStr =
-      typeof item.amount === "number" && Number.isFinite(item.amount)
-        ? new Intl.NumberFormat(undefined, {
-            style: "currency",
-            currency: item.currency || "USD",
-          }).format(item.amount)
-        : null;
-
-    const dateStr =
-      item.attention_date || item.receipt_date || item.transaction_date || null;
-    let formattedDate: string | null = null;
-    if (dateStr) {
-      const parsed = new Date(dateStr);
-      if (!Number.isNaN(parsed.getTime())) {
-        formattedDate = new Intl.DateTimeFormat(undefined, {
-          month: "short",
-          day: "numeric",
-        }).format(parsed);
-      }
-    }
-
-    dueItems.push({
-      id: String(item.source_id || item.gmail_message_id || item.id),
-      merchantName: merchant,
-      title: item.subject || item.short_detail || merchant,
-      amount: amountStr,
-      date: formattedDate,
-      status,
-      statusLabel,
-      href: buildGmailWorkspaceRoute("receipts"),
-    });
-  }
-  return dueItems;
-}
-
-export function DueReceiptRow({ receipt }: { receipt: DueReceiptItem }) {
-  return (
-    <SurfaceCard data-receipt-item={receipt.id}>
-      <div className="flex items-center justify-between gap-3 px-4 py-3 sm:gap-4 sm:px-5 sm:py-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-foreground">
-            <Receipt className="size-4" aria-hidden="true" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <MediumRowLabel as="h3" className="truncate">
-                {receipt.merchantName}
-              </MediumRowLabel>
-              <span
-                className={cn(
-                  "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-                  receipt.status === "overdue" || receipt.status === "payment_failed"
-                    ? "bg-destructive/10 text-destructive"
-                    : "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)]",
-                )}
-              >
-                {receipt.statusLabel}
-              </span>
-            </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-              {receipt.amount ? (
-                <span className="font-semibold text-foreground">
-                  {receipt.amount}
-                </span>
-              ) : null}
-              {receipt.amount && receipt.date ? <span>·</span> : null}
-              {receipt.date ? <span>{receipt.date}</span> : null}
-              {receipt.title && receipt.title !== receipt.merchantName ? (
-                <>
-                  <span>·</span>
-                  <span className="truncate max-w-[200px]">{receipt.title}</span>
-                </>
-              ) : null}
-            </div>
-          </div>
-        </div>
-        <Button
-          asChild
-          variant="none"
-          effect="fade"
-          size="compact"
-          className="shrink-0 !px-2 !text-[color:var(--app-accent)]"
-        >
-          <Link href={receipt.href} aria-label={`View ${receipt.merchantName} receipt`}>
-            View
-            <ExternalLink className="ml-1 size-3.5" aria-hidden="true" />
-          </Link>
-        </Button>
-      </div>
-    </SurfaceCard>
-  );
-}
-
-export function DueReceiptsSection({ receipts }: { receipts: DueReceiptItem[] }) {
-  if (receipts.length === 0) return null;
-  return (
-    <section aria-label="Due payments and receipts">
-      <div className="mb-2 flex items-center justify-between gap-3 px-1">
-        <SectionLabel as="h2" compact>
-          <span>Receipts & Due Payments</span>
-        </SectionLabel>
-        <CaptionText className="tabular-nums !text-[color:var(--app-secondary-label)]">
-          {receipts.length}
-        </CaptionText>
-      </div>
-      <div className="space-y-2.5">
-        {receipts.map((receipt) => (
-          <DueReceiptRow key={receipt.id} receipt={receipt} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-export function TodoRows({
-  tasks,
-  savingTaskId,
-  dueReceipts = [],
-  onToggle,
-  onDelete,
-}: {
-  tasks: TodoItem[];
-  savingTaskId: string | null;
-  dueReceipts?: DueReceiptItem[];
-  onToggle: (task: TodoItem, complete: boolean) => void;
-  onDelete: (task: TodoItem, trigger?: HTMLButtonElement) => void;
-}) {
-  const groups = groupByDate(tasks);
-  const anytimeGroup = groups.find((g) => g.id === "anytime");
-  const datedGroups = groups.filter((g) => g.id !== "anytime");
-
-  return (
-    <div className="space-y-6" data-no-auto-fade="true">
-      {anytimeGroup ? (
-        <section
-          key={anytimeGroup.id}
-          aria-label={
-            anytimeGroup.overdue
-              ? `${anytimeGroup.label}, overdue`
-              : anytimeGroup.label
-          }
-        >
-          <div className="mb-2 flex items-center justify-between gap-3 px-1">
-            <SectionLabel as="h2" compact>
-              <span className={anytimeGroup.overdue ? "text-destructive" : undefined}>
-                {anytimeGroup.overdue
-                  ? `${anytimeGroup.label} · Overdue`
-                  : anytimeGroup.label}
-              </span>
-            </SectionLabel>
-            <CaptionText className="tabular-nums !text-[color:var(--app-secondary-label)]">
-              {anytimeGroup.tasks.length}
-            </CaptionText>
-          </div>
-          <div className="space-y-2.5">
-            {anytimeGroup.tasks.map((task) => (
-              <TodoRow
-                key={task.id}
-                task={task}
-                saving={savingTaskId === task.id}
-                onToggle={onToggle}
-                onDelete={onDelete}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      <DueReceiptsSection receipts={dueReceipts} />
-
-      {datedGroups.map((group) => (
-        <section
-          key={group.id}
-          aria-label={group.overdue ? `${group.label}, overdue` : group.label}
-        >
-          <div className="mb-2 flex items-center justify-between gap-3 px-1">
-            <SectionLabel as="h2" compact>
-              <span className={group.overdue ? "text-destructive" : undefined}>
-                {group.overdue ? `${group.label} · Overdue` : group.label}
-              </span>
-            </SectionLabel>
-            <CaptionText className="tabular-nums !text-[color:var(--app-secondary-label)]">
-              {group.tasks.length}
-            </CaptionText>
-          </div>
-          <div className="space-y-2.5">
-            {group.tasks.map((task) => (
-              <TodoRow
-                key={task.id}
-                task={task}
-                saving={savingTaskId === task.id}
-                onToggle={onToggle}
-                onDelete={onDelete}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
 }
 
 function TodoAddItemSheet({
@@ -889,9 +361,14 @@ export function TodoListPage() {
     userId && isVaultUnlocked && vaultKey && vaultOwnerToken,
   );
   const agentFeed = useFeedActionables({ enabled: writeReady });
-  const { pendingKyc, kycLoading, kycError, retryKyc } = useFeedBriefing({ enabled: writeReady, includeCalendar: false, includeNudges: false });
+  const { pendingKyc, kycLoading, kycError, retryKyc } = useFeedBriefing({
+    enabled: writeReady,
+    includeCalendar: false,
+    includeNudges: false,
+  });
   const agentLoadError = agentFeed.error || agentFeed.progressError || kycError;
-  const agentLoading = agentFeed.loading || agentFeed.progressLoading || kycLoading;
+  const agentLoading =
+    agentFeed.loading || agentFeed.progressLoading || kycLoading;
   useEffect(() => {
     if (writeReady) return;
     setEditorOpen(false);
@@ -951,37 +428,38 @@ export function TodoListPage() {
     void loadItems();
   }, [loadItems]);
 
-  const pending = useMemo(
-    () => {
-      const saved = new Map(tasks.map((task) => [task.id, task]));
-      const live = new Map<string, TodoItem>();
-      for (const item of agentFeed.actionables) {
-        if (!item.todo) continue;
-        const input = agentTodoInput(item.id, item.todo);
-        if (!input) continue;
+  const pending = useMemo(() => {
+    const saved = new Map(tasks.map((task) => [task.id, task]));
+    const live = new Map<string, TodoItem>();
+    for (const item of agentFeed.actionables) {
+      if (!item.todo) continue;
+      const input = agentTodoInput(item.id, item.todo);
+      if (!input) continue;
+      const task = buildTodo(input);
+      const status = saved.get(task.id)?.status;
+      if (status !== "done" && status !== "deleted") live.set(task.id, task);
+    }
+    if (pendingKyc) {
+      const input = agentTodoInput(`kyc:${pendingKyc.workflowId}`, {
+        source: "kyc",
+        title:
+          pendingKyc.count > 1
+            ? `Review ${pendingKyc.count} information requests`
+            : "Review information request",
+        href: "/one/gmail?workspace=kyc",
+      });
+      if (input) {
         const task = buildTodo(input);
         const status = saved.get(task.id)?.status;
         if (status !== "done" && status !== "deleted") live.set(task.id, task);
       }
-      if (pendingKyc) {
-        const input = agentTodoInput(`kyc:${pendingKyc.workflowId}`, {
-          source: "kyc", title: pendingKyc.count > 1 ? `Review ${pendingKyc.count} information requests` : "Review information request",
-          href: "/one/gmail?workspace=kyc",
-        });
-        if (input) {
-          const task = buildTodo(input);
-          const status = saved.get(task.id)?.status;
-          if (status !== "done" && status !== "deleted") live.set(task.id, task);
-        }
-      }
-      return [
-        ...mergeAutomaticTasks(upcoming.events, tasks),
-        ...live.values(),
-        ...openTodoItems(tasks).filter((task) => task.type === "manual"),
-      ].sort(taskSort);
-    },
-    [agentFeed.actionables, pendingKyc, upcoming.events, tasks],
-  );
+    }
+    return [
+      ...mergeAutomaticTasks(upcoming.events, tasks),
+      ...live.values(),
+      ...openTodoItems(tasks).filter((task) => task.type === "manual"),
+    ].sort(taskSort);
+  }, [agentFeed.actionables, pendingKyc, upcoming.events, tasks]);
   const completed = useMemo(() => completedTodoItems(tasks), [tasks]);
   const today = localDateKey(new Date());
   const doneToday = completed.filter((task) => task.date === today).length;
@@ -1120,6 +598,20 @@ export function TodoListPage() {
       width="reading"
       fitContent
       className="bg-transparent"
+      nativeTest={{
+        routeId: "/one/todos",
+        marker: "native-route-one-todos",
+        authState: user ? "authenticated" : "anonymous",
+        dataState: itemsLoading
+          ? "loading"
+          : writeReady
+            ? pending.length > 0 ||
+              completed.length > 0 ||
+              dueReceipts.length > 0
+              ? "loaded"
+              : "empty-valid"
+            : "unavailable-valid",
+      }}
     >
       <AppPageHeaderRegion>
         <PageHeader
@@ -1134,23 +626,38 @@ export function TodoListPage() {
           actionsInlineMobile
           actions={
             <div className="flex items-center gap-2">
-            {writeReady && agentLoadError ? (
-              <Button variant="none" effect="fade" size="compact"
-                aria-label="Retry agent tasks" disabled={agentLoading}
-                onClick={() => void Promise.all([agentFeed.retry(), retryKyc()]).catch(() => {
-                  morphyToast.error("Agent tasks couldn’t refresh. Try again.");
-                })}>Retry</Button>
-            ) : null}
-            <AddItemButton
-              buttonRef={addItemRef}
-              disabled={!writeReady || itemsLoading}
-              onClick={openCreate}
-            />
+              {writeReady && agentLoadError ? (
+                <Button
+                  variant="none"
+                  effect="fade"
+                  size="compact"
+                  aria-label="Retry agent tasks"
+                  disabled={agentLoading}
+                  onClick={() =>
+                    void Promise.all([agentFeed.retry(), retryKyc()]).catch(
+                      () => {
+                        morphyToast.error(
+                          "Agent tasks couldn’t refresh. Try again.",
+                        );
+                      },
+                    )
+                  }
+                >
+                  Retry
+                </Button>
+              ) : null}
+              <AddItemButton
+                buttonRef={addItemRef}
+                disabled={!writeReady || itemsLoading}
+                onClick={openCreate}
+              />
             </div>
           }
         />
         {writeReady && agentLoadError ? (
-          <HelperText as="p" role="status">Some agent tasks couldn’t refresh. Your other items are still here.</HelperText>
+          <HelperText as="p" role="status">
+            Some agent tasks couldn’t refresh. Your other items are still here.
+          </HelperText>
         ) : null}
         {writeReady && !itemsLoading && totalToday > 0 ? (
           <div className="mt-5 flex items-center gap-4" aria-live="polite">
@@ -1216,9 +723,18 @@ export function TodoListPage() {
             </HelperText>
           </div>
         )}
-        {writeReady && agentFeed.actionables.some((item) => item.id === "consent:overflow") ? (
+        {writeReady &&
+        agentFeed.actionables.some((item) => item.id === "consent:overflow") ? (
           <Button asChild variant="none" effect="fade" size="compact">
-            <Link href={agentFeed.actionables.find((item) => item.id === "consent:overflow")!.href || "/one/feed"}>View all pending requests</Link>
+            <Link
+              href={
+                agentFeed.actionables.find(
+                  (item) => item.id === "consent:overflow",
+                )!.href || "/one/feed"
+              }
+            >
+              View all pending requests
+            </Link>
           </Button>
         ) : null}
 

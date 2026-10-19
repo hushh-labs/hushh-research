@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 
 const mocks = vi.hoisted(() => ({
   nativePlatform: false,
@@ -628,6 +629,12 @@ describe("VaultProvider app-resume expiry recovery", () => {
     renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
 
+    const session = useOneConversationSession.getState();
+    session.ensureComposerDraft("vault-owner");
+    const context = useOneConversationSession.getState().composerDraft!.context;
+    session.updateComposerDraft("vault-owner", context, draft => ({ ...draft, input: "Synthetic unsent draft" }));
+    expect(useOneConversationSession.getState().composerDraft?.input).toBe("Synthetic unsent draft");
+
     act(() => {
       window.dispatchEvent(
         new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, {
@@ -646,6 +653,7 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(screen.getByTestId("vault-token").textContent).toBe("none");
     expect(screen.getByTestId("vault-key").textContent).toBe("none");
     expect(mocks.clearAgentPkmContext).toHaveBeenCalledWith("vault-owner");
+    expect(useOneConversationSession.getState().composerDraft).toBeNull();
   });
 
   it("does not let a delayed account-A terminal event lock account B", () => {

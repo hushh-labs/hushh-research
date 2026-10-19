@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * App accent preference: "blue" (iOS Blue, default) or "gold" (Molten Gold).
+ * App accent preference: "blue" (Blue, default) or "gold" (Molten Gold).
  *
  * Mirrors the next-themes pattern for a single custom axis:
  * - persisted in localStorage under ACCENT_STORAGE_KEY
@@ -22,6 +22,9 @@ export const DEFAULT_ACCENT: AppAccent = "blue";
 export const ACCENT_CHANGED_EVENT = "hushh:accent-changed";
 
 const ACCENT_VALUES: readonly AppAccent[] = ["blue", "gold"];
+// Failed persistence must not split the applied color from the current label.
+// This is presentation-only session state, cleared by a confirmed write.
+let sessionAccent: AppAccent | null = null;
 
 export function normalizeAccent(value: unknown): AppAccent {
   return ACCENT_VALUES.includes(value as AppAccent)
@@ -31,6 +34,7 @@ export function normalizeAccent(value: unknown): AppAccent {
 
 export function readAccent(): AppAccent {
   if (typeof window === "undefined") return DEFAULT_ACCENT;
+  if (sessionAccent !== null) return sessionAccent;
   try {
     return normalizeAccent(window.localStorage.getItem(ACCENT_STORAGE_KEY));
   } catch {
@@ -51,8 +55,10 @@ export function writeAccent(value: AppAccent): AppAccent {
   const accent = normalizeAccent(value);
   try {
     window.localStorage.setItem(ACCENT_STORAGE_KEY, accent);
+    sessionAccent = null;
   } catch {
     // Private mode / storage denied: still apply for this session.
+    sessionAccent = accent;
   }
   applyAccentAttribute(accent);
   window.dispatchEvent(
@@ -62,11 +68,19 @@ export function writeAccent(value: AppAccent): AppAccent {
 }
 
 function subscribe(listener: () => void): () => void {
+  const storageChanged = (event: StorageEvent) => {
+    if (event.key !== null && event.key !== ACCENT_STORAGE_KEY) return;
+    try { if (event.storageArea !== window.localStorage) return; }
+    catch { return; } // A denied storage getter cannot invalidate session state.
+    sessionAccent = null;
+    applyAccentAttribute(readAccent());
+    listener();
+  };
   window.addEventListener(ACCENT_CHANGED_EVENT, listener);
-  window.addEventListener("storage", listener);
+  window.addEventListener("storage", storageChanged);
   return () => {
     window.removeEventListener(ACCENT_CHANGED_EVENT, listener);
-    window.removeEventListener("storage", listener);
+    window.removeEventListener("storage", storageChanged);
   };
 }
 
