@@ -11,6 +11,7 @@ test("the UAT-backed workflow cannot publish publicly or silently select PROD da
   assert.doesNotThrow(() => validateReleaseTarget({ track: "internal", dryRun: false }));
   const workflow = readFileSync(new URL("../../.github/workflows/ship-android-playstore-v1.yml", import.meta.url), "utf8");
   assert.match(workflow, /default: internal/);
-  assert.match(workflow, /\[ "\$TARGET_TRACK" = "production" \] && \[ "\$\{\{ inputs.dry_run \}\}" != "true" \]/);
+  assert.match(workflow, /DRY_RUN: \$\{\{ inputs.dry_run \}\}/);
+  assert.match(workflow, /\[ "\$TARGET_TRACK" = "production" \] && \[ "\$\{DRY_RUN:-false\}" != "true" \]/);
   assert.match(workflow, /Public Android upload is blocked/);
 });

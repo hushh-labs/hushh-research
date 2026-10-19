@@ -1586,7 +1586,9 @@ def test_delete_firebase_auth_user_retries_once_before_success(monkeypatch):
 
     delete_calls: list[tuple[str, object]] = []
     sleep_calls: list[float] = []
-    firebase_app = object()
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "prod")
+    firebase_app = SimpleNamespace(project_id="hushh-pda")
 
     def _mock_delete_user(user_id: str, *, app: object):
         delete_calls.append((user_id, app))
@@ -1602,7 +1604,7 @@ def test_delete_firebase_auth_user_retries_once_before_success(monkeypatch):
     monkeypatch.setattr(
         AccountDeletionLifecycleService,
         "record_cleanup_outcome",
-        lambda **_kwargs: None,
+        lambda _self, **_kwargs: True,
     )
 
     status = asyncio.run(account._delete_firebase_auth_user("user_123"))
@@ -1618,7 +1620,9 @@ def test_delete_firebase_auth_user_quarantines_after_bounded_failures(monkeypatc
     delete_calls: list[str] = []
     disabled_users: list[str] = []
     revoked_users: list[str] = []
-    firebase_app = object()
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "prod")
+    firebase_app = SimpleNamespace(project_id="hushh-pda")
 
     def _mock_delete_user(user_id: str, *, app: object):
         assert app is firebase_app
@@ -1649,7 +1653,7 @@ def test_delete_firebase_auth_user_quarantines_after_bounded_failures(monkeypatc
     monkeypatch.setattr(
         AccountDeletionLifecycleService,
         "record_cleanup_outcome",
-        lambda **_kwargs: None,
+        lambda _self, **_kwargs: True,
     )
 
     status = asyncio.run(account._delete_firebase_auth_user("user_123"))
