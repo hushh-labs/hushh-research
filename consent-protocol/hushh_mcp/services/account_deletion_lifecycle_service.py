@@ -13,7 +13,11 @@ from typing import Literal, cast
 
 from sqlalchemy import text
 
-from api.utils.firebase_admin import get_firebase_auth_app
+from api.utils.firebase_admin import (
+    FirebaseAuthorityError,
+    assert_firebase_identity_mutation_allowed,
+    get_firebase_auth_app,
+)
 from db.db_client import get_db_connection
 from hushh_mcp.config import APP_SIGNING_KEY
 
@@ -974,6 +978,13 @@ class AccountDeletionLifecycleService:
             )
 
         last_error: BaseException | None = None
+        try:
+            firebase_app = get_firebase_auth_app()
+            assert_firebase_identity_mutation_allowed(firebase_app)
+        except FirebaseAuthorityError:
+            return FirebaseCleanupAttempt(
+                "retry_pending", classification="firebase_authority_mismatch"
+            )
         for attempt_number in range(1, _FIREBASE_DELETE_MAX_ATTEMPTS + 1):
             if intent_kind == "phone_orphan":
                 if expected_phone_digest is None:
@@ -990,7 +1001,6 @@ class AccountDeletionLifecycleService:
             try:
                 from firebase_admin import auth as firebase_auth
 
-                firebase_app = get_firebase_auth_app()
                 await asyncio.wait_for(
                     asyncio.to_thread(
                         firebase_auth.delete_user,
@@ -1067,6 +1077,11 @@ class AccountDeletionLifecycleService:
             from firebase_admin import auth as firebase_auth
 
             firebase_app = get_firebase_auth_app()
+            assert_firebase_identity_mutation_allowed(firebase_app)
+        except FirebaseAuthorityError:
+            return FirebaseCleanupAttempt(
+                "quarantine_incomplete", classification="firebase_authority_mismatch"
+            )
         except Exception as exc:
             return FirebaseCleanupAttempt("quarantine_incomplete", _failure_class(exc))
 

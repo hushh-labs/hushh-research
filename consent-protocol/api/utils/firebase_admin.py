@@ -17,12 +17,59 @@ from typing import Any, Optional, Tuple
 
 from hushh_mcp.runtime_settings import (
     FIREBASE_ADMIN_CREDENTIALS_JSON_ENV,
+    get_app_runtime_settings,
     get_firebase_credential_settings,
 )
 
 DEFAULT_SERVICE_ACCOUNT_ENV = FIREBASE_ADMIN_CREDENTIALS_JSON_ENV
 FIREBASE_ADMIN_HTTP_TIMEOUT_SECONDS = 4
 _FIREBASE_ADMIN_INIT_LOCK = threading.Lock()
+
+
+class FirebaseAuthorityError(RuntimeError):
+    """Bounded configuration refusal; never includes credentials or account IDs."""
+
+
+def _checked_project(app: Any, service_account: Optional[dict[str, Any]] = None) -> str:
+    actual = _project_id_from_app(app)
+    configured = _project_id_from_service_account(service_account)
+    if (
+        not actual
+        or (service_account is not None and not configured)
+        or (configured and actual != configured)
+    ):
+        raise FirebaseAuthorityError("firebase_authority_mismatch")
+    runtime = get_app_runtime_settings()
+    production = {"prod", "production"}
+    if (
+        runtime.environment in production or runtime.runtime_profile in production
+    ) and actual != "hushh-pda":
+        raise FirebaseAuthorityError("firebase_authority_mismatch")
+    return actual
+
+
+def assert_firebase_identity_mutation_allowed(app: Any) -> None:
+    """Fence shared PROD identity mutations while legacy UAT reads still work.
+
+    This does not switch authentication or migrate existing clients. The SDK
+    must receive this exact app; passing None would silently use the default.
+    """
+    project = _checked_project(app)
+    runtime = get_app_runtime_settings()
+    environment = runtime.environment
+    profile = runtime.runtime_profile
+    production = {"prod", "production"}
+    nonproduction = {"local", "dev", "development", "uat"}
+    if environment not in production | nonproduction or (
+        profile and profile not in production | nonproduction
+    ):
+        raise FirebaseAuthorityError("firebase_authority_mismatch")
+    if (environment in production and profile in nonproduction) or (
+        environment in nonproduction and profile in production
+    ):
+        raise FirebaseAuthorityError("firebase_authority_mismatch")
+    if project == "hushh-pda" and environment not in production:
+        raise FirebaseAuthorityError("firebase_authority_mismatch")
 
 
 def _load_service_account_from_env(var_name: str) -> Optional[dict[str, Any]]:
@@ -90,11 +137,11 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
     # and startup warmers may all reach this helper concurrently, so the
     # check-and-initialize sequence must be atomic.
     with _FIREBASE_ADMIN_INIT_LOCK:
+        sa = _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV)
         app = _get_existing_app()
         if app is not None:
-            return True, _project_id_from_app(app)
+            return True, _checked_project(app, sa)
 
-        sa = _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV)
         if sa:
             cred = credentials.Certificate(sa)
             try:
@@ -109,7 +156,7 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
                 app = _get_existing_app()
                 if app is None:
                     raise
-            return True, _project_id_from_app(app, sa)
+            return True, _checked_project(app, sa)
 
         # Fall back to ADC (Cloud Run / local gcloud).
         try:
@@ -118,13 +165,14 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
                 cred,
                 options={"httpTimeout": FIREBASE_ADMIN_HTTP_TIMEOUT_SECONDS},
             )
-            return True, _project_id_from_app(app)
         except Exception:
             app = _get_existing_app()
-            if app is not None:
-                return True, _project_id_from_app(app)
-            # Not configured (caller decides whether to 500/401)
-            return False, None
+            if app is None:
+                # Not configured (caller decides whether to 500/401).
+                return False, None
+        # Validate outside the ADC exception handler. An authority mismatch
+        # must never be swallowed by adopting another default app.
+        return True, _checked_project(app)
 
 
 def ensure_firebase_auth_admin() -> Tuple[bool, Optional[str]]:
@@ -135,8 +183,12 @@ def get_firebase_auth_app():
     """
     Return the Firebase app used for auth-only operations.
     """
-    configured, _ = ensure_firebase_auth_admin()
+    configured, expected = ensure_firebase_auth_admin()
     if not configured:
         return None
 
-    return _get_existing_app()
+    app = _get_existing_app()
+    actual = _checked_project(app, _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV))
+    if expected != actual:
+        raise FirebaseAuthorityError("firebase_authority_mismatch")
+    return app

@@ -36,3 +36,12 @@ test("malformed packaging versions cannot reach dispatch", () => {
   }
   assert.equal(parseMarketingVersion("1.4.1"), "1.4.1");
 });
+
+test("public submissions cannot target UAT even when the CLI is bypassed", () => {
+  const sha = "b".repeat(40);
+  for (const flags of [{ submit: true }, { releaseAfterApproval: true }]) {
+    assert.throws(() => buildDispatchInputs({ backend: "uat", ...flags }, sha), /production backend/);
+    assert.doesNotThrow(() => buildDispatchInputs({ backend: "production", ...flags }, sha));
+  }
+  assert.doesNotThrow(() => buildDispatchInputs({ backend: "uat", dryRun: true }, sha));
+});

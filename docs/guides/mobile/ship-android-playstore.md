@@ -20,12 +20,13 @@ select `internal` explicitly when releasing to testers alongside TestFlight.
 - **CLI Dispatcher:** `node scripts/release/dispatch-android-playstore.mjs` (or `npm run android:release:playstore`).
 - **Runner:** GitHub-hosted `ubuntu-latest`.
 - **Target:** package `com.hussh.app` (Android only — iOS remains `com.hushh.app`), selected Google Play track. The binary talks to the **UAT backend** (`hushh-pda-uat`); the production backend (`hushh-pda`) is never read or targeted by this lane.
-- **Secret custody:** routing, signing, Play service-account, and native/shared Firebase material all live in `hushh-pda-uat` Secret Manager. The native `google-services.json` is cross-checked against the web Firebase identity before the build.
-- **Cadence:** operator-initiated when a release is warranted. There is no cron trigger; only `production` and `internal` tracks are supported.
+- **Secret custody:** routing, signing, Play service-account, and native/shared Firebase material all live in `hushh-pda-uat` Secret Manager. The native `google-services.json` is cross-checked against the web Firebase project and sender under the same Android env overlay used by Capacitor.
+- **Cadence:** operator-initiated when a release is warranted. There is no cron trigger; `internal` is the default. `production` is allowed for dry-run verification only; a live production-track upload is refused while this lane targets UAT.
 
 This is the Android equivalent of the iOS App Store workflow with `backend_target=uat` (latest
-frontend + latest backend, matching UAT). A store binary that talks to UAT is an intentional product
-contract, not credential reuse: the selected Play track is the upload target, UAT is the runtime.
+frontend + latest backend, matching UAT). Existing public binaries may still target UAT.
+Changing their backend is a customer-data transition and requires verified migration/recovery;
+this containment change does not redirect those installed apps.
 The job runs in the `uat` GitHub environment because that environment carries the UAT workload
 identity needed to read the UAT backend revision and secrets; dispatch authority is still the
 stricter `production.manual_dispatch_users` list for either track.
@@ -123,20 +124,20 @@ base64 -i service-account-key.json \
 
 ```bash
 npm run android:release:playstore -- --dry-run  # query Play + build/sign/verify; no upload
-npm run android:release:playstore                # live upload to the Play production track
+npm run android:release:playstore                # live upload to internal testers
 npm run android:release:playstore -- --track internal --dry-run # verify an internal build
 npm run android:release:playstore -- --track internal # live upload for internal testers
 ```
 
 The dispatcher refreshes `origin/main`, shows the exact SHA/environment/package/track, and requires
-typing `dry run`, `release production`, or `release internal` for the selected mode. Live confirmation cannot be bypassed with a non-interactive
+typing `dry run` or `release internal` for the selected permitted mode. Live confirmation cannot be bypassed with a non-interactive
 flag. It watches and verifies the exact run ID returned by GitHub.
 
 ### Option B: GitHub Actions UI
 
 1. Open repository on GitHub $\rightarrow$ **Actions** $\rightarrow$ **Ship Android to Google Play Store**.
 2. Select **track** (`production` or `internal`), first run with **dry_run** enabled, and inspect every gate.
-3. For a live release, re-run the same track and exact green SHA with **dry_run** disabled. The runtime is always UAT.
+3. For a live internal release, select **internal** and the exact green SHA with **dry_run** disabled. The runtime is UAT. Live production-track uploads are blocked.
 
 ## Contacts: the Data safety declaration, and the April 2026 policy
 

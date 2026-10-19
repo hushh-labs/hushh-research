@@ -80,6 +80,19 @@ class FirebaseAdminIdentity:
             raise EnterpriseSsoError("sso_unavailable", 503)
         return firebase_auth, app
 
+    def _write_auth(self):
+        from api.utils.firebase_admin import (
+            FirebaseAuthorityError,
+            assert_firebase_identity_mutation_allowed,
+        )
+
+        firebase_auth, app = self._auth()
+        try:
+            assert_firebase_identity_mutation_allowed(app)
+        except FirebaseAuthorityError as exc:
+            raise EnterpriseSsoError("sso_unavailable", 503) from exc
+        return firebase_auth, app
+
     async def get_user(self, uid: str) -> FirebaseUserInfo | None:
         firebase_auth, app = self._auth()
         try:
@@ -97,7 +110,7 @@ class FirebaseAdminIdentity:
     async def create_user(self, uid: str, email: str, display_name: str | None = None) -> None:
         """Create the identity, idempotently. The org's IdP asserted this email on a domain
         WorkOS verified by DNS, so the address is created verified."""
-        firebase_auth, app = self._auth()
+        firebase_auth, app = self._write_auth()
         extra = {"display_name": display_name} if display_name else {}
         try:
             await asyncio.to_thread(
@@ -117,19 +130,19 @@ class FirebaseAdminIdentity:
     async def set_display_name(self, uid: str, display_name: str) -> None:
         """Set the name the profile shows. Firebase Auth is where the app reads it from; the
         identity shadow catches up on the person's next sign-in."""
-        firebase_auth, app = self._auth()
+        firebase_auth, app = self._write_auth()
         await asyncio.to_thread(firebase_auth.update_user, uid, display_name=display_name, app=app)
 
     async def merge_claims(self, uid: str, updates: Mapping[str, Any]) -> None:
         """Add to a user's claims. `set_custom_user_claims` replaces the whole object, so
         the existing claims (for example `hushhWelcomeMailAt`) are read and kept."""
-        firebase_auth, app = self._auth()
+        firebase_auth, app = self._write_auth()
         user = await asyncio.to_thread(firebase_auth.get_user, uid, app=app)
         merged = {**(user.custom_claims or {}), **updates}
         await asyncio.to_thread(firebase_auth.set_custom_user_claims, uid, merged, app=app)
 
     async def mint_token(self, uid: str, claims: dict[str, str]) -> str:
-        firebase_auth, app = self._auth()
+        firebase_auth, app = self._write_auth()
         token: Any = await asyncio.to_thread(
             firebase_auth.create_custom_token, uid, claims, app=app
         )
@@ -148,6 +161,9 @@ class FirebaseAdminIdentity:
         """End live sessions without disabling the account."""
         firebase_auth, app = self._auth()
         try:
+            from api.utils.firebase_admin import assert_firebase_identity_mutation_allowed
+
+            assert_firebase_identity_mutation_allowed(app)
             await asyncio.to_thread(firebase_auth.revoke_refresh_tokens, uid, app=app)
         except firebase_auth.UserNotFoundError:
             return True
