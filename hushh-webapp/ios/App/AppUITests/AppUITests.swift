@@ -2193,14 +2193,18 @@ final class AppUITests: XCTestCase {
         for _ in 0..<3 {
             // Pan in the shared page gutter, never through an actionable tile.
             start.press(forDuration: 0.05, thenDragTo: end, withVelocity: XCUIGestureVelocity(rawValue: 400), thenHoldForDuration: 0)
-            let moved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in bar.frame.minY > baseline + 6 }, object: app)
+            let moved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                bar.frame.minY >= app.frame.maxY - 1
+            }, object: app)
             guard XCTWaiter.wait(for: [moved], timeout: 5) == .completed else {
+                print("NATIVE_BOTTOM_SCROLL_FRAME stage=maximum navigationY=\(bar.frame.minY) navigationHeight=\(bar.frame.height) viewportBottom=\(app.frame.maxY)")
                 reportNativeDockAdmission(app)
-                XCTFail("NATIVE_BOTTOM_SCROLL_DID_NOT_FOLLOW_USER_SCROLL"); return
+                XCTFail("NATIVE_BOTTOM_SCROLL_DID_NOT_CLEAR_VIEWPORT"); return
             }
-            let displacement = bar.frame.minY - baseline
-            XCTAssertEqual(dock.frame.minY - dockBaseline, displacement, accuracy: 1,
-                "NATIVE_BOTTOM_SCROLL_PAIR_DIVERGED")
+            XCTAssertGreaterThan(dock.frame.minY, dockBaseline + 6,
+                "NATIVE_BOTTOM_SCROLL_DOCK_DID_NOT_FOLLOW")
+            XCTAssertLessThan(dock.frame.maxY, app.frame.maxY - 1,
+                "NATIVE_BOTTOM_SCROLL_DOCK_CLIPPED_BY_VIEWPORT")
             XCTAssertEqual(web.frame, webFrame, "NATIVE_BOTTOM_SCROLL_RESIZED_WEBVIEW")
             // Touch-tracking freeze has native unit coverage. Do not combine
             // a selection (which deliberately snaps the chrome) with reversal.
