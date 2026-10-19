@@ -261,6 +261,8 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - Source, request revision, connection generation, original purpose, plan digest
   and assessment-policy digest bind encrypted evidence. The permission worker
   checks the assessed provider version, current consent and payment separately.
+  Requests start at revision `0`; candidate evidence preserves that exact
+  nonnegative revision. Positive review revisions remain a separate contract.
   Selected dates retain title → created → modified precedence by default;
   explicit created/modified or content-period intent remains distinct.
 - Promotion evidence: production-function regression tests plus the opt-in

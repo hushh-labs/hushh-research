@@ -195,13 +195,15 @@ async def assess_request_candidates(
     this call; each assessment can use only the time left after its read.
     """
     started = monotonic()
+    # A request starts at revision zero, before its first positive review
+    # revision exists. Evidence must retain that exact request revision.
     if (
         not isinstance(user_id, str)
         or not user_id
         or not isinstance(request_id, str)
         or not request_id
         or type(request_revision) is not int
-        or request_revision < 1
+        or request_revision < 0
         or type(connection_generation) is not int
         or connection_generation < 1
         or not isinstance(plan_digest, str)
