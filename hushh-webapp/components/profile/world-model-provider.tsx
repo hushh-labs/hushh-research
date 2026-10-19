@@ -11,6 +11,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import {
   WorldModelResearchService,
   type PwmPreferences,
@@ -250,6 +251,9 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
         ownerId: owner,
         ownerDecisions,
         refresh: explicitRefresh,
+        // Keep read warming, but do not enroll or resume research on fixture
+        // unlock. Explicit UI actions retain the rehearsal's admission guard.
+        readOnly: shouldSkipReviewerBackgroundWritesForAutomation() && !explicitRefresh && !explicitRetry,
         onProgress: (next) => {
           if (!progress || progressContent(next) !== progressContent(progress))
             lastActivityAt = Date.now();
