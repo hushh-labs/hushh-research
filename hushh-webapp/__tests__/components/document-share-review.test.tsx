@@ -1786,6 +1786,8 @@ describe("exact-file document review", () => {
         const earnings = screen.getByLabelText("Document earnings");
         expect(earnings).toHaveTextContent("Waiting for payment");
         expect(earnings).not.toHaveTextContent(/Payout pending|delivery/);
+        // Nothing is paid yet: Decline ends it, not a refund.
+        expect(screen.queryByRole("button", { name: "Stop and refund" })).toBeNull();
         fireEvent.click(screen.getByRole("button", { name: "Decline (tap again to confirm)" }));
         fireEvent.click(screen.getByRole("button", { name: "Confirm Decline" }));
         await waitFor(() => expect(state.decide)
@@ -1808,9 +1810,135 @@ describe("exact-file document review", () => {
         expect(await screen.findByText(/35 file candidates so far/)).toBeVisible();
         expect(screen.getByLabelText("Document earnings")).toHaveTextContent("Payout pending · Waiting for delivery");
         expect(screen.queryByRole("button", { name: /Decline/ })).toBeNull();
+        // A file was shared: the removal review stops it, not a full refund.
+        expect(screen.queryByRole("button", { name: "Stop and refund" })).toBeNull();
         fireEvent.click(await screen.findByText("Review removal"));
         await waitFor(() => expect(state.prepareRevocation).toHaveBeenCalledOnce());
         expect(await screen.findByRole("button", { name: "Stop access" })).toBeEnabled();
+        expect(screen.getByText(/Removes only the recorded Viewer access/)).toBeVisible();
+      });
+
+      // 2026-10-18: B pays the moment A taps Allow, before any batch exists.
+      // Decline refuses a paid request and there was nothing to remove, so A
+      // could not end it. The same request-wide Stop now refunds in full.
+      const paid = (overrides: Record<string, unknown> = {}) => allowed({
+        search: durableSearch({ status: "running", matched: 0 }), bulkShare: null, batches: [],
+        batchCount: 0, claimedPositions: [], requestStop: "available", ...overrides });
+      const stopped = (overrides: Record<string, unknown> = {}) => paid({
+        requestStop: "before_sharing", search: durableSearch({ status: "stopped", matched: 0 }), ...overrides });
+      const nothingToRemove = () => ({ requestId, revision: 1, generation: 1, directiveId: "directive",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(), reviewDigest: "c".repeat(64),
+        disclosure: "remove-current-recorded-direct-viewer-v1", otherAccessMayRemain: true,
+        affectedCount: 0, pendingCount: 0, files: [] });
+
+      it("offers Stop and refund once the requester paid, before any file is shared", async () => {
+        const onChanged = vi.fn();
+        state.status.mockResolvedValue(pending());
+        state.review.mockResolvedValue(paid());
+        state.prepareRevocation.mockResolvedValue(nothingToRemove());
+        state.revoke.mockResolvedValue({ requestId, revocationStatus: "pending", operationIds: [] });
+        render(<DocumentShareReview requestId={requestId} onChanged={onChanged} />);
+        const stop = await screen.findByRole("button", { name: "Stop and refund" });
+        expect(stop).toBeEnabled();
+        expect(screen.queryByRole("button", { name: /Decline/ })).toBeNull();
+        // Nothing is shared yet, so there is no delivery to read or remove.
+        expect(state.delivery).not.toHaveBeenCalled();
+        expect(screen.queryByText("Review removal")).toBeNull();
+
+        fireEvent.click(stop);
+        await waitFor(() => expect(state.prepareRevocation).toHaveBeenCalledOnce());
+        expect(await screen.findByText(
+          "Stop this request? Nothing has been shared, so they get a full refund.",
+        )).toBeVisible();
+        expect(screen.queryByText(/Removes only the recorded Viewer access/)).toBeNull();
+        expect(screen.queryByText(/still settling/)).toBeNull();
+        expect(state.revoke).not.toHaveBeenCalled();
+
+        state.review.mockResolvedValue(stopped());
+        fireEvent.click(screen.getByRole("button", { name: "Stop and refund" }));
+        await waitFor(() => expect(state.revoke).toHaveBeenCalledExactlyOnceWith(
+          "owner-a", requestId, expect.objectContaining({ directiveId: "directive" }), expect.any(Function)));
+        expect(await screen.findByText(
+          "You stopped this request before any file was shared. They get a full refund.",
+        )).toBeVisible();
+        expect(screen.getByRole("status")).toHaveTextContent("Request stopped");
+        expect(onChanged).toHaveBeenCalled();
+        expect(screen.queryByRole("button", { name: "Stop and refund" })).toBeNull();
+      });
+
+      it("keeps Cancel on the Stop screen, which stops nothing", async () => {
+        state.status.mockResolvedValue(pending());
+        state.review.mockResolvedValue(paid());
+        state.prepareRevocation.mockResolvedValue(nothingToRemove());
+        render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+        fireEvent.click(await screen.findByRole("button", { name: "Stop and refund" }));
+        fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+        await waitFor(() => expect(screen.queryByText(/so they get a full refund/)).toBeNull());
+        expect(await screen.findByRole("button", { name: "Stop and refund" })).toBeEnabled();
+        expect(state.revoke).not.toHaveBeenCalled();
+      });
+
+      it("shows a request stopped before sharing as refunded in full, never as a search that ended", async () => {
+        state.status.mockResolvedValue(pending());
+        state.review.mockResolvedValue(stopped());
+        render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+        expect(await screen.findByText(
+          "You stopped this request before any file was shared. They get a full refund.",
+        )).toBeVisible();
+        expect(screen.getByRole("status")).toHaveTextContent("Request stopped");
+        // Nothing was shared: the refund is in full, so nothing is earned.
+        expect(screen.getByLabelText("Document earnings")).toHaveTextContent("No payout due");
+        expect(screen.queryByTestId("document-payout-account-card")).toBeNull();
+        expect(screen.queryByText(/Automatic sharing stopped because/)).toBeNull();
+        expect(screen.queryByText(/sends every matching file/)).toBeNull();
+        expect(screen.queryByRole("button", { name: /Stop and refund|Decline|Stop access/ })).toBeNull();
+        // A stopped request never searches again, and has nothing to deliver.
+        expect(state.startRequestSearch).not.toHaveBeenCalled();
+        expect(state.delivery).not.toHaveBeenCalled();
+        expect(state.periodic).toHaveBeenLastCalledWith(expect.any(String), expect.any(Number),
+          expect.any(Function), { enabled: false });
+      });
+
+      it("keeps the removal status after a Stop that came once files were shared", async () => {
+        const sharing = durableBulk({ status: "stopped", fileCount: 3, canApprove: false,
+          counts: { ...durableBulk().counts, total: 3, processed: 3, shared: 1, skipped: 2, pending: 0 } });
+        state.status.mockResolvedValue(pending());
+        state.review.mockResolvedValue(allowed({ requestStop: "after_sharing",
+          search: durableSearch({ status: "stopped", matched: 3 }), bulkShare: sharing, batches: [sharing] }));
+        state.delivery.mockResolvedValue({ status: "pending", files: [], bulkShareId, fileCount: 3,
+          sharedCount: 1, accessStopStatus: "pending" });
+        state.bulkShareFiles.mockResolvedValue({ shareId: bulkShareId, files: [], nextCursor: null });
+        render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+        expect(await screen.findByText("You stopped this request. Nothing more will be shared.")).toBeVisible();
+        expect(screen.getByRole("status")).toHaveTextContent("Request stopped");
+        expect(await screen.findByText("Stopping access")).toBeVisible();
+        expect(screen.queryByText(/full refund/)).toBeNull();
+        expect(screen.queryByText(/Automatic sharing stopped because/)).toBeNull();
+        expect(screen.queryByRole("button", { name: "Stop and refund" })).toBeNull();
+        expect(state.startRequestSearch).not.toHaveBeenCalled();
+      });
+
+      it("never offers Stop and refund without the server's word (negative control)", async () => {
+        state.status.mockResolvedValue(pending());
+        state.review.mockResolvedValue(paid({ requestStop: undefined }));
+        render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+        expect(await screen.findByText(/Agent One sends every matching file/)).toBeVisible();
+        expect(screen.queryByRole("button", { name: "Stop and refund" })).toBeNull();
+      });
+
+      it("offers Stop and refund, never a Decline that a paid request refuses, once its search failed", async () => {
+        state.status.mockResolvedValue(pending());
+        state.review.mockResolvedValue(paid({
+          search: durableSearch({ status: "failed", matched: 0, errorCode: "provider_unavailable" }) }));
+        state.prepareRevocation.mockResolvedValue(nothingToRemove());
+        render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+        expect(await screen.findByRole("button", { name: "Search again" })).toBeVisible();
+        expect(screen.queryByRole("button", { name: /Decline/ })).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Stop and refund" }));
+        await waitFor(() => expect(state.prepareRevocation).toHaveBeenCalledOnce());
+        expect(await screen.findByText(
+          "Stop this request? Nothing has been shared, so they get a full refund.",
+        )).toBeVisible();
       });
 
       it("leaves an older automatic request's copy and Decline rule alone (negative control)", async () => {

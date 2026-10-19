@@ -54,7 +54,10 @@ import {
   REQUESTER_PAYMENT_TITLES,
 } from "@/lib/consent/document-request-payment-view";
 import { presentOwnerReviewRequest } from "@/lib/consent/document-request-requester-view";
-import { documentPayoutStatusCopy } from "@/lib/consent/document-payout-status";
+import {
+  documentPayoutStatusCopy,
+  documentPayoutStatusLabel,
+} from "@/lib/consent/document-payout-status";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
 import {
   DriveSharingError,
@@ -99,8 +102,10 @@ type Activity =
   | "restarting"
   | "preparing_share"
   | "preparing_removal"
+  | "preparing_stop"
   | "enabling_background"
-  | "removing";
+  | "removing"
+  | "stopping";
 type Kind = "load" | "decide";
 /** Per-run channel; every call is a no-op once the run is stale. */
 type Report = {
@@ -160,8 +165,10 @@ const ACTIVITY_LABELS: Record<Exclude<Activity, "idle" | "finding_files">, strin
   restarting: "Starting a new search…",
   preparing_share: "Preparing review…",
   preparing_removal: "Preparing removal…",
+  preparing_stop: "Getting ready to stop…",
   enabling_background: "Enabling background Drive access…",
   removing: "Removing access…",
+  stopping: "Stopping…",
 };
 const STAGE_LABELS: Record<PrepareStage, string> = {
   starting: "Finding files…",
@@ -342,8 +349,18 @@ function automaticSearchEnded(review: SharingReview | undefined): boolean {
   return !!search && (["failed", "limited", "stopped"].includes(search.status) || search.incompleteSearch);
 }
 
+/**
+ * The owner stopped this autoshare request (request-wide Stop): nothing more
+ * is searched or shared. Its search reads "stopped" too, which is never an
+ * automatic search that ended by itself.
+ */
+function ownerStopped(review: SharingReview | undefined): boolean {
+  return review?.requestStop === "before_sharing" || review?.requestStop === "after_sharing";
+}
+
 function isAutomaticSharingActive(review: SharingReview | undefined): boolean {
   return !review?.agentPackage && review?.trustedAuto === true && review.priceOnlyAvailable !== true &&
+    !ownerStopped(review) &&
     review.search?.coverage?.ownerReviewRequired !== true &&
     !automaticSearchEnded(review) &&
     documentRequestSetupState(review) === null &&
@@ -401,6 +418,7 @@ function needsSearchRefresh(review: SharingReview | undefined): boolean {
 /** The private agent is still looking for files for this incoming request. */
 function isFinding(snapshot: Snapshot | null): boolean {
   const review = snapshot?.review;
+  if (ownerStopped(review)) return false;
   if (review?.agentPackage) return snapshot?.status.direction === "incoming" &&
     UNDECIDED.has(snapshot.status.status) && review.agentPackage.status === "preparing" &&
     review.preparationError !== "background_preparation_required";
@@ -571,7 +589,8 @@ function UnlockedDocumentReview({
         }
       };
       const pendingOwnerDelivery = async (review: SharingReview): Promise<SharingDelivery | undefined> => {
-        if (!review.bulkShare) return undefined;
+        // Nothing is shared yet: the review itself offers Stop and refund.
+        if (!review.bulkShare || review.requestStop === "available") return undefined;
         const delivery = await DriveSharingService.delivery(token, requestId, guard);
         guard();
         return delivery.canStopAccess || delivery.accessStopStatus || delivery.bulkShareId
@@ -631,6 +650,12 @@ function UnlockedDocumentReview({
       if (review.agentPackage) {
         const delivery = review.agentPackage.status === "allowed" ? await pendingOwnerDelivery(review) : undefined;
         return { status, review, ...(delivery ? { delivery } : {}) };
+      }
+      // A stopped request never searches again; only the removal of files
+      // already shared is left to show.
+      if (ownerStopped(review)) {
+        const delivery = review.requestStop === "after_sharing" ? await pendingOwnerDelivery(review) : undefined;
+        return delivery ? { status, review, delivery } : { status, review };
       }
       // Setup precedes any search; returning to this review cannot bypass it.
       if (requestSetup({ status, review })) return { status, review };
@@ -895,6 +920,10 @@ function UnlockedDocumentReview({
     ? `${agentPackage.revision}:${agentPackage.digest ?? ""}`
     : null;
   const removal = snapshot?.revocation;
+  // The Stop opened from "Stop and refund": nothing to remove, a full refund.
+  // Anything shared meanwhile shows in the counts, and keeps the removal copy.
+  const stopRefundsInFull = !!removal && review?.requestStop === "available" &&
+    removal.files.length === 0 && !removal.affectedCount;
   const search = review?.search;
   const bulkShare = review?.bulkShare;
   const ownerDecision = isOwnerDecision(snapshot);
@@ -1039,6 +1068,8 @@ function UnlockedDocumentReview({
     !retryLater &&
     // Nothing runs while the owner decides.
     !ownerDecision &&
+    // Stopped before anything was shared: nothing is left to run.
+    review?.requestStop !== "before_sharing" &&
     (durableReview && snapshot.status.direction === "incoming"
       ? ((!search && !searchStartFailed.current) || ["queued", "running"].includes(search?.status ?? "") ||
           batches.some(batch => ["queued", "running"].includes(batch.status) ||
@@ -1201,7 +1232,7 @@ function UnlockedDocumentReview({
       "restarting",
     );
   };
-  const prepareRemoval = () => {
+  const reviewRemoval = (presentation: "preparing_removal" | "preparing_stop") => {
     if (!snapshot) return;
     const shown = snapshot;
     void run(
@@ -1214,9 +1245,12 @@ function UnlockedDocumentReview({
         ),
       }),
       "decide",
-      "preparing_removal",
+      presentation,
     );
   };
+  const prepareRemoval = () => reviewRemoval("preparing_removal");
+  // Paid, nothing shared yet: the same request-wide Stop, which refunds in full.
+  const prepareStop = () => reviewRemoval("preparing_stop");
 
   const enableBackground = () => {
     void run(
@@ -1356,6 +1390,8 @@ function UnlockedDocumentReview({
               ? documentRequestSetupLabel(setup, snapshot.status.direction === "incoming")
             : ownerDecision
               ? priceOnly ? "Set price" : "Needs your decision"
+            : ownerStopped(review) && UNDECIDED.has(snapshot.status.status)
+              ? "Request stopped"
             : durableReview && durableStatus
               ? durableStatus
               : requesterLine
@@ -1414,10 +1450,14 @@ function UnlockedDocumentReview({
   const delivery = snapshot?.delivery;
   const outgoing = snapshot?.status.direction === "outgoing";
   const payoutProjection = snapshot?.ownerPayout ?? review?.ownerPayout;
+  // Stopped before anything was shared: the refund is in full, so nothing is earned.
+  const stoppedBeforeSharing = review?.requestStop === "before_sharing";
   const ownerPayout = !outgoing && payoutProjection
     ? awaitingPayment && payoutProjection.status === "awaiting_delivery"
       ? { status: "Waiting for payment", earnings: null }
-      : documentPayoutStatusCopy(payoutProjection)
+      : stoppedBeforeSharing && ["awaiting_delivery", "awaiting_refund"].includes(payoutProjection.status)
+        ? { status: documentPayoutStatusLabel("void"), earnings: null }
+        : documentPayoutStatusCopy(payoutProjection)
     : null;
   // The owner's one retry for files Google Drive could not share. The requester
   // may ask for it; whether it can run stays with this batch view.
@@ -1428,6 +1468,15 @@ function UnlockedDocumentReview({
         Retry {bulkShare.retryableCount?.toLocaleString()} {bulkShare.retryableCount === 1 ? "file" : "files"}
       </Button>
     ) : null;
+  // Paid, nothing shared yet: Decline refuses a paid request, so the request-
+  // wide Stop ends it. The next screen confirms; the refund is in full.
+  const stopAndRefund = (
+    <Button size="standard" variant="none" className="text-destructive hover:text-destructive"
+      disabled={locked} onClick={prepareStop}>
+      Stop and refund
+    </Button>
+  );
+  const unsharedStop = review?.requestStop === "available";
   const reviewAsk = outgoing ? null : delivery?.reviewRequest ?? null;
   const reloadDetails = () => {
     onChanged();
@@ -1499,7 +1548,8 @@ function UnlockedDocumentReview({
           {automaticSharing ? retryUnshared : null}
         </div>
       ) : null}
-      {payoutProjection && ["awaiting_delivery", "awaiting_account"].includes(payoutProjection.status) ? (
+      {payoutProjection && !stoppedBeforeSharing &&
+        ["awaiting_delivery", "awaiting_account"].includes(payoutProjection.status) ? (
         <DocumentPayoutAccountCard compact />
       ) : null}
       {error ? <HelperText role="alert">{error}</HelperText> : null}
@@ -1770,6 +1820,7 @@ function UnlockedDocumentReview({
             {denyConfirm.label("Decline")}
           </Button>
         ) : null}
+        {review.requestStop === "available" ? stopAndRefund : null}
         {review.aggregateCounts || bulkShare ? <div className="space-y-3">
           <OutcomeSummary counts={review.aggregateCounts ?? bulkShare!.counts} issues={bulkShare?.issues} />
           {bulkPage?.files.length ? <SettingsGroup embedded title="Latest files" {...groupSurface}>
@@ -1780,7 +1831,26 @@ function UnlockedDocumentReview({
         </div> : null}
       </> : null}
 
-      {review && !agentPackage && !setup && durableReview && !automaticSharing && !ownerDecision && !removal ? (
+      {review && ownerStopped(review) && !removal ? <>
+        <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">“{review.purpose.purpose}”</BodyText>
+        <dl className={HAIRLINES}>
+          <Fact label="Share with" value={review.recipientEmail} />
+          {review.purpose.periodStart ? (
+            <Fact label="Period" value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} />
+          ) : null}
+          {review.paymentRequired === true && typeof review.priceCents === "number" ? (
+            <Fact label="Price" value={formatDocumentRequestPrice(review.priceCents)} />
+          ) : null}
+        </dl>
+        <HelperText>{review.requestStop === "before_sharing"
+          ? review.paymentRequired === true
+            ? "You stopped this request before any file was shared. They get a full refund."
+            : "You stopped this request before any file was shared."
+          : "You stopped this request. Nothing more will be shared."}</HelperText>
+      </> : null}
+
+      {review && !agentPackage && !setup && durableReview && !automaticSharing && !ownerDecision &&
+        !ownerStopped(review) && !removal ? (
         <>
           {review.trustedAuto && review.preparationError === "trusted_relationship_changed" ?
             <BodyText>{review.ownerAllowed === true
@@ -1972,7 +2042,7 @@ function UnlockedDocumentReview({
                       ["limited", "failed", "stopped"].includes(search.status) ? "Search incomplete" : "Search in progress"}
                   </Button>
                 }
-                secondary={batchCount === 0 ? <Button size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button> : undefined}
+                secondary={unsharedStop ? stopAndRefund : batchCount === 0 ? <Button size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button> : undefined}
                 tertiary={(["limited", "failed", "stopped"].includes(search.status) ||
                   legacySearch && activity === "idle" && (searchStartFailed.current || checkedLegacyJob.current === search.jobId)) ?
                   <Button size="standard" variant="none" disabled={locked}
@@ -1995,7 +2065,7 @@ function UnlockedDocumentReview({
                 : "Search continues after you leave."}</HelperText>
               <FlowActionGroup
                 primary={<Button size="prominent" disabled>Share files</Button>}
-                secondary={<Button size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button>}
+                secondary={unsharedStop ? stopAndRefund : <Button size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button>}
                 tertiary={searchStartFailed.current ? <Button size="standard" variant="none" disabled={locked}
                   onClick={retryDurableSearch}>
                   Search again
@@ -2058,7 +2128,7 @@ function UnlockedDocumentReview({
                     : DriveSharingService.approveBulkShare(token, bulkShare, guard), "sharing")}>
                   {legacySearch ? "New request needed" : `${v1ManualReview ? "Approve" : "Share"} ${bulkShare.fileCount.toLocaleString()} ${bulkShare.fileCount === 1 ? "file" : "files"}`}
                 </Button>}
-                secondary={batchCount === 0 ? <Button size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button> : undefined}
+                secondary={unsharedStop ? stopAndRefund : batchCount === 0 ? <Button size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button> : undefined}
               /> : null}
             </>
           ) : null}
@@ -2539,22 +2609,26 @@ function UnlockedDocumentReview({
             </ul>
           ) : (
             <BodyText>
-              {removal.affectedCount
+              {stopRefundsInFull
+                ? "Stop this request? Nothing has been shared, so they get a full refund."
+                : removal.affectedCount
                 ? `Stop this request and check ${removal.affectedCount.toLocaleString()} file permissions.`
                 : removal.pendingCount
                   ? "Stop this request and check pending file permissions."
                   : "Stop this request before files are shared."}
             </BodyText>
           )}
-          {(removal.pendingCount ?? 0) > 0 ? (
+          {(removal.pendingCount ?? 0) > 0 && !stopRefundsInFull ? (
             <HelperText>
               {removal.pendingCount?.toLocaleString()} {removal.pendingCount === 1 ? "grant is" : "grants are"} still settling.
             </HelperText>
           ) : null}
-          <HelperText>
-            Removes only the recorded Viewer access. Other permissions may still
-            give access.
-          </HelperText>
+          {stopRefundsInFull ? null : (
+            <HelperText>
+              Removes only the recorded Viewer access. Other permissions may still
+              give access.
+            </HelperText>
+          )}
           <FlowActionGroup
             primary={
               <Button
@@ -2570,11 +2644,11 @@ function UnlockedDocumentReview({
                         removal,
                         guard,
                       ),
-                    "removing",
+                    stopRefundsInFull ? "stopping" : "removing",
                   )
                 }
               >
-                Stop access
+                {stopRefundsInFull ? "Stop and refund" : "Stop access"}
               </Button>
             }
             secondary={

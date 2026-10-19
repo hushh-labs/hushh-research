@@ -4,18 +4,29 @@ Revocation does not require a retained document index or an active relationship
 with the recipient. It does require the same verified Google issuer after
 reconnection. Google exposes grantee IDs, not immutable grant-instance IDs;
 the disclosure therefore authorizes removal of the current matching direct ACL.
+
+The same confirmed Stop ends a paid autoshare request before anything was
+shared (see drive_request_stop): there is nothing to remove, but the search,
+any frozen batch and the payment still end, once.
 """
 
 from __future__ import annotations
 
 import json
+from typing import cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveStore, DocumentReviewAuthority
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+from hushh_mcp.services.drive_owner_allowed import autoshare_request
 from hushh_mcp.services.drive_permission_store import DrivePermissionStore
+from hushh_mcp.services.drive_request_stop import (
+    end_stopped_autoshare,
+    lock_request_batches,
+    paid_open_autoshare,
+)
 from hushh_mcp.services.drive_sharing_contract import MAX_FILES, DriveSharingError
 
 REVOCATION_ACTION = {
@@ -173,6 +184,40 @@ class DriveRevocationStore(DrivePermissionStore):
             {"user": user_id, "request": request_id},
         ).scalar_one()
 
+    def _owned_request(self, connection, *, user_id, request_id):
+        """The owner's request row and its sealed terms, or (None, None) once erased."""
+        row = self._row(
+            connection,
+            """SELECT * FROM drive_share_requests
+              WHERE request_id=:request AND user_id=:user""",
+            {"request": request_id, "user": user_id},
+        )
+        return (row, self._open_request(row)) if row else (None, None)
+
+    def _paid_autoshare(self, connection, *, user_id, request_id):
+        """With pay-at-Allow the requester pays before the first batch exists.
+
+        The owner's Stop is then the only way to end the request, so a paid,
+        open autoshare request may be stopped with nothing shared yet.
+        """
+        request, private = self._owned_request(connection, user_id=user_id, request_id=request_id)
+        return paid_open_autoshare(connection, request, private)
+
+    async def manages_request(self, *, user_id, request_id) -> bool:
+        """Whether this user is the request's owner (its management context)."""
+        identity = str(UUID(request_id))
+
+        def operation(connection):
+            return bool(
+                connection.execute(
+                    text("""SELECT EXISTS(SELECT 1 FROM drive_share_management_contexts
+                      WHERE request_id=:request AND user_id=:user)"""),
+                    {"request": identity, "user": user_id},
+                ).scalar_one()
+            )
+
+        return cast(bool, await self._transaction(operation))
+
     @staticmethod
     def _revoke_authority(user_id, request_id, revision, generation, grants, bulk=None):
         terms = {
@@ -214,6 +259,7 @@ class DriveRevocationStore(DrivePermissionStore):
                 not grants
                 and not bulk["total"]
                 and not self._paid_frozen_batch(connection, user_id=user_id, request_id=request_id)
+                and not self._paid_autoshare(connection, user_id=user_id, request_id=request_id)
             ):
                 raise DriveSharingError("no_revocable_permissions")
             revision = request["revocation_revision"] + 1
@@ -271,17 +317,28 @@ class DriveRevocationStore(DrivePermissionStore):
         request_id = str(UUID(request_id))
 
         def operation(connection):
+            # An autoshare Stop writes both sides' outcome events, whose insert
+            # guard takes both participants' graph gates (migration 201). Take
+            # them first, as the other request writers do.
+            self._settlement_gate(connection, user_id, request_id)
             request = self._management(
                 connection, user_id, generation, request_id, stop_review=True
             )
             if request["revocation_revision"] != revision:
                 raise DriveSharingError("review_changed")
+            origin, private = self._owned_request(
+                connection, user_id=user_id, request_id=request_id
+            )
+            autoshare = private is not None and autoshare_request(private)
+            # Batches before the request row, as the bulk worker and settlement.
+            batches = lock_request_batches(connection, request_id=request_id) if autoshare else []
             grants = self._revocable(connection, user_id=user_id, request_id=request_id)
             bulk = self._bulk_counts(connection, user_id=user_id, request_id=request_id)
             if (
                 not grants
                 and not bulk["total"]
                 and not self._paid_frozen_batch(connection, user_id=user_id, request_id=request_id)
+                and not paid_open_autoshare(connection, origin, private)
             ):
                 raise DriveSharingError("no_revocable_permissions")
             authority = self._revoke_authority(
@@ -304,13 +361,32 @@ class DriveRevocationStore(DrivePermissionStore):
             # This transition precedes all later provider removals. A grant
             # already dispatched may still settle; the removal sweep discovers
             # its receipt and cleans it up after the fact.
-            connection.execute(
-                text("""UPDATE drive_share_requests
-                  SET access_stop_requested_at=COALESCE(access_stop_requested_at,clock_timestamp()),
-                    updated_at=clock_timestamp()
-                  WHERE request_id=:request AND user_id=:user"""),
+            before = self._row(
+                connection,
+                """SELECT access_stop_requested_at,
+                    status='pending' AND expires_at>clock_timestamp() AS still_open
+                  FROM drive_share_requests
+                  WHERE request_id=:request AND user_id=:user FOR UPDATE""",
                 {"request": request_id, "user": user_id},
             )
+            stopped = self._row(
+                connection,
+                """UPDATE drive_share_requests
+                  SET access_stop_requested_at=COALESCE(access_stop_requested_at,clock_timestamp()),
+                    updated_at=clock_timestamp()
+                  WHERE request_id=:request AND user_id=:user RETURNING *""",
+                {"request": request_id, "user": user_id},
+            )
+            # A new Stop ends an open autoshare request; one that already
+            # finished or expired keeps its outcome and only loses access.
+            if (
+                autoshare
+                and stopped is not None
+                and before is not None
+                and before["access_stop_requested_at"] is None
+                and before["still_open"]
+            ):
+                end_stopped_autoshare(connection, request=stopped, batches=batches)
             ids = []
             for grant in grants:
                 identifier = str(uuid4())

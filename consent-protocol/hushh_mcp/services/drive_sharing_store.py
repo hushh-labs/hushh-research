@@ -66,6 +66,7 @@ from hushh_mcp.services.drive_request_requester_store import (
     requester_context as read_requester_context,
 )
 from hushh_mcp.services.drive_request_review_policy import request_requires_owner_review
+from hushh_mcp.services.drive_request_stop import owner_stop_view
 from hushh_mcp.services.drive_sharing_contract import (
     BROAD_TRUST_DISCLOSURE,
     BROAD_TRUST_SCOPE,
@@ -1001,6 +1002,7 @@ class DriveSharingStore(DriveDocumentStore):
                     AND (:v1_only=FALSE OR r.v1_live_request=TRUE)
                     AND r.preparation_error_code=ANY(CAST(:start_codes AS text[]))
                     AND r.expires_at>clock_timestamp()
+                    AND r.access_stop_requested_at IS NULL
                     AND r.preparation_next_at<=clock_timestamp()
                   ORDER BY r.preparation_inspected_at,r.created_at,r.request_id
                   LIMIT :limit FOR UPDATE OF r SKIP LOCKED
@@ -1069,6 +1071,7 @@ class DriveSharingStore(DriveDocumentStore):
                       OR (o.status='paid' AND o.paid_at IS NOT NULL
                         AND o.reconciliation_required=FALSE))
                     AND r.expires_at>clock_timestamp()
+                    AND r.access_stop_requested_at IS NULL
                     AND j.status IN ('queued','running','completed')
                     AND (NOT r.payment_required OR o.request_id IS NULL
                       OR (o.status='paid' AND o.paid_at IS NOT NULL
@@ -1176,6 +1179,9 @@ class DriveSharingStore(DriveDocumentStore):
             if (
                 row is None
                 or row["status"] != "pending"
+                # A stopped request has no next step: its in-flight work fails
+                # the authority check by design, which is no setup notice.
+                or row["access_stop_requested_at"] is not None
                 or row["preparation_error_code"] == "manual_search_active"
                 or not (
                     self._open_request(row).get("trusted_auto") is True
@@ -2999,6 +3005,8 @@ class DriveSharingStore(DriveDocumentStore):
                 **({"wholeDollarPrice": True} if whole_dollar_request(private) else {}),
                 # Shares every in-period match after payment; no file selection.
                 **({"autoshare": True} if autoshare_request(private) else {}),
+                # Autoshare only: Stop before anything is shared refunds in full.
+                **owner_stop_view(connection, row, private),
                 **_period_conflict_view(private),
                 **queue_view(request_queued_since(row, now), now),
                 **self._started_work(connection, row, now, private),

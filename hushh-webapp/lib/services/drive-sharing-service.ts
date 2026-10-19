@@ -220,7 +220,20 @@ export type SharingReview = DocumentRequestSetup & {
   ownerPayout?: OwnerDocumentPayout | null;
   /** This request accepts whole-dollar prices from $1 only; the server refuses others. */
   wholeDollarPrice?: boolean;
+  /**
+   * Owner only, autoshare only. "available": paid and nothing shared yet, so
+   * Stop refunds the requester in full. "before_sharing" / "after_sharing":
+   * the owner stopped the request, and whether anything had been shared.
+   * Presentation only; the server rechecks every Stop.
+   */
+  requestStop?: SharingRequestStop;
 } & DocumentRequestQueue;
+export type SharingRequestStop = "available" | "before_sharing" | "after_sharing";
+const SHARING_REQUEST_STOPS: readonly SharingRequestStop[] = ["available", "before_sharing", "after_sharing"];
+/** A newer state this client does not know reads as absent: no Stop control, no claim. */
+function requestStop(value: unknown): SharingRequestStop | undefined {
+  return SHARING_REQUEST_STOPS.find(state => state === value);
+}
 export type OwnerDocumentPayoutStatus =
   | "awaiting_delivery"
   | "awaiting_refund"
@@ -1554,6 +1567,7 @@ export class DriveSharingService {
     const priceOnlyAvailable = optionalFlag(result.priceOnlyAvailable);
     const paymentRequired = optionalFlag(result.paymentRequired);
     const priceCents = optionalPrice(result.priceCents);
+    const stop = requestStop(result.requestStop);
     const ownerPayout = result.ownerPayout == null
       ? null
       : parseOwnerPayout(result.ownerPayout, requestId);
@@ -1622,6 +1636,7 @@ export class DriveSharingService {
         : {}),
       ...(result.ownerPayout === undefined ? {} : { ownerPayout }),
       ...(result.wholeDollarPrice === true ? { wholeDollarPrice: true } : {}),
+      ...(stop === undefined ? {} : { requestStop: stop }),
       ...parseRequestSetup(result),
       ...parseRequestQueue(result),
     };

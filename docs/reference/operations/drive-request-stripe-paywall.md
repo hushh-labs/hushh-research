@@ -357,7 +357,12 @@ Such a search can never freeze or approve another batch, so its request closes.
 A failed or stopped search on the same connection does not end delivery: the
 owner's Search again resumes it at its cursor, so its request stays open until
 the owner resumes it, presses Stop, or the deadline passes. Settlement then runs
-once on the files approved by that time. A Stripe transfer is **not** proof that
+once on the files approved by that time. With pay-at-Allow the requester can pay
+before the first batch exists; Decline refuses a paid request, so the owner ends
+it with the same Stop ("Stop and refund" until a file is shared). For an
+autoshare request the Stop also releases queued grants, stops frozen and running
+batches and ends the search for good, and each side gets one outcome event.
+A Stripe transfer is **not** proof that
 money has arrived in the owner's bank; Stripe's connected-account payout schedule
 controls that later step. No files delivered means a full requester refund and no owner
 transfer. When only part of the approved set is delivered, the requester receives

@@ -97,6 +97,10 @@ tests/services/test_drive_autoshare_pay_then_stream_postgres.py
 # Stripe. Checkout opens mid-search, nothing is shared before payment, every
 # match is shared once after it, and every paid request settles exactly once.
 tests/services/test_drive_pay_stream_acceptance_postgres.py
+# The owner's Stop on a paid autoshare request: before any share it ends the
+# search and every grant for good and refunds in full once; after shares it
+# removes them and refunds the rest. Only the owner can stop.
+tests/services/test_drive_owner_stop_before_share_postgres.py
 tests/test_drive_request_owner_payouts.py
 tests/test_stripe_connect_bank_payouts.py
 # Hashcoin liabilities and test-only redemption must run against real PostgreSQL.
