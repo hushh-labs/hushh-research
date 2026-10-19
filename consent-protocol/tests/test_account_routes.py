@@ -453,6 +453,49 @@ def test_upload_account_avatar_requires_firebase_auth():
     assert response.status_code == 401
 
 
+@pytest.mark.parametrize(
+    "failure,status",
+    [
+        (None, 200),
+        (ValueError, 409),
+        (ActorIdentityPhoneClaimConflictError, 409),
+        (ActorIdentitySyncUnavailableError, 503),
+    ],
+)
+def test_identity_refresh_explicit_native_phone_intent_is_owner_scoped(
+    monkeypatch, failure, status
+):
+    calls = []
+
+    async def finalize(self, uid, phone):
+        calls.append((uid, phone))
+        if failure:
+            raise failure()
+        return {"user_id": uid, "phone_verified": True, "phone_number": phone}
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "authenticated-owner"
+    monkeypatch.setattr(ActorIdentityService, "finalize_verified_phone_from_firebase", finalize)
+    client = TestClient(app)
+    response = client.post(
+        "/api/account/identity/refresh",
+        json={"verified_phone_number": "+919000000001", "user_id": "other-owner"},
+    )
+    assert response.status_code == status
+    assert calls == [("authenticated-owner", "+919000000001")]
+    if status == 200:
+        assert response.json()["identity"]["phone_number"] == "+919000000001"
+    else:
+        assert "identity" not in response.json()
+    assert (
+        client.post(
+            "/api/account/identity/refresh", json={"verified_phone_number": "9000000001"}
+        ).status_code
+        == 422
+    )
+    assert len(calls) == 1
+
+
 @pytest.mark.parametrize("failure", [ActorIdentitySyncUnavailableError, ConnectionError])
 def test_strict_identity_refresh_fails_closed_instead_of_returning_cached_identity(
     monkeypatch, failure

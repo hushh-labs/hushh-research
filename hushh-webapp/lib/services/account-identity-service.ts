@@ -1,6 +1,7 @@
 "use client";
 
 import type { User } from "firebase/auth";
+import { getAuthSessionGeneration, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 import { ApiError, apiJson } from "@/lib/services/api-client";
 import {
@@ -16,8 +17,28 @@ import {
 } from "@/lib/services/cache-service";
 
 // Stale-while-revalidate dedup for in-flight background identity refreshes,
-// keyed by uid, so concurrent guard mounts coalesce onto one network call.
+// keyed by uid and auth generation, so a relogin never joins old work.
 const identityRefreshInflight = new Map<string, Promise<AccountIdentity | null>>();
+type IdentityWork = { userId: string; generation: number | null; sequence: number };
+let identityWorkSequence = 0;
+// Publication ordering only; identity records remain in CacheService.
+const identityPublications = new Map<string, IdentityWork>();
+
+function beginIdentityWork(userId: string): IdentityWork {
+  return { userId, generation: getAuthSessionGeneration(), sequence: ++identityWorkSequence };
+}
+
+function identityWorkIsCurrent(work: IdentityWork): boolean {
+  const published = identityPublications.get(work.userId);
+  return identitySessionIsCurrent(work.userId, work.generation) &&
+    (!published || published.generation !== work.generation || published.sequence <= work.sequence);
+}
+
+function identitySessionIsCurrent(userId: string, generation: number | null): boolean {
+  const owner = snapshotValidatedAuthSessionOwner();
+  return generation !== null && generation === getAuthSessionGeneration() &&
+    (!owner || owner.userId === userId);
+}
 
 export class AccountIdentityService {
   static hasVerifiedPhone(identity: AccountIdentity | null | undefined): boolean {
@@ -78,14 +99,16 @@ export class AccountIdentityService {
 
   private static cacheIdentity(
     userId: string,
-    identity: AccountIdentity | null
+    identity: AccountIdentity | null,
+    work?: IdentityWork,
   ): void {
-    if (!identity || !identity.user_id) {
+    if (!identity || identity.user_id !== userId || (work && !identityWorkIsCurrent(work))) {
       // Never cache an empty/malformed identity (e.g. `{}` from a failed
       // write). Caching it would clobber a good snapshot with a fresh TTL and
       // re-trigger identity guards (phone mandate) + drop name/email/avatar.
       return;
     }
+    if (work) identityPublications.set(userId, work);
     CacheService.getInstance().set(
       CACHE_KEYS.ACCOUNT_IDENTITY(userId),
       identity,
@@ -141,12 +164,21 @@ export class AccountIdentityService {
     idToken: string,
     options?: { force?: boolean; requireSuccess?: boolean },
   ): Promise<AccountIdentity | null> {
+    return this.refreshIdentityWithWork(beginIdentityWork(userId), idToken, options);
+  }
+
+  private static async refreshIdentityWithWork(
+    work: IdentityWork,
+    idToken: string,
+    options?: { force?: boolean; requireSuccess?: boolean },
+  ): Promise<AccountIdentity | null> {
+    if (!identityWorkIsCurrent(work)) return null;
     const response = await ApiService.refreshAccountIdentityShadow(idToken, options);
     const identity = await this.identityFromResponse(response);
     // The caller's owner and a restored global token can diverge during an
     // account switch. Never return or cache another owner's identity.
-    if (identity?.user_id !== userId) return null;
-    this.cacheIdentity(userId, identity);
+    if (identity?.user_id !== work.userId || !identityWorkIsCurrent(work)) return null;
+    this.cacheIdentity(work.userId, identity, work);
     return identity;
   }
 
@@ -160,31 +192,33 @@ export class AccountIdentityService {
 
     const force = options?.force === true;
     const uid = user.uid;
+    const requestKey = JSON.stringify([uid, getAuthSessionGeneration()]);
 
     // Coalesce concurrent non-forced reads onto a single network round-trip.
     if (!force) {
-      const existing = identityRefreshInflight.get(uid);
+      const existing = identityRefreshInflight.get(requestKey);
       if (existing) {
         return existing;
       }
     }
 
+    const work = beginIdentityWork(uid);
     const run = (async (): Promise<AccountIdentity | null> => {
       // Only force a Firebase token refresh on the write/force path; the
       // read path reuses the cached token to avoid an extra round-trip.
       const idToken = await user.getIdToken(force).catch(() => undefined);
-      if (!idToken) {
+      if (!idToken || !identityWorkIsCurrent(work)) {
         return null;
       }
 
-      return this.refreshIdentityForSession(uid, idToken, options);
+      return this.refreshIdentityWithWork(work, idToken, options);
     })();
 
     if (!force) {
-      identityRefreshInflight.set(uid, run);
+      identityRefreshInflight.set(requestKey, run);
       const clearInflight = () => {
-        if (identityRefreshInflight.get(uid) === run) {
-          identityRefreshInflight.delete(uid);
+        if (identityRefreshInflight.get(requestKey) === run) {
+          identityRefreshInflight.delete(requestKey);
         }
       };
       // Give both branches an explicit handler. `void run.finally(...)`
@@ -203,19 +237,23 @@ export class AccountIdentityService {
     if (!user) {
       return null;
     }
-
+    const work = beginIdentityWork(user.uid);
     const idToken = await user.getIdToken(true).catch(() => undefined);
-    if (!idToken) {
+    if (!idToken || !identitySessionIsCurrent(user.uid, work.generation)) {
       return null;
     }
 
     const response = await ApiService.claimAccountPhone(phoneIdToken, idToken, user.uid);
+    if (!identitySessionIsCurrent(user.uid, work.generation)) return null;
     const identity = response.identity ?? null;
     if (identity?.user_id !== user.uid) {
       throw new Error("Phone verification could not be completed for this account.");
     }
     // Write through so guards immediately see the newly verified phone.
-    this.cacheIdentity(user.uid, identity);
+    // A committed phone save outranks every read started before it completed,
+    // including reads whose caller already timed out.
+    work.sequence = ++identityWorkSequence;
+    this.cacheIdentity(user.uid, identity, work);
     return identity;
   }
 
@@ -230,13 +268,16 @@ export class AccountIdentityService {
     if (!user?.uid) {
       return null;
     }
+    const work = beginIdentityWork(user.uid);
     const idToken = await user.getIdToken(true).catch(() => undefined);
-    if (!idToken) {
+    if (!idToken || !identitySessionIsCurrent(user.uid, work.generation)) {
       return null;
     }
     const { identity } = await ApiService.uploadAvatar(imageDataUrl, idToken);
+    if (!identitySessionIsCurrent(user.uid, work.generation) || (identity && identity.user_id !== user.uid)) return null;
+    if (!identityWorkIsCurrent(work)) return this.refreshCurrentUserIdentity(user, { force: true });
     if (identity) {
-      this.cacheIdentity(user.uid, identity);
+      this.cacheIdentity(user.uid, identity, work);
     } else {
       this.invalidateCachedIdentity(user.uid);
     }
@@ -250,13 +291,16 @@ export class AccountIdentityService {
     if (!user?.uid) {
       return null;
     }
+    const work = beginIdentityWork(user.uid);
     const idToken = await user.getIdToken(true).catch(() => undefined);
-    if (!idToken) {
+    if (!idToken || !identitySessionIsCurrent(user.uid, work.generation)) {
       return null;
     }
     const { identity } = await ApiService.removeAvatar(idToken);
+    if (!identitySessionIsCurrent(user.uid, work.generation) || (identity && identity.user_id !== user.uid)) return null;
+    if (!identityWorkIsCurrent(work)) return this.refreshCurrentUserIdentity(user, { force: true });
     if (identity) {
-      this.cacheIdentity(user.uid, identity);
+      this.cacheIdentity(user.uid, identity, work);
     } else {
       this.invalidateCachedIdentity(user.uid);
     }
@@ -283,10 +327,12 @@ export class AccountIdentityService {
       return null;
     }
     const userId = user.uid;
+    const work = beginIdentityWork(user.uid);
     const idToken = await user.getIdToken(true).catch(() => undefined);
     if (!idToken) {
       throw new ApiError("Sign in again to change your name.", 401);
     }
+    if (!identitySessionIsCurrent(user.uid, work.generation)) return null;
     const payload = await apiJson<{
       success?: boolean;
       user_id?: string;
@@ -298,6 +344,7 @@ export class AccountIdentityService {
       headers: { Authorization: `Bearer ${idToken}` },
       body: JSON.stringify({ display_name: displayName }),
     });
+    if (!identitySessionIsCurrent(userId, work.generation)) return null;
     // The authenticated write response must confirm its own subject before
     // entering an owner-keyed cache or any native/React presentation replica.
     if (
@@ -307,8 +354,12 @@ export class AccountIdentityService {
       throw new ApiError("Couldn't verify the name change.", 502);
     }
     let identity = payload?.identity ?? null;
-    if (identity) {
-      this.cacheIdentity(userId, identity);
+    if (!identityWorkIsCurrent(work)) {
+      // The mutation still ran. Its delayed full-identity snapshot must not
+      // replace a newer phone claim; reconcile with the committed account.
+      identity = await this.refreshCurrentUserIdentity(user, { force: true, requireSuccess: true }).catch(() => null);
+    } else if (identity) {
+      this.cacheIdentity(userId, identity, work);
     } else {
       // The provider accepted the change but the response carried no shadow;
       // fetch the fresh identity rather than leaving a stale name cached.
@@ -316,23 +367,24 @@ export class AccountIdentityService {
       identity = await this.refreshCurrentUserIdentity(user, {
         force: true, requireSuccess: true,
       }).catch(() => null);
-      // The provider already committed this exact returned value. A failed or
-      // lagging shadow read must not turn that write into a failed save. This
-      // partial presentation result is never written to the identity cache.
-      const committedName =
-        typeof payload.display_name === "string" ? payload.display_name.trim() : "";
-      if (
-        payload.shadow_sync === "pending" && committedName &&
-        identity?.display_name !== committedName
-      ) {
-        this.invalidateCachedIdentity(userId);
-        identity = { user_id: userId, display_name: committedName };
-      }
+    }
+    if (!identitySessionIsCurrent(userId, work.generation)) return null;
+    // The provider already committed this exact returned value. A failed or
+    // lagging shadow read must not turn that write into a failed save. This
+    // partial presentation result is never written to the identity cache.
+    const committedName =
+      typeof payload.display_name === "string" ? payload.display_name.trim() : "";
+    if (
+      payload.shadow_sync === "pending" && committedName &&
+      identity?.display_name !== committedName
+    ) {
+      this.invalidateCachedIdentity(userId);
+      identity = { user_id: userId, display_name: committedName };
     }
     // Reload the Firebase user so `user.displayName` reflects the new name on
     // every surface that reads it directly from the auth object.
     await user.reload().catch(() => undefined);
-    return identity;
+    return identitySessionIsCurrent(user.uid, work.generation) ? identity : null;
   }
 
   static async startUatTestPhoneVerification(
@@ -364,9 +416,9 @@ export class AccountIdentityService {
     if (!user) {
       return null;
     }
-
+    const work = beginIdentityWork(user.uid);
     const idToken = await user.getIdToken(true).catch(() => undefined);
-    if (!idToken) {
+    if (!idToken || !identitySessionIsCurrent(user.uid, work.generation)) {
       return null;
     }
 
@@ -377,14 +429,18 @@ export class AccountIdentityService {
       idToken,
       user.uid
     );
+    if (!identitySessionIsCurrent(user.uid, work.generation)) return null;
     const identity = response.identity ?? null;
     if (identity?.user_id !== user.uid) {
       throw new Error("Phone verification could not be completed for this account.");
     }
-    this.cacheIdentity(user.uid, identity);
+    work.sequence = ++identityWorkSequence;
+    this.cacheIdentity(user.uid, identity, work);
     return identity;
   }
 
+  /** Shared provider-linked finalization. Keep the native-named entrypoint for
+   * existing callers; web replacement uses the same exact-phone proof. */
   static async finalizeNativePhoneVerification(
     user: User | null | undefined,
     requestedPhone: string | null | undefined,
@@ -394,17 +450,27 @@ export class AccountIdentityService {
     if (!user?.uid || !expectedPhone || linkedPhone !== expectedPhone) {
       throw new Error("Phone verification completed but the linked phone could not be confirmed.");
     }
-    const identity = await this.refreshCurrentUserIdentity(user, {
+    const work = beginIdentityWork(user.uid);
+    const token = await user.getIdToken(true);
+    if (!identitySessionIsCurrent(user.uid, work.generation)) {
+      throw new Error("Your account changed. Please retry phone verification.");
+    }
+    const response = await ApiService.refreshAccountIdentityShadow(token, {
       force: true,
       requireSuccess: true,
+      verifiedPhoneNumber: expectedPhone,
     });
+    const identity = await this.identityFromResponse(response);
     if (
+      !identitySessionIsCurrent(user.uid, work.generation) ||
       identity?.user_id !== user.uid ||
       identity.phone_verified !== true ||
       String(identity.phone_number ?? "").trim() !== expectedPhone
     ) {
       throw new Error("Phone verification could not be saved to your account. Please retry or use a different phone number.");
     }
+    work.sequence = ++identityWorkSequence;
+    this.cacheIdentity(user.uid, identity, work);
   }
 
   static async syncCurrentUser(
@@ -413,9 +479,9 @@ export class AccountIdentityService {
     if (!user) {
       return null;
     }
-
+    const work = beginIdentityWork(user.uid);
     const idToken = await user.getIdToken(true).catch(() => undefined);
-    if (!idToken) {
+    if (!idToken || !identityWorkIsCurrent(work)) {
       return null;
     }
 
@@ -434,7 +500,8 @@ export class AccountIdentityService {
 
     if (identityResult.status === "fulfilled") {
       const identity = await this.identityFromResponse(identityResult.value);
-      this.cacheIdentity(user.uid, identity);
+      if (identity?.user_id !== user.uid || !identityWorkIsCurrent(work)) return null;
+      this.cacheIdentity(user.uid, identity, work);
       return identity;
     }
 

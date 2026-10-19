@@ -201,6 +201,35 @@ describe("kai-action-gateway", () => {
     ).toBe("route.kai_home");
   });
 
+  it("routes phone recovery to Account and keeps it behind sign-in", () => {
+    const account = getKaiActionById("route.profile_account");
+    const retry = getKaiActionById("profile.retry_phone_lookup");
+    expect(account?.execution_target).toEqual({
+      status: "wired",
+      path: "route",
+      target: "/one/profile/account",
+    });
+    expect(getKaiActionsForControlId("profile_account")[0]?.action_id).toBe(
+      "route.profile_account",
+    );
+    expect(retry?.reachability.routes).toContain(
+      account?.execution_target.status === "wired"
+        ? account.execution_target.target
+        : null,
+    );
+    for (const action of [account, retry]) {
+      expect(action).not.toBeNull();
+      expect(
+        evaluateKaiActionAvailability({
+          action: action!,
+          appRuntimeState: makeRuntimeState({
+            auth: { signed_in: false, user_id: null },
+          }),
+        }).status,
+      ).toBe("blocked");
+    }
+  });
+
   it("keeps analysis.start as the generated preview-first goal contract", () => {
     const action = getKaiActionById("analysis.start");
     expect(action?.goal).toEqual(

@@ -8009,12 +8009,15 @@ describe("OneLocationAgentPage", () => {
     expect(
       search.compareDocumentPosition(person) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    const addPeople = screen.getByRole("button", {
+      name: /Add or manage people/i,
+    });
     const between = Array.from(
       document.querySelectorAll("button, a[href], input, textarea, select"),
     ).filter(
       (el) =>
         el !== search &&
-        el !== screen.getByRole("button", { name: /Add or manage people/i }) &&
+        el !== addPeople &&
         !el.contains(person) &&
         search.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING &&
         person.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING,
@@ -8026,9 +8029,6 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByRole("button", { name: /Share to contacts/i }),
     ).toBeNull();
-    const addPeople = screen.getByRole("button", {
-      name: /Add or manage people/i,
-    });
     expect(addPeople).toBeTruthy();
     expect(
       search.compareDocumentPosition(addPeople) &

@@ -847,11 +847,16 @@ async def revoke_trusted_device(
     return {"success": True, "device_id": device_id}
 
 
+class IdentityRefreshRequest(BaseModel):
+    verified_phone_number: str | None = Field(default=None, pattern=r"^\+[1-9][0-9]{6,14}$")
+
+
 @router.post("/identity/refresh")
 async def refresh_account_identity(
     firebase_uid: str = Depends(require_firebase_auth),
     force: bool = True,
     require_success: bool = False,
+    request: IdentityRefreshRequest | None = Body(default=None),
 ):
     """Refresh the backend account identity shadow from Firebase Auth.
 
@@ -860,7 +865,39 @@ async def refresh_account_identity(
     keeps read-only callers (such as the phone-mandate guard) fast while
     callers that need guaranteed freshness keep the default forced refresh.
     """
-    if require_success:
+    if request and request.verified_phone_number is not None:
+        try:
+            identity = await ActorIdentityService().finalize_verified_phone_from_firebase(
+                firebase_uid, request.verified_phone_number
+            )
+        except ActorIdentityPhoneClaimConflictError:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "PHONE_ALREADY_VERIFIED",
+                    "message": "This phone is verified for another account.",
+                },
+            ) from None
+        except ValueError:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "PHONE_VERIFICATION_CHANGED",
+                    "message": "The verified phone changed. Please retry.",
+                },
+            ) from None
+        except Exception as exc:
+            logger.warning(
+                "account.identity.phone_finalize_unavailable error=%s", type(exc).__name__
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "IDENTITY_PROVIDER_UNAVAILABLE",
+                    "message": "Account verification is temporarily unavailable. Please retry.",
+                },
+            ) from None
+    elif require_success:
         try:
             identity = await ActorIdentityService().sync_from_firebase(
                 firebase_uid, force=True, require_success=True
