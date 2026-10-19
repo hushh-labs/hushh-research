@@ -12,6 +12,7 @@ import hashlib
 import json
 import time
 from collections.abc import Awaitable, Callable, Mapping
+from contextvars import ContextVar
 from functools import partial
 from typing import Any, cast
 from urllib.parse import urlsplit
@@ -38,6 +39,7 @@ from hushh_mcp.one_adk.world_model_contracts import (
     WorldModelReport,
     validated_facts_from_work,
 )
+from hushh_mcp.one_adk.world_model_usage import UsageReceipt, provider_usage, summarize_usage
 
 # Keep the durable slot layout compatible with the existing job ledger while
 # bounding this new provider path more conservatively during evaluation.
@@ -58,6 +60,19 @@ _SEARCH_SLOTS = range(1, MAX_AZURE_SEARCH_INVOCATIONS + 1)
 _MODEL_SLOTS = range(MAX_SEARCHES + 1, MAX_SEARCHES + MAX_AZURE_MODEL_CALLS + 1)
 _CHECKPOINT_BYTES = 6 * 1024 * 1024
 _MAX_RECEIPTS = 3200
+
+
+def checkpoint_usage(work: Any, attempts_used: list[int]) -> dict[str, Any] | None:
+    """Numeric projection only; callers must authorize the sealed checkpoint first."""
+    if not isinstance(work, dict) or work.get("azure_work_version") != AZURE_WORK_VERSION:
+        return None
+    return summarize_usage(
+        work.get("usage_records", {}),
+        model_slots=set(attempts_used) & set(_MODEL_SLOTS),
+        search_slots=set(attempts_used) & set(_SEARCH_SLOTS),
+        searches=work.get("attempts", {}),
+    )
+
 
 _ASSESSMENT_INSTRUCTION = """Assess whether the public research describes the verified owner.
 The host supplied the owner's name and verified contacts. Contact control is not legal identity.
@@ -230,12 +245,14 @@ class AzurePwmGateway:
         phi_endpoint: str = "",
         phi_deployment: str = "",
         phi_token_supplier: Callable[[], str] | None = None,
+        on_usage: Callable[[UsageReceipt], Awaitable[None]] | None = None,
     ) -> None:
         self.primary_endpoint = _endpoint(primary_endpoint)
         # Retain the old constructor arguments for callers; planning now uses
         # the primary deployment and no Foundry/Phi credential is required.
         self.primary_deployment = primary_deployment
         self.primary_token_supplier = primary_token_supplier
+        self.on_usage = on_usage
         if not primary_deployment:
             raise ValueError("The primary PWM deployment is required")
 
@@ -269,6 +286,7 @@ class AzurePwmGateway:
 
     async def search(self, request: dict[str, Any]) -> Mapping[str, Any]:
         """Return the raw Responses result for provider receipt extraction."""
+        started = time.monotonic()
         client = await self._client(self.primary_endpoint, self.primary_token_supplier)
         async with client:
             response = await client.responses.create(
@@ -283,6 +301,13 @@ class AzurePwmGateway:
                 reasoning={"effort": "low"},
                 max_output_tokens=MAX_AZURE_SEARCH_OUTPUT_TOKENS,
             )
+        if self.on_usage is not None:
+            await self.on_usage(
+                provider_usage(
+                    getattr(response, "usage", None),
+                    elapsed_ms=round((time.monotonic() - started) * 1000),
+                )
+            )
         return cast(Mapping[str, Any], response.model_dump(mode="json"))
 
     async def structured(
@@ -295,6 +320,7 @@ class AzurePwmGateway:
         max_output_tokens: int,
     ) -> dict[str, Any]:
         """Ask the primary model for JSON; the host validates it after the call."""
+        started = time.monotonic()
         definitions: dict[str, Any] = {}
         result_schema = _structured_schema(schema, definitions=definitions)
         envelope_schema = {
@@ -325,6 +351,13 @@ class AzurePwmGateway:
                         "schema": envelope_schema,
                     }
                 },
+            )
+        if self.on_usage is not None:
+            await self.on_usage(
+                provider_usage(
+                    getattr(response, "usage", None),
+                    elapsed_ms=round((time.monotonic() - started) * 1000),
+                )
             )
         if response.status != "completed" or response.incomplete_details is not None:
             raise ValueError(f"Azure {purpose} did not complete")
@@ -550,17 +583,6 @@ async def run_world_model_azure(
     await require_access()
     if on_attempts_start is None:
         raise ValueError("Durable provider budget is required")
-    if gateway is None:
-        if primary_token_supplier is None:
-            raise ValueError("The primary PWM token supplier is required")
-        gateway = AzurePwmGateway(
-            primary_endpoint=primary_endpoint,
-            primary_deployment=primary_deployment,
-            primary_token_supplier=primary_token_supplier,
-            phi_endpoint=phi_endpoint,
-            phi_deployment=phi_deployment,
-            phi_token_supplier=phi_token_supplier,
-        )
     decisions = OwnerDecisions.model_validate(owner_decisions or {}).model_dump()
     history = json.loads(json.dumps(work or {}))
     if not isinstance(history, dict):
@@ -573,12 +595,14 @@ async def run_world_model_azure(
     suggestions = history.setdefault("search_suggestions", [])
     batches = history.setdefault("finding_batches", [])
     finding_attempts = history.setdefault("finding_attempts", {})
+    usage_records = history.setdefault("usage_records", {})
     if (
         not isinstance(receipts, dict)
         or not isinstance(attempts, dict)
         or not isinstance(suggestions, list)
         or not isinstance(batches, list)
         or not isinstance(finding_attempts, dict)
+        or not isinstance(usage_records, dict)
     ):
         raise ValueError("PWM checkpoint has invalid research fields")
     if (
@@ -586,6 +610,7 @@ async def run_world_model_azure(
         or len(attempts) > MAX_SEARCHES
         or len(batches) > MAX_AZURE_FINDING_BATCHES
         or len(finding_attempts) > MAX_AZURE_FINDING_BATCHES
+        or len(usage_records) > MAX_AZURE_MODEL_CALLS
     ):
         raise ValueError("PWM checkpoint exceeds supported evidence bounds")
     for source in receipts.values():
@@ -597,6 +622,13 @@ async def run_world_model_azure(
         ).validate_evidence(identity=identity, source_refs=set(receipts))
         history["assessment"] = assessment.model_dump()
     used = set(attempts_used)
+    usage_slot: ContextVar[int | None] = ContextVar("pwm_usage_slot", default=None)
+    summarize_usage(
+        usage_records,
+        model_slots=used & set(_MODEL_SLOTS),
+        search_slots=used & set(_SEARCH_SLOTS),
+        searches=attempts,
+    )
 
     def billed_searches() -> int:
         total = 0
@@ -625,6 +657,26 @@ async def run_world_model_azure(
             await require_access()
             await on_progress(history)
 
+    async def record_usage(receipt: UsageReceipt) -> None:
+        slot = usage_slot.get()
+        if slot is None or slot not in used or str(slot) in usage_records:
+            raise ValueError("PWM usage requires a unique charged model slot")
+        usage_records[str(slot)] = receipt.model_dump()
+        await checkpoint()
+
+    if gateway is None:
+        if primary_token_supplier is None:
+            raise ValueError("The primary PWM token supplier is required")
+        gateway = AzurePwmGateway(
+            primary_endpoint=primary_endpoint,
+            primary_deployment=primary_deployment,
+            primary_token_supplier=primary_token_supplier,
+            phi_endpoint=phi_endpoint,
+            phi_deployment=phi_deployment,
+            phi_token_supplier=phi_token_supplier,
+            on_usage=record_usage,
+        )
+
     async def charge(slots: range) -> int:
         async with lock:
             remaining = sorted(set(slots) - used)
@@ -640,14 +692,22 @@ async def run_world_model_azure(
             raise ResearchSliceComplete()
 
     async def provider_call(
-        call: Callable[[], Awaitable[Any]], *, reserve_seconds: float = 10, max_seconds: float = 90
+        call: Callable[[], Awaitable[Any]],
+        *,
+        slot: int,
+        reserve_seconds: float = 10,
+        max_seconds: float = 90,
     ) -> Any:
         await require_access()
         time_left(reserve_seconds + 1)
-        result = await asyncio.wait_for(
-            call(),
-            timeout=min(max_seconds, max(1, deadline - monotonic_clock() - reserve_seconds)),
-        )
+        token = usage_slot.set(slot)
+        try:
+            result = await asyncio.wait_for(
+                call(),
+                timeout=min(max_seconds, max(1, deadline - monotonic_clock() - reserve_seconds)),
+            )
+        finally:
+            usage_slot.reset(token)
         await require_access()
         return result
 
@@ -698,8 +758,10 @@ async def run_world_model_azure(
             "at": time.time(),
         }
         await checkpoint()
-        await charge(_MODEL_SLOTS)
-        raw = await provider_call(lambda: gateway.search(request), reserve_seconds=reserve_seconds)
+        model_slot = await charge(_MODEL_SLOTS)
+        raw = await provider_call(
+            lambda: gateway.search(request), slot=model_slot, reserve_seconds=reserve_seconds
+        )
         evidence = extract_azure_web_receipts(raw)
         received: list[str] = []
         if len(receipts) + len(evidence.sources) > _MAX_RECEIPTS:
@@ -728,12 +790,18 @@ async def run_world_model_azure(
         nonlocal assessment
         if not any(row.get("observed") for row in attempts.values()):
             raise ValueError("Identity assessment needs an observed search")
-        await charge(_MODEL_SLOTS)
+        model_slot = await charge(_MODEL_SLOTS)
         value = await provider_call(
-            lambda: gateway.structured(
+            slot=model_slot,
+            call=lambda: gateway.structured(
                 purpose="identity_assessment",
                 instruction=_ASSESSMENT_INSTRUCTION,
-                payload={"identity": identity, "research_history": history},
+                payload={
+                    "identity": identity,
+                    "research_history": {
+                        key: value for key, value in history.items() if key != "usage_records"
+                    },
+                },
                 schema=IdentityAssessment.model_json_schema(),
                 max_output_tokens=4096,
             ),
@@ -788,7 +856,7 @@ async def run_world_model_azure(
             if str(index) != key or index not in _SEARCH_SLOTS:
                 raise ValueError("PWM finding attempt ID is invalid")
             topic = plan.topics[0]
-            await charge(_MODEL_SLOTS)
+            model_slot = await charge(_MODEL_SLOTS)
             finding_attempts[key] = {"state": "started", "at": time.time()}
             await checkpoint()
             try:
@@ -809,6 +877,7 @@ async def run_world_model_azure(
                 )
                 raw = await provider_call(
                     call,
+                    slot=model_slot,
                     reserve_seconds=FINAL_REPORT_RESERVE_SECONDS,
                     max_seconds=FINDING_BATCH_MAX_SECONDS,
                 )
@@ -864,10 +933,11 @@ async def run_world_model_azure(
             time_left(80)
             # The primary planner receives already admitted public evidence,
             # never the owner's private decisions or raw contact values.
-            await charge(_MODEL_SLOTS)
+            model_slot = await charge(_MODEL_SLOTS)
             try:
                 choice = await provider_call(
-                    lambda: gateway.plan(
+                    slot=model_slot,
+                    call=lambda: gateway.plan(
                         {
                             "available_seed_fields": [
                                 field
@@ -955,21 +1025,24 @@ async def run_world_model_azure(
             topic: [index for index in indices if attempts[str(index)].get("observed") is True]
             for topic, indices in _topic_attempts(assessment, attempts).items()
         }
-        await charge(_MODEL_SLOTS)
+        model_slot = await charge(_MODEL_SLOTS)
         report_value = await provider_call(
-            lambda: gateway.structured(
+            slot=model_slot,
+            call=lambda: gateway.structured(
                 purpose="world_model_report",
                 instruction=_REPORT_INSTRUCTION,
                 payload={
                     "identity": identity,
-                    "research_history": history,
+                    "research_history": {
+                        key: value for key, value in history.items() if key != "usage_records"
+                    },
                     "owner_decisions": decisions,
                     "topics": TOPICS,
                     "topic_attempt_ids": topic_attempt_ids,
                 },
                 schema=WorldModelReport.model_json_schema(),
                 max_output_tokens=MAX_AZURE_REPORT_OUTPUT_TOKENS,
-            )
+            ),
         )
     except (ResearchSliceComplete, TimeoutError, asyncio.TimeoutError):
         await checkpoint()
@@ -996,6 +1069,12 @@ async def run_world_model_azure(
     return {
         "status": "offered",
         "pkm_written": False,
+        "_provider_usage": summarize_usage(
+            usage_records,
+            model_slots=used & set(_MODEL_SLOTS),
+            search_slots=used & set(_SEARCH_SLOTS),
+            searches=attempts,
+        ),
         "report": result,
         "search_suggestions": suggestions,
         "grounded_answers": [

@@ -1,5 +1,6 @@
 """Owner-scoped PWM preparation; default-on after setup, with a persistent opt-out."""
 
+import json
 from typing import Literal
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from api.routes.one.profile_research import (
 )
 from hushh_mcp.managed_ai_config import load_pwm_policy
 from hushh_mcp.one_adk.world_model import OwnerDecisions
+from hushh_mcp.one_adk.world_model_usage import public_result
 from hushh_mcp.services import world_model_invitations as invitations
 from hushh_mcp.services import world_model_preferences as preferences
 from hushh_mcp.services import world_model_source_review as source_reviews
@@ -47,6 +49,12 @@ def decisions(body: PreparationInput | None):
     return body.owner_decisions.model_dump() if body and body.owner_decisions else None
 
 
+def research_response(result, status_code):
+    payload, usage = public_result(result)
+    headers = {"X-Hussh-PWM-Usage": json.dumps(usage, separators=(",", ":"))} if usage else None
+    return JSONResponse(payload, status_code=status_code, headers=headers)
+
+
 async def operation(token, start, owner_decisions=None):
     try:
         if owner_decisions is not None:
@@ -56,7 +64,7 @@ async def operation(token, start, owner_decisions=None):
             result = await (world_model_jobs.start if start else world_model_jobs.status)(
                 *owner(token)
             )
-        return JSONResponse(result, status_code=202 if result["status"] == "pending" else 200)
+        return research_response(result, status_code=202 if result["status"] == "pending" else 200)
     except PermissionError:
         raise HTTPException(403, "Unlock your vault to continue.") from None
     except Exception:
@@ -137,7 +145,7 @@ async def ensure(
 ):
     try:
         result = await world_model_jobs.ensure(*owner(token), owner_decisions=decisions(body))
-        return JSONResponse(
+        return research_response(
             result, status_code=202 if result["status"] in {"pending", "paused"} else 200
         )
     except HTTPException:
