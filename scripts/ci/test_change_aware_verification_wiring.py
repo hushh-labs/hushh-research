@@ -113,6 +113,28 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
         'gcloud run services update "${{ env.FRONTEND_SERVICE }}"'
         in candidate_step[secret_removal:literal_binding]
     ), "Cloud Run requires separate updates to switch a secret-backed variable to a literal"
+    live_provenance = content.split(
+        "      - name: Verify frontend deployment provenance", 1
+    )[1].split("      - name: Verify protected list secrets were not wiped", 1)[0]
+    backend_provenance = content.split(
+        "      - name: Verify backend deployment provenance", 1
+    )[1].split("      - name: Verify frontend deployment provenance", 1)[0]
+    assert (
+        "if: steps.scope.outputs.deploy_backend == 'true' && "
+        "(steps.scope.outputs.deploy_frontend != 'true' || "
+        "steps.verify-analytics-uat.outcome == 'success')"
+    ) in backend_provenance
+    assert (
+        "if: steps.scope.outputs.deploy_frontend == 'true' && "
+        "steps.verify-analytics-uat.outcome == 'success'"
+    ) in live_provenance
+    classification = content.split("      - name: Classify UAT release outcome", 1)[1].split(
+        "      - name: Roll back backend revision", 1
+    )[0]
+    assert "not backend_provenance_required" in classification
+    assert 'and os.environ.get("ANALYTICS_SMOKE_OUTCOME") == "success"' in classification
+    assert "not frontend_provenance_required" in classification
+    assert 'append_unique(blocking, ["analytics_transport_failed"])' in classification
     restore_step = content.split("      - name: Restore canonical frontend backend bindings", 1)[1].split(
         "      - name: Promote deployed revisions to UAT traffic", 1
     )[0]
@@ -140,6 +162,35 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
         'smoke_revision="${release_revision}"',
         '--update-tags="analytics-candidate=${smoke_revision}"',
         'echo "revision=${smoke_revision}" >> "$GITHUB_OUTPUT"',
+    )
+
+
+def test_uat_frontend_release_does_not_rewrite_backend_runtime_secret() -> None:
+    source = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
+
+    def step(name: str) -> str:
+        return source.split(f"      - name: {name}\n", 1)[1].split("\n      - name:", 1)[0]
+
+    backend_sync = step("Sync canonical hosted runtime secrets")
+    origin_check = step("Verify frontend-only origin secret")
+    frontend_sync = step("Sync frontend hosted runtime secrets")
+    assert "if: steps.scope.outputs.deploy_backend == 'true'" in backend_sync
+    assert "sync_backend_runtime_secrets.py" in backend_sync
+    assert "sync_frontend_runtime_secrets.py" not in backend_sync
+    assert (
+        "if: steps.scope.outputs.deploy_frontend == 'true' && "
+        "steps.scope.outputs.deploy_backend != 'true'"
+    ) in origin_check
+    assert "gcloud secrets versions access latest" in origin_check
+    assert "--secret=APP_FRONTEND_ORIGIN" in origin_check
+    assert '"$origin_secret" != "$APP_FRONTEND_ORIGIN"' in origin_check
+    assert "if: steps.scope.outputs.deploy_frontend == 'true'" in frontend_sync
+    assert "sync_frontend_runtime_secrets.py" in frontend_sync
+    assert (
+        source.index("      - name: Sync canonical hosted runtime secrets")
+        < source.index("      - name: Verify frontend-only origin secret")
+        < source.index("      - name: Sync frontend hosted runtime secrets")
+        < source.index("      - name: Start frontend image build in parallel")
     )
 
 

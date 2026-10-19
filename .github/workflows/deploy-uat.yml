@@ -694,6 +694,7 @@ jobs:
           echo "Verified ENABLED One Location retention scheduler: ${scheduler_job}."
 
       - name: Sync canonical hosted runtime secrets
+        if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         # These repository variables are UAT-only rollout controls. Passing them
         # through the environment (not inline expressions in shell) keeps an
@@ -797,6 +798,26 @@ jobs:
             --mail-scheduled-drain-enabled "${{ vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT || 'true' }}" \
             > /tmp/uat-runtime-secret-sync.json
 
+      - name: Verify frontend-only origin secret
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          origin_secret="$(gcloud secrets versions access latest \
+            --secret=APP_FRONTEND_ORIGIN --project="${GCP_PROJECT_ID}" 2>/dev/null)" || {
+            echo "Frontend-only UAT release requires the canonical APP_FRONTEND_ORIGIN secret."
+            exit 1
+          }
+          if [ "$origin_secret" != "$APP_FRONTEND_ORIGIN" ]; then
+            echo "Frontend-only UAT release found an origin mismatch; use a paired backend release."
+            exit 1
+          fi
+
+      - name: Sync frontend hosted runtime secrets
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_frontend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment uat \
@@ -1883,7 +1904,7 @@ jobs:
 
       - name: Verify backend deployment provenance
         id: verify-backend-provenance
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' && (steps.scope.outputs.deploy_frontend != 'true' || steps.verify-analytics-uat.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -1900,7 +1921,7 @@ jobs:
 
       - name: Verify frontend deployment provenance
         id: verify-frontend-provenance
-        if: steps.scope.outputs.deploy_frontend == 'true'
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.verify-analytics-uat.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -2194,12 +2215,25 @@ jobs:
           semantic_report_present = bool(semantic_report)
 
           parity_success = os.environ.get("PARITY_ATTEMPT_1") == "success" or os.environ.get("PARITY_ATTEMPT_2") == "success"
+          # Failed paired analytics smoke withholds promotion, so live traffic
+          # still serves the prior release. Its provenance is not a candidate check.
+          backend_provenance_required = (
+              os.environ.get("DEPLOY_BACKEND") == "true"
+              and (
+                  os.environ.get("DEPLOY_FRONTEND") != "true"
+                  or os.environ.get("ANALYTICS_SMOKE_OUTCOME") == "success"
+              )
+          )
           backend_provenance_success = (
-              os.environ.get("DEPLOY_BACKEND") != "true"
+              not backend_provenance_required
               or os.environ.get("BACKEND_PROVENANCE_OUTCOME") == "success"
           )
+          frontend_provenance_required = (
+              os.environ.get("DEPLOY_FRONTEND") == "true"
+              and os.environ.get("ANALYTICS_SMOKE_OUTCOME") == "success"
+          )
           frontend_provenance_success = (
-              os.environ.get("DEPLOY_FRONTEND") != "true"
+              not frontend_provenance_required
               or os.environ.get("FRONTEND_PROVENANCE_OUTCOME") == "success"
           )
           db_outcome = os.environ.get("DB_OUTCOME", "")
@@ -2345,6 +2379,7 @@ jobs:
                       "report": backend_provenance_report,
                   },
                   "frontend": {
+                      "required": frontend_provenance_required,
                       "outcome": os.environ.get("FRONTEND_PROVENANCE_OUTCOME", ""),
                       "success": frontend_provenance_success,
                       "report": frontend_provenance_report,
