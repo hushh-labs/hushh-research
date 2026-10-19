@@ -3,6 +3,7 @@
 import { useRef, type CSSProperties, type KeyboardEvent } from "react";
 
 import { cn } from "@/lib/utils";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
 
 export interface SegmentedTabOption {
   value: string;
@@ -22,6 +23,7 @@ export function SegmentedTabs({
   options,
   mobileColumns,
   disabled = false,
+  hapticFeedback = true,
   className,
   ariaLabel,
   tabSetId,
@@ -33,6 +35,7 @@ export function SegmentedTabs({
   mobileColumns?: number;
   /** Disable every option while the owning selection is settling. */
   disabled?: boolean;
+  hapticFeedback?: boolean;
   className?: string;
   ariaLabel?: string;
   /** Link controlled workspace tabs to the shared SwipeViews panel identities. */
@@ -48,6 +51,11 @@ export function SegmentedTabs({
   );
   const isSubordinate = variant === "subordinate";
   const isFilter = variant === "filter";
+  const select = (next: string) => {
+    if (disabled || next === value) return;
+    onValueChange(next);
+    if (hapticFeedback) appHaptic("selection");
+  };
 
   return (
     <div
@@ -99,10 +107,10 @@ export function SegmentedTabs({
             disabled={disabled}
             data-state={isActive ? "active" : "inactive"}
             onClick={() => {
-              if (!disabled && !isActive) onValueChange(option.value);
+              select(option.value);
             }}
             onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
-              if (disabled || options.length < 2) return;
+              if (disabled || options.length < 2 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
               let nextIndex: number | null = null;
               if (event.key === "ArrowRight") {
                 nextIndex = (index + 1) % options.length;
@@ -118,7 +126,7 @@ export function SegmentedTabs({
               const next = options[nextIndex];
               if (!next) return;
               tabRefs.current[nextIndex]?.focus();
-              if (next.value !== value) onValueChange(next.value);
+              select(next.value);
             }}
               className={cn(
                 "relative isolate flex min-w-0 items-center justify-center overflow-hidden border text-center transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",

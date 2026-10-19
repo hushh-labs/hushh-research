@@ -237,7 +237,7 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
 
 16. The canonical container tokens are:
 
-- `--app-shell-reading: 54rem`
+- `--app-shell-reading: 720px`
 - `--app-shell-agent: 55rem`
 - `--app-shell-standard: 90rem`
 - `--app-shell-expanded: 96rem`
@@ -369,6 +369,13 @@ Rules:
     reading column: three desktop tracks and one phone track. Keep text left
     aligned, surfaces borderless, and press feedback flat. Response follow-ups
     remain compact text rows. Both fill the composer for review; neither sends.
+12. Bounded settings/navigation lists prefer concise, single-line supporting
+    copy—or title-only rows when a subtitle adds nothing. If related siblings
+    need mixed line counts, `SettingsGroup rowSizing="uniform"` gives them the
+    tallest readable sibling's height at the current width and text size. The
+    real inner action/ripple surface must fill that height. Do not add filler
+    descriptions, fixed maximum heights or global truncation to force symmetry.
+    Information-heavy lists retain the default `content` sizing and wrapping.
 
 ## Agent Chat Stream Surface Contract
 
@@ -661,6 +668,12 @@ skill at `references/foundation-design-system.md`.
 ## Overlay Backdrop Contract
 
 Every floating surface that takes modal focus shares one backdrop language so opening a surface gives the same dimming and blur thump.
+
+App-owned `NativeFeaturePage` content uses the shared feature-page layer below
+sheets and dialogs, even though it reuses Dialog for focus and Back ownership.
+Its page/scrim consume `--z-feature-page`/`--z-feature-page-overlay`; nested
+primitives keep their normal tokens. Do not lift all sheets or create local
+z-index overrides to correct an incorrectly layered parent page.
 
 Rules:
 

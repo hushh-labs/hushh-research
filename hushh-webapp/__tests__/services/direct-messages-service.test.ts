@@ -289,6 +289,18 @@ describe("DirectMessagesService", () => {
     );
   });
 
+  it.each(["scope", "conversation", "message"] as const)("rejects a deletion acknowledgement with mismatched %s", async (mismatch) => {
+    const message = { ...conversation.latestMessage, senderIsViewer: true, deletedForEveryoneAt: "2026-10-06T10:01:00.000Z" };
+    apiFetch.mockResolvedValue(new Response(JSON.stringify({
+      scope: mismatch === "scope" ? "me" : "everyone",
+      message: { ...message, conversationId: mismatch === "conversation" ? "another-conversation" : message.conversationId,
+        id: mismatch === "message" ? "another-message" : message.id },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(DirectMessagesService.deleteMessage({
+      idToken: "firebase-token", conversationId: "conversation-1", messageId: "message-1", scope: "everyone",
+    })).rejects.toThrow("The deleted message could not be verified.");
+  });
+
   it("forwards the retry identity and the owner-scoped read boundary without clearing later same-millisecond alerts", async () => {
     apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({ conversation, message: conversation.latestMessage })));
     await DirectMessagesService.sendMessage({ idToken: "fixture", recipientPersonRef: "person-public-ref", content: "Hello", clientMessageId: "retry-uuid" });

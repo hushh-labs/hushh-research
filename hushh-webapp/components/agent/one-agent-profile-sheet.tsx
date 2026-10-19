@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { User } from "firebase/auth";
 
@@ -17,18 +16,17 @@ import {
   SettingsPresentationProvider,
 } from "@/components/app-ui/settings-ui";
 import { FeedRow } from "@/components/feed/feed-row";
+import { LiveMirrorPreview } from "@/components/profile/live-mirror-preview";
 import {
   ClipboardList,
   Fingerprint,
-  Heart,
   Newspaper,
   ArrowUpRight,
   X,
 } from "@/components/icons";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
-import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
-import { ownerStyleFromBranch } from "@/lib/agent/owner-style-settings";
+import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import {
@@ -44,18 +42,18 @@ import { isFeedIdAtOrBefore } from "@/lib/feed/feed-pagination";
 import { readFeedClearedThroughId } from "@/lib/feed/feed-clear-watermark";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { ROUTES } from "@/lib/navigation/routes";
+import { nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { OnePresenceAvatar, type OnePresenceState } from "@/components/agent/one-presence-avatar";
-import {
-  TodoListPkmService,
-  openTodoItems,
-  type TodoItem,
-} from "@/lib/services/todo-list-pkm-service";
+import { TodoListPkmService } from "@/lib/services/todo-list-pkm-service";
+import { openTodoItems, type TodoItem } from "@/lib/todos/todo-list-model";
 import {
   TodoRow,
   DueReceiptRow,
   extractDueReceipts,
   groupByDate,
-} from "@/components/todos/todo-list-page";
+} from "@/components/todos/todo-list-presentation";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
   getCachedGmailReceipts,
@@ -141,6 +139,57 @@ function OneFeedPreview({
         </SettingsPresentationProvider>
       ) : null}
     </div>
+  );
+}
+
+type OneAgentProfileProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  triggerRef?: RefObject<HTMLButtonElement | null>;
+  modelControl?: ReactNode;
+  nativeReady?: boolean;
+  presenceState?: OnePresenceState;
+};
+
+/** Rich One content uses the existing owned content plane, not a second
+ * two-row menu. Native owns the header; the shared body owns Feed and tabs. */
+function NativeOneAgentProfile({ open, onOpenChange, modelControl, nativeReady = false, presenceState = "connected" }: OneAgentProfileProps) {
+  const { user } = useAuth();
+  const context = JSON.stringify([user?.uid, snapshotVaultSessionEpoch(), "one-profile"]);
+  const close = () => onOpenChange(false);
+  return <NativeFeaturePage pane open={open && nativeReady && !!user} title="One"
+    owner={user?.uid ?? null} context={context} backLabel="Back to Chat" closeLabel="Close One profile"
+    bodyClassName={styles.nativeBody} onBack={close} onClose={close}>
+    <OneProfileContent open={open && nativeReady} onOpenChange={onOpenChange} modelControl={modelControl} presenceState={presenceState} />
+  </NativeFeaturePage>;
+}
+
+export function OneAgentProfileSheet(props: OneAgentProfileProps) {
+  return nativeDrawersPlatformEligible() ? <NativeOneAgentProfile {...props} /> : <WebOneAgentProfile {...props} />;
+}
+
+function WebOneAgentProfile({
+  open,
+  onOpenChange,
+  triggerRef,
+  modelControl,
+  presenceState = "connected",
+}: OneAgentProfileProps) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange} modal>
+      <SheetContent side="right" aria-describedby={undefined} className={styles.sheet} data-app-side-pane showCloseButton={false}
+        onCloseAutoFocus={event => {
+          if (triggerRef?.current?.isConnected) { event.preventDefault(); triggerRef.current.focus(); }
+        }}>
+        <SheetClose asChild>
+          <button type="button" aria-label="Close One profile"
+            className="app-side-pane-close absolute right-5 z-10 inline-flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <X className="size-4" aria-hidden />
+          </button>
+        </SheetClose>
+        <OneProfileContent open={open} onOpenChange={onOpenChange} modelControl={modelControl} presenceState={presenceState} sheet />
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -346,69 +395,12 @@ function OneTodoPreview({
   );
 }
 
-function ProfileCards({ close }: { close: () => void }) {
-  return (
-    <div className={styles.profile}>
-      <div className={styles.cards}>
-        <article
-          className={`${styles.fileCard} ${styles.soul}`}
-          aria-label="soul.md preview"
-        >
-          <div>
-            <Heart className="size-5" aria-hidden />
-            <h4>soul.md</h4>
-            <p>Voice, values, and personality.</p>
-          </div>
-          <div className={styles.cardFooter}>
-            <span>Soul preview</span>
-            <Heart className="size-5" fill="currentColor" aria-hidden />
-          </div>
-        </article>
-        <Link
-          href={ROUTES.PKM}
-          onClick={close}
-          className={`${styles.fileCard} ${styles.memory}`}
-          aria-label="Open memory.md in Memory"
-        >
-          <div>
-            <Fingerprint className="size-5" aria-hidden />
-            <h4>memory.md</h4>
-            <p>What you’ve chosen to remember.</p>
-          </div>
-          <div className={styles.cardFooter}>
-            <span>Open Memory</span>
-            <ArrowUpRight className="size-5" aria-hidden />
-          </div>
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-export function OneAgentProfileSheet({
-  open,
-  onOpenChange,
-  triggerRef,
-  presenceState = "connected",
-}: {
-  presenceState?: OnePresenceState;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  triggerRef?: RefObject<HTMLButtonElement | null>;
-}) {
+/** One content model and hierarchy across renderers; no duplicated identity,
+ * feed policy, private-name projection or tab/action authority. */
+function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "connected", sheet = false }: OneAgentProfileProps & { sheet?: boolean }) {
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const identity = usePkmDomainResource({
-    userId: user?.uid ?? "",
-    domain: "identity",
-    vaultKey,
-    vaultOwnerToken,
-    enabled: open && isVaultUnlocked && Boolean(vaultKey && vaultOwnerToken),
-  });
-  const profileName = isVaultUnlocked && vaultKey && vaultOwnerToken &&
-    identity.data?.key.userId === user?.uid
-    ? ownerStyleFromBranch(identity.data?.data.communication_preferences).preferred_name || "One"
-    : "One";
+  const profileName = useOneDisplayName(open);
   const router = useRouter();
   const [tab, setTab] = useState("feed");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -426,48 +418,20 @@ export function OneAgentProfileSheet({
   if (open && tab === "feed" && user)
     feed = <OneFeedPreview key={user.uid} user={user} onNavigate={navigate} />;
 
-  let todo: ReactNode = (
-    <p className={styles.notice}>Sign in to view your to-do list.</p>
-  );
+  let todo: ReactNode = <p className={styles.notice}>Sign in to view your to-do list.</p>;
   if (open && tab === "todo" && user) {
-    todo = (
-      <OneTodoPreview
-        key={user.uid}
-        user={user}
-        vaultKey={vaultKey}
-        vaultOwnerToken={vaultOwnerToken}
-        isVaultUnlocked={isVaultUnlocked}
-      />
-    );
+    todo = <OneTodoPreview key={user.uid} user={user} vaultKey={vaultKey}
+      vaultOwnerToken={vaultOwnerToken} isVaultUnlocked={isVaultUnlocked} />;
   }
 
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange} modal>
-      <SheetContent
-        side="right"
-        aria-describedby={undefined}
-        className={styles.sheet}
-        data-app-side-pane
-        showCloseButton={false}
-        contentDragDismiss={false}
-        onCloseAutoFocus={(event) => {
-          if (triggerRef?.current?.isConnected) {
-            event.preventDefault();
-            triggerRef.current.focus();
-          }
-        }}
-      >
-        <SheetClose asChild>
-          <button type="button" aria-label="Close One profile" className={styles.close}>
-            <X className="size-4" aria-hidden />
-          </button>
-        </SheetClose>
+  return <div className={styles.content}>
         <div className={styles.hero}>
           <div className={styles.avatar}>
             <OnePresenceAvatar state={presenceState} presentation="profile" className={styles.artwork} />
           </div>
-          <SheetTitle className={styles.title}>{profileName}</SheetTitle>
+          {sheet ? <SheetTitle className={styles.title}>{profileName}</SheetTitle> : <h2 className={styles.title}>{profileName}</h2>}
         </div>
+        {modelControl ? <div className={styles.modelControl}>{modelControl}</div> : null}
         <Tabs value={tab} onValueChange={changeTab} className={styles.tabs}>
           <TabsList
             className={styles.tabList}
@@ -487,11 +451,11 @@ export function OneAgentProfileSheet({
             <TabsContent value="feed">{feed}</TabsContent>
             <TabsContent value="todo">{todo}</TabsContent>
             <TabsContent value="profile">
-              <ProfileCards close={() => onOpenChange(false)} />
+              <div className={styles.profile}>
+                <LiveMirrorPreview onNavigate={() => onOpenChange(false)} />
+              </div>
             </TabsContent>
           </div>
         </Tabs>
-      </SheetContent>
-    </Sheet>
-  );
+  </div>;
 }

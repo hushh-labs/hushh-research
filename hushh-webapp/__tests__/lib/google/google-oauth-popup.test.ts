@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearGoogleOAuthAttempt,
@@ -11,6 +11,44 @@ import {
 } from "@/lib/google/google-oauth-popup";
 
 describe("openGoogleOAuthPopup", () => {
+  afterEach(() => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("settles the retained window after Google discards the popup opener and session", () => {
+    const attempt = {
+      version: 1 as const, attemptId: "synthetic-calendar-coop-attempt",
+      service: "calendar" as const, startedAt: Date.now(), ownerId: "synthetic-owner",
+    };
+    const popup = {
+      sessionStorage: window.sessionStorage,
+      document: { title: "" }, focus: vi.fn(), close: vi.fn(),
+    } as unknown as Window;
+    vi.spyOn(window, "open").mockReturnValue(popup);
+    vi.spyOn(window, "close").mockImplementation(() => undefined);
+    expect(openGoogleOAuthPopup(attempt)).toBe(popup);
+    window.sessionStorage.clear();
+    expect(readGoogleOAuthPopupAttempt()).toEqual(attempt);
+    settleGoogleOAuthPopup(attempt, "succeeded");
+    expect(consumeStoredGoogleOAuthPopupSettlement(attempt.attemptId)?.outcome).toBe("succeeded");
+    expect(readGoogleOAuthPopupAttempt()).toBeNull();
+  });
+
+  it("does not clear a newer popup attempt when an earlier callback settles", () => {
+    const prior = {
+      version: 1 as const, attemptId: "synthetic-prior-attempt", service: "calendar" as const,
+      startedAt: Date.now(), ownerId: "synthetic-owner",
+    };
+    const newer = { ...prior, attemptId: "synthetic-newer-attempt" };
+    window.localStorage.setItem("one_google_oauth_popup_attempt_fallback_v1", JSON.stringify(newer));
+    clearGoogleOAuthAttempt(prior.attemptId);
+    expect(readGoogleOAuthPopupAttempt()).toEqual(newer);
+    window.sessionStorage.setItem("one_google_oauth_popup_attempt_v1", "malformed");
+    clearGoogleOAuthAttempt(newer.attemptId);
+    expect(window.localStorage.getItem("one_google_oauth_popup_attempt_fallback_v1")).toBeNull();
+  });
   it("recognizes a fresh Calendar attempt without credentials in metadata", () => {
     const attempt = {
       version: 1,

@@ -57,6 +57,7 @@ vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => auth }));
 const vault = vi.hoisted(() => ({
   vaultKey: "ab".repeat(32),
   vaultOwnerToken: "token-a",
+  getVaultOwnerToken: () => vault.vaultOwnerToken,
   isVaultUnlocked: true,
   tokenExpiresAt: null,
 }));

@@ -1,6 +1,7 @@
 // Synthetic auth/native/Mail/cache boundaries; the production drawer, Drive
 // transport, popup controller, Picker adapter and card actions are unchanged.
 import { createContext, useState } from "react";
+export function usePathname() { return "/"; }
 // This layout fixture has no unlocked encrypted custom-connector catalog.
 export const loadCustomConnectorConfigurations = async () => [];
 export const loadCustomConnectorSnapshot = async () => ({ configurations: [], invalid: [] });
@@ -83,6 +84,13 @@ export const prepareRecaptchaVerifier = () => {
 };
 export const getRecaptchaVerifier = prepareRecaptchaVerifier;
 export const resetRecaptcha = () => {};
+// Pure task models and rows stay real. This public fixture does not admit
+// encrypted task reads or writes through the private service port.
+export const TodoListPkmService = {
+  load: async () => { throw new Error("No task reads in the public layout fixture"); },
+  setStatus: async () => { throw new Error("No task writes in the public layout fixture"); },
+  remove: async () => { throw new Error("No task writes in the public layout fixture"); },
+};
 // Profile settings import these cold native service paths into the bundle.
 // This browser fixture admits no native calls; fail if one is actually used.
 function unavailableNativeBridge(name: string) {
@@ -105,7 +113,7 @@ export const ApiService = {
 export const GmailReceiptsService = {
   startConnect: async () => ({
     configured: true,
-    authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?fixture=mail",
+    authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?fixture=mail&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgmail%2Foauth%2Freturn",
     expires_at: new Date(Date.now() + 60_000).toISOString(),
   }),
   // Owner status read, routed by the browser harness like the real endpoint.

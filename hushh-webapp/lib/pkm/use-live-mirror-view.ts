@@ -20,13 +20,13 @@ export type LiveMirrorViewState =
  * changes and when the tab becomes visible, so read-time staleness shows even
  * after timers were throttled.
  */
-export function useLiveMirrorView(): LiveMirrorViewState {
+export function useLiveMirrorView(active = true): LiveMirrorViewState {
   const { user } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
   const [, setTick] = useState(0);
   const uid = user?.uid;
   useEffect(() => {
-    if (!uid || !isVaultUnlocked) return;
+    if (!active || !uid || !isVaultUnlocked) return;
     const rerender = () => setTick((tick) => tick + 1);
     const onVisibility = () => {
       if (document.visibilityState === "visible") rerender();
@@ -39,8 +39,8 @@ export function useLiveMirrorView(): LiveMirrorViewState {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [uid, isVaultUnlocked, vaultOwnerToken]);
-  if (!uid || !isVaultUnlocked) return { status: "locked", view: null };
+  }, [active, uid, isVaultUnlocked, vaultOwnerToken]);
+  if (!active || !uid || !isVaultUnlocked) return { status: "locked", view: null };
   const view = peekLiveMirror(uid);
   if (!view || view.ownerId !== uid || view.vaultEpoch !== snapshotVaultSessionEpoch())
     return { status: "loading", view: null };

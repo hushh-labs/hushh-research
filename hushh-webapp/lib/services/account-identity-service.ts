@@ -282,6 +282,7 @@ export class AccountIdentityService {
     if (!user?.uid) {
       return null;
     }
+    const userId = user.uid;
     const idToken = await user.getIdToken(true).catch(() => undefined);
     if (!idToken) {
       throw new ApiError("Sign in again to change your name.", 401);
@@ -290,19 +291,43 @@ export class AccountIdentityService {
       success?: boolean;
       user_id?: string;
       identity?: AccountIdentity | null;
+      display_name?: string | null;
+      shadow_sync?: "pending" | "synced";
     }>("/api/account/identity/display-name", {
       method: "PATCH",
       headers: { Authorization: `Bearer ${idToken}` },
       body: JSON.stringify({ display_name: displayName }),
     });
+    // The authenticated write response must confirm its own subject before
+    // entering an owner-keyed cache or any native/React presentation replica.
+    if (
+      payload?.success !== true || payload.user_id !== userId ||
+      (payload.identity != null && payload.identity.user_id !== userId)
+    ) {
+      throw new ApiError("Couldn't verify the name change.", 502);
+    }
     let identity = payload?.identity ?? null;
     if (identity) {
-      this.cacheIdentity(user.uid, identity);
+      this.cacheIdentity(userId, identity);
     } else {
       // The provider accepted the change but the response carried no shadow;
       // fetch the fresh identity rather than leaving a stale name cached.
-      this.invalidateCachedIdentity(user.uid);
-      identity = await this.refreshCurrentUserIdentity(user, { force: true });
+      this.invalidateCachedIdentity(userId);
+      identity = await this.refreshCurrentUserIdentity(user, {
+        force: true, requireSuccess: true,
+      }).catch(() => null);
+      // The provider already committed this exact returned value. A failed or
+      // lagging shadow read must not turn that write into a failed save. This
+      // partial presentation result is never written to the identity cache.
+      const committedName =
+        typeof payload.display_name === "string" ? payload.display_name.trim() : "";
+      if (
+        payload.shadow_sync === "pending" && committedName &&
+        identity?.display_name !== committedName
+      ) {
+        this.invalidateCachedIdentity(userId);
+        identity = { user_id: userId, display_name: committedName };
+      }
     }
     // Reload the Firebase user so `user.displayName` reflects the new name on
     // every surface that reads it directly from the auth object.

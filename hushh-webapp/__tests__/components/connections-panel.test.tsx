@@ -85,6 +85,7 @@ vi.mock("@/lib/services/google-drive-picker-service", () => ({
   GoogleDrivePickerService: { choose: state.pick },
 }));
 import { ConnectorsPanel } from "@/components/agent/connectors-panel";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 const overview = (label = "drive@example.invalid") => ({
   features: {
     connections_panel_v2: true,
@@ -267,7 +268,7 @@ describe("Connectors owner and mutation fences", () => {
     state.nativeStart.mockResolvedValue({
       attemptId: "attempt_123456789012",
       connectorId: "google_drive",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=test&redirect_uri=${encodeURIComponent(`${window.location.origin}/one/profile/connectors/oauth/return`)}`,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     vi.spyOn(window, "open").mockReturnValue(null);
@@ -295,7 +296,7 @@ describe("Connectors owner and mutation fences", () => {
     state.nativeStart.mockResolvedValue({
       attemptId: "attempt_123456789012",
       connectorId: "google_drive",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=test&redirect_uri=${encodeURIComponent(`${window.location.origin}/one/profile/connectors/oauth/return`)}`,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     vi.spyOn(window, "open").mockReturnValue(null);
@@ -406,6 +407,29 @@ describe("Connectors owner and mutation fences", () => {
     expect(p.onExternalModalChange.mock.calls.length).toBe(before);
     expect(p.onExternalModalChange).toHaveBeenLastCalledWith(true);
   });
+  it("does not let a retired native return drain the reopened visit's picker queue", async () => {
+    state.native = true;
+    let finishOld!: (value: null) => void;
+    let finishCurrent!: (value: null) => void;
+    state.nativePending
+      .mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }))
+      .mockImplementationOnce(() => new Promise(resolve => { finishCurrent = resolve; }));
+    const p = props();
+    const view = render(<ConnectorsPanel {...p} />);
+    await waitFor(() => expect(state.nativePending).toHaveBeenCalledTimes(1));
+    view.rerender(<ConnectorsPanel {...p} open={false} />);
+    view.rerender(<ConnectorsPanel {...p} />);
+    await waitFor(() => expect(state.nativePending).toHaveBeenCalledTimes(2));
+    expect(state.nativePickerPending).not.toHaveBeenCalled();
+    await act(async () => { finishOld(null); });
+    // The old finally must not release the current return's single-flight lock.
+    try { expect(state.nativePickerPending).not.toHaveBeenCalled(); }
+    finally { await act(async () => { finishCurrent(null); }); }
+    await waitFor(() => expect(state.nativePickerPending).toHaveBeenCalledTimes(1));
+    expect(state.nativeFinalize).not.toHaveBeenCalled();
+    expect(state.nativePickerConfirm).not.toHaveBeenCalled();
+  });
+
   it("keeps selection alive through same-owner Vault Owner token renewal", async () => {
     let finish!: (value: unknown) => void;
     state.pick.mockImplementationOnce(
@@ -422,6 +446,7 @@ describe("Connectors owner and mutation fences", () => {
     );
     await waitFor(() => expect(finish).toBeTypeOf("function"));
     const signal = state.pick.mock.calls[0][1] as AbortSignal;
+    advanceVaultSessionEpoch();
     state.token = "vault-renewed";
     view.rerender(<ConnectorsPanel {...p} />);
     expect(signal.aborted).toBe(false);

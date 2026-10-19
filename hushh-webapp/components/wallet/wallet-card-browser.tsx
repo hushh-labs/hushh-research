@@ -31,7 +31,7 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, 
   busyCardId: string | null;
   disabled?: boolean;
   details: ReactNode;
-  dockHost: HTMLElement | null;
+  dockHost?: HTMLElement | null;
   ownerId?: string;
   active?: boolean;
   demoProfile?: WalletDemoProfile | null;
@@ -56,8 +56,8 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, 
     }
   }, [agentCardId, cards]);
   const content = useRef<HTMLDivElement>(null);
-  const automaticScrollUntil = useRef(0);
   const gesture = useRef<{ x: number; y: number } | null>(null);
+  const automaticScrollUntil = useRef(0);
   useEffect(() => {
     const root = content.current?.closest<HTMLElement>("[data-app-scroll-root]");
     if (!active || !root || !dockHost) return;
@@ -167,6 +167,5 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, 
       </div>}
     </div>}
     {active && dockHost ? createPortal(dock, dockHost) : null}
-
   </div>;
 }

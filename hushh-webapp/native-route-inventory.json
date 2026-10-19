@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-10-10",
+  "generated_at": "2026-10-15",
   "total_routes": 135,
-  "native_required_routes": 112,
-  "excluded_routes": 23,
+  "native_required_routes": 109,
+  "excluded_routes": 26,
   "routes": [
     {
       "route": "/wallet/open",
@@ -50,18 +50,8 @@
     },
     {
       "route": "/connected-systems",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fconnected-systems",
-      "expectedMarker": "native-route-connected-systems",
-      "expectedRoute": "/one/connected-systems",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loading",
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ],
+      "classification": "excluded-web-only",
+      "reason": "Legacy local CRM alias; requireLocalCrmRoute rejects Capacitor builds and admits only explicitly enabled localhost development.",
       "legacyAlias": true
     },
     {
@@ -372,17 +362,8 @@
     },
     {
       "route": "/one/connected-systems",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fconnected-systems",
-      "expectedMarker": "native-route-connected-systems",
-      "expectedRoute": "/one/connected-systems",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ]
+      "classification": "excluded-web-only",
+      "reason": "Local CRM is explicitly localhost-only development; requireLocalCrmRoute rejects Capacitor builds before reading request headers."
     },
     {
       "route": "/one/consent",
@@ -1183,17 +1164,8 @@
     },
     {
       "route": "/one/setup/connected-systems",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",
-      "expectedMarker": "native-route-connected-systems",
-      "expectedRoute": "/one/connected-systems",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ]
+      "classification": "excluded-web-only",
+      "reason": "Local CRM setup is guarded by localhost-only product availability; native UAT/production bundles do not admit this development flow."
     },
     {
       "route": "/one/setup/connections",

@@ -803,18 +803,8 @@
       },
       "native": {
         "route": "/connected-systems",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fconnected-systems",
-        "expectedMarker": "native-route-connected-systems",
-        "expectedRoute": "/one/connected-systems",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loading",
-          "loaded",
-          "empty-valid",
-          "unavailable-valid"
-        ],
+        "classification": "excluded-web-only",
+        "reason": "Legacy local CRM alias; requireLocalCrmRoute rejects Capacitor builds and admits only explicitly enabled localhost development.",
         "legacyAlias": true
       },
       "shell": {
@@ -2765,17 +2755,8 @@
       },
       "native": {
         "route": "/one/connected-systems",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fconnected-systems",
-        "expectedMarker": "native-route-connected-systems",
-        "expectedRoute": "/one/connected-systems",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded",
-          "empty-valid",
-          "unavailable-valid"
-        ]
+        "classification": "excluded-web-only",
+        "reason": "Local CRM is explicitly localhost-only development; requireLocalCrmRoute rejects Capacitor builds before reading request headers."
       },
       "shell": {
         "app_page_shell": true,
@@ -6322,7 +6303,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.profile.preferences.device",
-          "purpose": "Help the person understand and use the device screen through its generated controls.",
+          "purpose": "Compatibility entry for Preferences. The retired device detail has no separate body; use the current Preferences controls.",
           "screen": "profile_preferences",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -7882,17 +7863,8 @@
       },
       "native": {
         "route": "/one/setup/connected-systems",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",
-        "expectedMarker": "native-route-connected-systems",
-        "expectedRoute": "/one/connected-systems",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded",
-          "empty-valid",
-          "unavailable-valid"
-        ]
+        "classification": "excluded-web-only",
+        "reason": "Local CRM setup is guarded by localhost-only product availability; native UAT/production bundles do not admit this development flow."
       },
       "shell": {
         "app_page_shell": false,
@@ -10410,5 +10382,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "106a6c44827b2f3d9f27c442d1b9ba1711d659bbd2f8f605841da9e52ea08a29"
+  "content_sha256": "be4e02a0882dc176a6eab424d8d033b43dc123881f896b5e90d7d5ef3296da05"
 }

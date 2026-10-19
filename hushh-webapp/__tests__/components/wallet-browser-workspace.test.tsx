@@ -69,6 +69,9 @@ const serviceMock = vi.hoisted(() => ({
   getCardSecurityCode: vi.fn(),
   addCard: vi.fn(),
 }));
+vi.mock("@/lib/services/wallet-card-service", () => ({
+  WalletCardService: { getCard: vi.fn().mockResolvedValue({ card: null, shareUrl: null }), subscribe: vi.fn(() => () => {}), readShareLink: vi.fn(() => null), ensureCard: vi.fn() },
+}));
 
 // Keep the real dropdown and limit its catalog to the regions used by this suite.
 vi.mock("@/lib/constants/country-phone-options", () => ({ COUNTRY_PHONE_OPTIONS: [
@@ -432,7 +435,7 @@ describe("Wallet video browser workspace", () => {
     expect(screen.queryByRole("navigation", { name: "Wallet card switcher" })).toBeNull();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
   });
-  it("removes the browser and its thumbnail portal when the vault locks", async () => {
+  it("removes the browser when the vault locks", async () => {
     const view = await open();
     vaultMock.locked = true;
     view.rerender(<WalletWorkspace />);
@@ -472,6 +475,20 @@ describe("Wallet video browser workspace", () => {
     expect(screen.queryByTestId("one-wallet-reveal-1001")).toBeNull();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1001"));
+  });
+
+  it("returns Agent One details to the collection without replacing the retained Cards panel", async () => {
+    serviceMock.listCardSummaries.mockResolvedValue([]);
+    await open();
+    const browser = screen.getByTestId("wallet-card-browser");
+    fireEvent.click(screen.getByRole("button", { name: "Open Agent One Profile", exact: true }));
+    expect(screen.getByText("Live profile controls")).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
+    fireEvent.click(screen.getByRole("tab", { name: "Cards", exact: true }));
+    await waitFor(() => expect(browser).toHaveAttribute("data-mode", "all"));
+    expect(screen.getByTestId("wallet-card-browser")).toBe(browser);
+    expect(screen.queryByText("Live profile controls")).toBeNull();
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
   });
 
 });

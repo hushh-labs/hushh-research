@@ -7,6 +7,7 @@ import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
+import { AgentDockPortal } from "@/components/agent/agent-dock";
 
 /**
  * Puppy One as a mode of the Agent Chat workspace.
@@ -27,6 +28,8 @@ import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 export function PuppyOneSurface({
   className,
   active = true,
+  sharedDock = false,
+  composerDisabled = false,
   conversations,
   activeConversationId,
   onCreateConversation,
@@ -44,6 +47,8 @@ export function PuppyOneSurface({
    * transcript under a header that says "One".
    */
   active?: boolean;
+  sharedDock?: boolean;
+  composerDisabled?: boolean;
 }) {
   const link = usePuppyLink();
   return (
@@ -83,7 +88,10 @@ export function PuppyOneSurface({
             surface, and a bordered box here read as a widget inside the page
             rather than the conversation itself. */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {conversations === undefined ? <HermesChatPanel active={active} /> : (
+          {/* With no selected Puppy conversation, do not expose Cloud's voice
+              launcher under the Puppy header. The authored New chat owns entry. */}
+          <AgentDockPortal enabled={sharedDock && active && conversations !== undefined && !conversations.some(conversation => conversation.id === activeConversationId)} visible={false} suppressed>{null}</AgentDockPortal>
+          {conversations === undefined ? <HermesChatPanel active={active} sharedDock={sharedDock} composerDisabled={composerDisabled} /> : (
             <>
               {conversations.length === 0 ? (
                 <div className="flex flex-1 items-center justify-center p-4">
@@ -94,6 +102,8 @@ export function PuppyOneSurface({
                 <HermesChatPanel
                   key={conversation.id}
                   active={active && activeConversationId === conversation.id}
+                  sharedDock={sharedDock}
+                  composerDisabled={composerDisabled}
                   className={cn(activeConversationId !== conversation.id && "hidden")}
                 />
               ))}

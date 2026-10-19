@@ -74,6 +74,7 @@ vi.mock("@/lib/agent/agent-pkm-context-store", () => ({
 }));
 
 import { ProfileResearchCard } from "@/components/agent/profile-research-card";
+import { profileResearchResultSchema } from "@/lib/services/profile-research-service";
 import { BusinessProfileSuggestion } from "@/components/agent/business-profile-suggestion";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
@@ -594,12 +595,19 @@ describe("onboarding profile draft and owner confirmation", () => {
       failed: 1,
       results: [],
     });
-    render(<ProfileResearchCard {...props} />);
+    const view = render(<ProfileResearchCard {...props} />);
     await screen.findByText("Alex Example");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByRole("button", { name: "Retry save" });
-    await act(async () => {});
+    // A source refresh must not throw away the exact review/scopes needed
+    // to reconcile a write whose response was lost.
+    const replacement = { ...offer(), report: { ...offer().report, name: "Replacement report" } };
+    view.rerender(<ProfileResearchCard {...props} initialResult={profileResearchResultSchema.parse(replacement)} />);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(screen.queryByText("Replacement report")).toBeNull();
+    view.rerender(<ProfileResearchCard {...props} initialResult={{ status: "unavailable", pkm_written: false }} />);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
     fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
     await screen.findByText("Your Personal World Model details are saved.");
     expect(mocks.prepare).toHaveBeenCalledTimes(1);

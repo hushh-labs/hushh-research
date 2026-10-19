@@ -28,7 +28,7 @@ test("native rotation overrides a stale portrait safe-area probe", async ({ page
 
 test("opening Profile preserves the underlying canvas and exits beyond its inset", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.setContent(`<html class="native-ios"><head><style>${css}</style></head><body><div class="foundation-public-ambient"></div><nav class="kai-bottom-nav-pill"></nav></body></html>`);
+  await page.setContent(`<html class="native-ios" style="--app-native-safe-area-top:59px"><head><style>${css}</style></head><body><div class="foundation-public-ambient"></div><nav class="kai-bottom-nav-pill"></nav></body></html>`);
   const snapshot = () => page.evaluate(() => ({
     background: getComputedStyle(document.body).backgroundColor,
     ambient: getComputedStyle(document.querySelector(".foundation-public-ambient")!).display,
@@ -41,12 +41,17 @@ test("opening Profile preserves the underlying canvas and exits beyond its inset
     pane.dataset.slot = "sheet-content";
     pane.dataset.state = "open";
     pane.style.position = "fixed";
-    pane.innerHTML = '<div class="profile-home-screen profile-account-content" data-profile-stack="true">Profile</div>';
+    pane.innerHTML = '<header class="profile-pane-header"><h2>Profile</h2></header><button class="profile-pane-close" style="position:absolute;width:44px;height:44px" aria-label="Close Profile">Close</button><div class="profile-home-screen profile-account-content" data-profile-stack="true">Profile</div>';
     document.body.append(pane);
   });
   expect(await snapshot()).toEqual(before);
   const pane = page.locator(".profile-pane-sheet");
-  expect((await pane.boundingBox())!.y).toBeGreaterThanOrEqual(59);
+  // The frame is edge-to-edge; its actual controls, not the frame, clear the
+  // status area even when WKWebView reports a zero env() inset.
+  expect((await pane.boundingBox())!.y).toBe(0);
+  expect((await pane.boundingBox())!.height).toBe(844);
+  expect((await pane.getByRole("heading", { name: "Profile" }).boundingBox())!.y).toBeGreaterThanOrEqual(59);
+  expect((await pane.getByRole("button", { name: "Close Profile" }).boundingBox())!.y).toBeGreaterThanOrEqual(59);
   await pane.evaluate(node => {
     node.setAttribute("data-state", "closed");
     const animation = node.getAnimations()[0];

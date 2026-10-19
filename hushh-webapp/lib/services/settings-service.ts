@@ -9,6 +9,7 @@
  */
 
 import { Preferences } from "@capacitor/preferences";
+import { readAppHapticPreference, writeAppHapticPreference, usesNativeHapticPreference } from "@/lib/capacitor/app-haptics";
 
 // ==================== Settings Types ====================
 
@@ -73,34 +74,49 @@ export const PRODUCTION_SETTINGS: HushhSettings = {
 class SettingsServiceImpl {
   private static STORAGE_KEY = "hushh_settings";
   private cachedSettings: HushhSettings | null = null;
+  private loading: Promise<HushhSettings> | null = null;
+  private writes: Promise<unknown> = Promise.resolve();
   private listeners: Set<(settings: HushhSettings) => void> = new Set();
 
   /**
    * Get current settings (cached for performance)
    */
   async getSettings(): Promise<HushhSettings> {
+    if (this.loading) return this.loading;
     if (this.cachedSettings) {
       return this.cachedSettings;
     }
+    this.loading = this.loadSettings();
+    try { return await this.loading; } finally { this.loading = null; }
+  }
 
+  private async loadSettings(): Promise<HushhSettings> {
+    let settings: HushhSettings;
     try {
       const { value } = await Preferences.get({
         key: SettingsServiceImpl.STORAGE_KEY,
       });
       if (value) {
-        this.cachedSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(value) };
+        settings = { ...DEFAULT_SETTINGS, ...JSON.parse(value) };
       } else {
-        this.cachedSettings = { ...DEFAULT_SETTINGS };
+        settings = { ...DEFAULT_SETTINGS };
       }
-    } catch (error) {
-      console.warn(
-        "[SettingsService] Failed to load settings, using defaults:",
-        error
-      );
-      this.cachedSettings = { ...DEFAULT_SETTINGS };
+    } catch {
+      console.warn("SETTINGS_READ_FAILED");
+      settings = { ...DEFAULT_SETTINGS };
     }
 
-    return this.cachedSettings!;
+    if (usesNativeHapticPreference()) {
+      settings.hapticFeedback = await readAppHapticPreference().catch(() => false);
+    }
+    this.cachedSettings = settings;
+    return settings;
+  }
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.writes.catch(() => undefined).then(operation);
+    this.writes = result;
+    return result;
   }
 
   /**
@@ -109,22 +125,29 @@ class SettingsServiceImpl {
   async updateSettings(
     updates: Partial<HushhSettings>
   ): Promise<HushhSettings> {
+    const snapshot = { ...updates };
+    return this.enqueue(() => this.saveSettings(snapshot));
+  }
+
+  private async saveSettings(updates: Partial<HushhSettings>): Promise<HushhSettings> {
     const current = await this.getSettings();
     const updated = { ...current, ...updates };
 
     try {
+      const { hapticFeedback, ...otherSettings } = updated;
       await Preferences.set({
         key: SettingsServiceImpl.STORAGE_KEY,
-        value: JSON.stringify(updated),
+        value: JSON.stringify(usesNativeHapticPreference() ? otherSettings : updated),
       });
+      if (usesNativeHapticPreference() && typeof updates.hapticFeedback === "boolean") await writeAppHapticPreference(hapticFeedback);
       this.cachedSettings = updated;
 
       // Notify listeners
       this.listeners.forEach((listener) => listener(updated));
 
-      console.log("[SettingsService] Settings updated:", updates);
+      // Never log settings blobs or unfiltered plugin/provider errors.
     } catch (error) {
-      console.error("[SettingsService] Failed to save settings:", error);
+      console.warn("SETTINGS_SAVE_FAILED");
       throw error;
     }
 
@@ -135,7 +158,12 @@ class SettingsServiceImpl {
    * Reset to defaults
    */
   async resetSettings(): Promise<HushhSettings> {
+    return this.enqueue(() => this.resetStoredSettings());
+  }
+
+  private async resetStoredSettings(): Promise<HushhSettings> {
     await Preferences.remove({ key: SettingsServiceImpl.STORAGE_KEY });
+    if (usesNativeHapticPreference()) await writeAppHapticPreference(DEFAULT_SETTINGS.hapticFeedback);
     this.cachedSettings = { ...DEFAULT_SETTINGS };
     this.listeners.forEach((listener) => listener(this.cachedSettings!));
     return this.cachedSettings;

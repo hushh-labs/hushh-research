@@ -2,6 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 
 const appRoot = process.cwd();
 
@@ -15,6 +16,8 @@ const tsPluginFiles = [
   "lib/capacitor/session-privacy.ts",
   "lib/capacitor/native-navigation.ts",
   "lib/capacitor/native-chrome.ts",
+  "lib/capacitor/native-dock.ts",
+  "lib/capacitor/native-drawers.ts",
   "lib/capacitor/stream.ts",
   "lib/capacitor/oauth-return.ts",
   "lib/capacitor/plaid-link.ts",
@@ -49,7 +52,7 @@ const webOnlyPlugins = new Set(["HushhDatabase", "HushhAgent"]);
 // Link SDK on Android, so it is held to full parity like every other plugin.)
 // Card scanning uses Apple Vision on iOS and the existing web worker elsewhere.
 const androidOnlyPlugins = new Set(["HushhCardCapture"]);
-const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome", "HushhCardScanner"]);
+const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome", "HushhNativeDock", "HushhNativeDrawers", "HushhCardScanner"]);
 const appleInvocationMethods = new Set([
   "getPendingInvocation", "claimInvocation", "reportInvocationProgress", "completeInvocation",
   "getPendingActionInvocation", "claimActionInvocation", "completeActionInvocation", "reportActionInvocationProgress",
@@ -65,6 +68,8 @@ const ignoredTsMethodsByPlugin = new Map([
   ["HushhSessionPrivacy", new Set(["addListener"])],
   ["HushhNativeNavigation", new Set(["addListener"])],
   ["HushhNativeChrome", new Set(["addListener"])],
+  ["HushhNativeDock", new Set(["addListener"])],
+  ["HushhNativeDrawers", new Set(["addListener"])],
   ["HushhStream", new Set(["addListener"])],
   ["HushhPlaidLink", new Set(["addListener"])],
 ]);
@@ -91,36 +96,40 @@ function walkFiles(dir, predicate, out = []) {
   return out;
 }
 
-function matchingBraceIndex(source, openIndex) {
-  let depth = 0;
-  for (let index = openIndex; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === "{") depth += 1;
-    if (char === "}") {
-      depth -= 1;
-      if (depth === 0) return index;
-    }
-  }
-  return -1;
-}
-
-function extractInterfaceMethods(source, interfaceName) {
-  const marker = new RegExp(`export\\s+interface\\s+${interfaceName}\\b`);
-  const match = marker.exec(source);
-  if (!match) return null;
-  const openIndex = source.indexOf("{", match.index);
-  if (openIndex < 0) return null;
-  const closeIndex = matchingBraceIndex(source, openIndex);
-  if (closeIndex < 0) return null;
-  const body = source.slice(openIndex + 1, closeIndex);
-  return new Set(
-    [...body.matchAll(/^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/gm)].map(
-      (methodMatch) => methodMatch[1]
-    )
+function extractInterfaceMethods(checker, sourceFile, interfaceName) {
+  const declaration = sourceFile.statements.find(
+    (node) => ts.isInterfaceDeclaration(node) && node.name.text === interfaceName,
   );
+  if (!declaration) return null;
+  const contract = checker.getTypeAtLocation(declaration);
+  const methods = new Set();
+  // Resolve inherited Partial ports and indexed callable properties as well as
+  // method syntax. Regex over the local body silently drops those contracts.
+  for (const property of checker.getPropertiesOfType(contract)) {
+    const type = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(property, declaration));
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+      fail(`${interfaceName}.${property.name}: unresolved TypeScript contract.`);
+      continue;
+    }
+    if (type.getCallSignatures().length > 0) methods.add(property.name);
+  }
+  return methods;
 }
 
 function parseTsContracts() {
+  const configPath = path.join(appRoot, "tsconfig.json");
+  const config = ts.readConfigFile(configPath, ts.sys.readFile);
+  if (config.error) throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, "\n"));
+  // This check has explicit roots below. Resolve compiler options without
+  // walking every app/component glob just to discard that file list.
+  const parsed = ts.parseJsonConfigFileContent({ ...config.config, files: tsPluginFiles, include: [] }, ts.sys, appRoot);
+  if (parsed.errors.length) throw new Error(parsed.errors.map((error) => ts.flattenDiagnosticMessageText(error.messageText, "\n")).join("\n"));
+  const program = ts.createProgram(tsPluginFiles.map((file) => path.join(appRoot, file)), {
+    // Follow the contracts' actual imports and configured standard libraries,
+    // not every unrelated ambient @types package installed by the web app.
+    ...parsed.options, types: [], noEmit: true, incremental: false,
+  });
+  const checker = program.getTypeChecker();
   const byPlugin = new Map();
   for (const relativePath of tsPluginFiles) {
     const filePath = path.join(appRoot, relativePath);
@@ -129,7 +138,8 @@ function parseTsContracts() {
       /registerPlugin<([A-Za-z_$][A-Za-z0-9_$]*)>\s*\(\s*["']([^"']+)["']/g;
     for (const match of source.matchAll(registerRegex)) {
       const [, interfaceName, jsName] = match;
-      const methods = extractInterfaceMethods(source, interfaceName);
+      const sourceFile = program.getSourceFile(filePath);
+      const methods = sourceFile && extractInterfaceMethods(checker, sourceFile, interfaceName);
       if (!methods) {
         fail(`${relativePath}: could not find interface ${interfaceName} for ${jsName}.`);
         continue;

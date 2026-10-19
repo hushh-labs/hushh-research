@@ -18,6 +18,8 @@ import {
   legacyProfileRouteRedirectHref,
   popProfilePaneLocation,
   profileLegalLocation,
+  profileLegalParentForPresentation,
+  profilePanelParentForPresentation,
   profilePaneParentLocation,
   openProfilePane,
   pushProfilePaneLocation,
@@ -30,6 +32,9 @@ import {
   buildProfileRoute,
   resolveProfileRouteState,
 } from "@/lib/navigation/profile-routes";
+import { backProfilePane } from "@/lib/navigation/profile-pane-back";
+import { registerBackLayer } from "@/lib/navigation/back-layers";
+import { projectNativeProfileLegal } from "@/components/profile/profile-native-legal";
 
 const ACCOUNT = { panel: "account" as const, detail: null };
 const PHONE = { panel: "account" as const, detail: "phone" as const };
@@ -39,6 +44,77 @@ function currentUrl() {
 }
 
 describe("Profile pane navigation state", () => {
+  it("projects only visited panel parents owned by Back, preserving replacements and ambiguous-entry fallback", () => {
+    window.history.replaceState(null, "", "/one");
+    openProfilePane("/one", window.location.search);
+    pushProfilePaneLocation("/one", window.location.search, profileLegalLocation("privacy"));
+    expect(profileLegalParentForPresentation()).toBe(false);
+    replaceProfilePaneLocation("/one", window.location.search, profileLegalLocation("terms"));
+    expect(profileLegalParentForPresentation()).toBe(false);
+    expect(projectNativeProfileLegal("terms", vi.fn(), vi.fn(), profileLegalParentForPresentation() === true).pages.map(page => page.id)).toEqual(["terms"]);
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    try { popProfilePaneLocation("/one", window.location.search); expect(back).toHaveBeenCalledOnce(); }
+    finally { back.mockRestore(); }
+
+    window.history.replaceState(null, "", "/one");
+    openProfilePane("/one", window.location.search);
+    pushProfilePaneLocation("/one", window.location.search, { panel: "legal", detail: null });
+    pushProfilePaneLocation("/one", window.location.search, profileLegalLocation("privacy"));
+    replaceProfilePaneLocation("/one", window.location.search, profileLegalLocation("terms"));
+    expect(profileLegalParentForPresentation()).toBe(true);
+    expect(projectNativeProfileLegal("terms", vi.fn(), vi.fn(), true).pages.map(page => page.id)).toEqual(["legal", "terms"]);
+    // A native return-to-root can replace a deeper entry in place. Depth
+    // alone must not invent a Legal parent on the next direct document visit.
+    replaceProfilePaneLocation("/one", window.location.search, { panel: null, detail: null });
+    pushProfilePaneLocation("/one", window.location.search, profileLegalLocation("privacy"));
+    expect(profileLegalParentForPresentation()).toBe(false);
+
+    window.history.replaceState(null, "", "/one?profile_pane=1&profile_panel=legal&profile_detail=privacy");
+    expect(profileLegalParentForPresentation()).toBe(true);
+    popProfilePaneLocation("/one", window.location.search);
+    expect(resolveProfilePaneUrlState(window.location.search).location).toEqual({ panel: "legal", detail: null });
+    window.history.replaceState({ __hushhProfilePane: { depth: 2 } }, "", window.location.href);
+    expect(profileLegalParentForPresentation()).toBeNull();
+    window.history.replaceState(null, "", "/one");
+    openProfilePane("/one", window.location.search, profileLegalLocation("privacy"), { returnsToOrigin: true });
+    replaceProfilePaneLocation("/one", window.location.search, profileLegalLocation("terms"));
+    expect(profileLegalParentForPresentation()).toBe(false);
+
+    window.history.replaceState(null, "", "/one");
+    openProfilePane("/one", window.location.search);
+    pushProfilePaneLocation("/one", window.location.search, { panel: "preferences", detail: "voice" });
+    expect(profilePanelParentForPresentation("preferences")).toBe(false);
+    replaceProfilePaneLocation("/one", window.location.search, { panel: null, detail: null });
+    pushProfilePaneLocation("/one", window.location.search, { panel: "preferences", detail: null });
+    pushProfilePaneLocation("/one", window.location.search, { panel: "preferences", detail: "voice" });
+    expect(profilePanelParentForPresentation("preferences")).toBe(true);
+    window.history.replaceState({ __hushhProfilePane: { depth: 3 } }, "", window.location.href);
+    expect(profilePanelParentForPresentation("preferences")).toBeNull();
+    window.history.replaceState({ __hushhProfilePane: { depth: 3, parentPanel: "security" } }, "", window.location.href);
+    expect(profilePanelParentForPresentation("preferences")).toBeNull();
+    window.history.replaceState({ __hushhProfilePane: { depth: 2, legalParent: false } }, "", window.location.href);
+    expect(profileLegalParentForPresentation()).toBe(false);
+  });
+  it("unwinds the pane's local step before its query parent without touching the covered workspace", () => {
+    window.history.replaceState(null, "", "/one?profile_pane=1&profile_panel=account&profile_detail=phone");
+    const workspaceBack = vi.fn(() => true);
+    const phoneBack = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
+    const removeWorkspace = registerBackLayer({ pathname: "/one", depth: 100, back: workspaceBack });
+    const removePhone = registerBackLayer({ pathname: "/one", depth: 2, query: { profile_pane: "1" }, back: phoneBack });
+    try {
+      // A local step consumed Back without changing the pane's route. A
+      // native pop must be refused, not acknowledged while awaiting a route
+      // projection that will never arrive.
+      expect(backProfilePane("/one", new URLSearchParams(window.location.search))).toBe(false);
+      expect(resolveProfilePaneUrlState(window.location.search).location).toEqual(PHONE);
+      expect(phoneBack).toHaveBeenCalledOnce();
+      expect(workspaceBack).not.toHaveBeenCalled();
+      expect(backProfilePane("/one", new URLSearchParams(window.location.search))).toBe(true);
+      expect(resolveProfilePaneUrlState(window.location.search).location).toEqual(ACCOUNT);
+      expect(phoneBack).toHaveBeenCalledTimes(2);
+      expect(workspaceBack).not.toHaveBeenCalled();
+    } finally { removePhone(); removeWorkspace(); }
+  });
   it.each(["payouts", "world-model", "request-pricing"] as const)("opens %s in the existing pane and returns to Profile", (panel) => {
     const state = resolveProfilePaneUrlState(`profile_pane=1&profile_panel=${panel}`);
     expect(state).toEqual({ open: true, location: { panel, detail: null } });
@@ -299,6 +375,35 @@ describe("Profile pane navigation state", () => {
     expect(currentUrl().searchParams.has(PROFILE_PANE_PANEL_QUERY)).toBe(false);
   });
 
+  it("keeps a returned untracked Profile root in-place through nested Back and Close", () => {
+    // Referrals' authored Back restores its initiating Profile URL through
+    // Next navigation, not the original pane's browser-history metadata.
+    window.history.replaceState(null, "", "/?view=recent&profile_pane=1");
+    const initialLength = window.history.length;
+    const go = vi.spyOn(window.history, "go");
+    try {
+      pushProfilePaneLocation("/", window.location.search, ACCOUNT);
+      pushProfilePaneLocation("/", window.location.search, PHONE);
+      expect(window.history.length).toBe(initialLength);
+      expect(getProfilePaneHistoryDepth()).toBe(0);
+      expect(resolveProfilePaneUrlState(window.location.search).location).toEqual(PHONE);
+      popProfilePaneLocation("/", window.location.search);
+      expect(resolveProfilePaneUrlState(window.location.search).location).toEqual(ACCOUNT);
+      popProfilePaneLocation("/", window.location.search);
+      expect(resolveProfilePaneUrlState(window.location.search).location).toEqual({ panel: null, detail: null });
+      closeProfilePane("/", window.location.search);
+      expect(currentUrl().searchParams.get("view")).toBe("recent");
+      expect(resolveProfilePaneUrlState(window.location.search).open).toBe(false);
+      expect(go).not.toHaveBeenCalled();
+      window.history.replaceState(null, "", "/?view=recent&profile_pane=1");
+      pushProfilePaneLocation("/", window.location.search, PHONE);
+      closeProfilePane("/", window.location.search);
+      expect(resolveProfilePaneUrlState(window.location.search).open).toBe(false);
+      expect(currentUrl().searchParams.get("view")).toBe("recent");
+      expect(go).not.toHaveBeenCalled();
+    } finally { go.mockRestore(); }
+  });
+
   it("clears pane query and its internal history marker on authentication loss", () => {
     window.history.replaceState(
       { __hushhProfilePane: { depth: 2 } },
@@ -326,6 +431,25 @@ describe("Profile pane navigation state", () => {
       expect(requestProfilePaneOpen("tap")).toBe("unavailable");
     } finally {
       window.removeEventListener(PROFILE_PANE_OPEN_EVENT, listener);
+    }
+  });
+
+  it("hands an authored detail and return target to the shell without a second navigation or policy bypass", () => {
+    const trigger = document.createElement("button");
+    const before = window.location.href;
+    for (const outcome of ["opening", "unavailable"] as const) {
+      const listener = vi.fn((event: Event) => {
+        const detail = (event as CustomEvent<ProfilePaneOpenDetail>).detail;
+        expect(detail.returnFocus).toBe(trigger);
+        expect(detail.destination).toEqual({ location: PHONE, returnsToOrigin: true });
+        detail.onResult?.(outcome);
+      });
+      window.addEventListener(PROFILE_PANE_OPEN_EVENT, listener);
+      try {
+        openProfilePane("/one", window.location.search, PHONE, { returnsToOrigin: true, returnFocus: trigger });
+        expect(listener).toHaveBeenCalledTimes(1);
+        expect(window.location.href).toBe(before);
+      } finally { window.removeEventListener(PROFILE_PANE_OPEN_EVENT, listener); }
     }
   });
 });

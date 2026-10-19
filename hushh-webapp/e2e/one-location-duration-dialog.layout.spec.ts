@@ -96,7 +96,9 @@ for (const [width, height, current] of [
     }).toBe(true);
     expect((await dialog.boundingBox())!.height).toBeGreaterThan(closed!.height + 60);
     for (const option of await page.getByRole("option").all()) {
-      expect(await option.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(43.99);
+      // Visibility can precede the popover's 0.95 -> 1 entrance settlement.
+      // Require the actual 44-point geometry without weakening its threshold.
+      await expect.poll(() => option.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(43.99);
     }
     const evidenceDir = process.env.OVERFLOW_ACTION_EVIDENCE_DIR;
     if (evidenceDir && (width === 390 || width === 1440)) {

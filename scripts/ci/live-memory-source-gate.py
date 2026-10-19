@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+from tempfile import TemporaryDirectory
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
@@ -65,6 +66,15 @@ LEGACY_UNBOUNDED: set[str] = set()
 RUNTIME_ROOTS = ("hushh-webapp", "consent-protocol")
 RUNTIME_SUFFIXES = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".mts", ".py"}
 EXCLUDED_RUNTIME_PARTS = {"__tests__", "tests", "e2e", "node_modules", ".next", "__pycache__"}
+# Native sync and compilation copy the already-reviewed web runtime here.
+# Exclude exact generated roots, not all native code or untracked source files.
+GENERATED_RUNTIME_ROOTS = {
+    "hushh-webapp/out",
+    "hushh-webapp/android/app/build",
+    "hushh-webapp/android/app/src/main/assets/public",
+    "hushh-webapp/ios/App/build",
+    "hushh-webapp/ios/App/App/public",
+}
 SOURCE_REFERENCE_PATTERN = re.compile(
     r"\b(?:one_living_sources|owner_source_projection|one_living_memory_source_projection|LIVING_SOURCE_DOMAIN)\b"
 )
@@ -218,7 +228,8 @@ def runtime_sources(root: Path) -> dict[str, str]:
     sources: dict[str, str] = {}
     for directory in RUNTIME_ROOTS:
         for parent, children, files in os.walk(root / directory):
-            children[:] = [name for name in children if name not in EXCLUDED_RUNTIME_PARTS and not name.startswith(".")]
+            children[:] = [name for name in children if name not in EXCLUDED_RUNTIME_PARTS and not name.startswith(".")
+                           and (Path(parent) / name).relative_to(root).as_posix() not in GENERATED_RUNTIME_ROOTS]
             for name in files:
                 path = Path(parent) / name
                 if path.suffix not in RUNTIME_SUFFIXES:
@@ -463,6 +474,16 @@ def self_test(root: Path, sources: list[dict], records_code: str, sync_code: str
         'PkmWriteCoordinator.saveMergedDomain({ domain: "one_living_sources", '
         'confirmation: { authorizationMode: "owner_source_projection" } });'
     )
+    with TemporaryDirectory(prefix="hussh-source-gate-") as temporary:
+        fixture_root = Path(temporary)
+        authored = "hushh-webapp/lib/pkm/unreviewed-source-writer.ts"
+        for relative in [authored, *(f"{directory}/copied-runtime.js" for directory in GENERATED_RUNTIME_ROOTS)]:
+            fixture = fixture_root / relative
+            fixture.parent.mkdir(parents=True, exist_ok=True)
+            fixture.write_text(outside[authored], encoding="utf-8")
+        scanned = runtime_sources(fixture_root)
+        assert set(scanned) == {authored}, "native build copies must not mask or duplicate an authored writer"
+        outside = {**code, **scanned}
     try:
         validate_writer_call_sites(outside)
     except ValueError as error:

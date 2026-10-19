@@ -1718,7 +1718,9 @@ class ActorIdentityService:
         # that committed write into "your name wasn't changed": a shadow that
         # fails to catch up is reported as pending, never as a failure.
         try:
-            updated = await self.sync_from_firebase(normalized_user_id, force=True)
+            updated = await self.sync_from_firebase(
+                normalized_user_id, force=True, require_success=True
+            )
             if updated is None:
                 # The provider accepted the change; never report the old name back.
                 updated = await self.upsert_identity(

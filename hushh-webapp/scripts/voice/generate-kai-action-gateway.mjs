@@ -930,20 +930,23 @@ function normalizeSurface(contractPath, raw) {
   };
 }
 
-async function listContractFiles(startDir) {
+async function listContractFiles(startDir, sourceRoot = startDir) {
   const entries = await fs.readdir(startDir, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
     if (
       entry.name === "node_modules" ||
       entry.name === ".next" ||
+      // Match the root-only ignored NEXT_DIST_DIR outputs, not authored
+      // directories or only Git-tracked files. Warm build caches are not input.
+      (startDir === sourceRoot && entry.name.startsWith(".next-")) ||
       entry.name === "dist"
     ) {
       continue;
     }
     const absolutePath = path.join(startDir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await listContractFiles(absolutePath)));
+      files.push(...(await listContractFiles(absolutePath, sourceRoot)));
       continue;
     }
     if (entry.isFile() && entry.name.endsWith(CONTRACT_SUFFIX)) {
@@ -1177,6 +1180,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 
 export {
+  listContractFiles,
   validateAliasCollisions,
   validateSiriExposure,
   KNOWN_ALIAS_COLLISIONS,

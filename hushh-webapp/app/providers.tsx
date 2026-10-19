@@ -22,6 +22,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { AuthProvider } from "@/lib/firebase";
 import { ContactInvitationSessionProvider } from "@/components/connections/contact-invitation-session-provider";
@@ -46,9 +47,11 @@ import { ConsentSheetProvider } from "@/components/consent/consent-sheet-control
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { AppTopShell } from "@/components/app-ui/top-app-bar";
+import { NativeWorkspaceSeat } from "@/components/app-ui/native-workspace-seat";
 import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
 import { AppProfileEdgeGesture } from "@/components/app-ui/app-profile-edge-gesture";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
 import { SiriOneVoiceHandoff } from "@/components/agent/siri-one-voice-handoff";
@@ -78,7 +81,7 @@ import { WalletProfileBootstrap } from "@/components/wallet-card/wallet-profile-
 import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { Capacitor } from "@capacitor/core";
-import { useNativeNavigationInstalled } from "@/lib/capacitor/native-navigation";
+import { useNativeNavigationInstalled, useNativeNavigationScrollFollowing } from "@/lib/capacitor/native-navigation";
 import { ObservabilityRouteObserver } from "@/components/observability/route-observer";
 import {
   resetKaiBottomChromeVisibility,
@@ -123,6 +126,7 @@ import {
   PROFILE_PANE_OPEN_EVENT,
   PROFILE_PANE_ROOT_LOCATION,
   type ProfilePaneOpenDetail,
+  type ProfilePaneLocation,
   openProfilePane,
   clearProfilePaneQuery,
   closeProfilePane,
@@ -165,7 +169,15 @@ function AppShellFrame({ children }: ProvidersProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { isAuthenticated, loading: authLoading } = useAuth();
+  const { isAuthenticated, loading: authLoading, userId } = useAuth();
+  const profileReturnFocus = useRef<{ owner: string | null; target: HTMLElement } | null>(null);
+  const [profilePaneResume, setProfilePaneResume] = useState<{
+    ownerId: string | null;
+    location: ProfilePaneLocation;
+  }>({
+    ownerId: null,
+    location: PROFILE_PANE_ROOT_LOCATION,
+  });
   // Destination crossings behind the shared back contract. Recorded here
   // because this frame renders for every route, including chrome-less ones,
   // and a screen with no top bar can still be where a destination was entered
@@ -288,6 +300,8 @@ function AppShellFrame({ children }: ProvidersProps) {
     [searchParams],
   );
   const profilePaneOpen = profilePaneEnabled && profilePaneUrlState.open;
+  const profilePaneResumeLocation = profilePaneResume.ownerId === userId
+    ? profilePaneResume.location : PROFILE_PANE_ROOT_LOCATION;
   const isFullscreenTopFlow = routeLayoutMode === "flow";
   const shouldLockFullscreenRoot = isFullscreenTopFlow || hidesPersistentChrome;
   const isFoundationRoute = isFoundationPublicRoute(pathname);
@@ -397,11 +411,13 @@ function AppShellFrame({ children }: ProvidersProps) {
   // RIA and Foundation both use a persistent-but-pinned lower utility. Keep
   // the scroll-hide driver for ordinary signed-in navigation only.
   const nativeNavigationInstalled = useNativeNavigationInstalled();
-  // Native tabs and the web voice slot stay pinned together; no per-frame bridge traffic.
+  const nativeScrollFollowing = useNativeNavigationScrollFollowing();
+  // Only negotiated wrappers project the shared scroll owner into native
+  // presentation. Older wrappers keep the coherent pinned fallback.
   const pinnedBottomChrome =
     isRiaRoute(pathname) ||
     foundationVoiceOnlyChrome ||
-    nativeNavigationInstalled;
+    (nativeNavigationInstalled && !nativeScrollFollowing);
   // Stable identity: AppShellFrame re-renders on every pathname and query
   // change, and a fresh model object each time re-rendered the whole bottom
   // chrome (navbar, agent bar, masks) on every tab switch.
@@ -470,6 +486,12 @@ function AppShellFrame({ children }: ProvidersProps) {
   }, [topShellScrollResetKey]);
 
   useEffect(() => {
+    setProfilePaneResume(current => current.ownerId !== userId
+      ? { ownerId: userId, location: profilePaneUrlState.open ? profilePaneUrlState.location : PROFILE_PANE_ROOT_LOCATION }
+      : profilePaneUrlState.open ? { ownerId: userId, location: profilePaneUrlState.location } : current);
+  }, [profilePaneUrlState, userId]);
+
+  useEffect(() => {
     if (authLoading || isAuthenticated || !profilePaneUrlState.open) return;
     clearProfilePaneQuery(pathname || ROUTES.ONE_HOME, searchParams);
   }, [
@@ -484,21 +506,26 @@ function AppShellFrame({ children }: ProvidersProps) {
     const handleProfilePaneOpen = (event: Event) => {
       // Answer the requester so a caller that must know (voice) never reports
       // an open that the shell silently dropped.
-      const report = (event as CustomEvent<ProfilePaneOpenDetail>).detail
-        ?.onResult;
+      const detail = (event as CustomEvent<ProfilePaneOpenDetail>).detail;
+      const report = detail?.onResult;
       if (!profilePaneEnabled) {
         report?.("unavailable");
         return;
       }
-      if (profilePaneUrlState.open) {
+      if (profilePaneUrlState.open || resolveProfilePaneUrlState(window.location.search).open) {
         report?.("already_open");
         return;
       }
+      const target = (event as CustomEvent<ProfilePaneOpenDetail>).detail?.returnFocus;
+      profileReturnFocus.current = target?.isConnected ? { owner: userId, target } : null;
       openProfilePane(
         pathname || ROUTES.ONE_HOME,
         searchParams,
-        PROFILE_PANE_ROOT_LOCATION,
+        detail?.destination?.location ?? profilePaneResumeLocation,
+        { returnsToOrigin: detail?.destination?.returnsToOrigin },
       );
+      if (detail?.source === "tap") appHaptic("light");
+      else if (detail?.source === "native_swipe") appHaptic("selection");
       report?.("opening");
     };
     window.addEventListener(PROFILE_PANE_OPEN_EVENT, handleProfilePaneOpen);
@@ -508,7 +535,14 @@ function AppShellFrame({ children }: ProvidersProps) {
         handleProfilePaneOpen,
       );
     };
-  }, [pathname, profilePaneEnabled, profilePaneUrlState.open, searchParams]);
+  }, [
+    pathname,
+    profilePaneEnabled,
+    profilePaneResumeLocation,
+    profilePaneUrlState.open,
+    searchParams,
+    userId,
+  ]);
 
   const profilePaneIsOpen = profilePaneUrlState.open;
   const handleProfilePaneOpenChange = useCallback(
@@ -518,14 +552,14 @@ function AppShellFrame({ children }: ProvidersProps) {
           openProfilePane(
             pathname || ROUTES.ONE_HOME,
             searchParams,
-            PROFILE_PANE_ROOT_LOCATION,
+            profilePaneResumeLocation,
           );
         }
         return;
       }
       closeProfilePane(pathname || ROUTES.ONE_HOME, searchParams);
     },
-    [profilePaneIsOpen, pathname, searchParams],
+    [profilePaneIsOpen, pathname, searchParams, profilePaneResumeLocation],
   );
 
   useEffect(() => {
@@ -552,6 +586,7 @@ function AppShellFrame({ children }: ProvidersProps) {
         },
         customEvent.detail?.source ?? "programmatic",
         customEvent.detail?.transitionMode ?? "full",
+        customEvent.detail?.feedback,
       );
     };
 
@@ -647,15 +682,17 @@ function AppShellFrame({ children }: ProvidersProps) {
                 suspends (fallback tree <-> resolved tree swap), cancelling an
                 active command capture during a route switch. Both are fixed
                 overlays, so position is unaffected. */}
-                    {!hidesPersistentChrome ? <AgentVoiceEdgeGlow /> : null}
-                    {!hidesPersistentChrome ? <AppEdgeBackGesture /> : null}
-                    <AppProfileEdgeGesture enabled={profilePaneEnabled} />
-                    <AppBottomShell model={bottomShellModel} />
-                    <ProfilePane
-                      open={profilePaneOpen}
-                      onOpenChange={handleProfilePaneOpenChange}
-                    />
-                    {/* This bridge owns one post-unlock reconciliation for the whole
+                  {!hidesPersistentChrome ? <AgentVoiceEdgeGlow /> : null}
+                  {!hidesPersistentChrome ? <AppEdgeBackGesture /> : null}
+                  <AppProfileEdgeGesture enabled={profilePaneEnabled} />
+                  <AppBottomShell model={bottomShellModel} />
+                  <ProfilePane
+                    owner={userId}
+                    open={profilePaneOpen}
+                    onOpenChange={handleProfilePaneOpenChange}
+                    returnFocusRef={profileReturnFocus}
+                  />
+                  {/* This bridge owns one post-unlock reconciliation for the whole
                 app. Keeping it outside the route Suspense boundary prevents
                 fallback/resolved remounts from launching the same sync twice. */}
                     <PostAuthOnboardingSyncBridge />
@@ -677,6 +714,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                             signedInShellContentOffset.mode
                           }
                         >
+                          <NativeWorkspaceSeat />
                           {!hidesPersistentChrome && !isCanonicalChatRoute ? (
                             <AppTopShell model={topShellModel} />
                           ) : null}

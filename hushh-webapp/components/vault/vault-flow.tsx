@@ -127,7 +127,9 @@ const VAULT_ESCAPE_LINK_CLASS =
 const VAULT_INPUT_SHELL_CLASS =
   "flex h-14 items-center gap-3 rounded-[var(--app-input-radius)] border-[1.5px] bg-black/[0.02] px-4 dark:bg-white/[0.04]";
 const VAULT_INPUT_CONTROL_CLASS =
-  "h-auto min-h-0 min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 py-0 text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-foreground/35";
+  "h-full min-h-11 min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 py-0 text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-foreground/35";
+const VAULT_INPUT_VISIBILITY_CLASS =
+  "inline-flex size-11 shrink-0 items-center justify-center text-foreground/50 transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--app-accent)]";
 const VAULT_FIELD_STACK_CLASS = "space-y-[var(--app-form-field-gap)]";
 
 // A passkey cancellation is a normal user decision, not an application
@@ -1871,7 +1873,7 @@ export function VaultFlow({
                     <button
                       type="button"
                       onClick={() => setShowPassphrase((prev) => !prev)}
-                      className="shrink-0 p-1 text-foreground transition-colors hover:text-foreground focus:outline-none"
+                      className={VAULT_INPUT_VISIBILITY_CLASS}
                       aria-label={showPassphrase ? "Hide password" : "Show password"}
                       aria-pressed={showPassphrase}
                       title={showPassphrase ? "Hide password" : "Show password"}
@@ -1909,7 +1911,7 @@ export function VaultFlow({
                     <button
                       type="button"
                       onClick={() => setShowConfirmPassphrase((prev) => !prev)}
-                      className="shrink-0 p-1 text-foreground transition-colors hover:text-foreground focus:outline-none"
+                      className={VAULT_INPUT_VISIBILITY_CLASS}
                       aria-label={showConfirmPassphrase ? "Hide password" : "Show password"}
                       aria-pressed={showConfirmPassphrase}
                       title={showConfirmPassphrase ? "Hide password" : "Show password"}
@@ -2043,7 +2045,7 @@ export function VaultFlow({
                     <button
                       type="button"
                       onClick={() => setShowPassphrase((prev) => !prev)}
-                      className="shrink-0 p-1 text-foreground transition-colors hover:text-foreground focus:outline-none"
+                      className={VAULT_INPUT_VISIBILITY_CLASS}
                       aria-label={showPassphrase ? "Hide password" : "Show password"}
                       aria-pressed={showPassphrase}
                       title={showPassphrase ? "Hide password" : "Show password"}

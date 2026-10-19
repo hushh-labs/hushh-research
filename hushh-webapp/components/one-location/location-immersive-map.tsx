@@ -120,6 +120,10 @@ import {
   locationMapDemoPeople,
 } from "@/lib/testing/location-map-demo";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
+import {
+  appInteractionCoordinator,
+  useInteractionIntents,
+} from "@/lib/interaction/interaction-intent-coordinator";
 import { motionDurations, motionEasings } from "@/lib/morphy-ux/motion";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { useVault } from "@/lib/vault/vault-context";
@@ -781,6 +785,7 @@ export function LocationImmersiveMap({
   const markerSignatureRef = useRef("");
   const initialDemoModeRef = useRef(initialDemoMode);
   const closeRequestedRef = useRef(false);
+  const closeNavigationIdRef = useRef<string | null>(null);
   const nearbyHistoryPreparedRef = useRef(false);
   // Whether the person has dismissed the sheet on check-in's own route. Held in
   // a ref, not the URL: the route-sync effect below re-runs whenever Next hands
@@ -928,6 +933,7 @@ export function LocationImmersiveMap({
   const [searchQuery, setSearchQuery] = useState("");
   const [trayExpanded, setTrayExpanded] = useState(true);
   const [closing, setClosing] = useState(false);
+  const interactionIntents = useInteractionIntents();
   const [mapReady, setMapReady] = useState(false);
   const [entryLocationSettled, setEntryLocationSettled] = useState(false);
   const [status, setStatus] = useState<
@@ -3588,29 +3594,50 @@ export function LocationImmersiveMap({
         await closingMap.destroy().catch(() => undefined);
       });
     }
-    beginRouteTransition(
-      ROUTES.ONE_LOCATION,
-      () => router.replace(ROUTES.ONE_LOCATION, { scroll: false }),
-      "tap",
-      "full",
-    );
-    // Guaranteed exit: if the SPA route transition is interrupted (observed on
-    // native, where the map layer/transition could leave the close affordance
-    // inert), force a hard navigation to the Location dashboard so the user is
-    // never trapped in the full-screen map.
-    //
-    // The escape hatch is armed against the route we are leaving, whichever it
-    // is. Hard-coding Your Map's path silently disarmed it on check-in's own
-    // route -- the one screen where the X is now the primary way out, because
-    // dismissing the sheet deliberately leaves you standing here.
-    if (!isNative() || typeof window === "undefined") return;
-    const exitingFrom = window.location.pathname;
-    window.setTimeout(() => {
-      if (typeof window === "undefined") return;
-      if (window.location.pathname !== exitingFrom) return;
-      window.location.assign(ROUTES.ONE_LOCATION);
-    }, 1_200);
+    try {
+      beginRouteTransition(
+        ROUTES.ONE_LOCATION,
+        () => router.replace(ROUTES.ONE_LOCATION, { scroll: false }),
+        "tap",
+        "full",
+      );
+    } catch {
+      // Reduced-motion navigation can reject before an intent can be captured.
+      // Keep a user-controlled exit available without reloading or auto-retry.
+      closeRequestedRef.current = false;
+      closeNavigationIdRef.current = null;
+      setClosing(false);
+      toast.error("Couldn’t leave the map. Try again.");
+      return;
+    }
+    closeNavigationIdRef.current =
+      appInteractionCoordinator.getSnapshot().find(
+        (intent) =>
+          intent.kind === "navigation" &&
+          intent.target === ROUTES.ONE_LOCATION &&
+          (intent.status === "accepted" || intent.status === "committing"),
+      )?.id ?? null;
+    // The shared navigation owner handles delayed settlement and cancellation.
+    // A route-local hard reload would discard the memory-only unlocked vault
+    // and could fire after this map unmounts or another navigation supersedes it.
   }, [router]);
+
+  useEffect(() => {
+    const intent = interactionIntents.find(
+      (candidate) => candidate.id === closeNavigationIdRef.current,
+    );
+    if (
+      !intent ||
+      !["cancelled", "rejected", "superseded"].includes(intent.status)
+    ) {
+      return;
+    }
+    // Only the owning transition's terminal outcome permits another attempt.
+    // Never automatically replay navigation or recreate the destroyed map.
+    closeNavigationIdRef.current = null;
+    closeRequestedRef.current = false;
+    setClosing(false);
+  }, [interactionIntents]);
 
   // All Back surfaces share the map owner, after the topmost sheet has dismissed.
   useBackLayer(

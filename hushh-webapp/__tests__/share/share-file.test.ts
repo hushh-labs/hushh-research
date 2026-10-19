@@ -20,6 +20,15 @@ function web(share = vi.fn(async () => undefined), supports = true) {
 afterEach(() => { vi.clearAllMocks(); vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false); });
 
 describe("card file delivery", () => {
+  it("uses the same temporary owned handoff for readable text without retaining a Documents copy", async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    const { downloadTextFile } = await vi.importActual<typeof import("@/lib/utils/native-download")>("@/lib/utils/native-download");
+    vi.mocked(Share.share).mockRejectedValueOnce(new Error("Share canceled"));
+    await expect(downloadTextFile("Synthetic private information", "memory.json")).resolves.toBe(false);
+    expect(Filesystem.writeFile).toHaveBeenCalledWith(expect.objectContaining({ directory: "CACHE" }));
+    expect(Filesystem.deleteFile).toHaveBeenCalledWith(expect.objectContaining({ directory: "CACHE" }));
+    expect(downloadBlobFile).not.toHaveBeenCalled();
+  });
   it("keeps peer filenames inside one native cache leaf and fences a late share after owner loss", async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     const traversal = new File(["file"], "../../other\\file.pdf", { type: "application/pdf" });

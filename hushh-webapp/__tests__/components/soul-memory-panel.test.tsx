@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyLiveMirrorReadTime, buildLiveMirrorProjection } from "@/lib/pkm/live-mirror-projection";
 import { formatLiveMirrorDateTime } from "@/lib/pkm/live-mirror-presentation";
@@ -6,7 +6,7 @@ import { appendVerifiedLivingSourceChanges, reconcileLivingSources } from "@/lib
 import type { LiveMirrorViewState } from "@/lib/pkm/use-live-mirror-view";
 
 const mocks = vi.hoisted(() => ({
-  load: vi.fn(), replace: vi.fn(), peek: vi.fn(), loadContext: vi.fn(), clearContext: vi.fn(),
+  load: vi.fn(), replace: vi.fn(), peek: vi.fn(), retrySync: vi.fn(), loadContext: vi.fn(), clearContext: vi.fn(),
   toast: { error: vi.fn(), success: vi.fn() }, revision: 0,
   back: null as null | (() => boolean),
   mirror: { status: "loading", view: null } as LiveMirrorViewState,
@@ -15,7 +15,7 @@ vi.mock("@/lib/pkm/use-live-mirror-view", () => ({ useLiveMirrorView: () => mock
 vi.mock("@/lib/pkm/markdown-memory", () => ({
   loadMarkdownMemory: mocks.load, replaceMarkdownMemoryDocument: mocks.replace, peekMarkdownMemory: mocks.peek,
   MARKDOWN_MEMORY_DOMAIN: "one_memory", MAX_MARKDOWN_MEMORY_CHARS: 18000,
-  subscribeMarkdownMemory: () => () => {}, retryMarkdownMemorySync: vi.fn(),
+  subscribeMarkdownMemory: () => () => {}, retryMarkdownMemorySync: mocks.retrySync,
 }));
 vi.mock("@/lib/agent/agent-pkm-memory", () => ({
   loadAgentPkmContext: mocks.loadContext, clearAgentPkmContext: mocks.clearContext,
@@ -28,6 +28,7 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
 }));
 
 import { SoulMemoryPanel } from "@/components/profile/soul-memory-panel";
+import { useSoulMemoryModel } from "@/components/profile/use-soul-memory-model";
 
 const props = { userId: "owner-a", vaultKey: "key-a", vaultOwnerToken: "token-a", tokenExpiresAt: Date.now() + 60000, active: true, verified: true };
 const markdown = "# Memory\n\n## Preferences\n- Concise answers.\n";
@@ -174,6 +175,44 @@ describe("memory.md editor", () => {
     await screen.findByRole("heading", { name: "Safe" });
     expect(view.container.querySelector("img")).toBeNull();
     expect(view.container.querySelector("script")).toBeNull();
+  });
+
+  it("rejects retained editor ports after owner replacement without erasing the new owner's document", async () => {
+    const view = renderHook(options => useSoulMemoryModel(options), { initialProps: props });
+    await waitFor(() => expect(view.result.current.current?.document.markdown).toBe(markdown));
+    act(() => view.result.current.beginEdit());
+    const retired = view.result.current;
+    mocks.load.mockResolvedValueOnce({ markdown: "# New owner", persisted: true });
+    view.rerender({ ...props, userId: "owner-b", vaultKey: "key-b", vaultOwnerToken: "token-b" });
+    await waitFor(() => expect(view.result.current.current?.document.markdown).toBe("# New owner"));
+    const reads = mocks.load.mock.calls.length;
+    act(() => { retired.beginEdit(); retired.changeDraft("Late old-owner edit"); retired.cancelEdit(); retired.reloadLatest(); retired.retryLoad(); });
+    expect(view.result.current.current?.document.markdown).toBe("# New owner");
+    expect(view.result.current.editing).toBe(false);
+    expect(mocks.load).toHaveBeenCalledTimes(reads);
+    await act(async () => { await retired.save(); await retired.retrySync(); });
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.retrySync).not.toHaveBeenCalled();
+  });
+
+  it("rejects old Save and sync bindings while preserving the draft across token renewal", async () => {
+    const view = renderHook(options => useSoulMemoryModel(options), { initialProps: props });
+    await waitFor(() => expect(view.result.current.current?.document.markdown).toBe(markdown));
+    act(() => view.result.current.beginEdit());
+    act(() => view.result.current.changeDraft("First draft"));
+    const oldDraft = view.result.current;
+    act(() => view.result.current.changeDraft("Latest draft"));
+    await act(async () => { await oldDraft.save(); });
+    expect(mocks.replace).not.toHaveBeenCalled();
+    const oldCredential = view.result.current;
+    view.rerender({ ...props, vaultOwnerToken: "renewed-token" });
+    expect(view.result.current.current?.draft).toBe("Latest draft");
+    await act(async () => { await oldCredential.save(); await oldCredential.retrySync(); });
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.retrySync).not.toHaveBeenCalled();
+    await act(async () => { await view.result.current.save(); });
+    expect(mocks.replace).toHaveBeenCalledTimes(1);
+    expect(mocks.replace).toHaveBeenCalledWith(expect.objectContaining({ markdown: "Latest draft", vaultOwnerToken: "renewed-token" }));
   });
 });
 

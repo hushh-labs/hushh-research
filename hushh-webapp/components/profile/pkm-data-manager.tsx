@@ -46,6 +46,7 @@ import {
 import { Button } from "@/lib/morphy-ux/morphy";
 import {
   buildPkmAccessConnections,
+  formatPkmTimestamp as formatTimestamp,
   type PkmDomainPermissionPresentation,
   type PkmAccessConnectionPresentation,
   type PkmDomainPresentation,
@@ -59,26 +60,13 @@ import type {
 import type { PkmVisibilityPosture } from "@/lib/services/personal-knowledge-model-service";
 import { cn } from "@/lib/utils";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
-import { ProfileInnerReviewIcon } from "@/components/profile/profile-inner-icons";
-import { ProfileSecondaryRefreshIcon } from "@/components/profile/profile-secondary-icons";
+import { ReviewRowIcon } from "@/components/icons/agents";
 import { HelperText } from "@/components/app-ui/typography";
 
 const listShellClassName = cn(
   "overflow-hidden rounded-[var(--app-card-radius-feature)]",
   "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]",
 );
-
-function formatTimestamp(value: string | null | undefined): string {
-  if (!value) return "Unavailable";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unavailable";
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 function initials(label: string | null | undefined): string {
   return (
@@ -303,9 +291,9 @@ export function PkmDataManagerPanel({
   return (
     <div className="space-y-4">
       <SettingsGroup description={savedDetailsSummary}>
-        {!needsUnlock ? <SettingsRow icon={ProfileInnerReviewIcon} iconTone="capability"
+        {!needsUnlock ? <SettingsRow icon={ReviewRowIcon} iconTone="capability"
           title="Manage sharing" chevron onClick={onOpenSharing} /> : null}
-        <SettingsRow icon={ProfileSecondaryRefreshIcon} iconTone="capability"
+        <SettingsRow icon={SyncRowIcon} iconTone="capability"
           title="Refresh" onClick={onRefresh} />
       </SettingsGroup>
 

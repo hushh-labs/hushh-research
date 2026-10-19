@@ -56,6 +56,8 @@ export function WorldModelFactSheet({
   pathname,
   actions,
   pending = false,
+  present = true,
+  backQuery,
   onClose,
 }: {
   fact: WorldModelFactDetail;
@@ -64,6 +66,8 @@ export function WorldModelFactSheet({
   actions: WorldModelFactActions;
   /** A decision for this statement is already saving, from its row or here. */
   pending?: boolean;
+  present?: boolean;
+  backQuery?: Readonly<Record<string, string>>;
   onClose: () => void;
 }) {
   const text = fact.kind === "draft" ? fact.statement : fact.claim.text;
@@ -96,7 +100,7 @@ export function WorldModelFactSheet({
     onClose();
     return true;
   }, [busy, mode, text, onClose]);
-  useBackLayer(pathname, mode === "view" ? 1 : 2, back);
+  useBackLayer(pathname, present ? mode === "view" ? 1 : 2 : 0, back, backQuery);
   const trimmed = draft.trim();
 
   return (

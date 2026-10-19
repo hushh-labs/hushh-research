@@ -3,6 +3,7 @@ import {
   act,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
   within,
@@ -18,6 +19,7 @@ import {
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { CIRCLE_MEMBER_MENU_CLASSNAME } from "@/components/one-location/redesign/circles/circle-member-row-layout";
+import { useCreateCirclePeopleModel } from "@/components/one-location/redesign/circles/create-circle-people-step";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
@@ -107,6 +109,28 @@ function detailProps(
 describe("named Circle flows", () => {
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it.each([true, false])("settles the retained people model before creating another Circle (add selected: %s)", async (addSelected) => {
+    const props = createProps();
+    const { result, rerender } = renderHook(({ circleId }) => useCreateCirclePeopleModel({
+      circleId, circleName: "Roommates", active: true,
+      onLoad: props.onLoadPeople, onAdd: props.onAddPeople,
+      onComplete: props.onComplete, onBack: vi.fn(), onSavingChange: vi.fn(),
+    }), { initialProps: { circleId: "first-circle" } });
+
+    for (const circleId of ["first-circle", "second-circle"]) {
+      if (circleId === "second-circle") rerender({ circleId });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      if (addSelected) act(() => result.current.add("asha"));
+      await act(async () => result.current.finish(addSelected));
+      expect(props.onComplete).toHaveBeenLastCalledWith(circleId);
+      expect(result.current.saving).toBe(false);
+      expect(result.current.mutationPending()).toBe(false);
+    }
+    expect(props.onComplete).toHaveBeenCalledTimes(2);
+    expect(props.onAddPeople).toHaveBeenCalledTimes(addSelected ? 2 : 0);
+    if (addSelected) expect(props.onAddPeople).toHaveBeenLastCalledWith("second-circle", ["asha"]);
   });
 
   it("adds selected contacts in step 2 without creating another Circle on retry", async () => {

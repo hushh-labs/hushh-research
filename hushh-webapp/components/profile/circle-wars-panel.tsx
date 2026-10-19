@@ -40,7 +40,7 @@ export function CircleWarsPanel(props: Props) {
   );
 }
 
-function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings, token }: Props & { token: string }) {
+export function useCircleWarsModel({ userId, view, refreshKey, token }: Pick<Props, "userId" | "view" | "refreshKey"> & { token: string }) {
   const [data, setData] = useState<CircleWarsState | null>(null);
   const [board, setBoard] = useState<CircleWarsLeaderboard | null>(null);
   const [error, setError] = useState(false);
@@ -55,6 +55,8 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
   const sequence = useRef(0);
   const alive = useRef(true);
   const actionBusy = useRef(false);
+  const current = useCallback(() => alive.current, []);
+  const mutationPending = useCallback(() => actionBusy.current, []);
   const pickerSequence = useRef(0);
   const committedOffset = useRef(0);
   const previousPeriod = useRef<string | null>(null);
@@ -173,7 +175,7 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
     if (circles === null || circlesError) void loadCircles();
   }, [circles, circlesError, loadCircles]);
   const closePicker = useCallback(() => {
-    if (busy) return true;
+    if (busy || actionBusy.current) return true;
     if (creating) backToCircles(); else setOpen(false);
     return true;
   }, [busy, creating, backToCircles]);
@@ -244,6 +246,36 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
     }
   };
 
+  const loadPeople = (circleId: string, options: { page: number; limit: number; query?: string }) =>
+    OneLocationService.listNamedCircleEligibleConnectionsPage({ vaultOwnerToken: token, circleId, ...options });
+  const addPeople = async (circleId: string, userIds: string[]) => {
+    if (actionBusy.current) throw new Error("A Circle action is already running.");
+    actionBusy.current = true; setBusy(true);
+    try {
+      await OneLocationService.createNamedCircleMemberInvites({ vaultOwnerToken: token, circleId, inviteeUserIds: userIds });
+      CacheSyncService.onOneLocationStateMutated(userId, ["workspace", "circles", "sms_roster"], { notificationType: "location_circle_member_added", circleId });
+      await loadCircles();
+    } finally { actionBusy.current = false; if (alive.current) setBusy(false); }
+  };
+  return { data, board, error, offset, refreshing, open, creating, circles, circlesError, selected, busy, clock, secondsRemaining, movement,
+    load, loadCircles, chooseCircle, closePicker, backToCircles, create, join, loadPeople, addPeople,
+    current, mutationPending,
+    changeOpen: (next: boolean) => { if (!actionBusy.current) setOpen(next); },
+    select: (id: string) => { if (!actionBusy.current && circles?.some(circle => circle.id === id)) setSelected(id); },
+    openCreate: () => { if (!actionBusy.current) setCreating(true); }, finishCreate: () => setCreating(false),
+    previousPage: () => setOffset(Math.max(0, committedOffset.current - 10)), nextPage: () => setOffset(committedOffset.current + 10) };
+}
+export type CircleWarsModel = ReturnType<typeof useCircleWarsModel>;
+
+/** Web and native retain one roster, enrollment and creation operation owner. */
+function CircleWarsContent(props: Props & { token: string }) {
+  const { token, ...view } = props;
+  const model = useCircleWarsModel({ ...view, token });
+  return <CircleWarsBody {...view} model={model} />;
+}
+export function CircleWarsBody({ userId, view, onInvite, onViewRankings, model }: Props & { model: CircleWarsModel }) {
+  const { data, board, error, refreshing, open, creating, circles, circlesError, selected, busy, secondsRemaining, movement,
+    load, loadCircles, chooseCircle, closePicker, backToCircles, create, join, loadPeople, addPeople, select, openCreate, finishCreate, previousPage, nextPage, changeOpen } = model;
   const errorState = error ? <div role="status" className="space-y-2 text-sm">
     <p>Circle Wars could not refresh. {data ? "Showing the last update." : "Please try again."}</p>
     <Button variant="muted" onClick={() => void load()}>Try again</Button>
@@ -256,10 +288,9 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
       {view === "card" ? <CircleWarsOverview data={data} view={view} secondsRemaining={secondsRemaining}
         movement={movement} onJoin={chooseCircle} onInvite={onInvite} onViewRankings={onViewRankings} />
         : <CircleWarsStandings board={board} data={data} refreshing={refreshing}
-        onPrevious={() => setOffset(Math.max(0, committedOffset.current - 10))}
-        onNext={() => setOffset(committedOffset.current + 10)} />}
+        onPrevious={previousPage} onNext={nextPage} />}
     </> : null}
-    <Dialog modal open={open} onOpenChange={(next) => { if (!busy) setOpen(next); }}>
+    <Dialog modal open={open} onOpenChange={changeOpen}>
       <DialogContent className="max-h-[85dvh] overflow-y-auto" onEscapeKeyDown={(event) => {
         if (busy || creating) {
           event.preventDefault();
@@ -271,23 +302,11 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
           <div><DialogTitle>{creating ? "Create a Circle" : "Choose your Circle"}</DialogTitle>
           <DialogDescription>A good team starts with your people.</DialogDescription></div>
         </DialogHeader>
-        {creating ? <><CreateCircleFlow key={`${userId}:${token}`} busy={busy} onSubmit={create}
+        {creating ? <><CreateCircleFlow key={`${userId}:unlocked`} busy={busy} onSubmit={create}
           pathname={ROUTES.ONE_REFERRALS} backLayerQuery={{}}
-          onLoadPeople={(circleId, options) => OneLocationService.listNamedCircleEligibleConnectionsPage({ vaultOwnerToken: token, circleId, ...options })}
-          onAddPeople={async (circleId, userIds) => {
-            if (actionBusy.current) throw new Error("A Circle action is already running.");
-            actionBusy.current = true;
-            setBusy(true);
-            try {
-              await OneLocationService.createNamedCircleMemberInvites({ vaultOwnerToken: token, circleId, inviteeUserIds: userIds });
-              CacheSyncService.onOneLocationStateMutated(userId, ["workspace", "circles", "sms_roster"], { notificationType: "location_circle_member_added", circleId });
-              await loadCircles();
-            } finally {
-              actionBusy.current = false;
-              if (alive.current) setBusy(false);
-            }
-          }}
-          onComplete={() => setCreating(false)}
+          onLoadPeople={loadPeople}
+          onAddPeople={addPeople}
+          onComplete={finishCreate}
         /><Button variant="muted" disabled={busy} onClick={backToCircles}>Back to Circles</Button></> : <div className="space-y-4">
           {circlesError ? <div role="status"><p>Could not load your Circles.</p><Button variant="muted" onClick={() => void loadCircles()}>Try loading Circles again</Button></div>
             : circles === null ? <p role="status">Loading your Circles…</p>
@@ -295,10 +314,10 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
                 {circles.map((circle) => <label key={circle.id} className={styles.choice}>
                   <span className={styles.pickerIcon}><Users weight="duotone" aria-hidden="true" /></span>
                   <span className={styles.choiceCopy}><span className="ui-text-row-label-emphasized">{circle.name}</span><span>{circle.memberCount} members</span></span>
-                  <input type="radio" name="circle-wars-circle" value={circle.id} checked={selected === circle.id} onChange={() => setSelected(circle.id)} disabled={busy} />
+                  <input type="radio" name="circle-wars-circle" value={circle.id} checked={selected === circle.id} onChange={() => select(circle.id)} disabled={busy} />
                 </label>)}
               </fieldset>}
-          <Button variant="muted" className="w-full" onClick={() => setCreating(true)} disabled={busy}><PlusIcon className="mr-2 size-4" aria-hidden="true" />Create New Circle</Button>
+          <Button variant="muted" className="w-full" onClick={openCreate} disabled={busy}><PlusIcon className="mr-2 size-4" aria-hidden="true" />Create New Circle</Button>
           <div className={styles.joinNote}><ShieldCheck aria-hidden="true" /><p>By joining, you choose one Circle for this week. Only your new qualified referrals after joining count. Your friends join separately.</p></div>
           <Button className="w-full" disabled={!selected || busy} onClick={() => void join()}>{busy ? "Joining…" : "Join with this Circle"}</Button>
         </div>}

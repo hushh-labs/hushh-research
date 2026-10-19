@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Report the real One Voice instruction and declaration payload without a provider call."""
+"""Measure the canonical One Voice workload without a provider call.
+
+Fixed screen, owner and clock inputs isolate authored payload growth from
+calendar changes. This is not a ceiling for every live owner/session context;
+production continues to use its actual clock.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,6 +29,7 @@ BUDGET_PATH = (
     / "contracts"
     / "one_voice_performance_budget.v1.json"
 )
+BENCHMARK_NOW = datetime(2026, 10, 5, 14, 6, 55, tzinfo=timezone.utc)
 
 
 def measure() -> dict[str, int]:
@@ -47,6 +54,7 @@ def measure() -> dict[str, int]:
                 screen_ids=list(OPENABLE_SCREENS),
                 screen_id="one_home",
                 display_name=None,
+                now=BENCHMARK_NOW,
             )
             schema = json.dumps(declarations, ensure_ascii=False, separators=(",", ":"))
             variants.append(

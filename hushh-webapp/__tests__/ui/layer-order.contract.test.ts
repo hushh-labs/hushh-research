@@ -100,6 +100,8 @@ describe("layer ladder", () => {
   it("declares every tier once in app/globals.css", () => {
     for (const token of [
       "chrome",
+      "feature-page-overlay",
+      "feature-page",
       "sheet-overlay",
       "sheet",
       "boot",
@@ -114,8 +116,10 @@ describe("layer ladder", () => {
     }
   });
 
-  it("orders chrome < sheet < dialog < takeover < system < transient", () => {
-    expect(ladder.chrome).toBeLessThan(ladder["sheet-overlay"]);
+  it("orders chrome < feature page < sheet < dialog < takeover < system < transient", () => {
+    expect(ladder.chrome).toBeLessThan(ladder["feature-page-overlay"]);
+    expect(ladder["feature-page-overlay"]).toBeLessThan(ladder["feature-page"]);
+    expect(ladder["feature-page"]).toBeLessThan(ladder["sheet-overlay"]);
     expect(ladder["sheet-overlay"]).toBeLessThan(ladder.sheet);
     expect(ladder.sheet).toBeLessThan(ladder.boot);
     expect(ladder.boot).toBeLessThan(ladder["dialog-overlay"]);
