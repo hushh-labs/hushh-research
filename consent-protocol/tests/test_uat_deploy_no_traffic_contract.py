@@ -22,6 +22,59 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.parametrize(
+    ("repeat", "fail_at", "expected_calls", "completed"),
+    [(False, 0, 1, 1), (True, 0, 2, 2), (True, 1, 1, 0), (True, 2, 2, 1)],
+)
+def test_selected_reviewer_repetition_requires_each_independent_pass(
+    tmp_path: Path, repeat: bool, fail_at: int, expected_calls: int, completed: int
+) -> None:
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    inputs = workflow.get("on", workflow.get(True))["workflow_dispatch"]["inputs"]
+    assert inputs["repeat_reviewer_byok"]["default"] is False
+    step = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("id") == "verify-reviewer-byok"
+    )
+    command = step["run"].replace("${{ inputs.repeat_reviewer_byok }}", str(repeat).lower())
+    command = command.replace("/tmp/uat-reviewer-byok.log", str(tmp_path / "reviewer.log"))  # noqa: S108 - redirect the authored log path into the isolated fixture
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    probe = binary / "node"
+    probe.write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\nfrom pathlib import Path\n"
+        "counter = Path(os.environ['PROBE_COUNT'])\n"
+        "number = int(counter.read_text()) + 1 if counter.exists() else 1\n"
+        "counter.write_text(str(number))\n"
+        "if number == int(os.environ['PROBE_FAIL_AT']): sys.exit(1)\n"
+        "print('PASS synthetic_read_only_baseline')\n"
+    )
+    probe.chmod(0o700)
+    output = tmp_path / "outputs"
+    count = tmp_path / "calls"
+    result = subprocess.run(  # noqa: S603 - actual authored step, synthetic non-authorizing probe
+        [shutil.which("bash") or "bash", "-c", command],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{binary}{os.pathsep}{os.environ.get('PATH', '')}",
+            "GITHUB_OUTPUT": str(output),
+            "PROBE_COUNT": str(count),
+            "PROBE_FAIL_AT": str(fail_at),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert (result.returncode == 0) is (fail_at == 0)
+    assert int(count.read_text()) == expected_calls
+    recorded = output.read_text().splitlines() if output.exists() else []
+    assert recorded == [f"passes_completed={number}" for number in range(1, completed + 1)]
+
+
+@pytest.mark.parametrize(
     ("supported", "backend", "flag", "allowed"),
     [
         (False, True, "false", True),

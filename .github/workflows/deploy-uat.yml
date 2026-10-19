@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      repeat_reviewer_byok:
+        description: "Repeat a selected read-only reviewer BYOK rehearsal for independent RCA acceptance"
+        required: false
+        default: false
+        type: boolean
       preserve_paused_drive_worker:
         description: "Preserve all three operator-paused UAT Drive jobs and the current private worker"
         required: false
@@ -2114,8 +2119,15 @@ jobs:
           REVIEWER_APP_ROUTES: /,/one/kai?tab=portfolio,/one/pkm
         run: |
           set -euo pipefail
-          node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs \
-            2>&1 | tee /tmp/uat-reviewer-byok.log
+          passes=1
+          if [ "${{ inputs.repeat_reviewer_byok }}" = "true" ]; then passes=2; fi
+          {
+            for ((pass = 1; pass <= passes; pass++)); do
+              printf 'Reviewer BYOK acceptance pass %s/%s\n' "$pass" "$passes"
+              node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
+              echo "passes_completed=$pass" >> "$GITHUB_OUTPUT"
+            done
+          } 2>&1 | tee /tmp/uat-reviewer-byok.log
 
       - name: Classify UAT release outcome
         if: always()
@@ -3236,6 +3248,8 @@ jobs:
                   "semantic_success": "${{ steps.classify-uat-release.outputs.semantic_success }}",
                   "db_contract": "${{ steps.postdeploy-db-gate.outcome }}",
                   "reviewer_byok": "${{ steps.verify-reviewer-byok.outcome }}",
+                  "reviewer_byok_passes_requested": "${{ steps.verification-plan.outputs.run_reviewer_byok == 'true' && (inputs.repeat_reviewer_byok && '2' || '1') || '0' }}",
+                  "reviewer_byok_passes_completed": "${{ steps.verify-reviewer-byok.outputs.passes_completed || '0' }}",
                   "pwm_notification_scheduler": "${{ steps.activate-pwm-notifications.outcome }}",
                   "account_deletion_fence_required": "${{ steps.account-deletion-fence-decision.outputs.required }}",
                   "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
