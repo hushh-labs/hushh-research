@@ -417,10 +417,18 @@ function resolveMetricTone(mode: OneAgentMode): AgentMetricTone {
   return mode.statusTone === "muted" ? "muted" : "default";
 }
 
+/**
+ * The count itself is always primary text unless it is zero or unknown.
+ *
+ * A pending count used to paint its numeral orange (`warning` returned
+ * #FF9500), so Advisor's "1 action" showed a gold 1 beside Calendar's and
+ * Wallet's dark ones. Attention is carried by the number being non-zero and by
+ * the row's own status, not by a one-off numeral colour, so `warning` now reads
+ * like `default` and flips to the light token in dark mode.
+ */
 function metricValueClassName(tone: AgentMetricTone): string {
   if (tone === "positive") return "text-[#34C759]";
   if (tone === "accent") return "text-[color:var(--app-accent-deep)]";
-  if (tone === "warning") return "text-[#FF9500]";
   if (tone === "muted") return "text-[#8E8E93]";
   return "text-[#1D1D1F] dark:text-[#F5F5F7]";
 }
@@ -474,6 +482,7 @@ function AgentMetric({
     >
       <span
         data-ui-role="body-strong"
+        data-profile-role="description"
         className={cn(
           "shrink-0 tabular-nums font-semibold tracking-normal",
           isGrid ? "text-[11px] leading-4" : "text-[15px] leading-5",
@@ -484,6 +493,7 @@ function AgentMetric({
       </span>
       <span
         data-ui-role="trailing-value"
+        data-profile-role="description"
         className={cn(
           "min-w-0 font-normal tracking-normal",
           isGrid ? "truncate text-[11px] leading-4" : "text-[15px] leading-5",
@@ -538,6 +548,7 @@ function AgentGridItem({
         <span
           className="block w-full truncate text-center text-[14px] font-normal leading-[18px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
           data-ui-role="body-strong"
+          data-profile-role="label"
         >
           {mode.title}
         </span>
@@ -578,6 +589,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       <span className="relative z-10 flex min-w-0 flex-col justify-center">
         <span
           data-ui-role="row-label"
+          data-profile-role="label"
           className="ui-text-row-label min-w-0 truncate"
         >
           {mode.title}
@@ -713,6 +725,8 @@ export function OneAgentRoster({
     <section
       aria-labelledby="one-agents-heading"
       data-testid="one-agents-section"
+      // Opts this roster in to the Profile type scale (app/globals.css).
+      data-profile-type-scale=""
       // No pb- here. The scroll root already reserves the bottom bars
       // (app/providers.tsx pads it by --app-scroll-bottom-pad, the measured
       // --app-bottom-shell-height), and .app-page-shell adds the 24px reading
@@ -725,6 +739,7 @@ export function OneAgentRoster({
         <PageTitle
           as="h1"
           id="one-agents-heading"
+          data-profile-role="header"
           className="min-w-0 whitespace-nowrap"
         >
           Agents ({modes.length})

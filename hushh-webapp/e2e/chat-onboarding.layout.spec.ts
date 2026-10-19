@@ -317,6 +317,16 @@ async function assertContract(page: Page, viewportWidth: number) {
   const dismiss = (await page.getByRole("button", { name: "Dismiss tip" }).boundingBox())!;
   expect(dismiss.width).toBeGreaterThanOrEqual(44);
   expect(dismiss.height).toBeGreaterThanOrEqual(44);
+  const tip = page.getByTestId("chat-onboarding-daily-tip");
+  const tipBox = (await tip.boundingBox())!;
+  const suggestionsBox = (await page.getByTestId("agent-prompt-suggestions").boundingBox())!;
+  expect(tipBox.y).toBeGreaterThanOrEqual(suggestionsBox.y + suggestionsBox.height);
+  expect(tipBox.y - (suggestionsBox.y + suggestionsBox.height)).toBeLessThanOrEqual(16);
+  const [labelStyle, bodyStyle] = await Promise.all([
+    tip.locator('[data-profile-role="group-label"]').evaluate((node) => getComputedStyle(node).fontSize),
+    tip.locator('[data-profile-role="description"]').evaluate((node) => getComputedStyle(node).fontSize),
+  ]);
+  expect([labelStyle, bodyStyle]).toEqual(["10px", "12px"]);
 }
 
 type Rgba = [number, number, number, number];

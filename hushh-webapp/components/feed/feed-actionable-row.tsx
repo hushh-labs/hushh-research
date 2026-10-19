@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { DirectMessageLink } from "@/components/direct-messages/direct-message-link";
 import { useEffect, useRef, useState } from "react";
-import { Loader2 } from "@/components/icons";
+import { Check, Loader2, X } from "@/components/icons";
 
 import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
@@ -42,16 +42,31 @@ function isPrimaryTone(action: FeedActionButton): boolean {
   return action.tone === "primary" || action.tone === "success";
 }
 
+/**
+ * A request that is only Accept (or Confirm) and Decline. Those two keep their
+ * labels as accessible names but draw as a check and a cross, so the pair sits
+ * beside the request instead of under it.
+ */
+function isDecisionPair(actions: FeedActionButton[]): boolean {
+  if (actions.length !== 2) return false;
+  const decline = actions.find((action) => /^decline$/i.test(action.label));
+  const accept = actions.find((action) => /^(accept|confirm)$/i.test(action.label));
+  return Boolean(decline && accept && decline !== accept && isPrimaryTone(accept));
+}
+
 function ActionButton({
   action,
   compact,
   dense,
+  glyph,
   mobileLabel,
   runningActionKey,
   runAction,
 }: {
   action: FeedActionButton;
   compact?: boolean;
+  /** Draw the action as a check ("accept") or a cross ("decline"). */
+  glyph?: "accept" | "decline";
   /** Tighter phone padding, for a row that carries a third quiet action. */
   dense?: boolean;
   mobileLabel?: string;
@@ -81,12 +96,16 @@ function ActionButton({
     <Button
       type="button"
       size="compact"
+      data-profile-role="action"
+      title={glyph && !showConfirm ? action.label : undefined}
       variant={
-        showConfirm
-          ? "destructive"
-          : isPrimaryTone(action)
-            ? "default"
-            : "secondary"
+        glyph
+          ? "ghost"
+          : showConfirm
+            ? "destructive"
+            : isPrimaryTone(action)
+              ? "default"
+              : "secondary"
       }
       disabled={action.disabled || actionsLocked}
       aria-label={
@@ -104,8 +123,11 @@ function ActionButton({
         runNow();
       }}
       className={cn(
-        "w-auto min-w-[5.5rem] max-w-full shrink-0 whitespace-nowrap px-4 sm:min-w-24",
-        compact && "h-7 min-h-7 min-w-0 rounded-full px-3 text-[11px] sm:min-w-0",
+        glyph
+          ? // The button is the 44px target; the glyph drawn inside is 28px.
+            "!size-11 !min-w-11 shrink-0 !bg-transparent !p-0 hover:!bg-transparent"
+          : "w-auto min-w-[5.5rem] max-w-full shrink-0 whitespace-nowrap px-4 sm:min-w-24",
+        !glyph && compact && "h-7 min-h-7 min-w-0 rounded-full px-3 text-[11px] sm:min-w-0",
         dense && "max-sm:px-3",
         // Below 375px the row itself opens the same Details (see onSelect),
         // so the icon steps aside and the two decisions keep one line.
@@ -114,10 +136,32 @@ function ActionButton({
         action.tone === "success" && SUCCESS_CLASS,
       )}
     >
-      {isRunning ? (
+      {glyph ? (
+        <span
+          className={cn(
+            "inline-flex h-7 min-w-7 items-center justify-center rounded-full",
+            showConfirm
+              ? "bg-[color:var(--app-destructive)] px-3 text-white"
+              : glyph === "accept"
+                ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                : "bg-[color:var(--app-neutral-fill)] text-[color:var(--app-label)]",
+          )}
+        >
+          {isRunning ? (
+            <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+          ) : showConfirm ? (
+            confirmTap.label(action.label)
+          ) : glyph === "accept" ? (
+            <Check aria-hidden="true" weight="bold" className="size-4" />
+          ) : (
+            <X aria-hidden="true" weight="bold" className="size-4" />
+          )}
+        </span>
+      ) : null}
+      {!glyph && isRunning ? (
         <Icon icon={Loader2} size="xs" className="animate-spin" />
       ) : null}
-      {action.phoneIcon && !isRunning ? (
+      {glyph ? null : action.phoneIcon && !isRunning ? (
         <>
           <Icon
             icon={action.phoneIcon}
@@ -196,6 +240,30 @@ function ActionButtons({ actions, compact = false }: { actions: FeedActionButton
   };
 
   if (!actions.length) return null;
+  if (compact && isDecisionPair(actions)) {
+    const decline = actions.find((action) => /^decline$/i.test(action.label))!;
+    const accept = actions.find((action) => action !== decline)!;
+    return (
+      <div
+        data-testid="feed-action-buttons"
+        data-decision-glyphs=""
+        className="flex flex-nowrap items-center justify-end"
+      >
+        {[
+          [decline, "decline"],
+          [accept, "accept"],
+        ].map(([action, glyph]) => (
+          <ActionButton
+            key={(action as FeedActionButton).key}
+            action={action as FeedActionButton}
+            glyph={glyph as "accept" | "decline"}
+            runningActionKey={runningActionKey}
+            runAction={runAction}
+          />
+        ))}
+      </div>
+    );
+  }
   const dense = actions.some((action) => Boolean(action.phoneIcon));
   const renderAction = (
     action: FeedActionButton,
@@ -279,7 +347,10 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
   const isLive = item.emphasis === "emergency";
   // Pending multi-decision and emergency rows need their existing roomy controls.
   // Simple activity and one-action rows use the compact Feed list rhythm.
-  const compact = !isLive && !item.spinning && item.actions.length <= 1;
+  const compact =
+    !isLive &&
+    !item.spinning &&
+    (item.actions.length <= 1 || isDecisionPair(item.actions));
 
   const descriptionBody =
     item.spinning || isLive ? (
@@ -299,7 +370,8 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
       <span className="min-w-0">{item.description}</span>
     );
 
-  const description = compact ? (
+  const hasDescription = item.description.trim().length > 0;
+  const description = !hasDescription ? undefined : compact ? (
     <span data-slot="feed-event-description" className="block line-clamp-2">
       {descriptionBody}
     </span>
@@ -363,7 +435,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
     ) : <ActionButtons actions={item.actions} />,
     trailingInteractive: hasActions,
     className: compact
-      ? "[--settings-row-px:12px] [--settings-row-py:6px] [--settings-row-gap:8px] [--settings-row-stack-indent:50px] [--type-row-label-size:13px] [--type-row-label-compact-size:13px] [--type-row-label-compact-line:16px] [--type-row-label-compact-weight:500] [--type-row-description-size:11px] [--type-row-description-compact-size:11px] [--type-row-description-compact-line:15px] [&>button]:min-h-[52px] [&>a]:min-h-[52px] [&>div.grid]:min-h-[52px] [&_[data-slot=settings-row-title]]:truncate group-data-[inset-separators=true]/settings-list:after:left-[50px]"
+      ? `[--settings-row-px:12px] [--settings-row-py:6px] [--settings-row-gap:8px] [--settings-row-stack-indent:50px] [--type-row-label-size:13px] [--type-row-label-compact-size:13px] [--type-row-label-compact-line:16px] [--type-row-label-compact-weight:500] [--type-row-description-size:11px] [--type-row-description-compact-size:11px] [--type-row-description-compact-line:15px] [&>button]:min-h-[52px] [&>a]:min-h-[52px] [&>div.grid]:min-h-[52px] ${hasActions ? "" : "[&_[data-slot=settings-row-title]]:truncate"} group-data-[inset-separators=true]/settings-list:after:left-[50px]`
       : undefined,
     // Actions are sized to their content and carry three separate `shrink-0`s,
     // so on a phone they take the row's width first and leave the text column
@@ -373,7 +445,9 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
     // Stacking gives the text the full width and the buttons their own line.
     // A single meeting CTA fits beside truncated event details; wider action
     // groups retain their own line. Chevron-only rows also stay inline.
-    stackTrailingOnMobile: hasActions && !isMeetJoin,
+    // A compact row keeps its action beside the text at every phone width; the
+    // text column flexes and wraps. Roomier multi-action rows still stack.
+    stackTrailingOnMobile: hasActions && !isMeetJoin && !compact,
     testId: `feed-actionable-${item.id}`,
   } as const;
 
@@ -388,7 +462,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
         <NavigationLink
           href={item.href}
           prefetch={false}
-          aria-label={`${item.title}. ${item.description}`}
+          aria-label={[item.title, item.description].filter(Boolean).join(". ")}
         />
       </SettingsRow>
     ) : (

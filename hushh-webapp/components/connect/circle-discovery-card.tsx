@@ -51,7 +51,7 @@ const STARTER_ORDER: readonly CircleStarterId[] = [
 ];
 const STARTER_DESCRIPTIONS = {
   sms: "Emergency contacts & alerts",
-  location: "Choose who to share your location with",
+  location: "Choose who sees your location",
   family: "Shared family trusted network",
   finance: "Private banking & investments",
   investor: "Key stakeholders & updates",
@@ -110,22 +110,23 @@ export function CircleDiscoveryCard({
       data-circle-discovery-card=""
       className={CONNECT_HERO_CLASSNAME}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2
               id={headingId}
+              data-profile-role="label"
               className="ui-text-card-title text-[color:var(--app-label)]"
             >
               Circles
             </h2>
-            <span className="rounded-full bg-[color:var(--app-secondary-surface)] px-2 py-0.5 text-xs text-[color:var(--app-secondary-label)]">
+            <span
+              data-profile-role="description"
+              className="rounded-full bg-[color:var(--app-secondary-surface)] px-2 py-0.5 text-xs text-[color:var(--app-secondary-label)]"
+            >
               {CIRCLE_STARTERS.length}
             </span>
           </div>
-          <p className="ui-text-caption mt-1 text-[color:var(--app-secondary-label)]">
-            Manage access permissions across your trusted groups.
-          </p>
         </div>
         <Button
           type="button"
@@ -135,6 +136,7 @@ export function CircleDiscoveryCard({
           aria-label="Create your own circle"
           disabled={Boolean(creating)}
           onClick={onCreateCircle}
+          data-profile-role="action"
           className="shrink-0 gap-1 !px-2.5"
         >
           <span className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap">
@@ -170,9 +172,12 @@ export function CircleDiscoveryCard({
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="ui-text-row-label-compact">{starter.label}</span>
+                  <span data-profile-role="name" className="ui-text-row-label-compact">{starter.label}</span>
                 </div>
-                <p className="ui-text-caption mt-0.5 text-[color:var(--app-secondary-label)]">
+                <p
+                  data-profile-role="description"
+                  className="ui-text-caption mt-0.5 text-[color:var(--app-secondary-label)]"
+                >
                   {circle && id === "location"
                     ? `${circle.memberCount} ${circle.memberCount === 1 ? "member" : "members"}`
                     : STARTER_DESCRIPTIONS[id]}
@@ -192,6 +197,7 @@ export function CircleDiscoveryCard({
                       : onUseStarter(starter)
                 }
                 aria-label={`${circle ? "Open" : "Setup"} ${starter.label} circle`}
+                data-profile-role="action"
                 className="min-w-16 shrink-0 !bg-transparent !px-3 hover:!bg-transparent"
               >
                 {creating === id
@@ -238,48 +244,52 @@ export function CircleDiscoveryCard({
         <button
           type="button"
           onClick={error && totalCount === 0 ? onRetry : onFindPeople}
-          className="flex min-h-11 min-w-0 items-center gap-2 rounded-full text-left text-xs text-[color:var(--app-secondary-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          className="flex min-h-11 min-w-0 items-center gap-2 rounded-full text-left text-[color:var(--app-secondary-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
         >
-          <span aria-hidden="true" className="flex shrink-0 -space-x-2">
+          {/* One size for every face and for the remainder chip: a 22px face in a
+              2px ring is 26px, overlapped by 8px, so the stack reads as one piece. */}
+          <span aria-hidden="true" data-circle-discovery-faces="" className="flex shrink-0 items-center -space-x-2">
             {shownConnections.map((person) => (
               <span
                 key={person.connectionId}
-                className="rounded-full border-2 border-[color:var(--app-card-surface-default-solid)]"
+                className="flex size-[26px] items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)]"
               >
                 <ConnectionPersonAvatar
                   size="compact"
-                  className="!size-6"
+                  className="!size-[22px]"
+                  fallbackClassName="bg-[color:var(--app-neutral-fill)] text-[9px] font-semibold text-[color:var(--app-secondary-label)]"
                   photoUrl={person.photoUrl}
                   label={person.displayName || "Connection"}
                 />
               </span>
             ))}
             {moreConnections > 0 ? (
-              <span className="relative flex size-7 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[10px]">
+              <span className="relative flex size-[26px] items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-surface)] text-[9px] font-semibold tabular-nums text-[color:var(--app-secondary-label)]">
                 +{moreConnections}
               </span>
             ) : null}
           </span>
-          <span>
+          <span data-profile-role="description">
             {loading
               ? "Loading connections…"
               : error && totalCount === 0
                 ? "Retry connections"
                 : totalCount === 0
                   ? "Find people to connect with"
-                  : `${totalCount} ${totalCount === 1 ? "connection" : "connections"} to build with`}
+                  : `${totalCount} ${totalCount === 1 ? "connection" : "connections"}`}
           </span>
         </button>
         {trusted ? (
           <button
             type="button"
             data-circle-discovery-trusted=""
+            data-profile-role="action"
             disabled={Boolean(creating)}
             onClick={() => onOpenCircle(trusted.id)}
-            className="ml-auto inline-flex min-h-11 items-center gap-1.5 text-xs md:gap-2 md:text-sm font-normal text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-50"
+            className="ml-auto inline-flex min-h-11 items-center gap-1.5 font-normal text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-50"
           >
             <span>Your Trusted Circle</span>
-            <ArrowRight aria-hidden="true" className="size-3.5 shrink-0 md:size-4" />
+            <ArrowRight aria-hidden="true" className="size-3.5 shrink-0" />
           </button>
         ) : null}
       </div>

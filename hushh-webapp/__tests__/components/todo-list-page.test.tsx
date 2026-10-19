@@ -66,11 +66,11 @@ vi.mock("@/lib/vault/vault-context", () => ({
 }));
 
 vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({
-  useCalendarConnectionStatus: () => ({ connected: true }),
+  useCalendarConnectionStatus: () => ({ connected: true, loaded: true, loading: false, error: null, refresh: vi.fn() }),
 }));
 
 vi.mock("@/lib/calendar/use-calendar-upcoming-events", () => ({
-  useCalendarUpcomingEvents: () => ({ events: mocks.events }),
+  useCalendarUpcomingEvents: () => ({ events: mocks.events, loaded: true, loading: false, error: null, refresh: vi.fn() }),
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
@@ -119,6 +119,46 @@ describe("TodoListPage row actions", () => {
       saveState: "saved",
       fullBlob: {},
     });
+  });
+
+  it("shows a truthful empty collection and distinguishes completed-only state", async () => {
+    mocks.events = [];
+    const view = render(<TodoListPage />);
+    expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeVisible();
+    expect(screen.getByText("Add an item to get started.")).toBeVisible();
+    expect(screen.queryByText("All clear")).not.toBeInTheDocument();
+
+    const done = { ...buildTodo({ id: "finished", title: "Finished item", type: "manual" }), status: "done" as const };
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [done] });
+    view.unmount();
+    render(<TodoListPage />);
+    expect(await screen.findByRole("heading", { name: "No pending tasks" })).toBeVisible();
+    expect(screen.getByText("New tasks will appear here.")).toBeVisible();
+  });
+
+  it("never presents an empty success when saved items fail to load", async () => {
+    mocks.events = [];
+    vi.mocked(TodoListPkmService.load).mockRejectedValue(new Error("read failed"));
+    render(<TodoListPage />);
+    expect(await screen.findByText("Your saved items couldn’t load.")).toBeVisible();
+    expect(screen.queryByText("No tasks yet")).not.toBeInTheDocument();
+    expect(screen.queryByText("No pending tasks")).not.toBeInTheDocument();
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeVisible();
+  });
+
+  it("does not reveal a late saved read after the vault locks", async () => {
+    mocks.events = [];
+    let finishRead!: (state: { tasks: TodoItem[] }) => void;
+    vi.mocked(TodoListPkmService.load).mockImplementationOnce(() => new Promise((resolve) => { finishRead = resolve; }));
+    const view = render(<TodoListPage />);
+    await waitFor(() => expect(TodoListPkmService.load).toHaveBeenCalledOnce());
+    mocks.unlocked = false;
+    view.rerender(<TodoListPage />);
+    await act(async () => { finishRead({ tasks: [buildTodo({ id: "late", title: "Private late task", type: "manual" })] }); });
+    expect(screen.queryByText("Private late task")).not.toBeInTheDocument();
+    expect(screen.getByText("Unlock your vault to see your list.")).toBeVisible();
   });
 
   it("projects explicit agent tasks once, saves only completion and never executes the source action", async () => {

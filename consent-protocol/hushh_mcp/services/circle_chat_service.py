@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
+from hushh_mcp.services.requester_identity import label_from_identity_row
 
 MAX_SEQUENCE = 9_007_199_254_740_991
 # One catalogue drives both the picker and exact sequence validation. The DB
@@ -573,26 +574,49 @@ class CircleChatService:
     def _membership_events(conn: Any, user: str, circle: str, joined_at: Any) -> list[dict]:
         rows = _rows(
             conn,
-            """SELECT event.id, event.kind, event.created_at,
-                NULLIF(subject.display_name, event.subject_user_id) AS subject_name,
-                NULLIF(actor.display_name, event.actor_user_id) AS actor_name,
+            """WITH recent AS (
+                SELECT id, batch_id FROM circle_chat_membership_events
+                WHERE circle_id = CAST(:circle AS uuid) AND created_at >= :joined_at
+                ORDER BY created_at DESC, id DESC LIMIT 200
+              )
+              SELECT event.id, event.kind, event.created_at, event.batch_id,
+                subject.display_name AS subject_name, subject.email AS subject_email,
+                actor.display_name AS actor_name, actor.email AS actor_email,
                 event.subject_user_id, event.actor_user_id
               FROM circle_chat_membership_events event
               LEFT JOIN actor_identity_cache subject ON subject.user_id = event.subject_user_id
               LEFT JOIN actor_identity_cache actor ON actor.user_id = event.actor_user_id
               WHERE event.circle_id = CAST(:circle AS uuid) AND event.created_at >= :joined_at
-              ORDER BY event.created_at DESC, event.id DESC LIMIT 200""",
+                AND (event.id IN (SELECT id FROM recent)
+                  OR (event.batch_id IS NOT NULL AND event.batch_id IN (
+                    SELECT batch_id FROM recent WHERE batch_id IS NOT NULL)))
+              ORDER BY event.created_at ASC, event.id ASC""",
             {"circle": circle, "joined_at": joined_at},
         )
         return [
             {
                 "id": str(row["id"]),
                 "kind": row["kind"],
-                "subjectName": row["subject_name"] or "A member",
-                "actorName": row["actor_name"] or ("You" if row["actor_user_id"] == user else None),
+                "batchId": str(row["batch_id"]) if row["batch_id"] else None,
+                "subjectName": label_from_identity_row(
+                    {
+                        "user_id": row["subject_user_id"],
+                        "display_name": row["subject_name"],
+                        "email": row["subject_email"],
+                    },
+                    fallback="A member",
+                ),
+                "actorName": label_from_identity_row(
+                    {
+                        "user_id": row["actor_user_id"],
+                        "display_name": row["actor_name"],
+                        "email": row["actor_email"],
+                    }
+                )
+                or ("You" if row["actor_user_id"] == user else None),
                 "createdAt": row["created_at"].isoformat(),
             }
-            for row in reversed(rows)
+            for row in rows
         ]
 
     @staticmethod

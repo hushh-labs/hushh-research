@@ -18,6 +18,9 @@ function Fixture() {
         <button onClick={() => change({ failSave: !state.failSave })}>
           Toggle save failure
         </button>
+        <button onClick={() => change({ hideAgent: !state.hideAgent })}>
+          Toggle agent task
+        </button>
         <button onClick={() => setMount((value) => value + 1)}>
           Reopen list
         </button>

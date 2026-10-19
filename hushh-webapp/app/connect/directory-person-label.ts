@@ -21,6 +21,17 @@ export function getDirectoryPersonMaskedPhone(
   return mask && /^\d{2}\*+\d{2}$/.test(mask) ? mask : undefined;
 }
 
+/**
+ * The one contact line a directory row may show: an email the server returned
+ * for this viewer (already masked when it is not theirs to see). Never a phone
+ * number and never a phone fallback; a row with no email shows no line.
+ */
+export function getDirectoryPersonEmail(
+  person: DirectoryPersonIdentity,
+): string | undefined {
+  return person.email?.trim() || person.maskedEmail?.trim() || undefined;
+}
+
 export function getDirectoryPersonDescription(
   person: DirectoryPersonIdentity,
 ): string | undefined {

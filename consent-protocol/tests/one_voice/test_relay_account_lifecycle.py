@@ -113,7 +113,12 @@ def _events(fake: FakeLive) -> list[dict]:
 async def _card(transport, fake, pending):
     session = _session(transport, fake, pending)
     task = asyncio.create_task(session.run())
-    card = await transport.wait_for_frame("pending_action")
+    try:
+        card = await transport.wait_for_frame("pending_action")
+    except BaseException:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        raise
     transport.push({"type": "pending_action.shown", "pending_action_id": card["pending_action_id"]})
     await asyncio.sleep(0.05)
     return session, task, card

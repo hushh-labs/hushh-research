@@ -125,6 +125,8 @@ for (const [width, dark] of [
     );
     await page.goto("http://localhost/todo-fixture");
     await page.addScriptTag({ content: script });
+    await page.waitForTimeout(100);
+    expect(errors, "To-do fixture must mount without a browser exception").toEqual([]);
     const heading = page.getByRole("heading", {
       name: "Your tasks",
       exact: true,
@@ -140,15 +142,10 @@ for (const [width, dark] of [
       return {
         size: style.fontSize,
         line: style.lineHeight,
-        agentSize: style.getPropertyValue("--type-agent-title-size").trim(),
-        agentLine: style.getPropertyValue("--type-agent-title-line").trim(),
+        weight: style.fontWeight,
       };
     });
-    expect(
-      headingStyle.size,
-      "Tasks uses Location's compact agent heading size",
-    ).toBe(headingStyle.agentSize);
-    expect(headingStyle.line).toBe(headingStyle.agentLine);
+    expect(headingStyle).toEqual({ size: "20px", line: "23px", weight: "600" });
     await expect(heading).toHaveAttribute("data-ui-role", "agent-title");
     const title = "Review Alex's connection request";
     const checkbox = page.getByRole("checkbox", {
@@ -213,3 +210,38 @@ for (const [width, dark] of [
     expect(errors).toEqual([]);
   });
 }
+
+test("empty To-do stays truthful and readable through phone widths and enlargement", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.setViewportSize({ width: 393, height: 850 });
+  await page.route("http://localhost/todo-fixture", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+    }),
+  );
+  await page.goto("http://localhost/todo-fixture");
+  await page.addScriptTag({ content: script });
+  await page.getByRole("button", { name: "Toggle agent task" }).click();
+  const empty = page.locator('[data-todo-empty-state="true"]');
+  await expect(empty.getByRole("heading", { name: "No tasks yet" })).toBeVisible();
+  await expect(empty).toContainText("Add an item to get started.");
+  expect(await empty.locator('[data-profile-role="name"]').evaluate((node) => getComputedStyle(node).fontSize)).toBe("13px");
+  expect(await empty.locator('[data-profile-role="description"]').evaluate((node) => getComputedStyle(node).fontSize)).toBe("12px");
+
+  for (const width of [320, 393, 430, 768, 1280]) {
+    await page.setViewportSize({ width, height: 850 });
+    await expect(empty).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
+  await page.setViewportSize({ width: 393, height: 850 });
+  await page.evaluate(() => { document.body.style.zoom = "2"; });
+  await expect(empty).toBeVisible();
+  const add = (await page.getByRole("button", { name: "Add item" }).boundingBox())!;
+  expect(add.x).toBeGreaterThanOrEqual(0);
+  expect(add.x + add.width).toBeLessThanOrEqual(394);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  expect(errors).toEqual([]);
+  await page.screenshot({ path: test.info().outputPath("todo-empty-200-percent.png"), animations: "disabled" });
+});

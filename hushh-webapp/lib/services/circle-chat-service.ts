@@ -10,7 +10,7 @@ import { openChatContent, openChatImage, sealChatMessage, sealChatMutation, type
 
 export type CircleChatState = { members: ChatMemberKey[]; rosterVersion: string; unreadCount: number; latestSequence: number; muted: boolean; notificationDevices?: NotificationDevice[] };
 export type CircleChatReceipt = { id: string; recipientCount: number | null; readCount: number };
-export type CircleMembershipEvent = { id: string; kind: "member_joined" | "member_left" | "member_removed"; subjectName: string; actorName: string | null; createdAt: string };
+export type CircleMembershipEvent = { id: string; kind: "member_joined" | "member_left" | "member_removed"; subjectName: string; actorName: string | null; createdAt: string; batchId?: string | null };
 export type CircleChatPage = { items: ChatMessage[]; hasMore: boolean; receipts?: CircleChatReceipt[];
   replyTargets?: ChatMessage[];
   reactionUpdates?: { id: string; reactions: NonNullable<ChatMessage["reactions"]> }[]; events?: CircleMembershipEvent[] };

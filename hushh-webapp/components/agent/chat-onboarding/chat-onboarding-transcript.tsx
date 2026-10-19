@@ -371,15 +371,15 @@ export function ChatOnboardingDailyTip({
   return (
     <div
       data-testid="chat-onboarding-daily-tip"
-      className="mx-auto flex w-full max-w-2xl items-center gap-1 px-1 text-sm text-muted-foreground"
+      className="mx-auto flex w-full max-w-2xl items-start gap-1 rounded-2xl border border-[color:var(--profile-pane-hair)] bg-[color:var(--app-card-surface-default)] p-2 text-muted-foreground shadow-[0_2px_10px_rgba(0,0,0,0.04)]"
     >
       <button
         type="button"
         onClick={() => onUse(tip)}
-        className="min-h-11 min-w-0 flex-1 rounded-xl px-2 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
+        className="min-h-11 min-w-0 flex-1 rounded-xl px-2 py-1.5 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
       >
-        <span className="font-medium text-foreground">Tip of the day:</span>{" "}
-        <span className={cn("break-words")}>try asking “{tip}”</span>
+        <span data-profile-role="group-label" className="block text-foreground">Tip of the day</span>
+        <span data-profile-role="description" className="mt-1 block break-words">Try asking “{tip}”</span>
       </button>
       <button
         type="button"

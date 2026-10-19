@@ -392,7 +392,14 @@ async def test_exhausted_call_budget_never_starts_a_model_or_another_read(monkey
 
 @pytest.mark.parametrize("stage", ["read", "assessment"])
 @pytest.mark.parametrize("revoked", [False, True])
-async def test_total_deadline_cancels_work_but_never_swallows_authority_loss(stage, revoked):
+async def test_total_deadline_cancels_work_but_never_swallows_authority_loss(
+    stage, revoked, monkeypatch
+):
+    from hushh_mcp.services import drive_request_candidate_assessment as module
+
+    # Keep validation/scheduling time from exhausting the budget before the
+    # blocked stage starts. asyncio.timeout still uses the event loop's clock.
+    monkeypatch.setattr(module, "monotonic", lambda: 0.0)
     work = setup()
     cancelled = asyncio.Event()
 

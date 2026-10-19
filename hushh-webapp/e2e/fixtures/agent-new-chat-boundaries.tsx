@@ -2,7 +2,9 @@
 // informational AG-UI transport remain production code.
 import { createContext } from "react";
 
-const user = { uid: "new-chat-test-owner", displayName: "Test Owner", email: "owner@example.test", getIdToken: async () => "synthetic-id-token" };
+const user = { uid: "new-chat-test-owner", displayName: location.search.includes("long=1")
+  ? "AlexandriaVeryLongPreferredFirstNameForChatLayoutVerification Owner"
+  : "Test Owner", email: "owner@example.test", getIdToken: async () => "synthetic-id-token" };
 export function useAuth() {
   return { user: location.search.includes("anonymous=1") ? null : user, loading: false, sessionVerificationRequired: false };
 }

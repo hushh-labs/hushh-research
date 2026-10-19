@@ -13,7 +13,6 @@ import Link from "next/link";
 
 import {
   ChevronDown,
-  ClipboardCheck,
   Lock,
   Plus,
   RefreshCw,
@@ -23,6 +22,7 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { ProfilePaneTaskAddIcon } from "@/components/profile/profile-pane-icons";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceCard } from "@/components/app-ui/surfaces";
 import {
@@ -334,6 +334,7 @@ function AddItemButton({
   return (
     <Button
       ref={buttonRef}
+      data-todo-add-item="true"
       size="compact"
       onClick={onClick}
       disabled={disabled}
@@ -350,6 +351,9 @@ export function TodoListPage() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [tasks, setTasks] = useState<TodoItem[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
+  const [itemsLoaded, setItemsLoaded] = useState(false);
+  const [itemsLoadError, setItemsLoadError] = useState(false);
+  const itemsLoadRevision = useRef(0);
   const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
   const [completedOpen, setCompletedOpen] = useState(false);
   const [deleteRequest, setDeleteRequest] = useState<TodoItem | null>(null);
@@ -403,29 +407,46 @@ export function TodoListPage() {
     isConnected: calendar.connected,
     windowHours: 168,
   });
+  const calendarReadLoading = !calendar.loaded || calendar.loading ||
+    (calendar.connected && (!upcoming.loaded || upcoming.loading));
+  const calendarReadError = Boolean(calendar.error || upcoming.error);
 
   const loadItems = useCallback(async () => {
+    const revision = ++itemsLoadRevision.current;
     if (!userId || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
       setTasks([]);
+      setItemsLoading(false);
+      setItemsLoaded(false);
+      setItemsLoadError(false);
       return;
     }
     setItemsLoading(true);
+    setItemsLoaded(false);
+    setItemsLoadError(false);
+    setTasks([]);
     try {
       const state = await TodoListPkmService.load({
         userId,
         vaultKey,
         vaultOwnerToken,
       });
+      if (revision !== itemsLoadRevision.current) return;
       setTasks(state.tasks);
     } catch {
+      if (revision !== itemsLoadRevision.current) return;
+      setItemsLoadError(true);
       morphyToast.error("Your list couldn’t load. Try refreshing the page.");
     } finally {
-      setItemsLoading(false);
+      if (revision === itemsLoadRevision.current) {
+        setItemsLoaded(true);
+        setItemsLoading(false);
+      }
     }
   }, [isVaultUnlocked, userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     void loadItems();
+    return () => { itemsLoadRevision.current += 1; };
   }, [loadItems]);
 
   const pending = useMemo(() => {
@@ -595,6 +616,8 @@ export function TodoListPage() {
   return (
     <AppPageShell
       as="main"
+      data-profile-type-scale="page"
+      data-todo-list-page="true"
       width="reading"
       fitContent
       className="bg-transparent"
@@ -622,7 +645,6 @@ export function TodoListPage() {
           }).format(new Date())}
           title="Your tasks"
           titleRole="agent"
-          className="[--foundation-title1-size:var(--type-agent-title-size)] [--foundation-title1-line:var(--type-agent-title-line)] [--foundation-title1-weight:var(--type-agent-title-weight)] [--foundation-title1-tracking:var(--type-agent-title-tracking)]"
           actionsInlineMobile
           actions={
             <div className="flex items-center gap-2">
@@ -659,9 +681,21 @@ export function TodoListPage() {
             Some agent tasks couldn’t refresh. Your other items are still here.
           </HelperText>
         ) : null}
+        {writeReady && itemsLoadError ? (
+          <div className="flex items-center gap-2" role="status">
+            <HelperText as="p">Your saved items couldn’t load.</HelperText>
+            <Button variant="none" effect="fade" size="compact" onClick={() => void loadItems()}>Retry</Button>
+          </div>
+        ) : null}
+        {writeReady && calendarReadError ? (
+          <div className="flex items-center gap-2" role="status">
+            <HelperText as="p">Some Calendar tasks couldn’t load.</HelperText>
+            <Button variant="none" effect="fade" size="compact" onClick={() => { calendar.refresh(); upcoming.refresh(); }}>Retry</Button>
+          </div>
+        ) : null}
         {writeReady && !itemsLoading && totalToday > 0 ? (
           <div className="mt-5 flex items-center gap-4" aria-live="polite">
-            <CaptionText className="shrink-0 tabular-nums !text-[color:var(--app-secondary-label)]">
+            <CaptionText data-profile-role="description" className="shrink-0 tabular-nums !text-[color:var(--app-secondary-label)]">
               {doneToday} of {totalToday} done today
             </CaptionText>
             <div
@@ -690,18 +724,19 @@ export function TodoListPage() {
                 className="size-5 shrink-0 text-muted-foreground"
                 aria-hidden="true"
               />
-              <HelperText as="p">
+              <HelperText as="p" data-profile-role="description">
                 Unlock your vault to see your list.
               </HelperText>
             </div>
           </SurfaceCard>
-        ) : itemsLoading || (agentLoading && pending.length === 0) ? (
+        ) : !itemsLoaded || itemsLoading ||
+          ((agentLoading || calendarReadLoading) && pending.length === 0) ? (
           <div role="status" className="flex items-center gap-2 px-1">
             <RefreshCw
               className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none"
               aria-hidden="true"
             />
-            <HelperText>Loading your list…</HelperText>
+            <HelperText data-profile-role="description">Loading your list…</HelperText>
           </div>
         ) : pending.length > 0 || dueReceipts.length > 0 ? (
           <TodoRows
@@ -711,16 +746,19 @@ export function TodoListPage() {
             onToggle={toggleTask}
             onDelete={requestDelete}
           />
-        ) : agentLoadError ? null : (
-          <div className="flex flex-col items-center gap-2 py-10 text-center">
-            <ClipboardCheck
-              className="mb-1 size-7 text-[color:var(--app-accent)]"
-              aria-hidden="true"
-            />
-            <MediumRowLabel as="h2">All clear</MediumRowLabel>
-            <HelperText as="p">
-              Tasks that need you will appear here, or you can add an item.
-            </HelperText>
+        ) : itemsLoadError || agentLoadError || calendarReadError ? null : (
+          <div data-todo-empty-state="true" className="flex max-w-sm items-start gap-3 px-1 py-4 text-left">
+            <ProfilePaneTaskAddIcon size={26} className="mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <MediumRowLabel as="h2" data-profile-role="name">
+                {tasks.length === 0 && completed.length === 0 ? "No tasks yet" : "No pending tasks"}
+              </MediumRowLabel>
+              <HelperText as="p" data-profile-role="description" className="mt-1">
+                {tasks.length === 0 && completed.length === 0
+                  ? "Add an item to get started."
+                  : "New tasks will appear here."}
+              </HelperText>
+            </div>
           </div>
         )}
         {writeReady &&
@@ -750,11 +788,12 @@ export function TodoListPage() {
               <span>
                 <span
                   id="completed-heading"
-                  className="text-[12px] font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+                  data-profile-role="group-label"
+                  className="text-muted-foreground"
                 >
                   Completed
                 </span>
-                <span className="ml-2 text-sm text-muted-foreground">
+                <span data-profile-role="group-label" className="ml-2 text-muted-foreground">
                   {completed.length}
                 </span>
               </span>

@@ -81,7 +81,35 @@ for (const [width, anonymous, entry] of [[393, false, "Create new chat"], [768, 
       }
       return route.fulfill({ contentType: "application/json", body: "{}" });
     });
-    await page.goto(`http://localhost/new-chat-fixture?anonymous=${anonymous ? 1 : 0}`);
+    await page.goto(`http://localhost/new-chat-fixture?anonymous=${anonymous ? 1 : 0}&long=${width === 393 ? 1 : 0}`);
+    if (!anonymous) {
+      const greeting = page.getByRole("heading", { name: width === 393 ? /^Hi Alexandria/ : "Hi Test" });
+      await expect(greeting).toBeVisible();
+      const greetingStyle = await greeting.evaluate((node) => {
+        const style = getComputedStyle(node);
+        return { size: style.fontSize, weight: style.fontWeight, line: style.lineHeight };
+      });
+      expect(greetingStyle).toEqual({
+        size: width < 475 ? "19px" : "24px",
+        weight: "600",
+        line: width < 475 ? "20.9px" : "26.4px",
+      });
+      await expect(page.locator('[data-agent-chat-header-region="identity"] [data-profile-role="label"]')).toHaveText("One");
+      await page.screenshot({ path: testInfo.outputPath("chat-welcome.png"), animations: "disabled" });
+      if (width === 393) {
+        // Browser zoom halves the effective CSS layout width. Keep height
+        // stable here so this tests wrapping and horizontal clearance.
+        await page.setViewportSize({ width: 196, height: 844 });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+        await expect(page.getByRole("textbox", { name: "Message One" })).toBeVisible();
+        await page.getByRole("region", { name: "Agent conversation history" }).evaluate((node) => { node.scrollTop = node.scrollHeight; });
+        const lastSuggestion = (await page.getByTestId("agent-chat-suggestions").getByRole("button").last().boundingBox())!;
+        const composerTop = (await page.getByRole("textbox", { name: "Message One" }).boundingBox())!.y;
+        expect(lastSuggestion.y + lastSuggestion.height).toBeLessThanOrEqual(composerTop + 1);
+        await page.screenshot({ path: testInfo.outputPath("chat-welcome-200-percent.png"), animations: "disabled" });
+        await page.setViewportSize({ width: 393, height: 844 });
+      }
+    }
     const composer = page.getByRole("textbox", { name: "Message One" });
     await composer.fill("First question 👋");
     await page.getByRole("button", { name: "Send message", exact: true }).click();
