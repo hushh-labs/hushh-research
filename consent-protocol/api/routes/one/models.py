@@ -69,7 +69,8 @@ async def read_private_text_approval(
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await private_approval.get_private_text_approval(user_id=user_id)
+        approval: dict[str, Any] = await private_approval.get_private_text_approval(user_id=user_id)
+        return approval
     except private_approval.PrivateTextApprovalError as exc:
         raise HTTPException(
             status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
@@ -84,7 +85,7 @@ async def write_private_text_approval(
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await private_approval.set_private_text_approval(
+        approval: dict[str, Any] = await private_approval.set_private_text_approval(
             user_id=user_id,
             enabled=payload.enabled,
             expected_generation=(
@@ -94,6 +95,7 @@ async def write_private_text_approval(
             ),
             disclosure_version=payload.disclosure_version,
         )
+        return approval
     except private_approval.PrivateTextApprovalError as exc:
         raise HTTPException(
             status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
