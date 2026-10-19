@@ -100,6 +100,36 @@ def _decision_fields(value: dict[str, Any]) -> dict[str, Any]:
     return {"ok": value["ok"], "classification": value["classification"]}
 
 
+def _attempt_receipts(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not 1 <= len(value) <= 2:
+        raise ValueError("Invalid probe attempts")
+    result = []
+    for attempt in value:
+        if not isinstance(attempt, dict):
+            raise ValueError("Invalid probe attempt")
+        elapsed = attempt.get("elapsed_ms")
+        if type(elapsed) is not int or not 0 <= elapsed <= 420000:
+            raise ValueError("Invalid probe duration")
+        clean = {**_decision_fields(attempt), "elapsed_ms": elapsed}
+        if "dispatched" in attempt:
+            if type(attempt["dispatched"]) is not bool:
+                raise ValueError("Invalid dispatch flag")
+            clean["dispatched"] = attempt["dispatched"]
+        if "resource_exhausted" in attempt:
+            if type(attempt["resource_exhausted"]) is not bool:
+                raise ValueError("Invalid attempt exhaustion flag")
+            clean["resource_exhausted"] = attempt["resource_exhausted"]
+        if "error_type" in attempt:
+            error_type = attempt["error_type"]
+            clean["error_type"] = (
+                error_type
+                if isinstance(error_type, str) and error_type in ERROR_TYPES
+                else "OtherError"
+            )
+        result.append(clean)
+    return result
+
+
 def summarize_receipt(raw: str) -> dict[str, Any]:
     receipts = []
     for entry in _entries(raw):
@@ -151,6 +181,8 @@ def summarize_receipt(raw: str) -> dict[str, Any]:
             raise ValueError("Invalid probe name")
         seen.add(name)
         clean = {"probe": name, **_decision_fields(probe)}
+        if "attempts" in probe:
+            clean["attempts"] = _attempt_receipts(probe["attempts"])
         if "resource_exhausted" in probe:
             if type(probe["resource_exhausted"]) is not bool:
                 raise ValueError("Invalid resource exhaustion flag")
