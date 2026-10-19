@@ -316,31 +316,55 @@ test("system Back closes message search before returning from a People thread", 
   expect(await systemBack()).toBe(false);
 });
 
-test("New chat creates a first private conversation and sends two distinct emoji selections", async ({ page }) => {
-  await page.setViewportSize({ width: 393, height: 844 });
-  await mount(page, false, false, true);
-  await page.evaluate(() => (window as any).directChatAuthFixture.useNativeSession());
-  await page.getByRole("button", { name: "New chat", exact: true }).first().click();
-  const picker = page.getByRole("dialog", { name: "New chat" });
-  await expect(picker).toHaveAttribute("aria-modal", "true");
-  await picker.getByRole("searchbox", { name: "Search connections" }).fill("Leah");
-  await picker.getByRole("button", { name: "Message Leah Roy" }).click();
-  await expect(picker).toHaveCount(0);
-  const composer = page.getByRole("textbox", { name: "Message Leah Roy" });
-  await expect(composer).toBeEnabled();
-  await expect(page.getByRole("heading", { name: "Leah Roy", exact: true })).toBeVisible();
-  await expect(page.getByText("Start the conversation with Leah Roy.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Conversation", exact: true })).toHaveCount(0);
-  await page.screenshot({ path: test.info().outputPath("connected-person-new-chat.png"), animations: "disabled" });
-  for (const emoji of ["😀", "🐱"]) {
-    await page.getByRole("button", { name: "Choose emoji", exact: true }).click();
-    await page.getByPlaceholder("Search emoji").fill(emoji);
-    await page.getByRole("button", { name: `Use ${emoji}`, exact: true }).first().click();
-  }
-  await expect(composer).toHaveValue("😀🐱");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
-  await expect(transcript(page).getByText("😀🐱", { exact: true })).toBeVisible();
-  await expect(composer).toBeEmpty();
+test.describe("touch emoji sending", () => {
+  test.use({ hasTouch: true, isMobile: true });
+  test("New chat sends the first recent and grid emojis as separate messages", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("hushh.direct-messages.recent-emojis", JSON.stringify(["😊", "👋", "😀"])));
+    await page.setViewportSize({ width: 393, height: 844 });
+    await mount(page, false, false, true);
+    await page.evaluate(() => (window as any).directChatAuthFixture.useNativeSession());
+    await page.getByRole("button", { name: "New chat", exact: true }).first().click();
+    const picker = page.getByRole("dialog", { name: "New chat" });
+    await expect(picker).toHaveAttribute("aria-modal", "true");
+    await picker.getByRole("searchbox", { name: "Search connections" }).fill("Leah");
+    await picker.getByRole("button", { name: "Message Leah Roy" }).click();
+    await expect(picker).toHaveCount(0);
+    const composer = page.getByRole("textbox", { name: "Message Leah Roy" });
+    await expect(composer).toBeEnabled();
+    await expect(page.getByRole("heading", { name: "Leah Roy", exact: true })).toBeVisible();
+    await expect(page.getByText("Start the conversation with Leah Roy.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Conversation", exact: true })).toHaveCount(0);
+    await page.screenshot({ path: test.info().outputPath("connected-person-new-chat.png"), animations: "disabled" });
+    const selections = [
+      { emoji: "😊", source: "recent" }, { emoji: "😊", source: "recent" },
+      { emoji: "😀", source: "grid" }, { emoji: "🐱", source: "search" },
+    ];
+    for (const [index, { emoji, source }] of selections.entries()) {
+      await page.getByRole("button", { name: "Choose emoji", exact: true }).tap();
+      if (source === "search") await page.getByPlaceholder("Search emoji").fill("cat");
+      const choices = page.getByRole("button", { name: `Use ${emoji}`, exact: true });
+      if (source === "recent") {
+        const firstRecent = page.getByRole("region", { name: "Recently used emoji" }).getByRole("button").first();
+        await expect(firstRecent).toHaveAccessibleName(`Use ${emoji}`);
+        await firstRecent.tap();
+      } else await choices.last().tap();
+      await expect(composer).toHaveValue(emoji);
+      await expect(page.getByLabel("Emoji picker", { exact: true })).toHaveCount(0);
+      await expect(composer).toBeFocused();
+      await page.getByRole("button", { name: "Send message", exact: true }).tap();
+      await expect(transcript(page).getByText(emoji, { exact: true }).last()).toBeVisible();
+      await expect(composer).toBeEmpty();
+      const sends = await page.evaluate(() => (window as any).directChatFixture.sends);
+      expect(sends).toHaveLength(index + 1);
+      expect(sends[index].content).toBe(emoji);
+    }
+    const trigger = page.getByRole("button", { name: "Choose emoji", exact: true });
+    await trigger.tap();
+    await page.keyboard.press("Escape");
+    await expect(page.getByLabel("Emoji picker", { exact: true })).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await expect(composer).toBeEmpty();
+  });
 });
 
 test("a selected connected person opens their existing thread instead of an empty draft", async ({ page }) => {

@@ -2076,6 +2076,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       }}
                     />
                     <DirectMessageEmojiPicker
+                      restoreTriggerFocusOnSelect={false}
                       disabled={sending || recordingVoice || !canCompose || Boolean(unconfirmedDraft)}
                       onEmojiSelect={(emoji) => {
                         const input = composerRef.current;

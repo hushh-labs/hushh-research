@@ -115,6 +115,7 @@ type DirectMessageEmojiPickerProps = {
   triggerClassName?: string;
   compact?: boolean;
   dismissSignal?: number;
+  restoreTriggerFocusOnSelect?: boolean;
   triggerIcon?: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -127,14 +128,17 @@ export function DirectMessageEmojiPicker({
   triggerClassName,
   compact = false,
   dismissSignal,
+  restoreTriggerFocusOnSelect = true,
   triggerIcon,
   open: controlledOpen,
   onOpenChange,
 }: DirectMessageEmojiPickerProps) {
   const searchId = useId();
+  const selectedEmoji = useRef(false);
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = useCallback((next: boolean) => {
+    if (next) selectedEmoji.current = false;
     setInternalOpen(next);
     onOpenChange?.(next);
   }, [onOpenChange]);
@@ -189,6 +193,7 @@ export function DirectMessageEmojiPicker({
     } catch {
       // The message composer remains fully usable when browser storage is unavailable.
     }
+    selectedEmoji.current = true;
     onEmojiSelect(emoji);
     setOpen(false);
     setQuery("");
@@ -215,6 +220,14 @@ export function DirectMessageEmojiPicker({
         collisionPadding={8}
         className={styles.content}
         aria-label="Emoji picker"
+        onCloseAutoFocus={(event) => {
+          // The composer owns focus after insertion. Returning it to the
+          // trigger races that handoff and moves the iOS keyboard again.
+          if (selectedEmoji.current && !restoreTriggerFocusOnSelect) {
+            event.preventDefault();
+          }
+          selectedEmoji.current = false;
+        }}
       >
         <label className="sr-only" htmlFor={searchId}>
           Search emoji categories
