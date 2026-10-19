@@ -42,6 +42,8 @@ import { useNativeVaultMethods } from "./use-native-vault-methods";
 import { NativeVaultPasswordEditor } from "./native-vault-password-editor";
 import { NativeRequestPricingEditor, projectNativeRequestPricing } from "./native-request-pricing";
 import { useNativePayouts } from "./use-native-payouts";
+import { useNativeReferrals } from "./use-native-referrals";
+import { ReferralsPanelView } from "./referrals-panel";
 import { useNativeConnectors } from "./use-native-connectors";
 import { useNativeMemory } from "./use-native-memory";
 import { NativeMemoryEditor } from "./native-memory-editor";
@@ -1045,6 +1047,9 @@ function ProfilePageContent({
   const nativePayoutActive = presentation === "native-page" && nativeMenuOpen && nativePayoutAvailable &&
     activePanel === "payouts" && !activeDetail && vaultAccess.canMutateSecureData;
   const nativePayout = useNativePayouts(nativePayoutActive);
+  const nativeReferralActive = presentation === "native-page" && nativeMenuOpen &&
+    activePanel === "referrals" && isVaultUnlocked;
+  const nativeReferrals = useNativeReferrals(presentation === "native-page" && nativeMenuOpen && activePanel === "referrals", user?.uid ?? null);
   useBackLayer(pathname, nativePayoutActive && nativePayout.nested ? 3 : 0, nativePayout.back,
     isPanePresentation ? { profile_pane: "1" } : undefined);
   const [nativePricingEditorOpen, setNativePricingEditorOpen] = useState(false);
@@ -4594,7 +4599,7 @@ function ProfilePageContent({
       key: "panel:referrals",
       title: PROFILE_LABELS.referrals,
       description: "Your link and referrals.",
-      content: <ReferralsPanel panePresentation={isPanePresentation} />,
+      content: presentation === "native-page" ? <ReferralsPanelView panePresentation model={nativeReferrals.model} /> : <ReferralsPanel panePresentation={isPanePresentation} />,
     });
   } else if (!routeBlockedByVault && activePanel === "support") {
     profileStackEntries.push({
@@ -5028,6 +5033,8 @@ function ProfilePageContent({
     ] }],
   } : undefined;
   return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable} onMemoryCapability={setNativeMemoryAvailable} onSharedMemoryCapability={setNativeSharedMemoryAvailable} onSecretMemoryCapability={setNativeSecretsAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable} onRuntimeCapability={setNativeRuntimeAvailable} onConnectorsCapability={setNativeConnectorsAvailable}
+    referrals={{ active: nativeReferralActive, pages: nativeReferrals.pages, rows: nativeReferrals.rows, editor: nativeReferrals.editor,
+      root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
     workspace={activePanel === "connectors" ? { kind: "connectors", active: nativeConnectorsActive && !showVaultUnlock,
       visitKey: activeDetail ?? "catalog", pages: nativeConnectors.pages, rows: nativeConnectors.rows, editor: nativeConnectors.editor, ancestor: nativeConnectors.ancestor,
       back: () => { if (nativeConnectors.navigationBlocked()) return false; if (!nativeConnectors.back()) popProfileStack(); return true; },

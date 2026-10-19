@@ -16,6 +16,27 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Invite friends native Profile correction — 2026-10-19
+
+Invite friends now has an authored `referrals` page in the retained Profile
+navigation stack, separately negotiated through `profileReferralPages`. It is
+not the independent Referrals dashboard. The shared in-pane model owns both
+renderers: summary and independent reward reads, push subscription and its
+disconnected-only fallback, Copy/Share, progress expansion and handle saving.
+The native page preserves those sections, paired Copy/Share, determinate reward
+progress and the canonical generated row artwork. Handle editing reuses the
+bounded ordinary-text scene lifecycle, with a distinct `referral-handle` scene,
+destination fence and existing referral writer; it cannot invoke Account Save.
+
+The previous Invite check admitted React Copy/Share beneath native header
+controls and therefore did not establish native parity. It now requires native
+destination controls and rejects an interactive web duplicate. Typecheck,
+focused bridge/referral contracts, canonical artwork verification and an initial
+Release native compilation pass. Exact-candidate physical, accessibility,
+performance and release evidence must be recorded separately. Whole-composition
+privacy preparation remains unfinished; this correction does not enable native
+defaults or establish merge, UAT or TestFlight completion.
+
 ### Integrated preservation repair — 2026-10-19
 
 The ADK worktree includes main `cfcdb3618f`, including the team's bounded
@@ -474,7 +495,7 @@ not integrated Connector presentation or physical-device qualification.
 | Security & privacy | Native Security, Session and Vault methods/details/password; system authentication remains with existing owners |
 | Trusted devices | Native list/details/unlink confirmation; existing session authority |
 | Connectors | Catalog/filter, provider details, Drive/preparation/files/packets/trust and custom setup/tools/removal now map through retained shared owners; three closed private editor variants. Qualification-only iPhone admission; exact-candidate device/visual/performance acceptance separate |
-| Invite friends | Route-bound native candidate maps You/Ranking/Rewards, Share, rules, Circle choice/creation/people and server-authoritative claims; iPhone qualification capability only. Installed three-tab/rules/Back journey passes |
+| Invite friends | Profile-contained native candidate shares the existing in-pane model and ordinary-text editor family; `profileReferralPages` is required. The independent dashboard retains React. Historical route-workspace prototype evidence does not qualify this page. |
 | Help & feedback | Native form, message types, draft and delivery outcomes |
 | Privacy | Native authored-document reader and links |
 | Terms | Native authored-document reader and links |

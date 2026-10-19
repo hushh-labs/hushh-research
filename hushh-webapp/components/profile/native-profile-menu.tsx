@@ -86,7 +86,7 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
 /** Two-way presentation handoff. The outgoing surface stays painted until the
  * incoming owner acknowledges admission. Query changes never dismiss Profile
  * onto the underlying route while a bridge command is still in flight. */
-export function NativeProfilePresentation({ lifetime, detail, menu, page, children, detailOverlay, account, settings, support, legal, phone, workspace, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability, onSharedMemoryCapability, onSecretMemoryCapability, onFinanceCapability, onWorldModelCapability, onRuntimeCapability, onConnectorsCapability }: {
+export function NativeProfilePresentation({ lifetime, detail, menu, page, children, detailOverlay, account, settings, support, legal, phone, referrals, workspace, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability, onSharedMemoryCapability, onSecretMemoryCapability, onFinanceCapability, onWorldModelCapability, onRuntimeCapability, onConnectorsCapability }: {
   lifetime: string;
   detail: boolean;
   menu: Omit<ComponentProps<typeof NativeProfileMenu>, "onPresented" | "onHidden" | "fallbackOwned">;
@@ -116,11 +116,15 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   support?: { active: boolean; editor: (destinationId: string, onFallback: () => void) => ReactNode };
   phone?: { active: boolean; editor: (options: { native: boolean; destinationId?: string; onFallback: () => void }) => ReactNode };
   legal?: { active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void };
+  referrals?: { active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"];
+    root: () => void; editor: (destinationId: string, onFallback: () => void) => ReactNode };
 }) {
   const [stackSupported, setStackSupported] = useState<boolean | null>(null);
   const [settingsSupported, setSettingsSupported] = useState(false);
   const [supportSupported, setSupportSupported] = useState(false);
   const [legalSupported, setLegalSupported] = useState(false);
+  const [referralsSupported, setReferralsSupported] = useState(false);
+  const [referralsFailedOwner, setReferralsFailedOwner] = useState<string | null>(null);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [accountActionsSupported, setAccountActionsSupported] = useState(false);
   const [devicesSupported, setDevicesSupported] = useState(false);
@@ -156,6 +160,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         setSupportSupported(stack && capability.profileSupportScene === true && hasNativeProfileScene(nativeDrawers, "support"));
         setPhoneSupported(stack && capability.profilePhoneScene === true && hasNativeProfileScene(nativeDrawers, "phone"));
         setLegalSupported(stack && capability.profileLegalReader === true);
+        setReferralsSupported(stack && capability.profileReferralPages === true && typeof nativeDrawers.copyProfileReferralLink === "function");
         const voice = stack && capability.profileSettingsPages === true && capability.profileVoiceSettings === true;
         setVoiceSupported(voice); onVoiceCapability?.(voice);
         const devices = stack && capability.profileSettingsPages === true && capability.profileTrustedDevices === true;
@@ -189,9 +194,10 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const nativeSettings = settingsSupported && settings?.active === true && (!settings.requiresVoice || voiceSupported) && (!settings.requiresFinance || financeSupported) && (!settings.requiresDevices || devicesSupported) && (!settings.requiresVault || vaultSupported) && (!settings.requiresRuntime || runtimeSupported);
   const nativeSupport = supportSupported && support?.active === true && supportFailedOwner !== lifetime;
   const nativeLegal = legalSupported && legal?.active === true;
+  const nativeReferrals = referralsSupported && referrals?.active === true && referralsFailedOwner !== lifetime;
   const nativeWorkspace = workspace?.active === true && (workspace.kind === "request-pricing" ? pricingSupported &&
     workspace.pages.length === 1 && workspace.pages[0]?.id === "request-pricing" : workspace.kind === "connectors" ? connectorsSupported && workspace.pages[0]?.id === "connectors" : workspace.kind === "payouts" ? payoutSupported && workspace.pages[0]?.id === "payouts" : workspace.kind === "world-model" ? worldModelSupported && workspace.pages[0]?.id === "world-model" : memorySupported && workspace.pages[0]?.id === "memory");
-  const nativePath: readonly NativeProfilePage[] = nativeAccount ? [account!.page, ...(account!.confirmation ? [account!.confirmation] : [])] : nativeSettings ? settings!.pages : nativeLegal ? legal!.pages : nativeWorkspace ? workspace!.pages : [];
+  const nativePath: readonly NativeProfilePage[] = nativeAccount ? [account!.page, ...(account!.confirmation ? [account!.confirmation] : [])] : nativeSettings ? settings!.pages : nativeLegal ? legal!.pages : nativeReferrals ? referrals!.pages : nativeWorkspace ? workspace!.pages : [];
   const destinationKey = nativeSupport ? JSON.stringify([menu.surfaceOpen, "support"]) :
     nativePath.length ? JSON.stringify([menu.surfaceOpen, nativePath.map(item => item.id), nativePhone ? "phone" : null, nativeWorkspace ? workspace?.visitKey : null]) : "";
   // A new destination visit gets a new token, including A → B → A. Compatible
@@ -199,7 +205,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const destinationId = useMemo(() => destinationKey && lifetime ? crypto.randomUUID() : undefined, [lifetime, destinationKey]);
   const parentAdmitted = presentedDestination?.id === destinationId && presentedDestination?.privacy === privacy?.generation &&
     privacy?.shielded === false && privacy.appIsActive;
-  const webDetail = detail && !nativeAccount && !nativeSettings && !nativeSupport && !nativeLegal && !nativeWorkspace;
+  const webDetail = detail && !nativeAccount && !nativeSettings && !nativeSupport && !nativeLegal && !nativeReferrals && !nativeWorkspace;
   const [prepared, setPrepared] = useState<string | null>(null);
   const [restored, setRestored] = useState<string | null>(null);
   // Retain the committed display, not its operation authority. On Back the
@@ -247,7 +253,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
     <NativeProfileMenu {...menu} open={menuPainted} fallbackOwned={active && webDetail}
       stack={stackSupported && account ? { pages: nativePath, destinationId: nativeSupport ? undefined : destinationId,
         supportDestinationId: nativeSupport ? destinationId : undefined,
-        rows: new Map([...account.rows, ...(nativeSettings ? settings!.rows : []), ...(nativeLegal ? legal!.rows : []), ...(nativeWorkspace ? workspace!.rows : [])]), back: nativeAccount && account.back ? account.back : nativeSettings && settings?.back ? settings.back : nativeWorkspace && workspace?.back ? workspace.back : page.onBack,
+        rows: new Map([...account.rows, ...(nativeSettings ? settings!.rows : []), ...(nativeLegal ? legal!.rows : []), ...(nativeReferrals ? referrals!.rows : []), ...(nativeWorkspace ? workspace!.rows : [])]), back: nativeAccount && account.back ? account.back : nativeSettings && settings?.back ? settings.back : nativeWorkspace && workspace?.back ? workspace.back : page.onBack,
         ...(nativeSettings && settings?.ancestor ? { ancestor: settings.ancestor } : nativeWorkspace && workspace?.ancestor ? { ancestor: workspace.ancestor } : {}),
         ...(nativeAccount && account.confirmation ? { root: account.root ?? account.back ?? page.onBack } : nativeSettings ? { root: settings!.root } : nativeLegal ? { root: legal!.root } : nativeWorkspace ? { root: workspace!.root } : {}) } : undefined}
       onHidden={privacyGeneration => {
@@ -271,6 +277,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
     {(!nativeAccount || parentAdmitted) && account?.editor(destinationId)}
     {nativeSettings && parentAdmitted && settings?.editor?.(destinationId)}
     {nativeWorkspace && destinationId && parentAdmitted && workspace?.editor?.(destinationId)}
+    {nativeReferrals && destinationId && parentAdmitted && referrals?.editor(destinationId, () => setReferralsFailedOwner(lifetime))}
     {nativeSupport && destinationId && parentAdmitted && support?.editor(destinationId, () => setSupportFailedOwner(lifetime))}
     {phone?.active && phone.editor({ native: nativePhone, destinationId: nativePhone && parentAdmitted ? destinationId : undefined,
       onFallback: () => setPhoneFailedVisit(lifetime) })}

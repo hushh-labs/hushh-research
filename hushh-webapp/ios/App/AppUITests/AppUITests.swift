@@ -5193,11 +5193,18 @@ final class AppUITests: XCTestCase {
                 continue
             }
             if id == "invite" {
-                // Invite friends is a nested Profile pane, not a route-bound
-                // dashboard. Keep its authored content and the same pane Back.
-                guard waitForAdmittedControl(web.buttons["Copy"].firstMatch),
-                      waitForAdmittedControl(web.buttons["Share"].firstMatch) else {
+                // Require the actual native destination. React Copy/Share
+                // previously let this test pass the wrong renderer.
+                let copy = app.buttons["native-profile-row-referral-copy"].firstMatch
+                let share = app.buttons["native-profile-row-referral-share"].firstMatch
+                guard waitForAdmittedControl(copy), waitForAdmittedControl(share) else {
                     XCTFail("PROFILE_INVITE_PANE_CONTENT_UNAVAILABLE"); return
+                }
+                XCTAssertFalse(web.buttons["Copy"].firstMatch.isHittable, "PROFILE_INVITE_WEB_DUPLICATE")
+                copy.tap()
+                let copied = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in copy.exists && copy.label == "Copied" }, object: app)
+                guard XCTWaiter.wait(for: [copied], timeout: 8) == .completed else {
+                    XCTFail("PROFILE_INVITE_NATIVE_COPY_NOT_ACKNOWLEDGED"); return
                 }
                 XCTAssertFalse(app.otherElements["native-route-workspace"].firstMatch.exists,
                                "PROFILE_INVITE_ESCAPED_TO_WORKSPACE")
@@ -5220,13 +5227,12 @@ final class AppUITests: XCTestCase {
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
                 back.tap()
                 let parent = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    close.exists && close.isHittable && destination.exists && destination.isHittable &&
-                        !web.buttons["Copy"].firstMatch.isHittable
+                    close.exists && close.isHittable && destination.exists && destination.isHittable && !copy.isHittable
                 }, object: app)
                 guard XCTWaiter.wait(for: [parent], timeout: 15) == .completed else {
                     XCTFail("PROFILE_INVITE_PANE_PARENT_NOT_RESTORED"); return
                 }
-                print("PROFILE_RETAINED_DESTINATION family=invite pane=true plane_full_height=true returned=true warm=true single_host=true")
+                print("PROFILE_NATIVE_DESTINATION family=invite pane=true returned=true warm=true single_host=true")
                 continue
             }
                 guard admittedBack() else { printCoherentPresentationAdmission(app); XCTFail("PROFILE_BATCH_BACK_UNAVAILABLE"); return }

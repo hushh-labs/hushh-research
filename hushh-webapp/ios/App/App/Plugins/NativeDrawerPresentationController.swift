@@ -1083,11 +1083,26 @@ struct NativeDrawerContent: View {
                                     .accessibilityIdentifier("native-profile-group-\(section.id)")
                             }
                             VStack(spacing: 0) {
+                                if section.id == "referral-link", let link = section.rows.first {
+                                    profileRow(link)
+                                    HStack(spacing: 12) {
+                                        ForEach(section.rows.filter { ["referral-copy", "referral-share"].contains($0.id) }) { row in
+                                            Button { model.choice("row", row: row.id) } label: {
+                                                Label(row.label, systemImage: row.id == "referral-copy" ? "doc.on.doc" : "square.and.arrow.up")
+                                                    .frame(maxWidth: .infinity, minHeight: 44)
+                                            }.buttonStyle(.bordered)
+                                                .disabled(!row.enabled || !model.controlsEnabled || model.choicePending)
+                                                .accessibilityIdentifier("native-profile-row-\(row.id)")
+                                        }
+                                    }.padding(.horizontal, 16).padding(.bottom, 12)
+                                    ForEach(section.rows.filter { $0.id == "referral-copy-error" }) { row in profileRow(row) }
+                                } else {
                                 ForEach(Array(section.rows.enumerated()), id: \.element.id) { index, row in
                                     profileRow(row)
                                     if index < section.rows.count - 1 {
                                         Divider().padding(.leading, NativeProfileArtwork.resolve(row.artworkId ?? row.id) != nil || row.symbol != nil ? 60 : 16).padding(.trailing, 16)
                                     }
+                                }
                                 }
                             }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
                         }
@@ -1230,6 +1245,11 @@ struct NativeSettingsRowLabel: View {
                     if let detail = row.detail {
                         Text(detail).font(.subheadline).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let progress = row.progress {
+                        ProgressView(value: progress.value, total: progress.total)
+                            .accessibilityLabel(row.label)
+                            .accessibilityValue("\(progress.value.formatted()) of \(progress.total.formatted())")
                     }
                 }
                 Spacer(minLength: 8)

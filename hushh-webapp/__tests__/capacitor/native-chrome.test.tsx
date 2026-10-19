@@ -560,6 +560,14 @@ describe("ordinary private Profile form contract", () => {
     const state = publicNameScene();
     expect(validNativeProfileNameProjection(state)).toBe(true);
     expect(validNativeProfileNameProjection({ ...state, vaultKey: "synthetic-forbidden" } as NativeProfileNameProjection)).toBe(false);
+    const handle: NativeProfileNameProjection = { ...state, scene: "referral-handle", draft: "public-handle", destinationId: "referral-visit" };
+    expect(validNativeProfileNameProjection(handle)).toBe(true);
+    expect(validNativeProfileNameProjection({ ...handle, draft: "x".repeat(33) })).toBe(false);
+    const handleFence = new NativeProfileNameFence(handle);
+    expect(handleFence.update(handle)).toBe(true);
+    expect(handleFence.update({ ...handle, scene: "account-name", updateSequence: 2 })).toBe(false);
+    expect(handleFence.consumeEdit({ ...handle, updateSequence: 1, editRevision: 1, text: "other-handle", composing: false,
+      destinationId: "old-referral-visit" })).toBe(false);
     const fence = new NativeProfileNameFence(state);
     expect(fence.update(state)).toBe(true);
     const event = { ...fenceIdentity(state), updateSequence: 1, privacyGeneration: 0,
@@ -662,6 +670,7 @@ const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "document-a", ca
 const dockBridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: unknown) => void>(),
   subscribe: vi.fn(), getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn(), snapshotDraft: vi.fn() }));
 const drawerBridge = vi.hoisted(() => ({ listeners: new Map<string, Set<(event: unknown) => void>>(),
+  copyProfileReferralLink: vi.fn().mockResolvedValue({ copied: true }),
   applyWorkspace: vi.fn(), retireWorkspace: vi.fn(), confirmWorkspaceChoice: vi.fn(), settleWorkspaceChoice: vi.fn(), getWorkspaceState: vi.fn(),
   getCapabilities: vi.fn(), getPresentationState: vi.fn(), apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(),
   applyProfileNameScene: vi.fn(), confirmProfileNameAction: vi.fn(), settleProfileNameAction: vi.fn(), retireProfileNameScene: vi.fn(),
@@ -3786,7 +3795,7 @@ describe("native chrome presentation lease", () => {
     const groups = profileMenuGroups(false);
     const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
     drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
-      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileVoiceSettings: true, profileTrustedDevices: true, profileAccountActions: true, profileLegalReader: true, profileStyleScene: true, profileNameScene: true, profileSupportScene: true, profilePhoneScene: true, presentationCompletion: true,
+      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileVoiceSettings: true, profileTrustedDevices: true, profileAccountActions: true, profileLegalReader: true, profileStyleScene: true, profileNameScene: true, profileReferralPages: true, profileSupportScene: true, profilePhoneScene: true, presentationCompletion: true,
       generation: 0, isolated: false });
     drawerBridge.getPresentationState.mockImplementation(async () => ({ ...drawerBridge.apply.mock.calls.at(-1)![0],
       valid: true, settled: true, phase: "active" }));
@@ -3795,7 +3804,7 @@ describe("native chrome presentation lease", () => {
     drawerBridge.retire.mockImplementation(async identity => ({ ...identity, phase: "retired",
       updateSequence: drawerBridge.apply.mock.calls.at(-1)?.[0].updateSequence ?? 0, privacyGeneration: 0 }));
     const confirmAccount = vi.fn(), cancelAccount = vi.fn(), confirmDevice = vi.fn();
-    const scene = (account: boolean, settings?: "preferences" | "voice" | "security" | "session" | "devices" | "device-unlink", support = false, legal?: "privacy" | "terms", confirmation?: "account-reset" | "account-delete", phone = false) => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support || !!legal}
+    const scene = (account: boolean, settings?: "preferences" | "voice" | "security" | "session" | "devices" | "device-unlink", support = false, legal?: "privacy" | "terms", confirmation?: "account-reset" | "account-delete", phone = false, referrals = false) => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support || !!legal || referrals}
       menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
       page={{ pane: true, title: "Your account", owner: "owner-a", context: account ? "account" : "root", onBack: vi.fn() }}
       settings={{ active: !!settings, requiresVoice: settings === "voice", requiresDevices: settings === "devices" || settings === "device-unlink", pages: settings === "devices" || settings === "device-unlink" ? [
@@ -3817,6 +3826,10 @@ describe("native chrome presentation lease", () => {
       support={{ active: support, editor: destination => <p data-testid="public-support-sheet">{destination}</p> }}
       phone={{ active: phone, editor: options => options.native && options.destinationId ? <p data-testid="public-phone-sheet">{options.destinationId}</p> : null }}
       legal={{ active: !!legal, ...projectNativeProfileLegal(legal ?? null, vi.fn(), vi.fn()), root: vi.fn() }}
+      referrals={{ active: referrals, pages: [{ id: "referrals", title: "Invite friends", sections: [{ id: "referrals-synthetic", rows: [
+        { id: "referral-copy", label: "Copy", enabled: true },
+        { id: "referral-progress", label: "Next reward", enabled: true, readOnly: true, progress: { value: 2, total: 5 } },
+      ] }] }], rows: new Map([["referral-copy", vi.fn()]]), root: vi.fn(), editor: () => null }}
       account={{ active: account, page: { id: "account", title: "Your account", sections: [{ id: "account-portrait", rows: [
         { id: "account-photo", label: "Public sample", detail: "sample@example.test", enabled: true, portrait: true },
       ] }, { id: "account-info", rows: [
@@ -3832,6 +3845,15 @@ describe("native chrome presentation lease", () => {
     try {
       await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack).toEqual([]));
       const identity = drawerBridge.apply.mock.calls.at(-1)![0];
+      view.rerender(scene(false, undefined, false, undefined, undefined, false, true));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.[0]?.id).toBe("referrals"));
+      const invite = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(invite.revision).toBe(identity.revision);
+      expect(validNativeDrawerProjection(invite)).toBe(true);
+      expect(validNativeDrawerProjection({ ...invite, profileStack: [{ ...invite.profileStack![0], sections: [{ id: "invalid-progress", rows: [
+        { id: "invalid-row", label: "Invalid", enabled: true, readOnly: true, progress: { value: 6, total: 5 } },
+      ] }] }] })).toBe(false);
+      expect(screen.queryByText("React account exception")).not.toBeInTheDocument();
       view.rerender(scene(true));
       await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.[0]?.id).toBe("account"));
       const firstVisit = drawerBridge.apply.mock.calls.at(-1)![0];

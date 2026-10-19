@@ -303,11 +303,11 @@ final class NativeSupportTests: XCTestCase {
     }
 
     private func publicNameScene(update: Int = 1, ack: Int = 0, draft: String = "Public Example",
-                                 appearance: String = "light") -> NativeProfileNameProjection {
+                                 appearance: String = "light", scene: String = "account-name", destination: String? = nil) -> NativeProfileNameProjection {
         NativeProfileNameProjection(documentId: "public-name-document", ownerEpoch: "public-name-owner", ownerGeneration: 1,
-            revision: 1, family: "profile", scene: "account-name", updateSequence: update, privacyGeneration: 0,
+            revision: 1, family: "profile", scene: scene, updateSequence: update, privacyGeneration: 0,
             draftRevision: update, acknowledgedEditRevision: ack, draft: draft, canSave: true, busy: false,
-            error: "Public validation sample", appearance: appearance, accentHex: "#007aff", foregroundHex: "#808080")
+            error: "Public validation sample", appearance: appearance, accentHex: "#007aff", foregroundHex: "#808080", destinationId: destination)
     }
     @MainActor
     func testNativeVaultPasswordWaitsForTheFinalPairAndScrubsBeforeRetirement() {
@@ -478,6 +478,12 @@ final class NativeSupportTests: XCTestCase {
 
     @MainActor
     func testOrdinaryNameSceneRequiresAnAcknowledgedEditAndOneConfirmedSave() throws {
+        let handle = publicNameScene(draft: "public-handle", scene: "referral-handle", destination: "public-referral-visit")
+        XCTAssertTrue(handle.valid)
+        XCTAssertFalse(publicNameScene(scene: "referral-handle").valid)
+        XCTAssertFalse(publicNameScene(draft: String(repeating: "x", count: 33), scene: "referral-handle", destination: "public-referral-visit").valid)
+        let handleModel = NativeProfileNameModel(handle)
+        XCTAssertFalse(handleModel.update(publicNameScene(update: 2, destination: "public-referral-visit")), "A handle scene cannot become an Account writer")
         let model = NativeProfileNameModel(publicNameScene())
         let field = UITextField()
         model.editor = field
@@ -767,6 +773,22 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(presentation.allows(action: "row", row: "not-authored"))
         XCTAssertFalse(try projected(["iconHex": "https://example.test"]).valid)
         XCTAssertFalse(try projected(["trailing": String(repeating: "x", count: 33)]).valid)
+    }
+
+    func testConfirmedReferralCopyIsOneShotAndCannotBorrowAnotherRowOrPrivacyGeneration() throws {
+        let row = NativeDrawerRow(id: "referral-copy", label: "Copy", detail: nil, symbol: nil, enabled: true,
+            destructive: nil, selected: nil, pending: nil)
+        let state = privateDrawerState(sampleRow: row)
+        var lease = NativeDrawerLease()
+        XCTAssertTrue(lease.apply(state))
+        let sequence = try XCTUnwrap(lease.emit(action: "row", row: row.id, state: state))
+        XCTAssertFalse(lease.consumeConfirmedRowEffect(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1, row: row.id))
+        XCTAssertTrue(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1, action: "row", row: row.id, allowed: true))
+        XCTAssertFalse(lease.consumeConfirmedRowEffect(identity: state.identity, update: 1, privacy: 1, sequence: sequence, interaction: 1, row: row.id))
+        XCTAssertFalse(lease.consumeConfirmedRowEffect(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1, row: "another-row"))
+        XCTAssertTrue(lease.consumeConfirmedRowEffect(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1, row: row.id))
+        XCTAssertFalse(lease.consumeConfirmedRowEffect(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1, row: row.id))
+        XCTAssertTrue(lease.settle(identity: state.identity, privacy: 0, sequence: sequence, success: true))
     }
 
     func testPrivateNativeDrawerRejectsStaleOwnersAndConsumesOnlyEmittedChoices() {

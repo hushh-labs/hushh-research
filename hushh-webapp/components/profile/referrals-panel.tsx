@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import { ShareNetworkIcon as Share2 } from "@/components/icons";
 import {
   InviteFriendsProfileIcon,
@@ -33,6 +34,7 @@ import {
   type ReferralSummary,
 } from "@/lib/services/referral-service";
 import { cn } from "@/lib/utils";
+import { isShareCancellationError, shareLink } from "@/lib/share/share-link";
 
 type GamificationState = {
   balance: { points: number; coins: number } | null;
@@ -45,6 +47,8 @@ type GamificationState = {
 };
 
 type LoadState = "loading" | "ready" | "error";
+const emptyGamification = (): GamificationState => ({ leaderboard: null, circleLeaderboard: null,
+  milestones: null, engagement: null, circleSelection: null, handle: null, balance: null });
 
 /**
  * The Referrals tab.
@@ -58,27 +62,18 @@ export function ReferralsPanel({ panePresentation = false }: { panePresentation?
   return <ReferralsPanelContent key={user?.uid ?? "signed-out"} panePresentation={panePresentation} />;
 }
 
-function ReferralsPanelContent({
-  panePresentation = false,
-}: {
-  panePresentation?: boolean;
-}) {
+export function useReferralsPanelModel(active = true) {
   const { user } = useAuth();
-  const icons = {
-    invite: InviteFriendsProfileIcon,
-    link: LinkRowIcon,
-    join: JoinRowIcon,
-    agent: UseAgentRowIcon,
-    qualified: QualifiedRowIcon,
-    success: SuccessRowIcon,
-    people: PeopleRowIcon,
-    progress: ProgressRowIcon,
-    review: ReviewRowIcon,
-    warning: WarningRowIcon,
-  };
+  const stateOwner = useRef(user?.uid);
+  const ownsState = stateOwner.current === user?.uid;
+  // One feature owner for both renderers. An old request cannot publish into
+  // a different account or a later visit, including after leaving Profile.
+  const visit = useMemo(() => ({ live: false }), [user?.uid, active]);
+  useLayoutEffect(() => { visit.live = active; return () => { visit.live = false; }; }, [visit, active]);
   const [state, setState] = useState<LoadState>("loading");
   const [showProgress, setShowProgress] = useState(false);
   const [summary, setSummary] = useState<ReferralSummary | null>(null);
+  const [copyOutcome, setCopyOutcome] = useState<{ link: string; copied: boolean } | null>(null);
 
   // Guards against a slow first request landing after a fast retry and
   // overwriting the newer answer with the older one.
@@ -93,20 +88,22 @@ function ReferralsPanelContent({
   }, []);
 
   const load = useCallback(async () => {
+    if (!visit.live) return;
     const seq = ++requestSeq.current;
     setState("loading");
     try {
       if (!user) throw new Error("not signed in");
       const idToken = await user.getIdToken();
+      if (!visit.live) return;
       const next = await ReferralService.getSummary({ idToken });
-      if (!mounted.current || seq !== requestSeq.current) return;
+      if (!mounted.current || !visit.live || seq !== requestSeq.current) return;
       setSummary(next);
       setState("ready");
     } catch {
-      if (!mounted.current || seq !== requestSeq.current) return;
+      if (!mounted.current || !visit.live || seq !== requestSeq.current) return;
       setState("error");
     }
-  }, [user]);
+  }, [user, visit]);
 
   useEffect(() => {
     void load();
@@ -115,22 +112,15 @@ function ReferralsPanelContent({
   // Gamification reads, loaded independently of the core summary above: a
   // leaderboard outage must never take down the referral link or the
   // qualified count, and vice versa.
-  const [gamification, setGamification] = useState<GamificationState>({
-    leaderboard: null,
-    circleLeaderboard: null,
-    milestones: null,
-    engagement: null,
-    circleSelection: null,
-    handle: null,
-    balance: null,
-  });
+  const [gamification, setGamification] = useState<GamificationState>(emptyGamification);
   const gamificationSeq = useRef(0);
 
   const loadGamification = useCallback(async () => {
     const seq = ++gamificationSeq.current;
-    if (!user) return;
+    if (!user || !visit.live) return;
     let idToken: string;
     try { idToken = await user.getIdToken(); } catch { return; }
+    if (!visit.live) return;
     const [leaderboard, circleLeaderboard, milestones, engagement, circleSelection, handle, balance] =
       await Promise.all([
         ReferralService.getLeaderboard({ idToken, limit: 10 }).catch(() => null),
@@ -145,9 +135,9 @@ function ReferralsPanelContent({
           .catch(() => null),
         ReferralService.getPoints({ idToken }).catch(() => null),
       ]);
-    if (!mounted.current || seq !== gamificationSeq.current) return;
+    if (!mounted.current || !visit.live || seq !== gamificationSeq.current) return;
     setGamification({ leaderboard, circleLeaderboard, milestones, engagement, circleSelection, handle, balance });
-  }, [user]);
+  }, [user, visit]);
 
   useEffect(() => {
     void loadGamification();
@@ -156,35 +146,50 @@ function ReferralsPanelContent({
   const [handleInput, setHandleInput] = useState("");
   const [handleSaving, setHandleSaving] = useState(false);
   const [handleErrorMessage, setHandleErrorMessage] = useState<string | null>(null);
+  const handlePending = useRef(false);
+  const handleRevision = useRef(0);
+  const handleDraft = useRef("");
+  const changeHandle = useCallback((value: string) => {
+    if (!visit.live || handlePending.current) return;
+    handleDraft.current = value; handleRevision.current += 1;
+    setHandleInput(value); setHandleErrorMessage(null);
+  }, [visit]);
 
   const onSaveHandle = useCallback(async () => {
-    if (!user || !handleInput.trim()) return;
+    if (!user || !visit.live || handlePending.current || !handleDraft.current.trim()) return false;
+    handlePending.current = true;
     setHandleSaving(true);
     setHandleErrorMessage(null);
     try {
       const idToken = await user.getIdToken();
-      const { handle } = await ReferralService.setHandle({ idToken, handle: handleInput.trim() });
-      if (!mounted.current) return;
+      if (!visit.live) return false;
+      const { handle } = await ReferralService.setHandle({ idToken, handle: handleDraft.current.trim() });
+      if (!mounted.current || !visit.live) return false;
       setGamification((prev) => ({ ...prev, handle }));
-      setHandleInput("");
+      handleDraft.current = ""; handleRevision.current += 1; setHandleInput("");
       morphyToast.success("Handle set");
+      return true;
     } catch (error) {
-      if (!mounted.current) return;
+      if (!mounted.current || !visit.live) return false;
       const code = apiErrorCode(error);
       setHandleErrorMessage(
         code === "REFERRAL_HANDLE_TAKEN"
           ? "That handle is already taken."
           : "Enter 3-24 letters, numbers, or hyphens."
       );
+      return false;
     } finally {
+      handlePending.current = false;
+      // This only releases the synchronous pending guard. Results and private
+      // content above still require the original live visit.
       if (mounted.current) setHandleSaving(false);
     }
-  }, [user, handleInput]);
+  }, [user, visit]);
 
   // Live push. While this is connected the numbers arrive as they change, and
   // the timer below stands down.
   const refreshAll = useCallback(() => { void load(); void loadGamification(); }, [load, loadGamification]);
-  const { connected } = useReferralStream(user, refreshAll);
+  const { connected } = useReferralStream(active ? user : null, refreshAll);
 
   /**
    * Fallback only, for when the stream is not up.
@@ -201,6 +206,7 @@ function ReferralsPanelContent({
    * that is quietly out of date is exactly what this whole change is about.
    */
   useEffect(() => {
+    if (!active) return;
     const refreshIfVisible = () => {
       if (document.visibilityState === "visible") refreshAll();
     };
@@ -216,36 +222,77 @@ function ReferralsPanelContent({
       document.removeEventListener("visibilitychange", refreshIfVisible);
       window.removeEventListener("focus", refreshIfVisible);
     };
-  }, [connected, refreshAll]);
+  }, [active, connected, refreshAll]);
 
   // Read out of state once. An optional chain inside a dependency array is
   // opaque to the React compiler, which then refuses to preserve the memo.
-  const link = summary?.link ?? "";
+  const link = ownsState ? summary?.link ?? "" : "";
 
-  const onCopy = useCallback(async () => {
-    if (!link) return;
+  const onCopy = useCallback(async (writer?: (link: string) => Promise<boolean>) => {
+    if (!visit.live || !link) return;
     try {
-      await navigator.clipboard.writeText(link);
+      if (writer) {
+        if (!await writer(link)) throw new Error("COPY_NOT_ACKNOWLEDGED");
+      } else await navigator.clipboard.writeText(link);
+      if (!visit.live) return;
+      setCopyOutcome({ link, copied: true });
       morphyToast.success("Link copied");
     } catch {
+      if (!visit.live) return;
+      setCopyOutcome({ link, copied: false });
       // A denied clipboard is a normal browser state, not a broken screen.
       morphyToast.error("Could not copy");
     }
-  }, [link]);
+  }, [link, visit]);
 
   const onShare = useCallback(async () => {
-    if (!link) return;
-    const share = navigator.share?.bind(navigator);
-    if (!share) {
-      void onCopy();
-      return;
-    }
+    if (!visit.live || !link) return;
     try {
-      await share({ text: "Join me on Hushh", url: link });
-    } catch {
-      // Cancelling the share sheet is a choice, not a failure. Say nothing.
+      if (!Capacitor.isNativePlatform()) {
+        // Web Share must remain in the original DOM activation; importing a
+        // native adapter first can consume Safari's user-activation window.
+        if (typeof navigator.share === "function") await navigator.share({ text: "Join me on Hushh", url: link });
+        else await onCopy();
+        return;
+      }
+      const delivery = await shareLink({ title: "Join me on Hushh", text: "Join me on Hushh",
+        dialogTitle: "Share invitation", url: link }, () => visit.live);
+      if (delivery === "copied" && visit.live) morphyToast.success("Link copied");
+    } catch (error) {
+      if (visit.live && !isShareCancellationError(error)) morphyToast.error("Could not share");
     }
-  }, [link, onCopy]);
+  }, [link, onCopy, visit]);
+
+  const current = useCallback(() => visit.live, [visit]);
+  useLayoutEffect(() => {
+    stateOwner.current = user?.uid;
+    setSummary(null); setState("loading"); setShowProgress(false);
+    setCopyOutcome(null);
+    setGamification(emptyGamification());
+    handleDraft.current = ""; handleRevision.current += 1; setHandleInput("");
+    setHandleErrorMessage(null);
+  }, [user?.uid]);
+
+  return { state: ownsState ? state : "loading" as LoadState, summary: ownsState ? summary : null,
+    gamification: ownsState ? gamification : emptyGamification(), showProgress: ownsState && showProgress,
+    setShowProgress, load, onCopy, onShare,
+    handleInput: ownsState ? handleInput : "", changeHandle, handleSaving, handleErrorMessage: ownsState ? handleErrorMessage : null, onSaveHandle,
+    copyStatus: ownsState && copyOutcome?.link === link ? copyOutcome.copied ? "copied" as const : "error" as const : "idle" as const,
+    current, handleRevision: () => handleRevision.current };
+}
+export type ReferralsPanelModel = ReturnType<typeof useReferralsPanelModel>;
+
+function ReferralsPanelContent({ panePresentation = false }: { panePresentation?: boolean }) {
+  const model = useReferralsPanelModel();
+  return <ReferralsPanelView panePresentation={panePresentation} model={model} />;
+}
+
+export function ReferralsPanelView({ panePresentation = false, model }: { panePresentation?: boolean; model: ReferralsPanelModel }) {
+  const { state, summary, gamification, showProgress, setShowProgress, load, onCopy, onShare,
+    handleInput, changeHandle, handleSaving, handleErrorMessage, onSaveHandle } = model;
+  const icons = { invite: InviteFriendsProfileIcon, link: LinkRowIcon, join: JoinRowIcon,
+    agent: UseAgentRowIcon, qualified: QualifiedRowIcon, success: SuccessRowIcon,
+    people: PeopleRowIcon, progress: ProgressRowIcon, review: ReviewRowIcon, warning: WarningRowIcon };
 
   if (state === "error") {
     return (
@@ -468,7 +515,7 @@ function ReferralsPanelContent({
                 <Input
                   className={panePresentation ? typographyStyles.field : undefined}
                   value={handleInput}
-                  onChange={(event) => setHandleInput(event.target.value)}
+                  onChange={(event) => changeHandle(event.target.value)}
                   placeholder="your-handle"
                   maxLength={32}
                   aria-label="Leaderboard handle"

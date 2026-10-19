@@ -133,11 +133,13 @@ export class NativeDrawerPresentation {
     // a later render cannot mutate a pending private projection in place.
     const snapshot: NativeDrawerProjection = { ...state,
       sections: state.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row,
+        ...(row.progress ? { progress: { ...row.progress } } : {}),
         ...(row.options ? { options: row.options.map(option => ({ ...option })) } : {}) })) })),
       ...(state.profileStack ? { profileStack: state.profileStack.map(page => ({ ...page,
         ...(page.legalDocument ? { legalDocument: structuredClone(page.legalDocument) } : {}),
         ...(page.memorySearch ? { memorySearch: { ...page.memorySearch } } : {}),
         sections: page.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row,
+          ...(row.progress ? { progress: { ...row.progress } } : {}),
           ...(row.options ? { options: row.options.map(option => ({ ...option })) } : {}) })) })) })) } : {}) };
     if (!this.fence.update(snapshot)) return false;
     this.current = { state: snapshot, actions: { ...actions, rows: new Map(actions.rows) } };

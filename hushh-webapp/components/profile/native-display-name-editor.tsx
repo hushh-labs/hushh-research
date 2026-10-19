@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
 import type { AccountIdentity } from "@/lib/services/api-service";
@@ -30,6 +30,25 @@ export function NativeDisplayNameEditor(props: DisplayNameEditorProps & {
   const model = useDisplayNameEditor({ ...props, onSaved: identity => {
     if (webCompletion.current) props.onSaved?.(identity);
   } });
+  return <NativeProfileTextEditor<AccountIdentity> {...props} scene="account-name" model={model}
+    save={async () => {
+      const result = await model.submit();
+      return result.kind === "saved" ? { kind: "saved", value: result.identity } : { kind: "retained" };
+    }} onRenderer={phase => { webCompletion.current = phase === "web"; }}
+    fallback={<DisplayNameEditorForm model={model} className={props.className} onCancel={props.onCancel} />} />;
+}
+
+/** One bounded ordinary-text editor family. The scene chooses presentation,
+ * never validation or a writer: each caller supplies its existing operation. */
+export function NativeProfileTextEditor<T>(props: {
+  scene: NativeProfileNameIdentity["scene"];
+  model: Pick<ReturnType<typeof useDisplayNameEditor>, "ready" | "uid" | "draft" | "draftRevision" | "canSave" | "saving" | "inlineError" | "changeDraft">;
+  destinationId?: string; portalFallback?: boolean; webHost?: HTMLElement | null;
+  onWebFallback?: () => void; onSaved?: (value: T) => void; onCancel?: () => void;
+  onRenderer?: (phase: string) => void; fallback?: ReactNode;
+  save: NativeProfileNameActions<T>["save"];
+}) {
+  const { model } = props;
   const pathname = usePathname();
   const appearance = useNativeControlAppearance("secondary");
   const privacy = useSyncExternalStore(subscribeNativePrivacyObservation,
@@ -39,22 +58,21 @@ export function NativeDisplayNameEditor(props: DisplayNameEditorProps & {
   const [edit, setEdit] = useState<{ identity: NativeProfileNameIdentity | null; revision: number; composing: boolean }>({ identity: null, revision: 0, composing: false });
   const live = useRef({ model, props, appearance, privacy, edit });
   useLayoutEffect(() => {
-    webCompletion.current = renderer === "web";
+    props.onRenderer?.(renderer);
     live.current = { model, props, appearance, privacy, edit };
   });
   useEffect(() => { if (renderer === "web") live.current.props.onWebFallback?.(); }, [renderer]);
   const replica = useRef<{ owner: string; epoch: number; identity: NativeProfileNameIdentity;
-    presentation: NativeProfileNamePresentation<AccountIdentity>; sequence: number; fingerprint: string | null } | null>(null);
+    presentation: NativeProfileNamePresentation<T>; sequence: number; fingerprint: string | null } | null>(null);
   const closing = useRef(false);
 
-  const actions = useCallback((): NativeProfileNameActions<AccountIdentity> => ({
+  const actions = useCallback((): NativeProfileNameActions<T> => ({
     edit: (text, composing, revision) => {
       live.current.model.changeDraft(text);
       setEdit({ identity: replica.current?.identity ?? null, revision, composing });
     },
     save: async () => {
-      const result = await live.current.model.submit();
-      return result.kind === "saved" ? { kind: "saved", value: result.identity } : { kind: "retained" };
+      return live.current.props.save();
     },
     saved: value => live.current.props.onSaved?.(value),
     cancel: () => live.current.props.onCancel?.(),
@@ -80,13 +98,14 @@ export function NativeDisplayNameEditor(props: DisplayNameEditorProps & {
     if (!nativeDrawersPlatformEligible()) return;
     let active = true;
     void nativeDrawerAcknowledged(nativeDrawers.getCapabilities()).then(value => {
-      const supported = value.contractVersion === 1 && value.supported && value.profileNameScene === true && hasNativeProfileNameScene(nativeDrawers);
+      const supported = value.contractVersion === 1 && value.supported && value.profileNameScene === true &&
+        (props.scene !== "referral-handle" || value.profileReferralPages === true) && hasNativeProfileNameScene(nativeDrawers);
       if (active) { setAdmitted(supported); if (!supported) setRenderer("web"); }
     }).catch(() => { if (active) setRenderer("web"); }); // No native apply was attempted.
     if (!nativePrivacyObservation().state) void nativeDrawerAcknowledged(getNativeSessionPrivacyState())
       .catch(() => { if (active) setRenderer("blocked"); });
     return () => { active = false; };
-  }, []);
+  }, [props.scene]);
 
   const epoch = snapshotVaultSessionEpoch();
   const privacyGeneration = privacy?.generation;
@@ -97,7 +116,7 @@ export function NativeDisplayNameEditor(props: DisplayNameEditorProps & {
         !hasNativeProfileNameScene(nativeDrawers)) return;
     const base = createNativeDrawerIdentity("profile");
     if (!base) return;
-    const identity: NativeProfileNameIdentity = { ...base, family: "profile", scene: "account-name",
+    const identity: NativeProfileNameIdentity = { ...base, family: "profile", scene: props.scene,
       ...(props.destinationId ? { destinationId: props.destinationId } : {}) };
     const owner = model.uid;
     const generation = privacyGeneration;
@@ -106,7 +125,7 @@ export function NativeDisplayNameEditor(props: DisplayNameEditorProps & {
       snapshotValidatedAuthSessionOwner()?.userId === owner && snapshotVaultSessionEpoch() === epoch && nativeDrawerOwnerIsCurrent(identity) &&
       live.current.props.destinationId === identity.destinationId &&
       live.current.privacy?.generation === generation && !live.current.privacy.shielded && live.current.privacy.appIsActive;
-    const presentation = new NativeProfileNamePresentation<AccountIdentity>(identity, nativeDrawers, isCurrent, phase => {
+    const presentation = new NativeProfileNamePresentation<T>(identity, nativeDrawers, isCurrent, phase => {
       if (!active) return;
       // A confirmed fallback is the renderer for this editor lifetime. An
       // ordinary privacy resume must not swap it back to native mid-edit.
@@ -124,7 +143,7 @@ export function NativeDisplayNameEditor(props: DisplayNameEditorProps & {
       if (replica.current === instance) replica.current = null;
       void presentation.retire();
     };
-  }, [admitted, model.uid, model.ready, epoch, privacyGeneration, privacyShielded, privacyActive, props.destinationId, publish]);
+  }, [admitted, model.uid, model.ready, epoch, privacyGeneration, privacyShielded, privacyActive, props.scene, props.destinationId, publish]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, renderer === "web" ? 0 : 100, () => {
     if (live.current.model.saving || closing.current) return true;
@@ -137,6 +156,6 @@ export function NativeDisplayNameEditor(props: DisplayNameEditorProps & {
     return true;
   }, props.destinationId ? { profile_pane: "1" } : undefined);
   if (renderer !== "web") return <div aria-busy={renderer === "checking"} data-native-profile-name-state={renderer} />;
-  const form = <DisplayNameEditorForm model={model} className={props.className} onCancel={props.onCancel} />;
+  const form = props.fallback;
   return props.portalFallback ? props.webHost ? createPortal(form, props.webHost) : null : form;
 }

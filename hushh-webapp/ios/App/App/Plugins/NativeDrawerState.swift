@@ -40,10 +40,17 @@ struct NativeDrawerRow: Codable, Identifiable {
     var iconHex: String? = nil
     var chevron: Bool? = nil
     var trailing: String? = nil
+    var progress: NativeDrawerProgress? = nil
     var options: [NativeDrawerOption]? = nil
     var toggle: Bool? = nil
     var portrait: Bool? = nil
     var portraitData: String? = nil
+}
+
+struct NativeDrawerProgress: Codable {
+    let value: Double
+    let total: Double
+    var valid: Bool { value.isFinite && total.isFinite && total > 0 && value >= 0 && value <= total }
 }
 
 struct NativeDrawerSection: Codable, Identifiable {
@@ -113,7 +120,10 @@ struct NativeDrawerProjection: Codable {
         for section in allSections {
             guard Set(section.keys).isSubset(of: ["id", "title", "rows"]), let rows = section["rows"] as? [[String: Any]] else { return false }
             for row in rows {
-                guard Set(row.keys).isSubset(of: ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "options", "toggle", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId", "readOnly", "artworkId", "portrait", "portraitData"]) else { return false }
+                guard Set(row.keys).isSubset(of: ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "progress", "options", "toggle", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId", "readOnly", "artworkId", "portrait", "portraitData"]) else { return false }
+                if let progress = row["progress"] {
+                    guard let progress = progress as? [String: Any], Set(progress.keys) == ["value", "total"] else { return false }
+                }
                 if let options = row["options"] {
                     guard let choices = options as? [[String: Any]], choices.allSatisfy({ Set($0.keys).isSubset(of: ["id", "label", "selected", "symbol", "colorHex"]) }) else { return false }
                 }
@@ -138,7 +148,7 @@ struct NativeDrawerProjection: Codable {
                   !stack.contains(where: { ["finance-preferences", "finance-anchor"].contains($0.id) }) || Self.validFinancePath(stack.map(\.id)),
                   stack.isEmpty || backEnabled && profileDestinationId.map(NativeDrawerIdentity.identifier) == true,
                   stack.enumerated().allSatisfy({ index, page in
-                      (index == 0 ? ["connectors", "world-model", "memory", "payouts", "request-pricing", "account", "preferences", "gemini", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
+                      (index == 0 ? ["referrals", "connectors", "world-model", "memory", "payouts", "request-pricing", "account", "preferences", "gemini", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
                         Self.validFinancePath(stack.map(\.id)) ||
                         stack.first?.id == "memory" && Self.validMemoryPath(stack.map(\.id)) ||
                         stack.first?.id == "world-model" && Self.validWorldModelPath(stack.map(\.id)) ||
@@ -175,6 +185,7 @@ struct NativeDrawerProjection: Codable {
                       row.artworkId == nil || NativeDrawerIdentity.identifier(row.artworkId!),
                       row.iconHex == nil || row.iconHex!.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil,
                       row.trailing == nil || Self.text(row.trailing!, 32),
+                      row.progress?.valid != false,
                       row.toggle != true || row.options?.count == 2 else { return false }
                 if let portrait = row.portrait {
                     guard portrait, family == "profile",
@@ -346,6 +357,7 @@ struct NativeDrawerLease {
     private var terminalEnabled = false
     private var settlesBack = false
     private var pendingSettlements: [Int: String] = [:]
+    private var confirmedRowEffects: [Int: (row: String?, update: Int, interaction: Int)] = [:]
     private(set) var interactionGeneration = 1
     private var emitted: [Int: (update: Int, interaction: Int, action: String, row: String?, text: String?)] = [:]
 
@@ -360,7 +372,7 @@ struct NativeDrawerLease {
             latestRevision = projection.revision
             document = projection.documentId
             identity = projection.identity
-            sequence = 0; updateSequence = 0; consumed = 0; emitted.removeAll(); pendingSettlements.removeAll()
+            sequence = 0; updateSequence = 0; consumed = 0; emitted.removeAll(); pendingSettlements.removeAll(); confirmedRowEffects.removeAll()
             terminalUpdateFloor = 0
             backUpdateFloor = 0; backBoundary = nil
         }
@@ -384,6 +396,7 @@ struct NativeDrawerLease {
     mutating func invalidateInteractions() {
         interactionGeneration += 1
         emitted.removeAll()
+        confirmedRowEffects.removeAll()
     }
     mutating func emit(action: String, row: String?, state: NativeDrawerProjection, text: String? = nil) -> Int? {
         guard identity == state.identity, updateSequence == state.updateSequence, state.allows(action: action, row: row, text: text),
@@ -412,7 +425,17 @@ struct NativeDrawerLease {
         if action == "row" || action == "close" || (action == "back" || action == "root" || action == "ancestor") && settlesBack {
             pendingSettlements[sequence] = action
         }
+        if action == "row", row == "referral-copy" { confirmedRowEffects[sequence] = (row, update, interaction) }
         emitted = emitted.filter { $0.key > sequence }
+        return true
+    }
+    mutating func consumeConfirmedRowEffect(identity: NativeDrawerIdentity, update: Int, privacy: Int,
+                                           sequence: Int, interaction: Int, row: String) -> Bool {
+        guard self.identity == identity, updateSequence == update, privacyGeneration == privacy,
+              interactionGeneration == interaction, pendingSettlements[sequence] == "row",
+              let effect = confirmedRowEffects[sequence], effect.row == row,
+              effect.update == update, effect.interaction == interaction else { return false }
+        confirmedRowEffects.removeValue(forKey: sequence)
         return true
     }
     func acceptsSettlement(identity: NativeDrawerIdentity, privacy: Int, sequence: Int) -> Bool {
@@ -427,6 +450,7 @@ struct NativeDrawerLease {
         let unconfirmed = emitted[sequence]?.action == "row" || emitted[sequence]?.action == "close" || emitted[sequence]?.action == "back" || emitted[sequence]?.action == "root" || emitted[sequence]?.action == "ancestor"
         guard confirmed || !success && unconfirmed else { return false }
         pendingSettlements.removeValue(forKey: sequence)
+        confirmedRowEffects.removeValue(forKey: sequence)
         emitted.removeValue(forKey: sequence)
         return true
     }
@@ -446,6 +470,7 @@ struct NativeDrawerLease {
         retiredIdentity = identity
         emitted.removeAll()
         pendingSettlements.removeAll()
+        confirmedRowEffects.removeAll()
         return true
     }
 }

@@ -51,6 +51,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "apply", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPresentationState", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmChoice", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "copyProfileReferralLink", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settleChoice", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retire", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "applyProfileNameScene", returnType: CAPPluginReturnPromise),
@@ -176,6 +177,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "profileAccountActions": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileLegalReader": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileNameScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profileReferralPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileStyleScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileSupportScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profilePhoneScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
@@ -375,6 +377,39 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             if action == "close" { controller.observeClose(sequence: call.getInt("sequence") ?? -1, confirmed: valid) }
             #endif
             call.resolve(["valid": valid])
+        }
+    }
+    /// Acknowledged utility effect after React's current authored Copy choice.
+    /// Confirmation itself remains side-effect free; uncertainty never retries.
+    @objc func copyProfileReferralLink(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "updateSequence",
+                "privacyGeneration", "sequence", "interactionGeneration", "action", "rowId", "link"]
+            guard let self, self.supported, Set(call.options.keys).isSubset(of: keys),
+                  let identity = self.identity(call), identity.family == "profile", self.sessionFence.contains(identity),
+                  let controller = self.controllers["profile"], var lease = self.leases["profile"],
+                  call.getString("action") == "row", call.getString("rowId") == "referral-copy",
+                  let link = call.getString("link"), link.utf16.count <= 4096,
+                  let url = URL(string: link), url.scheme == "https", url.host != nil,
+                  let update = call.getInt("updateSequence"), let privacy = call.getInt("privacyGeneration"),
+                  let sequence = call.getInt("sequence"), let interaction = call.getInt("interactionGeneration") else {
+                call.resolve(["copied": false]); return
+            }
+            let shield = HushhSessionPrivacyShield.shared
+            let current = shield.snapshot()
+            let projection = controller.model.projection
+            guard current.appIsActive, !current.shielded, current.generation == privacy,
+                  shield.acceptsDocument(identity.documentId), projection.open, projection.enabled,
+                  projection.profileStack?.last?.id == "referrals",
+                  projection.activeSections.first(where: { $0.id == "referral-link" })?.rows.first(where: { $0.id == "referral-link-value" })?.detail == link,
+                  lease.consumeConfirmedRowEffect(identity: identity, update: update, privacy: privacy,
+                    sequence: sequence, interaction: interaction, row: "referral-copy") else {
+                call.resolve(["copied": false]); return
+            }
+            self.leases["profile"] = lease
+            UIPasteboard.general.string = link
+            UIAccessibility.post(notification: .announcement, argument: "Link copied")
+            call.resolve(["copied": true])
         }
     }
     @objc func settleChoice(_ call: CAPPluginCall) {
@@ -602,6 +637,8 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
               shield.acceptsDocument(identity.documentId), let profile = controllers["profile"]?.model.projection else { return false }
         let nativeAccount = ["account-name", "phone"].contains(scene) && profile.open && profile.profileStack?.last?.id == "account" &&
             destinationId != nil && destinationId == profile.profileDestinationId
+        let nativeReferral = scene == "referral-handle" && profile.open && profile.profileStack?.last?.id == "referrals" &&
+            destinationId != nil && destinationId == profile.profileDestinationId
         let nativePreferences = scene == "writing-style" && profile.open && profile.profileStack?.last?.id == "preferences" &&
             destinationId != nil && destinationId == profile.profileDestinationId
         let nativeSupport = scene == "support" && profile.open && profile.profileStack?.isEmpty == true &&
@@ -622,7 +659,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             destinationId != nil && destinationId == profile.profileDestinationId
         return profile.documentId == identity.documentId && profile.ownerEpoch == identity.ownerEpoch &&
             profile.ownerGeneration == identity.ownerGeneration && profile.surfaceOpen == true &&
-            (!profile.open && destinationId == nil || nativeAccount || nativePreferences || nativeSupport || nativeVault || nativePricing || nativeWorldModel || nativeRuntime || nativeConnector || nativeMemory) && profile.enabled
+            (!profile.open && destinationId == nil && scene == "account-name" || nativeAccount || nativeReferral || nativePreferences || nativeSupport || nativeVault || nativePricing || nativeWorldModel || nativeRuntime || nativeConnector || nativeMemory) && profile.enabled
     }
     @objc func applyProfileRuntimeScene(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
@@ -1248,7 +1285,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                   let options = call.options as? [String: Any], Set(options.keys).isSubset(of: NativeProfileNameProjection.keys),
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options),
                   bytes.count <= 32_768, let next = try? JSONDecoder().decode(NativeProfileNameProjection.self, from: bytes),
-                  next.valid, self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, destinationId: next.destinationId), self.retiringForms.isEmpty else {
+                  next.valid, self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId), self.retiringForms.isEmpty else {
                 call.reject("NATIVE_PROFILE_NAME_UNAVAILABLE"); return
             }
             if let scene = self.nameScene {
@@ -1271,7 +1308,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             scene.model.edit = { [weak self, weak scene] text, composing, revision in
                 guard let self, let scene, self.nameScene === scene else { return false }
                 let state = scene.model.projection
-                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, destinationId: state.destinationId) else { return false }
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: state.scene, destinationId: state.destinationId) else { return false }
                 var event = state.receipt(phase: "active")
                 event.removeValue(forKey: "phase")
                 event["text"] = text; event["composing"] = composing; event["editRevision"] = revision
@@ -1281,7 +1318,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             scene.model.choose = { [weak self, weak scene] action in
                 guard let self, let scene, self.nameScene === scene else { return false }
                 let state = scene.model.projection
-                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, destinationId: state.destinationId) else { return false }
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: state.scene, destinationId: state.destinationId) else { return false }
                 var event = state.receipt(phase: "active")
                 event.removeValue(forKey: "phase")
                 event["sequence"] = action.sequence; event["action"] = action.action; event["editRevision"] = action.editRevision
@@ -1291,7 +1328,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
                 guard let self, let scene else { call.reject("NATIVE_PROFILE_NAME_RETIRED"); return }
                 guard presented, self.nameScene === scene,
-                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, destinationId: next.destinationId) else {
+                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
                     if self.nameScene === scene { self.retireProfileForm() }
                     call.reject("NATIVE_PROFILE_NAME_RETIRED"); return
                 }
@@ -1317,9 +1354,10 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func confirmProfileNameAction(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
-                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, destinationId: call.getString("destinationId")), let scene = self.nameScene,
+                  let requestedScene = call.getString("scene"), ["account-name", "referral-handle"].contains(requestedScene),
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, scene: requestedScene, destinationId: call.getString("destinationId")), let scene = self.nameScene,
                   scene.model.projection.destinationId == call.getString("destinationId"),
-                  scene.model.projection.identity == identity, let action = self.nameAction(call) else {
+                  scene.sceneName == requestedScene, scene.model.projection.identity == identity, let action = self.nameAction(call, scene: requestedScene) else {
                 call.resolve(["valid": false]); return
             }
             call.resolve(["valid": scene.model.confirm(action)])
@@ -1328,9 +1366,10 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func settleProfileNameAction(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
-                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, destinationId: call.getString("destinationId")), let scene = self.nameScene,
+                  let requestedScene = call.getString("scene"), ["account-name", "referral-handle"].contains(requestedScene),
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, scene: requestedScene, destinationId: call.getString("destinationId")), let scene = self.nameScene,
                   scene.model.projection.destinationId == call.getString("destinationId"),
-                  scene.model.projection.identity == identity, let action = self.nameAction(call) else {
+                  scene.sceneName == requestedScene, scene.model.projection.identity == identity, let action = self.nameAction(call, scene: requestedScene) else {
                 call.resolve(["valid": false]); return
             }
             call.resolve(["valid": scene.settle(action)])
@@ -1339,12 +1378,12 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func retireProfileNameScene(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call), identity.family == "profile",
-                  call.getString("scene") == "account-name" else { call.reject("NATIVE_PROFILE_NAME_STALE_RETIREMENT"); return }
-            if let scene = self.retiringForms.values.first(where: { $0.identity == identity && $0.sceneName == "account-name" }) {
+                  let requestedScene = call.getString("scene"), ["account-name", "referral-handle"].contains(requestedScene) else { call.reject("NATIVE_PROFILE_NAME_STALE_RETIREMENT"); return }
+            if let scene = self.retiringForms.values.first(where: { $0.identity == identity && $0.sceneName == requestedScene && $0.receipt("retired")["destinationId"] as? String == call.getString("destinationId") }) {
                 scene.retire { call.resolve(scene.receipt("retired")) }; return
             }
             if let scene = self.nameScene {
-                guard scene.model.projection.identity == identity else { call.reject("NATIVE_PROFILE_NAME_STALE_RETIREMENT"); return }
+                guard scene.sceneName == requestedScene, scene.model.projection.destinationId == call.getString("destinationId"), scene.model.projection.identity == identity else { call.reject("NATIVE_PROFILE_NAME_STALE_RETIREMENT"); return }
                 self.retireProfileForm { call.resolve(scene.model.projection.receipt(phase: "retired")) }; return
             }
             guard self.sessionFence.contains(identity) else { call.reject("NATIVE_PROFILE_NAME_STALE_RETIREMENT"); return }
@@ -1352,7 +1391,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
             self.formRevision = max(self.formRevision, identity.revision)
             var receipt = self.retiredReceipt(identity, lease: NativeDrawerLease())
-            receipt["scene"] = "account-name"
+            receipt["scene"] = requestedScene
             if let id = call.getString("destinationId") { receipt["destinationId"] = id }
             call.resolve(receipt)
         }
