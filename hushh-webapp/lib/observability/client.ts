@@ -36,6 +36,7 @@ import {
 import { validateAndSanitizeEvent } from "@/lib/observability/schema";
 import { redactObservabilityLogValue } from "@/lib/observability/log-redactor";
 import { resolveClientVersion } from "@/lib/observability/client-version";
+import { snapshotProductActivityScope } from "./product-activity-scope";
 
 interface TrackOptions {
   dedupeKey?: string;
@@ -95,8 +96,6 @@ export function trackEvent<T extends ObservabilityEventName>(
 ): boolean {
   if (typeof window !== "undefined" && isAnalyticsExemptRoute(window.location.pathname)) return false;
   if (!isObservabilityEnabled()) return false;
-  if (!shouldSample(resolveObservabilitySampleRate())) return false;
-
   const dedupeKey = options.dedupeKey;
   if (dedupeKey) {
     const dedupeWindowMs = options.dedupeWindowMs ?? DEFAULT_DEDUPE_WINDOW_MS;
@@ -122,6 +121,15 @@ export function trackEvent<T extends ObservabilityEventName>(
   if (!validation.ok) {
     debugLog("payload_sanitized", eventName, validation.droppedKeys);
   }
+
+  // Only admitted enum identifiers leave via the private pilot channel. Pin
+  // identity before the import; GA sampling cannot change observation receipt.
+  const productScope = snapshotProductActivityScope();
+  const { action, result } = validation.sanitized;
+  void import("@/lib/observability/product-activity-client").then(({ observeProductEvent }) => {
+    observeProductEvent(eventName, action, result, productScope);
+  }).catch(() => undefined);
+  if (!shouldSample(resolveObservabilitySampleRate())) return false;
 
   const activeAdapters = ADAPTERS.filter((adapter) => adapter.isAvailable());
   if (activeAdapters.length === 0) {

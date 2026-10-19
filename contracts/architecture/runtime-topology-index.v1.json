@@ -1503,6 +1503,17 @@
       "primary_access_path": "Firebase-authenticated GET/PUT /api/one/models/private-text-approval records an owner's explicit UAT Azure text-processing choice; document request admission and each model call verify the current generation."
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_product_activity_epochs",
+        "one_product_activity_observations"
+      ],
+      "id": "one_product_activity_observations",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Production enrolled-pilot observer and signed PLG v2 metadata projection. Closed generated catalog identifiers only; client reports and SDK returns are distinct from domain outcome authority."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "one_agent_engagement_sessions",
@@ -2055,7 +2066,8 @@
       "table_family_ids": [
         "actor_identity_state",
         "agent_chat_encrypted_memory",
-        "relay_ticket_replay_guard"
+        "relay_ticket_replay_guard",
+        "one_product_activity_observations"
       ]
     },
     {
@@ -6534,13 +6546,13 @@
     "action_gateway": "b2ded1352d1ab5e6e93bdea63fb7b44f62ac1d6bfe689d9bbd9dcd4386233795",
     "agent_registry": "40a0062f8ecc8fca4b99e23c201e00ed49041bf2781c9cb142a008ea94d15199",
     "cache_manifest": "7b44ca869116d3fe4b1a9dd589a06cd863e81465e5ae708513b7d0636862703e",
-    "data_plane": "efdfbfc0afd36b58b304af8d94af20c571cd6de5eea98f863f3cebef34bb0dde",
+    "data_plane": "7b3485b47e92d89c090150d2c46fcad46101f99de3d33e1ac1a74f47285c397d",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "89cfeabb190475072e5d3aebe5f0b8d1838ea0565560fc2e7ad133a231396e40",
     "route_index": "835d8f1d7838c3b8968e6bc24dfc4345a4622eee83bf95486ed51cd475074242",
     "route_layout": "40fad3e65a5417f7aba21a8ce02f03b7840d504fbfd841e6c5cb46d6c520c322",
     "surface_map": "567a1249c4f0d1f738df305a1f18e8900fd85e564fff0fe10888b3ea452c0a52",
-    "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
+    "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
@@ -6553,6 +6565,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 154,
     "semantic_routes": 17,
-    "table_families": 112
+    "table_families": 113
   }
 }

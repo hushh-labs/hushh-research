@@ -3048,6 +3048,12 @@ export class ApiService {
     return this.getFirebaseToken();
   }
 
+  /** Correlate a token with the initiating owner; the backend verifies it. */
+  static async getFirebaseIdTokenForOwner(userId: string): Promise<string | undefined> {
+    const token = await this.getFirebaseToken();
+    return token && decodeFirebaseTokenSubject(token) === userId ? token : undefined;
+  }
+
   private static async getFirebaseToken(): Promise<string | undefined> {
     if (Capacitor.isNativePlatform()) {
       try {

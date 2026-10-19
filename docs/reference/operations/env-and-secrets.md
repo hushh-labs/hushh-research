@@ -69,6 +69,19 @@ flowchart TB
 
 ### One PLG metadata pilot
 
+`one_plg_activity_enabled` in `BACKEND_RUNTIME_CONFIG_JSON` maps to
+`ONE_PLG_ACTIVITY_ENABLED` (default false). This separately controls the
+metadata-only all-agent observation pilot. Apply migration365 and verify its
+service-only RLS, account deletion guards, epoch/reset fencing and bounded
+retention before enabling. It uses the existing private export UID allowlist;
+it grants no messaging permission. Disabling it stops collection and hides
+retained observations from exports. The authenticated Drive work drain keeps
+expiry cleanup independent of collection flags. The snapshot v2 consumer and
+producer can release separately; v1 task export remains compatible.
+Reload existing browser/native sessions after rollout or pilot eligibility
+changes so they discover collection admission again. Admission failures are
+best effort and there is no durable client retry queue.
+
 Production exporter `ONE_PLG_EXPORT_ENABLED` defaults false and maps from
 `one_plg_export_enabled` in `BACKEND_RUNTIME_CONFIG_JSON`.
 `ONE_PLG_EXPORT_SECRET` and `ONE_PLG_EXPORT_ACCOUNT_IDS` are optional dedicated
