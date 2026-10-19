@@ -131,6 +131,7 @@ class FakeGateway:
         unsearched_section=False,
         invalid_finding=None,
         report_timeout=False,
+        assessment_results=None,
     ):
         self.charges = charges
         self.snapshots = snapshots
@@ -145,6 +146,8 @@ class FakeGateway:
         self.unsearched_section = unsearched_section
         self.invalid_finding = invalid_finding
         self.report_timeout = report_timeout
+        self.assessment_results = copy.deepcopy(assessment_results)
+        self.assessment_payloads = []
         self.calls = []
 
     async def search(self, request):
@@ -210,7 +213,11 @@ class FakeGateway:
     async def structured(self, *, purpose, instruction, payload, schema, max_output_tokens):
         self.calls.append(purpose)
         assert schema and max_output_tokens > 0 and instruction
-        if purpose == "identity_assessment":
+        if purpose in {"identity_assessment", "identity_assessment_repair"}:
+            self.assessment_payloads.append(copy.deepcopy(payload))
+            if self.assessment_results is not None:
+                assert self.assessment_results
+                return self.assessment_results.pop(0)
             value = assessment(
                 source_ref="s99" if self.invalid_assessment == "missing_ref" else "s1"
             )
@@ -691,6 +698,122 @@ async def test_azure_runner_refuses_contact_seed_for_review_candidate_coverage()
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("defect", ["missing_selection", "schema_bound"])
+async def test_azure_runner_repairs_invalid_identity_without_repeating_search(defect):
+    invalid = assessment()
+    if defect == "missing_selection":
+        invalid["identity"].update(
+            state="ambiguous", selected_candidate_id=None, supporting_anchor_ids=[]
+        )
+    else:
+        invalid["candidates"][0]["label"] = "x" * 601
+    charges, snapshots = [], []
+    gateway = FakeGateway(
+        charges=charges,
+        snapshots=snapshots,
+        assessment_results=[invalid, assessment()],
+    )
+
+    async def charge(slots):
+        charges.extend(slots)
+
+    async def progress(work):
+        snapshots.append(copy.deepcopy(work))
+
+    result = await run_world_model_azure(
+        identity=IDENTITY,
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106 - synthetic test authority
+        require_access=AsyncMock(),
+        on_attempts_start=charge,
+        on_progress=progress,
+        owner_decisions={"rejected": ["An unrelated claim"]},
+        gateway=gateway,
+    )
+    assert result["status"] == "offered"
+    assert result["research"]["identity"]["state"] == "candidate_for_review"
+    assert gateway.calls == [
+        "search",
+        "identity_assessment",
+        "identity_assessment_repair",
+        "provisional_findings",
+        "plan",
+        "world_model_report",
+    ]
+    assert charges == [1, *range(MODEL_FIRST, MODEL_FIRST + 6)]
+    original, repaired = gateway.assessment_payloads
+    assert repaired["identity"] == original["identity"]
+    assert repaired["research_history"] == original["research_history"]
+    assert repaired["invalid_assessment"] == invalid
+    assert "usage_records" not in repaired["research_history"]
+    assert "An unrelated claim" not in json.dumps(repaired)
+    assert all(
+        "assessment" not in snapshot
+        or snapshot["assessment"]["identity"]["selected_candidate_id"] == "c1"
+        for snapshot in snapshots
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", ["time", "budget", "authority"])
+async def test_identity_repair_preserves_authority_and_report_reserve(boundary):
+    from hushh_mcp.one_adk.world_model_azure import MAX_AZURE_MODEL_CALLS
+
+    charges, snapshots = [], []
+    clock = [0.0]
+    revoked = False
+
+    class BoundaryGateway(FakeGateway):
+        async def structured(self, **kwargs):
+            nonlocal revoked
+            result = await super().structured(**kwargs)
+            if kwargs["purpose"] == "identity_assessment":
+                if boundary == "time":
+                    clock[0] = 121
+                if boundary == "authority":
+                    revoked = True
+            return result
+
+    gateway = BoundaryGateway(
+        charges=charges, snapshots=snapshots, invalid_assessment="missing_ref"
+    )
+
+    async def access():
+        if revoked:
+            raise PermissionError("Synthetic authority revoked")
+
+    async def charge(slots):
+        charges.extend(slots)
+
+    async def progress(work):
+        snapshots.append(copy.deepcopy(work))
+
+    async def run():
+        return await run_world_model_azure(
+            identity=IDENTITY,
+            user_id="owner",
+            consent_token="synthetic",  # noqa: S106 - synthetic test authority
+            require_access=access,
+            on_attempts_start=charge,
+            on_progress=progress,
+            gateway=gateway,
+            monotonic_clock=lambda: clock[0],
+            attempts_used=tuple(range(MODEL_FIRST + 3, MODEL_FIRST + MAX_AZURE_MODEL_CALLS))
+            if boundary == "budget"
+            else (),
+        )
+
+    if boundary == "time":
+        assert await run() == {"status": "paused", "pkm_written": False, "restart_required": True}
+    else:
+        with pytest.raises(PermissionError if boundary == "authority" else ValueError):
+            await run()
+    assert gateway.calls == ["search", "identity_assessment"]
+    assert charges == [1, MODEL_FIRST, MODEL_FIRST + 1]
+    assert all("assessment" not in snapshot for snapshot in snapshots)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("defect", ["missing_ref", "cross_candidate"])
 async def test_azure_runner_rejects_unsupported_identity(defect):
     charges, snapshots = [], []
@@ -712,8 +835,9 @@ async def test_azure_runner_rejects_unsupported_identity(defect):
             on_progress=progress,
             gateway=gateway,
         )
-    assert charges == [1, MODEL_FIRST, MODEL_FIRST + 1]
-    assert gateway.calls == ["search", "identity_assessment"]
+    assert charges == [1, MODEL_FIRST, MODEL_FIRST + 1, MODEL_FIRST + 2]
+    assert gateway.calls == ["search", "identity_assessment", "identity_assessment_repair"]
+    assert all("assessment" not in snapshot for snapshot in snapshots)
 
 
 @pytest.mark.asyncio
@@ -972,14 +1096,23 @@ async def test_azure_gateway_rejects_parseable_but_incomplete_report():
 
 
 @pytest.mark.asyncio
-async def test_numeric_usage_survives_resume_without_entering_model_history(monkeypatch):
+@pytest.mark.parametrize("repair", [False, True])
+async def test_numeric_usage_survives_resume_without_entering_model_history(monkeypatch, repair):
     from hushh_mcp.one_adk import world_model_azure as runner
 
     charges, snapshots = [], []
 
     class MeteredGateway(FakeGateway):
         def __init__(self, **kwargs):
-            super().__init__(charges=charges, snapshots=snapshots)
+            invalid = assessment()
+            invalid["identity"].update(
+                state="ambiguous", selected_candidate_id=None, supporting_anchor_ids=[]
+            )
+            super().__init__(
+                charges=charges,
+                snapshots=snapshots,
+                assessment_results=[invalid, assessment()] if repair else None,
+            )
             self.on_usage = kwargs["on_usage"]
 
         async def meter(self):
