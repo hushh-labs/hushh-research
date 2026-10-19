@@ -5021,6 +5021,30 @@ final class AppUITests: XCTestCase {
                     XCTFail("PROFILE_BATCH_NATIVE_ACCOUNT_UNAVAILABLE"); return
                 }
                 XCTAssertTrue(close.exists && close.isHittable)
+                if id == "preferences", ProcessInfo.processInfo.environment["HUSHH_PROFILE_HAPTICS_PROBE"] == "true" {
+                    let haptics = app.switches["native-profile-row-preferences-haptics"].firstMatch
+                    guard waitForAdmittedControl(haptics), let original = haptics.value as? String,
+                          original == "0" || original == "1" else {
+                        printCoherentPresentationAdmission(app)
+                        XCTFail("PROFILE_HAPTICS_SWITCH_NOT_ADMITTED"); return
+                    }
+                    // Device-local preference only; restore the initial value.
+                    // Exercise the actual pending/result toast rather than a
+                    // synthetic overlay or another copy of the Profile scene.
+                    for expected in [original == "1" ? "0" : "1", original] {
+                        haptics.tap()
+                        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                            haptics.exists && haptics.isHittable && haptics.value as? String == expected &&
+                                nativeAccountBack.exists && nativeAccountBack.isHittable && close.exists && close.isHittable
+                        }, object: app)
+                        guard XCTWaiter.wait(for: [settled], timeout: 12) == .completed else {
+                            printCoherentPresentationAdmission(app)
+                            print("PROFILE_HAPTICS_STATE switch_present=\(haptics.exists) switch_hittable=\(haptics.exists && haptics.isHittable) back_present=\(nativeAccountBack.exists) close_present=\(close.exists)")
+                            XCTFail("PROFILE_HAPTICS_COMPLETION_BROKE_PRESENTATION"); return
+                        }
+                    }
+                    print("PROFILE_HAPTICS_PROBE toggles=2 preference_restored=true")
+                }
                 if id == "account", !phoneOnly, ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                     for actionID in ["account-reset", "account-delete"] {
                         let action = app.buttons["native-profile-row-\(actionID)"].firstMatch
