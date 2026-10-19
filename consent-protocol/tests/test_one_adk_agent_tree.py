@@ -290,6 +290,51 @@ class TestAgentTreeShape:
         assert finance_tool.agent.model is turn_model
         assert investor_tool.agent.model is turn_model
 
+    def test_explicit_native_search_model_does_not_inherit_azure_parent(self):
+        from google.adk.models import Gemini
+        from google.adk.tools.google_search_tool import GoogleSearchTool
+
+        from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
+
+        def unexpected_token():
+            raise AssertionError("Construction must not request Azure authentication")
+
+        turn_model = AzureOpenAIAdkModel(
+            model="synthetic-deployment",
+            endpoint="https://synthetic.openai.azure.com/openai/v1/",
+            token_supplier=unexpected_token,
+        )
+        search_model = Gemini(
+            model="gemini-native-search",
+            client_kwargs={
+                "vertexai": True,
+                "project": "synthetic-project",
+                "location": "us-central1",
+            },
+        )
+
+        agent = build_one_text_agent(model=turn_model, google_search_model=search_model)
+        children = {
+            tool.name: tool.agent
+            for tool in agent.tools
+            if getattr(tool, "agent", None) is not None
+        }
+
+        assert agent.model is turn_model
+        assert children["google_search"].model is search_model
+        assert any(isinstance(tool, GoogleSearchTool) for tool in children["google_search"].tools)
+        assert children["finance"].model is turn_model
+        assert children["wallet"].model is turn_model
+        assert all(
+            tool.agent.model is turn_model
+            for tool in children["finance"].tools
+            if getattr(tool, "agent", None) is not None
+        )
+        search_tool = next(
+            tool for tool in agent.tools if getattr(tool, "name", "") == "google_search"
+        )
+        assert search_tool.propagate_grounding_metadata is True
+
     def test_chat_vertex_project_flows_through_text_roster(self, monkeypatch):
         from google.adk.models import Gemini
 

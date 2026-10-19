@@ -23,6 +23,7 @@ if str(PROTOCOL_ROOT) not in sys.path:
     sys.path.insert(0, str(PROTOCOL_ROOT))
 
 from hushh_mcp.managed_ai_config import load_pwm_policy  # noqa: E402
+from scripts.probe_azure_openai_readiness import run_probe  # noqa: E402
 
 
 def _token_provider(*, tenant_id: str, client_id: str):
@@ -284,6 +285,24 @@ async def probe() -> None:
     if policy["provider"] != "azure_openai_web_search":
         raise RuntimeError("UAT Azure PWM provider is not selected")
     config = policy["azure"]
+    readiness = await run_probe()
+    if (
+        readiness["status"] != "ready"
+        or readiness["http_status"] != 200
+        or readiness["deployment"] != config["primary_deployment"]
+    ):
+        raise RuntimeError("Azure primary HTTP 200 readiness check failed")
+    print(
+        json.dumps(
+            {
+                "azure_pwm_runtime_probe_stage": "primary_http",
+                "result": "ok",
+                "http_status": 200,
+                "deployment": config["primary_deployment"],
+            }
+        ),
+        flush=True,
+    )
     started_at = time.monotonic()
     _stage("federation", "start", started_at=started_at)
     supplier = _token_provider(tenant_id=config["tenant_id"], client_id=config["client_id"])
@@ -300,7 +319,8 @@ async def probe() -> None:
 
 def main() -> int:
     try:
-        # The gateway makes one bounded primary call; no search is retried.
+        # One strict HTTP-200 readiness call precedes the bounded attribution
+        # call. Neither performs search or sends owner information.
         asyncio.run(asyncio.wait_for(probe(), timeout=200))
     except Exception as error:  # noqa: BLE001 - print only the error class, never a token
         print(
