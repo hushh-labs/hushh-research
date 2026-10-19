@@ -32,6 +32,12 @@ import {
 
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
+import {
+  HelperText,
+  MediumRowLabel,
+  RowDescription,
+  TrailingAction,
+} from "@/components/app-ui/typography";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import { SWIPE_VIEWS_HORIZONTAL_SCROLL_ATTR } from "@/lib/morphy-ux/ui/swipe-views";
 import { ConnectPortfolioCta } from "@/components/kai/cards/connect-portfolio-cta";
@@ -475,7 +481,7 @@ function OneMarketSectionHeader({
         ? "bg-[color:var(--one-orange-t)] text-[color:var(--one-orange)]"
         : "bg-[color:var(--one-teal-t)] text-[color:var(--one-teal)]";
   return (
-    <div className="mb-3.5 flex items-center justify-between">
+    <div className="mb-3.5 flex min-w-0 items-center justify-between gap-3">
       <div
         className={kaiPreviewSectionTitleClassName}
         role="heading"
@@ -492,15 +498,18 @@ function OneMarketSectionHeader({
         <span className="min-w-0 truncate">{title}</span>
       </div>
       {actionLabel ? (
-        <button
+        <Button
           type="button"
+          variant="none"
+          effect="fade"
+          size="compact"
           onClick={() => {
             if (actionHref) openOneMarketHref(actionHref);
           }}
-          className="shrink-0 text-[13px] font-semibold text-[color:var(--one-link)]"
+          className="shrink-0"
         >
           {actionLabel}
-        </button>
+        </Button>
       ) : null}
     </div>
   );
@@ -864,31 +873,30 @@ function OneMarketNewsCards({ rows }: { rows: KaiHomeNewsItem[] }) {
             className="group/news flex w-[274px] shrink-0 flex-col overflow-hidden rounded-[var(--app-card-radius-feature)] bg-[color:var(--one-card)] text-left shadow-[var(--app-card-shadow-standard)] transition-transform duration-150 hover:-translate-y-0.5 hover:shadow-[var(--app-card-shadow-feature)] sm:w-[300px]"
           >
             <OneMarketNewsCover row={row} index={index} />
-            <div className="flex flex-1 flex-col px-[13px] pb-[13px] pt-[11px]">
-              <div className="mb-1.5 flex items-center justify-between gap-1.5 text-[11.5px] font-medium text-[color:var(--one-fg3)]">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="min-w-0 truncate">
+            <div className="flex flex-1 flex-col p-4">
+              <div className="mb-1.5 flex items-start justify-between gap-1.5">
+                <HelperText as="span" className="flex min-w-0 flex-1 flex-col items-start">
+                  <span className="w-full truncate">
                     {row.source_name || "Market news"}
                   </span>
-                  <span className="h-0.5 w-0.5 shrink-0 rounded-full bg-[color:var(--one-fg3)]" />
                   <span className="shrink-0">
                     {formatHeadlinePublished(row.published_at)}
                   </span>
-                </span>
+                </HelperText>
                 <span className="shrink-0 rounded-full bg-[color:var(--one-surface)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--one-fg2)]">
                   {verifiedSymbol}
                 </span>
               </div>
-              <div className="line-clamp-2 text-[13.5px] font-semibold leading-[1.35] text-[color:var(--one-fg)]">
+              <MediumRowLabel as="div" className="line-clamp-2">
                 {row.title}
-              </div>
-              <p className="mt-2 line-clamp-2 text-[12px] leading-[1.38] text-[color:var(--one-fg2)]">
+              </MediumRowLabel>
+              <RowDescription className="mt-2 line-clamp-2">
                 {oneMarketNewsContext(row)}
-              </p>
+              </RowDescription>
               <div className="mt-3 flex items-center justify-end">
-                <span className="shrink-0 text-[11px] font-semibold text-[color:var(--one-link)]">
+                <TrailingAction as="span" className="shrink-0">
                   Read
-                </span>
+                </TrailingAction>
               </div>
             </div>
           </button>
