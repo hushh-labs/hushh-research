@@ -18,11 +18,22 @@ evidence, not admission or release claims for the latest implementation.
 
 ### App haptics and shared cancellation checkpoint — 2026-10-19
 
-The actual native Preferences switch completes two changes and restores its
-initial device-local value on app `4ca8c78c63`, runner `b6ed027608` (83.811 seconds,
-including provider-editor cancellation and Voice return). The reported broken
-screen is not reproduced: XCTest activation recovers the base interface, and
-no full-window privacy cover is present. Sonner is not established as its cause.
+The development-native repair is installed separately from warm testing
+(native source `e5d095c458`, Debug; existing bundled assets, not a new combined
+Release export). Preferences completes two real haptics changes and restores
+the initial device-local value, including provider-editor cancellation and
+Voice return (74.702 seconds). Ten Chat/History/Profile cycles, One/Puppy,
+keyboard/editor continuity and rename/delete cancellation pass in 515.682
+seconds without changing reviewer records. Ten background/resume cycles and
+an observed Control Center interruption pass touch recovery in 180.629 seconds.
+These are functional checks, not rendered-identity or performance acceptance.
+
+The originally reported broken screen is not reproduced: XCTest activation
+recovers the base interface and no full-window privacy cover is present.
+Sonner is not established as its cause. LLDB remains connected-only; explicit
+attach crashes twice in its Darwin image loader, including with parallel
+loading disabled. Debug installation is not a successful debugger attachment
+or proof of an application crash. No shared service or SDK is reset.
 
 A separate shared lease defect is reproduced: an interrupted, unconfirmed
 row/Back/Close choice loses its cancellation receipt, so React's correct negative
