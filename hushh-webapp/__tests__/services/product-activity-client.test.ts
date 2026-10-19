@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ reset: null as null | ((owner: string) => void), token: vi.fn(), fetch: vi.fn() }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { getFirebaseIdTokenForOwner: mocks.token, apiFetch: mocks.fetch } }));
@@ -8,6 +8,7 @@ beforeEach(() => { vi.resetModules(); vi.clearAllMocks(); mocks.token.mockResolv
   mocks.fetch.mockImplementation(async (_url, options) => new Response(JSON.stringify(options.method === "POST" ? { recorded: true } : { enabled: true, generation: "12345678-1234-1234-1234-123456789012" })));
 });
 const posts = () => mocks.fetch.mock.calls.filter((call) => call[1].method === "POST");
+afterEach(() => vi.restoreAllMocks());
 async function fixture() {
   const identity = await import("@/lib/auth/session-owner");
   identity.publishValidatedAuthSessionOwner("owner-a");
@@ -15,6 +16,24 @@ async function fixture() {
   return { ...identity, ...client };
 }
 describe("private product observation lifecycle", () => {
+  it("refreshes admission for new operations after a remote reset without rebinding pending terminal reports", async () => {
+    const f = await fixture();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    let epoch = "old-epoch";
+    mocks.fetch.mockImplementation(async (_url, options) => new Response(JSON.stringify(options.method === "POST" ? { recorded: false } : { enabled: true, generation: epoch })));
+    let complete!: (value: { status: string }) => void;
+    const pending = f.observeDispatch("calendar.event.create", new Promise((resolve) => { complete = resolve; }));
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    epoch = "new-epoch";
+    clock.mockReturnValue(now + 60_001);
+    f.observeProductEvent("one_memory_action", "detail_edited", "success");
+    await vi.waitFor(() => expect(posts()).toHaveLength(2));
+    complete({ status: "succeeded" }); await pending;
+    await vi.waitFor(() => expect(posts()).toHaveLength(3));
+    expect(posts().map((call) => JSON.parse(call[1].body).generation)).toEqual(["old-epoch", "new-epoch", "old-epoch"]);
+    expect(mocks.fetch.mock.calls.filter((call) => call[1].method !== "POST")).toHaveLength(2);
+  });
   it("pins dispatch ownership and preserves the actual result across account switching", async () => {
     const f = await fixture();
     let complete!: (value: { status: string; privateContent: string }) => void;

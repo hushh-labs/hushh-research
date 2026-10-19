@@ -155,6 +155,9 @@ full account deletion erases both tables. SDK invocations pin their epoch once
 before execution. Browser dispatches pin the initiating account and reset
 generation. Late callbacks, old tabs and delayed imports cannot bind old work
 to a new account or reset epoch. Observation SQL has statement and lock deadlines.
+New client operations refresh admission after at most one minute, recovering
+eligibility changes, temporary admission failures and cross-device resets.
+Pending terminal reports remain bound to their original admission promise.
 Apply the migration and verify schema/deletion/retention checks before enabling
 the flag. Rollback: disable collection, then use the registered migration365
 rollback; original task exports remain available in version 1. No infrastructure,

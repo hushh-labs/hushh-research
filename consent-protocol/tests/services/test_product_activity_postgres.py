@@ -27,6 +27,7 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
         pytest.skip("Canonical disposable PostgreSQL administrator URL is required")
     url = make_url(configured).set(drivername="postgresql+psycopg2")
     database = "plg_observation_test_" + uuid4().hex
+    browser_role = "plg_observation_role_" + uuid4().hex
     admin = create_engine(url, isolation_level="AUTOCOMMIT")
     with admin.connect() as conn:
         conn.exec_driver_sql(f'CREATE DATABASE "{database}"')
@@ -37,6 +38,7 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
     ).read_text()
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.exec_driver_sql(f'CREATE ROLE "{browser_role}" NOLOGIN NOBYPASSRLS')
             conn.exec_driver_sql(
                 "CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY); CREATE TABLE vault_keys(user_id TEXT PRIMARY KEY)"
             )
@@ -99,6 +101,30 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
         assert current != generation
         assert activity.observe("owner", current, action, "returned", "client_reported", "new-run")
         with engine.begin() as conn:
+            assert not conn.execute(
+                text(
+                    "SELECT has_table_privilege(:role,'one_product_activity_observations','SELECT')"
+                ),
+                {"role": browser_role},
+            ).scalar()
+            conn.exec_driver_sql(
+                f'GRANT SELECT ON one_product_activity_observations TO "{browser_role}"'
+            )
+            assert (
+                conn.exec_driver_sql(
+                    "SELECT COUNT(*) FROM one_product_activity_observations"
+                ).scalar()
+                == 1
+            )
+            conn.exec_driver_sql(f'SET LOCAL ROLE "{browser_role}"')
+            # Even an accidental table grant cannot bypass service-only RLS.
+            assert (
+                conn.exec_driver_sql(
+                    "SELECT COUNT(*) FROM one_product_activity_observations"
+                ).scalar()
+                == 0
+            )
+        with engine.begin() as conn:
             conn.execute(
                 text(
                     "UPDATE one_product_activity_observations SET expires_at=NOW()-INTERVAL '1 second'"
@@ -126,8 +152,10 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
         assert activity.purge_expired() == 1
         with engine.begin() as conn:
             conn.execute(text("DELETE FROM actor_profiles WHERE user_id='owner'"))
-        with pytest.raises(DBAPIError):
+        with pytest.raises(DBAPIError) as rejected:
             activity.admission("owner")
+        assert rejected.value.orig.pgcode == "23514"
+        assert rejected.value.orig.diag.constraint_name == "account_deletion_tombstone_guard"
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             assert (
                 conn.exec_driver_sql(
@@ -145,4 +173,5 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
                 {"db": database},
             )
             conn.exec_driver_sql(f'DROP DATABASE "{database}"')
+            conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{browser_role}"')
         admin.dispose()

@@ -78,8 +78,9 @@ it grants no messaging permission. Disabling it stops collection and hides
 retained observations from exports. The authenticated Drive work drain keeps
 expiry cleanup independent of collection flags. The snapshot v2 consumer and
 producer can release separately; v1 task export remains compatible.
-Reload existing browser/native sessions after rollout or pilot eligibility
-changes so they discover collection admission again. Admission failures are
+New browser/native operations refresh observation admission at most once per
+minute, including after rollout, source failures or resets on another device.
+Pending terminal reports retain their original epoch. Admission failures are
 best effort and there is no durable client retry queue.
 
 Production exporter `ONE_PLG_EXPORT_ENABLED` defaults false and maps from
