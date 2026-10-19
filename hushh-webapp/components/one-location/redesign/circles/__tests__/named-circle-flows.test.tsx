@@ -790,7 +790,8 @@ describe("named Circle flows", () => {
     expect(within(roster).getByLabelText("Verified advisor")).toBeTruthy();
     const badge = within(roster).getByLabelText("Connected from your contacts");
     expect(badge).toBeTruthy();
-    expect(badge.closest("p")).toBeNull();
+    expect(badge.previousElementSibling).toHaveTextContent("Asha Contact");
+    expect(badge.querySelector("svg")).toBeTruthy();
     expect(screen.getByText("Asha Contact")).toHaveAttribute("title", "Asha Contact");
   });
 
