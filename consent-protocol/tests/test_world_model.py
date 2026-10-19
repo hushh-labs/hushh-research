@@ -538,6 +538,54 @@ def owner_client(monkeypatch, jobs):
     return TestClient(app), routes
 
 
+def test_numeric_usage_is_owner_only_and_keeps_json_and_stream_bodies_compatible(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.routes.one.world_model_stream import _frame
+
+    usage = {
+        "model_calls": 2,
+        "recorded_calls": 2,
+        "input_tokens": 120,
+        "output_tokens": 35,
+        "cached_input_tokens": 20,
+        "provider_elapsed_ms": 1000,
+        "bing_requests": 1,
+    }
+    public = {
+        "status": "offered",
+        "pkm_written": False,
+        "research": {"provider": "azure_openai_web_search"},
+    }
+    internal = {**public, "_provider_usage": usage}
+    jobs = SimpleNamespace(
+        status=AsyncMock(return_value=internal),
+        start=AsyncMock(return_value=internal),
+        ensure=AsyncMock(return_value=internal),
+    )
+    client, routes = owner_client(monkeypatch, jobs)
+    for method, path in [("get", "jobs"), ("post", "jobs"), ("post", "ensure")]:
+        response = getattr(client, method)("/api/one/world-model/" + path)
+        assert response.status_code == 200
+        assert response.json() == public
+        assert json.loads(response.headers["x-hussh-pwm-usage"]) == usage
+        assert response.headers["cache-control"] == "private, no-store"
+    assert json.loads(_frame("result", internal)["data"]) == public
+    assert internal["_provider_usage"] == usage  # transport cannot mutate encrypted state
+    unauthenticated = FastAPI()
+    unauthenticated.include_router(routes.router)
+    denied = TestClient(unauthenticated).get("/api/one/world-model/jobs")
+    assert denied.status_code == 401
+    assert "x-hussh-pwm-usage" not in denied.headers
+    jobs.status.assert_awaited_once_with("owner", "fixture")
+    internal["_provider_usage"] = {**usage, "prompt": "SYNTHETIC_PRIVATE_TEXT"}
+    malformed = client.get("/api/one/world-model/jobs")
+    assert malformed.status_code == 503
+    assert "x-hussh-pwm-usage" not in malformed.headers
+    assert "SYNTHETIC_PRIVATE_TEXT" not in malformed.text
+
+
 def test_ensure_busy_or_unexpected_failure_is_a_retryable_503(monkeypatch):
     ensure = AsyncMock(side_effect=RuntimeError("Discovery capacity is temporarily busy"))
     client, _ = owner_client(monkeypatch, SimpleNamespace(ensure=ensure))

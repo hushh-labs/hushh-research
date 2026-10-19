@@ -363,7 +363,9 @@ async def test_owner_story_stream_frames_follow_the_checkpoints_then_close(story
 
 
 @pytest.mark.asyncio
-async def test_owner_can_read_cited_partial_batch_after_failure_but_changed_binding_cannot(story):
+async def test_owner_can_read_cited_partial_batch_after_failure_but_changed_binding_cannot(
+    story, monkeypatch
+):
     instance, research = story.jobs, story.research
     research.batch = {
         "candidate_id": "c1",
@@ -399,10 +401,32 @@ async def test_owner_can_read_cited_partial_batch_after_failure_but_changed_bind
     assert json.loads(frames[1]["data"])["validated_facts"] == live["validated_facts"]
     research.proceed[2].set()
     await settle(instance)
+    use_azure_budget(story, monkeypatch)
+    state = instance.store.rows["owner"]
+    state["work"].update(
+        azure_work_version=1,
+        usage_records={
+            str(pwm.MAX_SEARCHES + 1): {
+                "input_tokens": 120,
+                "output_tokens": 35,
+                "cached_input_tokens": 20,
+                "elapsed_ms": 1000,
+            }
+        },
+    )
     failed = await instance.status("owner", "fixture-token")
     assert failed["status"] == "unavailable"
     assert failed["validated_facts"] == live["validated_facts"]
     assert failed["progress"]["topics_checked"] == ["career", "education"]
+    from hushh_mcp.one_adk.world_model_usage import public_result
+
+    body, usage = public_result(failed)
+    assert "_provider_usage" not in body
+    assert "research" not in body  # failed bodies retain the existing strict shape
+    assert usage["recorded_calls"] == 1
+    assert usage["model_calls"] == 3
+    assert usage["input_tokens"] is None  # two charged calls have no SDK receipt
+    assert usage["bing_requests"] is None
     instance.check.return_value = (None, "changed-owner-binding")
     denied = await instance.status("owner", "fixture-token")
     assert denied == jobs.pending(restart=True)

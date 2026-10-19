@@ -12,6 +12,7 @@ from openai import APIError
 from hushh_mcp.one_adk.world_model import MAX_SEARCHES
 from hushh_mcp.one_adk.world_model_azure import AzurePwmGateway, run_world_model_azure
 from hushh_mcp.one_adk.world_model_contracts import TOPICS, validated_facts_from_work
+from hushh_mcp.one_adk.world_model_usage import UsageReceipt
 
 IDENTITY = {"full_name": "Alex Example", "email": "alex@example.test", "phone_number": None}
 URL = "https://example.test/alex"
@@ -286,6 +287,8 @@ async def test_azure_runner_charges_before_dispatch_and_preserves_receipts():
         gateway=gateway,
     )
     assert result["status"] == "offered"
+    assert result["_provider_usage"]["input_tokens"] is None
+    assert result["_provider_usage"]["recorded_calls"] == 0
     assert result["pkm_written"] is False
     assert result["research"]["source_use"] == "azure_web_grounded_display_only"
     assert result["research"]["provider"] == "azure_openai_web_search"
@@ -915,6 +918,7 @@ async def test_azure_runner_rejects_checkpoint_from_another_provider():
 
 @pytest.mark.asyncio
 async def test_azure_gateway_rejects_parseable_but_incomplete_report():
+    usage_received = AsyncMock()
     gateway = AzurePwmGateway(
         primary_endpoint="https://synthetic.openai.azure.com/openai/v1/",
         primary_deployment="primary",
@@ -922,8 +926,19 @@ async def test_azure_gateway_rejects_parseable_but_incomplete_report():
         phi_endpoint="https://synthetic.services.ai.azure.com/openai/v1/",
         phi_deployment="phi",
         phi_token_supplier=lambda: "synthetic",
+        on_usage=usage_received,
     )
-    response = SimpleNamespace(status="incomplete", incomplete_details=None, output_text="{}")
+    response = SimpleNamespace(
+        status="incomplete",
+        incomplete_details=None,
+        output_text="{}",
+        usage={
+            "input_tokens": 120,
+            "output_tokens": 35,
+            "input_tokens_details": {"cached_tokens": 20},
+            "private_text": "SYNTHETIC_SECRET_MUST_NOT_ENTER_ACCOUNTING",
+        },
+    )
 
     class FakeClient:
         responses = SimpleNamespace(create=AsyncMock(return_value=response))
@@ -946,6 +961,91 @@ async def test_azure_gateway_rejects_parseable_but_incomplete_report():
             schema={},
             max_output_tokens=8192,
         )
+    usage_received.assert_awaited_once()
+    receipt = usage_received.await_args.args[0]
+    assert (receipt.input_tokens, receipt.output_tokens, receipt.cached_input_tokens) == (
+        120,
+        35,
+        20,
+    )
+    assert "SYNTHETIC_SECRET" not in receipt.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_numeric_usage_survives_resume_without_entering_model_history(monkeypatch):
+    from hushh_mcp.one_adk import world_model_azure as runner
+
+    charges, snapshots = [], []
+
+    class MeteredGateway(FakeGateway):
+        def __init__(self, **kwargs):
+            super().__init__(charges=charges, snapshots=snapshots)
+            self.on_usage = kwargs["on_usage"]
+
+        async def meter(self):
+            await self.on_usage(
+                UsageReceipt(
+                    input_tokens=100, output_tokens=20, cached_input_tokens=10, elapsed_ms=5
+                )
+            )
+
+        async def search(self, request):
+            result = await super().search(request)
+            await self.meter()
+            return result
+
+        async def structured(self, **kwargs):
+            assert "usage_records" not in kwargs["payload"].get("research_history", {})
+            result = await super().structured(**kwargs)
+            await self.meter()
+            return result
+
+        async def plan(self, payload):
+            assert "usage_records" not in payload["research_history"]
+            result = await super().plan(payload)
+            await self.meter()
+            return result
+
+    monkeypatch.setattr(runner, "AzurePwmGateway", MeteredGateway)
+
+    async def charge(slots):
+        charges.extend(slots)
+
+    async def progress(work):
+        snapshots.append(copy.deepcopy(work))
+
+    async def run(work=None):
+        return await run_world_model_azure(
+            identity=IDENTITY,
+            user_id="owner",
+            consent_token="synthetic",  # noqa: S106
+            primary_token_supplier=lambda: "synthetic",
+            require_access=AsyncMock(),
+            on_attempts_start=charge,
+            on_progress=progress,
+            attempts_used=tuple(charges),
+            owner_decisions={"rejected": ["An unrelated claim"]},
+            work=work,
+        )
+
+    first = await run()
+    first_work = copy.deepcopy(snapshots[-1])
+    assert first["_provider_usage"]["input_tokens"] == 100 * first["_provider_usage"]["model_calls"]
+    resumed = await run(first_work)
+    usage = resumed["_provider_usage"]
+    assert usage["model_calls"] == usage["recorded_calls"]
+    assert usage["input_tokens"] == 100 * usage["model_calls"]
+    assert usage["output_tokens"] == 20 * usage["model_calls"]
+    assert usage["cached_input_tokens"] == 10 * usage["model_calls"]
+    assert usage["bing_requests"] == 1
+    # Identity/policy resets can retain paid slots while dropping old work.
+    # A retained count must not masquerade as the whole discovery's bill.
+    assert runner.checkpoint_usage(snapshots[-1], [*charges, 2])["bing_requests"] is None
+    assert runner.checkpoint_usage({"azure_work_version": 1}, charges)["input_tokens"] is None
+    assert all(
+        snapshots[-1]["usage_records"][key] == value
+        for key, value in first_work["usage_records"].items()
+    )
 
 
 @pytest.mark.asyncio
