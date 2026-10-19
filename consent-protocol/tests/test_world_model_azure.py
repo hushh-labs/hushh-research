@@ -132,6 +132,7 @@ class FakeGateway:
         invalid_finding=None,
         report_timeout=False,
         assessment_results=None,
+        report_results=None,
     ):
         self.charges = charges
         self.snapshots = snapshots
@@ -147,6 +148,8 @@ class FakeGateway:
         self.invalid_finding = invalid_finding
         self.report_timeout = report_timeout
         self.assessment_results = copy.deepcopy(assessment_results)
+        self.report_results = copy.deepcopy(report_results)
+        self.report_requests = []
         self.assessment_payloads = []
         self.calls = []
 
@@ -259,11 +262,16 @@ class FakeGateway:
                     }
                 ],
             }
-        assert purpose == "world_model_report"
+        assert purpose in {"world_model_report", "world_model_report_repair"}
+        self.report_requests.append(
+            copy.deepcopy({"purpose": purpose, "payload": payload, "schema": schema})
+        )
         if self.report_timeout:
             raise TimeoutError("Synthetic report interruption")
         assert payload["owner_decisions"]["rejected"] == ["An unrelated claim"]
         assert payload["topic_attempt_ids"]["career"]
+        if self.report_results is not None:
+            return self.report_results.pop(0)
         draft = report(payload["research_history"]["assessment"]["identity"])
         if self.bad_coverage:
             draft["coverage"][TOPICS.index("career")]["attempt_ids"] = [31]
@@ -441,6 +449,204 @@ async def test_azure_runner_rejects_section_without_observed_topic_receipt():
             owner_decisions={"rejected": ["An unrelated claim"]},
             gateway=gateway,
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("defect", ["topic", "schema_bound", "citation"])
+async def test_report_schema_matches_observed_topics_and_repairs_without_research(defect):
+    from jsonschema import ValidationError, validate
+
+    from hushh_mcp.one_adk.world_model_azure import _cap_unverified_contact
+
+    accepted = _cap_unverified_contact(assessment())["identity"]
+    valid = report(accepted)
+    invalid = copy.deepcopy(valid)
+    if defect == "topic":
+        invalid["sections"][0]["kind"] = "travel"
+    elif defect == "schema_bound":
+        invalid["summary"] = "x" * 501
+    else:
+        invalid["sections"][0]["facts"][0]["sources"][0]["ref"] = "s2"
+    charges, snapshots = [], []
+    gateway = FakeGateway(charges=charges, snapshots=snapshots, report_results=[invalid, valid])
+
+    async def charge(slots):
+        charges.extend(slots)
+
+    async def progress(work):
+        snapshots.append(copy.deepcopy(work))
+
+    result = await run_world_model_azure(
+        identity=IDENTITY,
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106 - synthetic test authority
+        require_access=AsyncMock(),
+        on_attempts_start=charge,
+        on_progress=progress,
+        owner_decisions={"rejected": ["An unrelated claim"]},
+        gateway=gateway,
+    )
+    assert result["status"] == "offered"
+    assert result["report"]["sections"][0]["kind"] == "career"
+    assert gateway.calls.count("search") == 1
+    assert gateway.calls[-2:] == ["world_model_report", "world_model_report_repair"]
+    original, repair = gateway.report_requests
+    validate(valid, original["schema"])
+    with pytest.raises(ValidationError):
+        validate(invalid, original["schema"])
+    assert repair["schema"] == original["schema"]
+    assert repair["payload"]["invalid_report"] == invalid
+    assert repair["payload"]["validation_errors"] == [
+        {"path": [], "type": "value_error"}
+        if defect != "schema_bound"
+        else {"path": ["summary"], "type": "string_too_long"}
+    ]
+    assert repair["payload"]["research_history"] == original["payload"]["research_history"]
+    assert "usage_records" not in repair["payload"]["research_history"]
+    assert charges == [1, *range(MODEL_FIRST, MODEL_FIRST + 6)]
+
+
+@pytest.mark.parametrize("distinct_sources", [False, True])
+def test_deep_report_schema_fits_azure_budgets_without_truncating_citations(distinct_sources):
+    from jsonschema import Draft202012Validator, ValidationError, validate
+
+    from hushh_mcp.one_adk.world_model_azure import (
+        _cap_unverified_contact,
+        _report_schema,
+        _structured_schema,
+    )
+
+    sources = {
+        topic: [
+            "s1",
+            *[
+                f"s{2 + group * 100 + index}"
+                for group in range(3)
+                if distinct_sources and (position % 7 + 1) & (1 << group)
+                for index in range(100)
+            ],
+        ]
+        for position, topic in enumerate(TOPICS)
+    }
+    schema = _report_schema({topic: [1] for topic in TOPICS}, sources)
+    definitions = {}
+    native = _structured_schema(schema, definitions=definitions)
+    native["$defs"] = definitions
+
+    def counts(value, key):
+        if isinstance(value, dict):
+            return len(value.get(key, [])) + sum(counts(item, key) for item in value.values())
+        if isinstance(value, list):
+            return sum(counts(item, key) for item in value)
+        return 0
+
+    assert counts(native, "properties") + 1 <= 100  # result envelope
+    assert counts(native, "enum") <= 1000
+    Draft202012Validator.check_schema(native)
+    eligible = sorted({ref for rows in sources.values() for ref in rows})
+    assert native["$defs"]["ProfileSourceRef"]["properties"]["ref"]["enum"] == eligible
+    value = report(_cap_unverified_contact(assessment())["identity"])
+    validate(value, native)
+    value["sections"][0]["facts"][0]["sources"][0]["ref"] = "s9999"
+    with pytest.raises(ValidationError):
+        validate(value, native)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", ["budget", "time", "authority"])
+async def test_report_repair_preserves_execution_boundaries(boundary):
+    from hushh_mcp.one_adk.world_model import TASK_SECONDS
+    from hushh_mcp.one_adk.world_model_azure import MAX_AZURE_MODEL_CALLS
+
+    charges, snapshots = [], []
+    clock, revoked = [0.0], [False]
+
+    class BoundaryGateway(FakeGateway):
+        async def structured(self, **kwargs):
+            value = await super().structured(**kwargs)
+            if kwargs["purpose"] == "world_model_report":
+                if boundary == "time":
+                    clock[0] = TASK_SECONDS - 20
+                if boundary == "authority":
+                    revoked[0] = True
+            return value
+
+    gateway = BoundaryGateway(charges=charges, snapshots=snapshots, unsearched_section=True)
+
+    async def access():
+        if revoked[0]:
+            raise PermissionError("Synthetic revocation")
+
+    async def charge(slots):
+        charges.extend(slots)
+
+    async def progress(work):
+        snapshots.append(copy.deepcopy(work))
+
+    async def run():
+        return await run_world_model_azure(
+            identity=IDENTITY,
+            user_id="owner",
+            consent_token="synthetic",  # noqa: S106
+            require_access=access,
+            on_attempts_start=charge,
+            on_progress=progress,
+            owner_decisions={"rejected": ["An unrelated claim"]},
+            gateway=gateway,
+            monotonic_clock=lambda: clock[0],
+            attempts_used=tuple(range(MODEL_FIRST + 4, MODEL_FIRST + MAX_AZURE_MODEL_CALLS))
+            if boundary == "budget"
+            else (),
+        )
+
+    if boundary == "time":
+        assert await run() == {"status": "paused", "pkm_written": False, "restart_required": True}
+    else:
+        with pytest.raises(PermissionError if boundary == "authority" else ValueError):
+            await run()
+    assert "world_model_report_repair" not in gateway.calls
+    assert gateway.calls.count("search") == 1
+
+
+@pytest.mark.asyncio
+async def test_resumed_report_at_fourteenth_model_call_repairs_without_search_replay():
+    from hushh_mcp.one_adk.world_model_azure import _cap_unverified_contact
+
+    snapshots, charges = [], []
+
+    async def progress(work):
+        snapshots.append(copy.deepcopy(work))
+
+    async def charge(slots):
+        charges.extend(slots)
+
+    kwargs = dict(
+        identity=IDENTITY,
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106
+        require_access=AsyncMock(),
+        on_attempts_start=charge,
+        on_progress=progress,
+        owner_decisions={"rejected": ["An unrelated claim"]},
+    )
+    await run_world_model_azure(**kwargs, gateway=FakeGateway(charges=charges, snapshots=snapshots))
+    work = copy.deepcopy(snapshots[-1])
+    accepted = _cap_unverified_contact(assessment())["identity"]
+    valid = report(accepted)
+    invalid = copy.deepcopy(valid)
+    invalid["sections"][0]["kind"] = "travel"
+    charges.clear()
+    gateway = FakeGateway(charges=charges, snapshots=snapshots, report_results=[invalid, valid])
+    result = await run_world_model_azure(
+        **kwargs,
+        work=work,
+        attempts_used=(1, *range(MODEL_FIRST, MODEL_FIRST + 13)),
+        gateway=gateway,
+    )
+    assert result["status"] == "offered"
+    assert gateway.calls == ["world_model_report", "world_model_report_repair"]
+    assert charges == [MODEL_FIRST + 13, MODEL_FIRST + 14]
+    assert result["research"]["searches_used"] == 1
 
 
 @pytest.mark.asyncio
@@ -745,6 +951,11 @@ async def test_azure_runner_repairs_invalid_identity_without_repeating_search(de
     assert repaired["identity"] == original["identity"]
     assert repaired["research_history"] == original["research_history"]
     assert repaired["invalid_assessment"] == invalid
+    assert repaired["validation_errors"] == [
+        {"path": [], "type": "value_error"}
+        if defect == "missing_selection"
+        else {"path": ["candidates", 0, "label"], "type": "string_too_long"}
+    ]
     assert "usage_records" not in repaired["research_history"]
     assert "An unrelated claim" not in json.dumps(repaired)
     assert all(

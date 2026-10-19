@@ -89,6 +89,27 @@ fills a candidate or substitutes an identity decision. Repair preserves owner
 authority, the final-report time/slot reserve and every charged usage receipt;
 insufficient time pauses the slice without another search.
 
+The final Azure report schema limits section kinds to topics with observed,
+candidate-compatible search receipts. All twenty coverage rows remain present.
+Each section's citation enum uses the same eligible-source projection as the
+original receipt validator: selected-candidate anchors and observed coverage
+for that exact candidate and topic, intersected with received sources. Other
+namesake pages cannot supply citations merely because search returned them.
+When native topic specializations exceed Azure's schema budget, one shared
+shape carries the eligible citation union instead. Evidence is never truncated;
+the full per-topic eligibility remains in the prompt and original validator.
+A schema/evidence-invalid report may receive one charged, tool-free correction
+using the same research and assessed identity, then passes the original
+validators again. No section is silently removed or relabelled by the host;
+provider failures, authority loss and exhausted budgets are not repaired.
+Both report calls remain within the existing sixteen-call generation budget.
+Repair receives failed field paths and error types without exception input or
+context; the original schema's length, item-count and pattern bounds still apply.
+Retained completed checkpoints are reused only for their current identity/policy
+binding. A purged completed draft still follows the seven-day preparation
+interval; the existing **Check for updates** action requests fresh research
+through the normal admission and paid budgets.
+
 Azure usage receipts contain only input, output and cached-token counts plus
 provider elapsed milliseconds. They use the existing charged model slots in the
 encrypted work checkpoint and are excluded from model-visible research history.

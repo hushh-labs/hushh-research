@@ -908,6 +908,7 @@ async def test_ensure_prepares_again_after_checkpoint_purge_once_last_run_is_old
             "started_at": now.timestamp() - 25 * 3600,
             "finished_at": now.timestamp() - 25 * 3600,
             "consent_generation": "00000000-0000-4000-8000-000000000001",
+            "identity_binding": "owner-bound-identity",
             "result": RESULT,
         }
     # No live checkpoint; the last run's age and outcome decide.
@@ -916,6 +917,59 @@ async def test_ensure_prepares_again_after_checkpoint_purge_once_last_run_is_old
     assert instance.offer.await_count == (1 if expected == "pending" else 0)
     if active_draft is not None:
         finished.assert_awaited_once_with("owner", active_draft)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["saved", "offered"])
+@pytest.mark.parametrize("changed_binding", [False, True])
+async def test_ensure_reuses_completed_state_only_for_current_identity_policy(
+    monkeypatch, status, changed_binding
+):
+    from datetime import UTC, datetime, timedelta
+
+    from hushh_mcp.services import world_model_service as pwm
+
+    now = datetime(2026, 10, 20, tzinfo=UTC)
+    current = "new-owner-policy" if changed_binding else "owner-bound-identity"
+    monkeypatch.setattr(pwm, "admission", AsyncMock(return_value=(None, current)))
+    monkeypatch.setattr(
+        pwm,
+        "preferences",
+        AsyncMock(
+            return_value={
+                "enabled": True,
+                "generation": "00000000-0000-4000-8000-000000000001",
+                "auto_started_at": now - timedelta(days=2),
+                "active_draft_id": None,
+            }
+        ),
+    )
+    instance = pwm_manager(
+        monkeypatch, clock=now.timestamp, check=AsyncMock(return_value=(None, current))
+    )
+    await instance.store.write(
+        "owner",
+        {
+            "job_id": "00000000-0000-4000-8000-0000000000d1",
+            "status": status,
+            "identity_binding": "owner-bound-identity",
+            "consent_generation": "00000000-0000-4000-8000-000000000001",
+            "started_at": now.timestamp() - 60,
+            "finished_at": now.timestamp() - jobs.TTL_SECONDS - 1,
+            "starts": [now.timestamp() - 60],
+            "attempted_combinations": [1],
+            "budget_scope": instance.budget_scope(),
+            "result": {"status": "saved", "pkm_written": False} if status == "saved" else RESULT,
+        },
+        None,
+    )
+    result = await instance.ensure("owner", "token")
+    assert result["status"] == ("pending" if changed_binding else "saved")
+    await settle(instance)
+    assert instance.offer.await_count == int(changed_binding)
+    if changed_binding:
+        assert instance.offer.call_args.kwargs["attempts_used"] == (1,)
+        assert instance.store.rows["owner"]["starts"] == [now.timestamp() - 60, now.timestamp()]
 
 
 class ProviderDenied(Exception):

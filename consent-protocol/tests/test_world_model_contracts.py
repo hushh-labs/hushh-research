@@ -12,6 +12,7 @@ from hushh_mcp.one_adk.world_model_contracts import (
     FindingBatch,
     IdentityAssessment,
     WorldModelReport,
+    eligible_report_sources,
     validated_facts_from_work,
 )
 
@@ -174,23 +175,50 @@ def test_identity_search_cannot_cite_an_unanchored_namesake_source():
         )
 
 
-@pytest.mark.parametrize("observed", [False, True])
-def test_report_cannot_borrow_citation_from_unobserved_coverage(observed):
+@pytest.mark.parametrize(
+    "defect", [None, "unobserved", "other_candidate", "other_topic", "unreceived"]
+)
+def test_report_cannot_borrow_citation_from_ineligible_coverage(defect):
+    from jsonschema import ValidationError, validate
+
+    from hushh_mcp.one_adk.world_model_azure import _report_schema, _topic_attempts
+
     value = report(assessment()["identity"])
     value["sections"][0]["facts"][0]["sources"] = [{"title": "Other result", "ref": "s2"}]
     attempts = {
         "1": {"plan": copy.deepcopy(PLAN), "observed": True, "source_refs": ["s1"]},
         "2": {
             "plan": {**copy.deepcopy(PLAN), "purpose": "coverage", "candidate_id": "c1"},
-            "observed": observed,
+            "observed": defect != "unobserved",
             "source_refs": ["s2"],
         },
     }
+    if defect == "other_candidate":
+        attempts["2"]["plan"]["candidate_id"] = "c2"
+    if defect == "other_topic":
+        attempts["2"]["plan"]["topics"] = ["education"]
+        value["coverage"][TOPICS.index("education")]["status"] = "checked_no_findings"
+    accepted = IdentityAssessment.model_validate(assessment())
+    refs = {"s1"} if defect == "unreceived" else {"s1", "s2"}
+    topics = {
+        topic: [index for index in indices if attempts[str(index)]["observed"]]
+        for topic, indices in _topic_attempts(accepted, attempts).items()
+    }
+    schema = _report_schema(
+        topics,
+        {
+            topic: sorted(eligible & refs)
+            for topic, eligible in eligible_report_sources(accepted, attempts).items()
+        },
+    )
     model = WorldModelReport.model_validate(value)
-    args = (IdentityAssessment.model_validate(assessment()), attempts, {"s1", "s2"})
-    if observed:
+    args = (accepted, attempts, refs)
+    if defect is None:
+        validate(value, schema)
         assert model.validate_receipts(*args).sections[0].facts[0].sources[0].ref == "s2"
     else:
+        with pytest.raises(ValidationError):
+            validate(value, schema)
         with pytest.raises(ValueError, match="unreceived source"):
             model.validate_receipts(*args)
 

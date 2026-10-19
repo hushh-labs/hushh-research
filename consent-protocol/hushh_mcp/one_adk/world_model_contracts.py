@@ -289,6 +289,29 @@ class WorldModelSection(ProfileSection[ProfileSourceRef]):
     )
 
 
+def eligible_report_sources(assessment: IdentityAssessment, attempts: dict) -> dict[str, set[str]]:
+    """Project assessed anchors and observed candidate coverage into citation receipts."""
+    candidate_id = assessment.identity.selected_candidate_id
+    selected_sources = {
+        ref
+        for anchor in assessment.anchors
+        if anchor.candidate_id == candidate_id
+        for ref in anchor.source_refs
+    }
+    eligible = {topic: set(selected_sources) for topic in TOPICS}
+    for row in attempts.values():
+        plan = QueryPlan.model_validate(row.get("plan"))
+        if (
+            plan.purpose == "coverage"
+            and row.get("observed") is True
+            and plan.candidate_id == candidate_id
+            and candidate_id is not None
+        ):
+            for topic in plan.topics:
+                eligible[topic].update(row["source_refs"])
+    return eligible
+
+
 class WorldModelReport(Contract):
     """A PWM-specific deep report without changing other profile report bounds."""
 
@@ -339,12 +362,6 @@ class WorldModelReport(Contract):
             raise ValueError("Final report changed the assessed identity")
         findings = {section.kind for section in self.sections}
         candidate_id = assessment.identity.selected_candidate_id
-        selected_sources = {
-            ref
-            for anchor in assessment.anchors
-            if anchor.candidate_id == candidate_id
-            for ref in anchor.source_refs
-        }
         # Attempt numbers are execution receipts, not model judgements. Rebuild
         # their topic mapping from the sealed search plans so a report with a
         # mistaken number can still be offered without inventing evidence.
@@ -358,7 +375,7 @@ class WorldModelReport(Contract):
             except (TypeError, ValueError) as error:
                 raise ValueError("Invalid recorded search receipt") from error
             recorded[index] = {**row, "plan": plan}
-        topic_sources = {}
+        topic_sources = eligible_report_sources(assessment, recorded)
         for topic in self.coverage:
             # An explicit reference to another candidate remains a hard error.
             for index in topic.attempt_ids:
@@ -376,15 +393,6 @@ class WorldModelReport(Contract):
                 and row["plan"].candidate_id in {None, candidate_id}
             )
             rows = [recorded[index] for index in topic.attempt_ids]
-            topic_sources[topic.topic] = selected_sources | {
-                ref
-                for row in rows
-                if row["plan"].purpose == "coverage"
-                and row.get("observed") is True
-                and row["plan"].candidate_id == candidate_id
-                and candidate_id is not None
-                for ref in row["source_refs"]
-            }
             if topic.status in {"findings", "checked_no_findings"} and (
                 not rows or not any(row["observed"] for row in rows)
             ):
