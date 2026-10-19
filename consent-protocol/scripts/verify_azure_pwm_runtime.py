@@ -155,6 +155,12 @@ def _production_contract_examples() -> tuple[dict, dict]:
     return values, schemas
 
 
+def _failure(check: str, fields: list[str]) -> None:
+    """Emit authored case/field names only; suppress model text and provider errors."""
+    print(json.dumps({"azure_pwm_probe_failure": check, "failed_fields": fields}), flush=True)
+    raise RuntimeError(f"Azure {check} evaluation failed")
+
+
 async def _probe_primary(config: dict[str, str], supplier: Callable[[], str]) -> None:
     """Exercise the real gateway/schema and authored attribution behavior, not a ping."""
     from hushh_mcp.one_adk.world_model import policy_fingerprint
@@ -175,7 +181,8 @@ async def _probe_primary(config: dict[str, str], supplier: Callable[[], str]) ->
             "Use false for unsupported attribution, completion, ownership or identity; "
             "use true for accurately attributed self-reports and explicit metadata. "
             "Return each case exactly once. Copy the supplied production_contract_examples "
-            "into the corresponding assessment, finding, report and planner fields exactly. "
+            "into the corresponding assessment, finding, report and planner fields. "
+            "Preserve their no-search decisions and empty evidence; prose may be paraphrased. "
             "They are fictional schema smoke values, not research findings. "
             "This is a synthetic regression evaluation."
         ),
@@ -215,21 +222,47 @@ async def _probe_primary(config: dict[str, str], supplier: Callable[[], str]) ->
     )
     rows = result.get("decisions")
     expected = {key: supported for key, _, _, supported in _ATTRIBUTION_CASES}
-    if (
-        not isinstance(rows, list)
-        or len(rows) != len(expected)
-        or any(not isinstance(row, dict) or type(row.get("supported")) is not bool for row in rows)
-        or {row.get("case_id"): row["supported"] for row in rows} != expected
-    ):
-        raise RuntimeError("Azure source attribution evaluation failed")
+    valid_rows = isinstance(rows, list) and all(
+        isinstance(row, dict)
+        and isinstance(row.get("case_id"), str)
+        and type(row.get("supported")) is bool
+        for row in rows
+    )
+    observed = {row["case_id"]: row["supported"] for row in rows} if valid_rows else {}
+    if not valid_rows or len(rows) != len(expected) or observed != expected:
+        # Only authored identifiers leave this process, never model text or unknown IDs.
+        _failure(
+            "source attribution", [key for key in expected if observed.get(key) != expected[key]]
+        )
     from hushh_mcp.one_adk.world_model_contracts import IdentityAssessment, WorldModelReport
 
     assessment = IdentityAssessment.model_validate(result.get("assessment")).validate_evidence(
         identity={}, source_refs=set()
     )
-    WorldModelReport.model_validate(result.get("report")).validate_receipts(assessment, {}, set())
-    if any(result.get(key) != value for key, value in examples.items()):
-        raise RuntimeError("Azure production contract evaluation failed")
+    report = WorldModelReport.model_validate(result.get("report"))
+    # Inspect before receipt validation normalizes attempt_ids from the empty ledger.
+    checks = {
+        "assessment": (
+            not assessment.candidates
+            and not assessment.anchors
+            and assessment.identity.state == "no_match"
+            and assessment.identity.selected_candidate_id is None
+            and not assessment.identity.supporting_anchor_ids
+            and assessment.identity.next_step == "finish"
+        ),
+        "finding": result.get("finding") == {"skip": True},
+        "planner": result.get("planner") == {"action": "finish", "plan": None},
+        "report": (
+            report.match_status == "no_match"
+            and not report.sections
+            and all(
+                row.status == "not_attempted" and not row.attempt_ids for row in report.coverage
+            )
+        ),
+    }
+    if not all(checks.values()):
+        _failure("production contract", [key for key, passed in checks.items() if not passed])
+    report.validate_receipts(assessment, {}, set())
     print(
         json.dumps(
             {

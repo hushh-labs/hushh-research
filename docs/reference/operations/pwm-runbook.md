@@ -37,7 +37,9 @@ authorship, namesakes and correctly attributed self-reports. Its secret-free job
 uses disposable process-only settings to load the runtime contracts; those keys
 cannot validate application tokens or decrypt owner records. It makes no Bing
 query and reads no owner records. Its policy hash binds the result to the
-image's instruction and evidence contract. This is a bounded semantic regression,
+image's instruction and evidence contract. It checks decisions and receipt semantics,
+while allowing schema-valid prose paraphrases. Failure diagnostics contain only
+authored case IDs or contract field names. This is a bounded semantic regression,
 not proof of arbitrary-person research accuracy. Citation receipts remain
 view-only research, without independently fetched source bodies or automatic
 identity verification. Check the exact release receipt before claiming readiness.
