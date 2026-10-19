@@ -374,22 +374,33 @@ Use the canonical Deploy to UAT workflow with its explicit sha input; record the
 
 For rollback, set new-request enrollment false and redeploy the same semantic-aware SHA through explicit backend scope. Retain and honor already sealed semantic requests and their policy/authority bindings; do not reinterpret them as legacy requests. Never deploy older code that cannot understand those requests while any remain active. Disabling creation is the compatible rollback; removing existing authority requires its existing stop/revoke lifecycle.
 
-These are rollout requirements, not evidence that either pass, model acceptance or rollback has run.
+The first pass ran as recorded below. This record does not establish completed enrollment activation or a rollback rehearsal.
+
+### Initial deployed canary and pending remediation
+
+[PR #8217](https://github.com/hushh-labs/hushh-research/pull/8217) landed as f7b77b6781325d94ed1ce1161758f531cf6d62e2 after passing CI. [UAT run 39177524405](https://github.com/hushh-labs/hushh-research/actions/runs/39177524405) completed healthy with scope all. The serving frontend, API and private Drive worker reported that SHA; the API and worker used the same immutable image. Both API and worker had DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=false. Evidence is retained under ignored tmp/drive-semantic-release/ in uat-first-release/uat-release-status.json, uat-first-runtime-evidence.json and uat-first-semantic-flags.json. Release health and the workflow's existing semantic checks did not establish acceptance of the new request planner and assessor.
+
+The separate hosted canary used that same backend image and runtime service account with synthetic inputs, no mounted secrets or SQL connection, and no live Drive, permission or payment operations. Its 16 trials produced 11 passes and five unresolved results: one planner trial exhausted schema validation, another exhausted two 30-second planner attempts, two assessment trials encountered provider 429 failures confirmed by the release investigation, and one assessment trial returned invalid evidence. The report records zero false positives and zero decisive semantic failures, but also two trial errors and five unresolved trials; this is a failed acceptance run, not a semantic success claim. Source hashes matched the frozen release, and the temporary job was deleted. The retained report is tmp/drive-semantic-release/hosted-model-eval.json.
+
+Follow-up work is implementing transport-identical prompt retries and bounded schema/evidence feedback, with at most one repair attempt under unchanged time and authority budgets. It has not yet passed a replacement hosted canary. A source change requires its own exact green landed SHA, canonical UAT deployment with enrollment disabled, and a complete same-image/runtime-identity canary before the identical-SHA backend activation pass. Keep enrollment false while acceptance remains unresolved. Neither this canary nor the pending repair establishes all 269 stories passed, native Google search parity, discovery recall, OCR quality, real consent, payment settlement or delivery.
 
 ## Verification record
 
-This is classification, not a 269/269 pass claim. Checks below ran against the worktree based on 1ec87ff9f9f5ff0c1986b33a2a974fbed997abbf with uncommitted semantic integration changes. Parent integration records the final exact head, focused/core results, model evaluation and UAT provenance.
+This is classification, not a 269/269 pass claim. Earlier focused checks below ran against the worktree based on 1ec87ff9f9f5ff0c1986b33a2a974fbed997abbf with uncommitted semantic integration changes. The initial release and hosted canary above bind to f7b77b6781325d94ed1ce1161758f531cf6d62e2; their evidence does not cover the pending remediation.
 
-An earlier integration report at the subsequent 6fbd6257725a3b6abfe3aeaa10a0c05fec2df0fc worktree reported 13,538 backend passes, 568 skips and one facts-policy pin failure. That intermediate result predates later corrections and the reported passing 268-second core run. Earlier live model runs failed acceptance, including one false positive in a 16-trial evaluation involving periodic-record date intent. Date-planner correction and independent re-evaluation remain separate work. None of these reports establishes all 269 stories passed, a successful deployment or local verification of skipped PostgreSQL cases.
+An earlier integration report at the subsequent 6fbd6257725a3b6abfe3aeaa10a0c05fec2df0fc worktree reported 13,538 backend passes, 568 skips and one facts-policy pin failure. That intermediate result predates later corrections and the initial release's reported passing 275-second core run. Earlier live model runs failed acceptance, including one false positive in a 16-trial evaluation involving periodic-record date intent; subsequent corrections do not erase that historical result. The initial hosted canary still failed strict acceptance as recorded above. None of these reports establishes all 269 stories passed or local verification of skipped PostgreSQL cases.
 
 | Check | Result | Scope |
 | --- | --- | --- |
 | pytest tests/services/test_drive_request_search_unit.py -q | 154 passed | Existing request search plus ten new parameterized worker/store cases. |
 | pytest tests/services/test_drive_request_bulk_postgres.py -q -k 'semantic_terminal_coverage or terminal_outcome_fence' | 8 passed | Four semantic finalizer cases and four existing binding controls; these cases use synthetic SQL I/O without PostgreSQL fixtures. |
 | Intermediate candidate assessment, package service and packet intelligence review | 150 passed; facts-policy pin failed separately | Historical compact-gene review before the later reported passing core run; not the current aggregate gate result. |
-| Latest local core integration report | Passed in 268 seconds | Local core evidence only; exact final SHA, hosted checks, model acceptance and UAT provenance belong to the release record. |
+| Initial PR #8217 local core integration report | Passed in 275 seconds | Reported in tmp/drive-semantic-release/release-progress.json; not a result for the pending remediation. |
+| Initial canonical UAT deployment | Healthy; scope all; semantic enrollment false | Run 39177524405 at f7b77b6781325d94ed1ce1161758f531cf6d62e2; serving API/worker SHA and image matched. |
+| Initial hosted synthetic semantic canary | Failed acceptance: 11/16 passed, five unresolved, zero false positives | Same deployed image/runtime identity; source hashes matched and temporary job deleted. No enrollment activation established. |
+| Follow-up retry/schema/evidence repair | Pending verification | No replacement hosted canary or activation result is claimed. |
 | pytest tests/services/test_connector_feature_admission.py -q | 35 passed | Existing connector admission/reconciliation boundary. |
 | Vitest feed-service, feed-page-clear, use-document-feed-stream, document-feed-stream-manager | 4 files, 81 passed | Existing server acknowledgment, cache epochs, grouped removal and owner-fenced stream behavior. |
 | PostgreSQL Feed/account lifecycle and encrypted search store | Not run by this lane | Requires the existing isolated local PostgreSQL harness; no skipped result is represented as a pass. |
 
-No Chrome/manual browser run, native build, live Google/model call, payment operation or provider permission mutation is claimed by this lane.
+The hosted model calls above use synthetic records. This record does not establish a manual browser rehearsal, native build, live Google discovery, payment operation or provider permission mutation.

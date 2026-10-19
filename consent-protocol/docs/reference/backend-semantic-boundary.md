@@ -253,6 +253,11 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   observations commit as eligible results. Unresolved identities require input;
   model/provider failure remains unavailable; incomplete reads cannot establish
   an exhausted empty result. Scores and spelling clues grant no authority.
+- Failed output may receive one bounded correction using only schema-owned
+  field locations, error types and closed evidence-integrity rules. A transient
+  provider failure retries the same prompt, without semantic correction feedback.
+  Both assessor attempts share the original model deadline and recheck current
+  authority; a valid exclusion or uncertainty is never retried to change its meaning.
 - Source, request revision, connection generation, original purpose, plan digest
   and assessment-policy digest bind encrypted evidence. The permission worker
   checks the assessed provider version, current consent and payment separately.
