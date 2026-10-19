@@ -1076,6 +1076,16 @@ async def test_azure_runner_repairs_invalid_identity_without_repeating_search(de
     charges, snapshots = [], []
 
     class IdentityGateway(FakeGateway):
+        async def structured(self, **kwargs):
+            value = await super().structured(**kwargs)
+            if defect == "unbridged_profiles" and kwargs["purpose"] == "identity_assessment_repair":
+                value["candidates"] = value["candidates"][0]
+                value["candidates"]["anchor_ids"] = "a1"
+                value["anchors"] = value["anchors"][0]
+                value["anchors"]["source_refs"] = "s1"
+                value["identity"]["supporting_anchor_ids"] = "a1"
+            return value
+
         async def search(self, request):
             raw = await super().search(request)
             if defect == "unbridged_profiles":
@@ -1236,6 +1246,60 @@ def test_report_projection_keeps_unanchored_coverage_as_a_lead_not_a_finding():
     assert set(projected["sources"]) == {"s1"}
     assert "UNLINKED" not in json.dumps(projected)
     assert work == before
+
+
+@pytest.mark.parametrize("no_match", [False, True])
+def test_single_page_identity_repair_preserves_model_choice_and_original_validation(no_match):
+    from jsonschema import ValidationError, validate
+
+    from hushh_mcp.one_adk.world_model_azure import (
+        _expand_single_page_assessment,
+        _single_page_assessment_schema,
+        _validate_candidate_sources,
+    )
+    from hushh_mcp.one_adk.world_model_contracts import IdentityAssessment
+
+    schema = _single_page_assessment_schema(["s1", "s2"])
+    large = _single_page_assessment_schema([f"s{index}" for index in range(1, 1101)])
+    assert large["$defs"]["IdentityAnchor"]["properties"]["source_refs"] == {"type": "string"}
+    value = assessment(source_ref="s2")
+    value["identity"]["state"] = "candidate_for_review"
+    value["candidates"] = value["candidates"][0]
+    value["candidates"]["anchor_ids"] = "a1"
+    value["anchors"] = value["anchors"][0]
+    value["anchors"].update(source_refs="s2", kind="public_profile")
+    value["identity"]["supporting_anchor_ids"] = "a1"
+    if no_match:
+        value.update(candidates=None, anchors=None)
+        value["identity"].update(
+            state="no_match", selected_candidate_id=None, supporting_anchor_ids=None
+        )
+    before = copy.deepcopy(value)
+    validate(value, schema)
+    expanded = _expand_single_page_assessment(value)
+    accepted = IdentityAssessment.model_validate(expanded).validate_evidence(
+        identity=IDENTITY, source_refs={"s1", "s2"}
+    )
+    _validate_candidate_sources(
+        accepted, {"s1": {"url": URL}, "s2": {"url": "https://example.test/second"}}
+    )
+    assert value == before
+    assert (
+        expanded["identity"]["selected_candidate_id"] == value["identity"]["selected_candidate_id"]
+    )
+    assert accepted.identity.state == ("no_match" if no_match else "candidate_for_review")
+    if not no_match:
+        assert accepted.anchors[0].source_refs == ["s2"]  # Model chose s2, not host-first s1.
+        invalid = copy.deepcopy(value)
+        invalid["anchors"]["source_refs"] = ["s1", "s2"]
+        with pytest.raises(ValidationError):
+            validate(invalid, schema)
+        invalid = copy.deepcopy(value)
+        invalid["anchors"]["candidate_id"] = "c2"
+        with pytest.raises(ValueError, match="Unknown candidate"):
+            IdentityAssessment.model_validate(
+                _expand_single_page_assessment(invalid)
+            ).validate_evidence(identity=IDENTITY, source_refs={"s1", "s2"})
 
 
 @pytest.mark.asyncio

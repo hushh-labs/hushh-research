@@ -254,12 +254,26 @@ def validated_facts_from_work(work: dict) -> list[dict]:
         return []
     result: list[dict] = []
     seen: set[str] = set()
+    azure_owned_refs = (
+        {
+            ref
+            for anchor in assessment.anchors
+            if anchor.candidate_id == assessment.identity.selected_candidate_id
+            for ref in anchor.source_refs
+        }
+        if "azure_work_version" in work
+        else None
+    )
     for raw in batches[:MAX_WORLD_MODEL_FACTS]:
         try:
             batch = FindingBatch.model_validate(raw).validate_receipts(
                 assessment, attempts, set(receipts)
             )
         except (TypeError, ValueError):
+            continue
+        if azure_owned_refs is not None and any(
+            source.ref not in azure_owned_refs for fact in batch.facts for source in fact.sources
+        ):
             continue
         for fact in batch.facts:
             identifier = finding_id(batch.candidate_id, batch.topic, fact.statement)

@@ -128,6 +128,15 @@ results remain in the full research record and cannot supply typed findings.
 Correction receives the disconnected receipt-reference groups, never a host-selected
 person. When received bridges are absent, the model can select one supported page
 for review and leave other discoveries as separate leads in the retained research.
+A failed multi-page assessment uses a compact correction schema: one candidate,
+one anchor and one scalar source reference, or explicit no match. The host only
+expands scalar transport fields to the existing arrays, preserving the model's IDs,
+identity choice and assertions. The original assessment and graph validators still
+apply. This prevents a paid correction from returning the same disconnected cluster.
+The owner-only provisional stream applies the same current-anchor receipt fence.
+If reassessment changes the selected page while reusing a candidate ID, earlier
+coverage batches cannot survive as claims about that new page. Unmarked Vertex
+coverage retains its original contract.
 
 Identity assessment/repair uses medium reasoning with an 8,192-token ceiling.
 Only final compilation/repair uses high reasoning. Other stages keep low effort,

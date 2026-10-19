@@ -266,6 +266,18 @@ def test_provisional_facts_need_selected_candidate_observed_plan_and_received_ci
     facts = validated_facts_from_work(work)
     assert len(facts) == 1 and facts[0]["sources"] == [work["sources"]["s1"]]
     assert facts[0]["id"].startswith("p")
+    coverage = copy.deepcopy(work)
+    coverage["attempts"]["1"]["plan"].update(purpose="coverage", candidate_id="c1")
+    for anchor in coverage["assessment"]["anchors"]:
+        anchor["source_refs"] = ["s2"]
+    # Vertex's original observed-coverage contract remains unchanged.
+    assert len(validated_facts_from_work(coverage)) == 1
+    # Azure cannot keep old provisional claims after c1 moves to a different page.
+    coverage["azure_work_version"] = 1
+    assert validated_facts_from_work(coverage) == []
+    for anchor in coverage["assessment"]["anchors"]:
+        anchor["source_refs"] = ["s1"]
+    assert len(validated_facts_from_work(coverage)) == 1
     for defect in ("candidate", "unobserved", "topic", "source", "unanchored_identity"):
         invalid = copy.deepcopy(work)
         batch = invalid["finding_batches"][0]
