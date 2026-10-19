@@ -364,7 +364,9 @@ async def test_command_rehearsal_runs_the_real_location_flow_without_a_provider(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("scenario", ["success", "billing_denied", "adk_error", "empty_reply"])
+@pytest.mark.parametrize(
+    "scenario", ["success", "billing_denied", "resource_exhausted", "adk_error", "empty_reply"]
+)
 async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
     monkeypatch: pytest.MonkeyPatch, scenario: str
 ) -> None:
@@ -402,6 +404,10 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
         async def generate_content_async(self, *_args, **_kwargs):
             if self.project == "hushh-gemini-bridge" and scenario == "billing_denied":
                 raise RuntimeError("Billing is not enabled")
+            if scenario == "resource_exhausted":
+                error = RuntimeError("Synthetic structured provider response")
+                error.status_code = 429
+                raise error
             if scenario == "adk_error":
                 yield SimpleNamespace(error_code="MAX_TOKENS", error_message="", content=None)
             elif scenario == "empty_reply":
@@ -430,11 +436,16 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
     assert report["advisory"] is chat_available
     if not chat_available:
         expected_classification = (
-            "provider_unavailable" if scenario == "billing_denied" else "candidate_misconfigured"
+            "provider_unavailable"
+            if scenario in {"billing_denied", "resource_exhausted"}
+            else "candidate_misconfigured"
         )
         assert chat_probe["classification"] == expected_classification
         assert report["classification"] == expected_classification
-        assert report["candidate_models_exercised"] is (scenario != "billing_denied")
+        assert chat_probe["resource_exhausted"] is (scenario == "resource_exhausted")
+        assert report["candidate_models_exercised"] is (
+            scenario not in {"billing_denied", "resource_exhausted"}
+        )
 
 
 @pytest.mark.asyncio
