@@ -10,7 +10,6 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import {
   APP_MEASURE_STYLES,
   AppPageContentRegion,
-  AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
@@ -1157,7 +1156,7 @@ export function KaiAnalysisPageContent() {
 
   if (!user || !userId) {
     return (
-      <AppPageShell as="div" width="standard" className="flex min-h-96 items-center justify-center">
+      <div className="flex min-h-96 w-full min-w-0 items-center justify-center">
         <NativeTestBeacon
           routeId={ROUTES.KAI_ANALYSIS}
           marker="native-route-kai-analysis"
@@ -1165,13 +1164,13 @@ export function KaiAnalysisPageContent() {
           dataState="loading"
         />
         <HushhLoader variant="inline" label={toInvestorLoading("ANALYSIS")} />
-      </AppPageShell>
+      </div>
     );
   }
 
   if (!vaultKey) {
     return (
-      <AppPageShell as="div" width="reading">
+      <div className="w-full min-w-0">
         <NativeTestBeacon
           routeId={ROUTES.KAI_ANALYSIS}
           marker="native-route-kai-analysis"
@@ -1201,7 +1200,7 @@ export function KaiAnalysisPageContent() {
           </div>
           </SurfaceCardContent>
         </SurfaceCard>
-      </AppPageShell>
+      </div>
     );
   }
 
@@ -1578,9 +1577,9 @@ export function KaiAnalysisPageContent() {
       ) : null}
 
       {resolvingEntry ? (
-        <AppPageShell as="div" width="standard" className="flex min-h-64 items-center justify-center">
+        <div className="flex min-h-64 w-full min-w-0 items-center justify-center">
           <HushhLoader variant="inline" label="Loading saved analysis..." />
-        </AppPageShell>
+        </div>
       ) : null}
     </>
   );

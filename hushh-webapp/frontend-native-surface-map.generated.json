@@ -3226,7 +3226,7 @@
         "legacyAlias": true
       },
       "shell": {
-        "app_page_shell": true,
+        "app_page_shell": false,
         "page_header": false,
         "settings_ui": false,
         "shared_loader": true,
@@ -10382,5 +10382,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "be4e02a0882dc176a6eab424d8d033b43dc123881f896b5e90d7d5ef3296da05"
+  "content_sha256": "dbebbdd77d61f9bd863e2285413f2bfd1f096acd8750461c2e7ca49afcf8364c"
 }
