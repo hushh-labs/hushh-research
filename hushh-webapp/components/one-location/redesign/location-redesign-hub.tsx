@@ -2836,7 +2836,7 @@ function LocationDetailFlow({
                             size="sm"
                             onClick={() => vm.onAskReshare(grant)}
                             disabled={vm.busy === "request"}
-                            className="h-8 rounded-full border-[color:var(--app-warning-border)] bg-[color:var(--app-card-surface-default-solid)]/85 px-3 text-[12px] font-semibold text-[color:var(--app-warning)] hover:bg-[color:var(--app-card-surface-default-solid)]"
+                            className="h-11 rounded-full border-[color:var(--app-warning-border)] bg-[color:var(--app-card-surface-default-solid)]/85 px-3 text-[12px] font-semibold text-[color:var(--app-warning)] hover:bg-[color:var(--app-card-surface-default-solid)]"
                           >
                             <RefreshCw
                               className={cn(

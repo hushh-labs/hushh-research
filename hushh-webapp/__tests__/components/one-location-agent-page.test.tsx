@@ -5940,7 +5940,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
   });
 
-  it("warns the recipient when the decrypted location update is stale", async () => {
+  it("keeps only the refresh action below a stale shared map", async () => {
     const staleGrant = {
       id: "grant_stale",
       ownerUserId: "user_a",
@@ -6005,8 +6005,12 @@ describe("OneLocationAgentPage", () => {
       screen.getByRole("heading", { name: "Shared with me" }),
     ).toBeTruthy();
     await waitFor(() => expect(mockViewEnvelope).toHaveBeenCalled());
-    expect(await screen.findByText("Location may be stale.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Ask to refresh" })).toBeTruthy();
+    const refresh = await screen.findByRole("button", { name: "Ask to refresh" });
+    expect(screen.queryByText("Location may be stale.")).toBeNull();
+    const refreshRow = screen.getByTestId("one-location-map-refresh-action");
+    expect(refreshRow).toHaveTextContent(/^Ask to refresh$/);
+    expect(refreshRow).not.toHaveAttribute("role", "status");
+    expect(refresh.querySelector("svg")).not.toBeNull();
 
     expect(screen.getByText("Active")).toBeTruthy();
     expect(screen.getByText(/^Access until /)).toBeTruthy();
@@ -6022,6 +6026,16 @@ describe("OneLocationAgentPage", () => {
       "sm:h-[clamp(240px,32vw,360px)]",
     );
     expect(screen.queryAllByText(/Paused · last seen/)).toHaveLength(1);
+    let finishRefresh!: () => void;
+    mockRequestAccess.mockImplementationOnce(() => new Promise<void>(resolve => { finishRefresh = resolve; }));
+    fireEvent.click(refresh);
+    await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledWith(expect.objectContaining({
+      vaultOwnerToken: "vault-token", ownerUserId: "user_a",
+    })));
+    expect(refresh).toBeDisabled();
+    expect(refresh.querySelector("svg")).toHaveClass("animate-spin");
+    await act(async () => { finishRefresh(); });
+    await waitFor(() => expect(refresh).not.toBeDisabled());
     expect(screen.queryByText(/^Updated /)).toBeNull();
     expect(screen.queryByText(/Accuracy \+\/- 18 m/)).toBeNull();
     expect(screen.queryByText("Web")).toBeNull();
