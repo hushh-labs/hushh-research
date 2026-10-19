@@ -5211,20 +5211,18 @@ final class AppUITests: XCTestCase {
                 guard admittedBack(), waitForAdmittedControl(app.buttons["profile-close"].firstMatch) else {
                     XCTFail("PROFILE_INVITE_PANE_CHROME_UNAVAILABLE"); return
                 }
-                // Measure the retained full-window content plane, not an AX
-                // descendant's rectangle or DEBUG-only navigation diagnostics.
-                // Actual CSS box alignment is independently measured by the
-                // production-optimized native-feature-page WebKit fixture.
+                // Measure this native owner. Modal AX isolation correctly
+                // excludes the covered WebView while the native page is open.
+                let nativePane = app.otherElements["native-private-drawer"].firstMatch
                 let fullPane = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    guard web.exists else { return false }
-                    let frame = web.frame
+                    guard nativePane.exists else { return false }
+                    let frame = nativePane.frame
                     return abs(frame.minY - app.frame.minY) <= 1 && abs(frame.maxY - app.frame.maxY) <= 1 &&
                         (UIDevice.current.userInterfaceIdiom != .phone || abs(frame.width - app.frame.width) <= 1)
                 }, object: app)
                 guard XCTWaiter.wait(for: [fullPane], timeout: 10) == .completed else {
                     XCTFail("PROFILE_INVITE_PANE_FRAME_UNAVAILABLE"); return
                 }
-                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
                 back.tap()
                 let parent = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                     close.exists && close.isHittable && destination.exists && destination.isHittable && !copy.isHittable
