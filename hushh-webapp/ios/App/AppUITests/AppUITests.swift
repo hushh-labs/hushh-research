@@ -821,12 +821,15 @@ final class AppUITests: XCTestCase {
         else { throw XCTSkip("Requires the existing app session") }
         app.activate()
         returnToRehearsalChat(app)
-        let field = app.webViews.secureTextFields.matching(authoredVaultPassphraseField).firstMatch
+        let web = app.webViews.matching(identifier: "native-webview").firstMatch
+        let secureField = web.secureTextFields.matching(authoredVaultPassphraseField).firstMatch
+        let field = secureField.exists ? secureField : web.textFields.matching(authoredVaultPassphraseField).firstMatch
         let unlock = app.buttons.matching(NSPredicate(format: "label == %@", "Unlock"))
         guard waitForAdmittedControl(field), unlock.count == 1,
               !app.otherElements["session-privacy-shield"].exists else {
             XCTFail("SECURE_PUBLIC_PROBE_NOT_ADMITTED"); return
         }
+        print("SECURE_PUBLIC_ADMISSION role=\(field.elementType.rawValue)")
         // Public synthetic input only; normal Unlock is never submitted. The
         // actual credential test reuses this same focus/clear acknowledgement.
         for fixture in ["fixture7", "probe#42"] {
@@ -6273,7 +6276,11 @@ final class AppUITests: XCTestCase {
         guard !email.isEmpty else { return false }
         var expectedLength = 0
         for character in value {
-            guard field.exists, field.isHittable, field.elementType == .secureTextField,
+            // WebKit may expose the same authored password input as either
+            // AX role; require its authored identity, not a generic text field.
+            guard field.exists, field.isHittable,
+                  [.secureTextField, .textField].contains(field.elementType),
+                  authoredVaultPassphraseField.evaluate(with: field),
                   app.webViews.staticTexts.matching(NSPredicate(format: "label == %@", email)).firstMatch.exists else { return false }
             let literal = String(character)
             let keyNames = literal == "#" ? ["#", "number sign", "Number sign", "hash", "Hash", "pound", "Pound", "pound sign"] : [literal]
