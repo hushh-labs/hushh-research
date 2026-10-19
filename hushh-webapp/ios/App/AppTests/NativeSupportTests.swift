@@ -574,8 +574,12 @@ final class NativeSupportTests: XCTestCase {
             XCTAssertEqual(artwork.base.renderingMode, originalArtwork.contains(id) ? .alwaysOriginal : .alwaysTemplate, id)
             XCTAssertEqual(artwork.accent != nil, accentedArtwork.contains(id), id)
         }
-        XCTAssertEqual(NativeProfileArtwork.resolve("account")?.colorHex, "#2563EB")
-        XCTAssertEqual(NativeProfileArtwork.resolve("vault-methods")?.colorHex, "#10B981")
+        for id in accentedArtwork {
+            XCTAssertNil(NativeProfileArtwork.resolve(id)?.colorHex,
+                "Shared Profile outlines use the same semantic foreground as the web, not capability colors: \(id)")
+        }
+        XCTAssertEqual(NativeProfileArtwork.resolve("style-name")?.colorHex, "#2563EB",
+            "Unrelated capability artwork keeps its authored treatment")
         XCTAssertNotNil(NativeProfileArtwork.resolve("gemini"))
         XCTAssertNil(NativeProfileArtwork.resolve("privacy")?.colorHex, "Semantic foreground stays theme-aware")
         XCTAssertNil(NativeProfileArtwork.resolve("../../private"))
