@@ -39,16 +39,61 @@ class EvaluationStageError(RuntimeError):
         self.error_type = type(error).__name__
 
 
-def _exception_diagnostic(error: BaseException | None) -> dict:
-    names, seen = [], set()
+def _diagnostic_schema(stage: str):
+    # Only host-selected model classes may authorize diagnostic field names.
+    if stage == "planner":
+        from hushh_mcp.services.drive_suggestion_service import SemanticLiveSearchModelPlan
+
+        return SemanticLiveSearchModelPlan
+    if stage == "candidate_assessment":
+        from hushh_mcp.services.drive_request_package_assessment import DocumentBatchAssessment
+
+        return DocumentBatchAssessment
+    if stage == "query_compilation":
+        from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlan
+
+        return SemanticDrivePlan
+    return None
+
+
+def _exception_diagnostic(error: BaseException | None, *, schema=None) -> dict:
+    from pydantic import ValidationError
+
+    from hushh_mcp.services.drive_request_model_feedback import validation_feedback
+    from hushh_mcp.services.drive_suggestion_service import (
+        SemanticLiveSearchModelPlan,
+        _SemanticPlannerOutputError,
+    )
+
+    names, seen, issues = [], set(), []
+    validation_failed = False
     while error is not None and id(error) not in seen and len(names) < 6:
         seen.add(id(error))
         name = type(error).__name__
         names.append(
             name if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,95}", name) else "UnknownException"
         )
+        if isinstance(error, ValidationError):
+            validation_failed = True
+            if schema is not None:
+                for issue in validation_feedback(error, schema=schema)["issues"]:
+                    if issue not in issues and len(issues) < 8:
+                        issues.append(issue)
+        elif schema is SemanticLiveSearchModelPlan and isinstance(
+            error, _SemanticPlannerOutputError
+        ):
+            # This host-owned marker confirms a completed planner response.
+            # Its decode/value-error cause contains no safe field coordinates.
+            validation_failed = True
         error = error.__cause__ or error.__context__
-    return {"exception_classes": names, "root_exception_class": names[-1] if names else None}
+    result = {
+        "exception_classes": names,
+        "root_exception_class": names[-1] if names else None,
+        "validation_failed": validation_failed,
+    }
+    if validation_failed:
+        result["validation_feedback"] = {"code": "invalid_model_output", "issues": issues}
+    return result
 
 
 async def _model_call(stage: str, operation, *, progress: dict):
@@ -63,7 +108,7 @@ async def _model_call(stage: str, operation, *, progress: dict):
         progress.setdefault("model_calls", {}).setdefault(stage, []).append(
             {
                 "elapsed_ms": round((time.perf_counter() - started) * 1000),
-                **_exception_diagnostic(error),
+                **_exception_diagnostic(error, schema=_diagnostic_schema(stage)),
             }
         )
 
@@ -81,7 +126,13 @@ async def _stage(stage: str, operation, *, progress: dict):
         )
         raise
     except Exception as error:
-        outcome.update(status="error", availability="unavailable", **_exception_diagnostic(error))
+        diagnostic = _exception_diagnostic(error, schema=_diagnostic_schema(stage))
+        outcome.update(
+            status="error",
+            availability="available" if diagnostic["validation_failed"] else "unavailable",
+            failure_kind="validation" if diagnostic["validation_failed"] else "availability",
+            **diagnostic,
+        )
         raise EvaluationStageError(stage, error) from None
     finally:
         outcome["elapsed_ms"] = round((time.perf_counter() - started) * 1000)
@@ -298,6 +349,7 @@ def _provenance() -> dict:
         "hushh_mcp/agents/documents/agent.yaml",
         "hushh_mcp/services/drive_request_semantic_plan.py",
         "hushh_mcp/services/drive_request_candidate_assessment.py",
+        "hushh_mcp/services/drive_request_model_feedback.py",
         "hushh_mcp/services/drive_request_package_assessment.py",
         "hushh_mcp/services/drive_suggestion_service.py",
     )
@@ -373,11 +425,13 @@ async def evaluate_case(case: dict, *, progress: dict | None = None) -> dict:
             timezone="Asia/Kolkata",
         )
     except Exception as error:
+        diagnostic = _exception_diagnostic(error, schema=_diagnostic_schema("query_compilation"))
         progress["stage_outcomes"]["query_compilation"] = {
             "status": "error",
-            "availability": "unavailable",
+            "availability": "available" if diagnostic["validation_failed"] else "unavailable",
+            "failure_kind": "validation" if diagnostic["validation_failed"] else "availability",
             "elapsed_ms": round((time.perf_counter() - compilation_started) * 1000),
-            **_exception_diagnostic(error),
+            **diagnostic,
         }
         raise EvaluationStageError("query_compilation", error) from None
     progress["stage_outcomes"]["query_compilation"] = {
@@ -525,10 +579,20 @@ async def run(*, selected: list[dict], reps: int, project: str | None, timeout: 
                         async with asyncio.timeout(timeout):
                             result = await evaluate_case(case, progress=progress)
                 except Exception as error:
+                    error_stage = (
+                        error.stage
+                        if isinstance(error, EvaluationStageError)
+                        else progress["active_stage"]
+                    )
+                    validation_failed = (
+                        progress["stage_outcomes"].get(error_stage, {}).get("validation_failed")
+                        is True
+                    )
                     result = {
                         "status": "error",
                         "passed": False,
-                        "availability_passed": False,
+                        "availability_passed": validation_failed,
+                        "validation_failed": validation_failed,
                         "semantic_grade": "failed"
                         if any(
                             stage.get("semantic_grade") == "failed"
@@ -540,9 +604,7 @@ async def run(*, selected: list[dict], reps: int, project: str | None, timeout: 
                         "error_type": error.error_type
                         if isinstance(error, EvaluationStageError)
                         else type(error).__name__,
-                        "error_stage": error.stage
-                        if isinstance(error, EvaluationStageError)
-                        else progress["active_stage"],
+                        "error_stage": error_stage,
                     }
                 row = {
                     "case_id": case["id"],
@@ -597,6 +659,14 @@ async def run(*, selected: list[dict], reps: int, project: str | None, timeout: 
         "errors": len(rows) - len(completed),
         "failed_trials": sum(not row["passed"] for row in rows),
         "availability_failed_trials": sum(not row["availability_passed"] for row in rows),
+        "validation_failed_trials": sum(
+            row.get("validation_failed") is True or row.get("validation_failures", 0) > 0
+            for row in rows
+        ),
+        "planner_validation_failed_trials": sum(
+            row.get("validation_failed") is True and row.get("error_stage") == "planner"
+            for row in rows
+        ),
         "semantic_failed_trials": sum(row["semantic_grade"] == "failed" for row in rows),
         "semantic_unresolved_trials": sum(row["semantic_grade"] == "unresolved" for row in rows),
         **counts,

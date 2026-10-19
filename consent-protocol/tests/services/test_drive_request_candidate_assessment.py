@@ -2,7 +2,9 @@
 
 import asyncio
 import hashlib
+import json
 from copy import deepcopy
+from functools import partial
 from unittest.mock import AsyncMock
 
 import pytest
@@ -13,7 +15,12 @@ from hushh_mcp.services.drive_request_candidate_assessment import (
     assess_request_candidates,
     verified_evidence_matches,
 )
-from hushh_mcp.services.drive_request_package_assessment import validate_document_batch
+from hushh_mcp.services.drive_request_package_assessment import (
+    DocumentBatchAssessment,
+    assess_document_batch,
+    assess_request_document_batch,
+    validate_document_batch,
+)
 from hushh_mcp.services.drive_request_semantic_plan import semantic_plan_digest
 
 
@@ -454,3 +461,251 @@ async def test_stored_evidence_cannot_move_between_revisions_sources_or_plans():
     altered = deepcopy(evidence)
     altered["assessment"]["reason"] = "Tampered"
     assert not verified_evidence_matches(altered, **binding)
+
+
+@pytest.mark.parametrize(
+    "failure", ["schema", "decoder_schema", "decoder_json", "citation", "period"]
+)
+async def test_request_assessor_repairs_once_without_changing_original_evidence(failure):
+    prompts = []
+
+    async def interpreter(*, prompt, user_id):
+        payload = json.loads(prompt)
+        prompts.append(payload)
+        result = answer(payload["retrieved_documents"])
+        if failure == "period":
+            source = payload["retrieved_documents"]["untrusted_external_content"][0]
+            result["documents"][0].update(
+                period_role="reporting_period",
+                covered_periods=[
+                    {
+                        "period_start": "2026-09-02",
+                        "period_end": "2026-10-02",
+                        "source_refs": [source["source_ref"]],
+                    }
+                ],
+            )
+        if len(prompts) == 1:
+            if failure in {"schema", "decoder_schema"}:
+                result["documents"][0]["decision"] = "PRIVATE_SENTINEL"
+                if failure == "decoder_schema":
+                    return DocumentBatchAssessment.model_validate(result)
+            elif failure == "decoder_json":
+                try:
+                    json.loads("PRIVATE_SENTINEL")
+                except json.JSONDecodeError as error:
+                    raise ValueError("single-turn agent returned invalid JSON") from error
+            elif failure == "citation":
+                result["documents"][0]["citations"][0]["quote"] = "PRIVATE_SENTINEL"
+            else:
+                result["documents"][0]["covered_periods"][0]["period_end"] = "2026-10-09"
+        return result
+
+    work = setup(assessor=partial(assess_request_document_batch, interpreter=interpreter))
+    if failure == "period":
+        work = setup(
+            semantic=plan(basis="content"),
+            read=AsyncMock(
+                side_effect=lambda item: content(
+                    item, "Alder Rowan reporting period 2026-09-02 to 2026-10-02."
+                )
+            ),
+            assessor=work["assessor"],
+        )
+    (observation,) = await assess_request_candidates(**work)
+    assert observation["decision"] == "verified_match" and len(prompts) == 2
+    assert prompts[0] == {
+        key: value for key, value in prompts[1].items() if key != "assessment_validation_feedback"
+    }
+    feedback = prompts[1]["assessment_validation_feedback"]
+    assert feedback["code"] == "invalid_model_output"
+    if failure == "citation":
+        assert feedback["rule"] == "citation_must_match_same_document_source"
+    if failure == "period":
+        assert feedback["rule"] == "included_coverage_requires_cited_role_and_endpoint_dates"
+    assert "PRIVATE_SENTINEL" not in json.dumps(feedback)
+    assert "PRIVATE_SENTINEL" not in str(observation)
+    assert "assessment_validation_feedback" not in prompts[0]
+
+
+async def test_unknown_evidence_validation_error_never_echoes_private_prose(monkeypatch):
+    from hushh_mcp.services import drive_request_package_assessment as module
+
+    prompts = []
+    validate = module.validate_request_document_batch
+
+    def reject_once(*args, **kwargs):
+        if len(prompts) == 1:
+            raise ValueError("PRIVATE_SENTINEL source or provider prose")
+        return validate(*args, **kwargs)
+
+    async def interpreter(*, prompt, user_id):
+        prompts.append(json.loads(prompt))
+        return answer(prompts[-1]["retrieved_documents"])
+
+    monkeypatch.setattr(module, "validate_request_document_batch", reject_once)
+    (observation,) = await assess_request_candidates(
+        **setup(assessor=partial(assess_request_document_batch, interpreter=interpreter))
+    )
+    assert len(prompts) == 2 and observation["decision"] == "verified_match"
+    assert prompts[1]["assessment_validation_feedback"] == {
+        "code": "invalid_model_output",
+        "issues": [],
+    }
+    assert "PRIVATE_SENTINEL" not in json.dumps(prompts)
+    assert "PRIVATE_SENTINEL" not in str(observation)
+
+
+async def test_repeated_invalid_request_evidence_is_unavailable_after_two_attempts():
+    calls = []
+
+    async def interpreter(*, prompt, user_id):
+        calls.append(prompt)
+        return answer(json.loads(prompt)["retrieved_documents"], quote="PRIVATE_SENTINEL")
+
+    (observation,) = await assess_request_candidates(
+        **setup(assessor=partial(assess_request_document_batch, interpreter=interpreter))
+    )
+    assert len(calls) == 2
+    assert observation["decision"] == "unavailable" and observation["code"] == "assessment_invalid"
+    assert "PRIVATE_SENTINEL" not in str(observation)
+
+
+@pytest.mark.parametrize("decision", ["exclude", "uncertain"])
+async def test_valid_request_exclusion_or_uncertainty_never_triggers_correction(decision):
+    async def respond(*, prompt, user_id):
+        return answer(json.loads(prompt)["retrieved_documents"], decision=decision)
+
+    interpreter = AsyncMock(side_effect=respond)
+    (observation,) = await assess_request_candidates(
+        **setup(assessor=partial(assess_request_document_batch, interpreter=interpreter))
+    )
+    interpreter.assert_awaited_once()
+    assert observation["decision"] == ("excluded" if decision == "exclude" else "unavailable")
+    assert observation["code"] == (
+        "content_excluded" if decision == "exclude" else "content_uncertain"
+    )
+
+
+@pytest.mark.parametrize("failure", ["invalid_evidence", "transient"])
+async def test_authority_is_rechecked_before_every_request_assessment_retry(failure):
+    class ProviderThrottled(Exception):
+        code = 429
+
+    calls, checks_after_first = [], []
+
+    async def current():
+        if calls:
+            checks_after_first.append(True)
+            if len(checks_after_first) == (2 if failure == "invalid_evidence" else 1):
+                raise PermissionError("authority ended")
+
+    async def interpreter(*, prompt, user_id):
+        calls.append(prompt)
+        if failure == "transient":
+            raise ProviderThrottled()
+        return answer(json.loads(prompt)["retrieved_documents"], quote="Unobserved quote")
+
+    work = setup(assessor=partial(assess_request_document_batch, interpreter=interpreter))
+    work["require_current"] = current
+    with pytest.raises(PermissionError, match="authority ended"):
+        await assess_request_candidates(**work)
+    assert len(calls) == 1
+    assert len(checks_after_first) == (2 if failure == "invalid_evidence" else 1)
+
+
+async def test_confirmed_transient_request_failure_retries_the_identical_prompt():
+    class ProviderThrottled(Exception):
+        code = 429
+
+    prompts = []
+
+    async def interpreter(*, prompt, user_id):
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            raise ProviderThrottled("PRIVATE_SENTINEL")
+        return answer(json.loads(prompt)["retrieved_documents"])
+
+    (observation,) = await assess_request_candidates(
+        **setup(assessor=partial(assess_request_document_batch, interpreter=interpreter))
+    )
+    assert len(prompts) == 2 and prompts[0] == prompts[1]
+    assert "assessment_validation_feedback" not in prompts[1]
+    assert "PRIVATE_SENTINEL" not in prompts[1]
+    assert observation["decision"] == "verified_match"
+
+
+@pytest.mark.parametrize(
+    "error", [ValueError("configuration failure"), TimeoutError(), PermissionError()]
+)
+async def test_unclassified_request_failures_do_not_spend_a_second_model_call(error):
+    interpreter = AsyncMock(side_effect=error)
+    (observation,) = await assess_request_candidates(
+        **setup(assessor=partial(assess_request_document_batch, interpreter=interpreter))
+    )
+    interpreter.assert_awaited_once()
+    assert observation["decision"] == "unavailable"
+
+
+@pytest.mark.parametrize("stage", ["correction", "transient_backoff"])
+async def test_request_retry_loop_has_one_deadline_including_backoff(monkeypatch, stage):
+    from hushh_mcp.services import drive_request_package_assessment as module
+
+    class ProviderThrottled(Exception):
+        code = 429
+
+    monkeypatch.setattr(module, "ASSESSMENT_TIMEOUT_SECONDS", 0.02)
+    calls, timeout_limits, cancelled = [], [], asyncio.Event()
+    actual_timeout = asyncio.timeout
+
+    def timeout(seconds):
+        timeout_limits.append(seconds)
+        return actual_timeout(seconds)
+
+    monkeypatch.setattr(module.asyncio, "timeout", timeout)
+
+    async def interpreter(*, prompt, user_id):
+        calls.append(prompt)
+        if len(calls) == 1:
+            if stage == "transient_backoff":
+                raise ProviderThrottled()
+            return answer(json.loads(prompt)["retrieved_documents"], quote="Unobserved quote")
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    (observation,) = await assess_request_candidates(
+        **setup(assessor=partial(assess_request_document_batch, interpreter=interpreter))
+    )
+    assert len(calls) == (2 if stage == "correction" else 1)
+    # Read, outer model budget, then one shared request-assessor deadline.
+    # A fresh deadline per attempt would spend more than the reserved slice.
+    assert timeout_limits == [55, 30, 0.02]
+    assert cancelled.is_set() == (stage == "correction")
+    assert observation["decision"] == "unavailable"
+    assert observation["code"] == "assessment_unavailable"
+
+
+async def test_legacy_document_assessor_still_validates_once_without_repair():
+    payloads = []
+
+    async def interpreter(*, prompt, user_id):
+        payloads.append(json.loads(prompt))
+        return answer(payloads[-1]["retrieved_documents"], quote="Unobserved quote")
+
+    captured = []
+
+    async def legacy(**kwargs):
+        captured.append(kwargs)
+        return await assess_document_batch(
+            request=kwargs["request"],
+            retrieved=kwargs["retrieved"],
+            user_id=kwargs["user_id"],
+            interpreter=interpreter,
+        )
+
+    (observation,) = await assess_request_candidates(**setup(assessor=legacy))
+    assert len(payloads) == len(captured) == 1
+    assert "assessment_validation_feedback" not in payloads[0]
+    assert observation["decision"] == "unavailable" and observation["code"] == "assessment_invalid"

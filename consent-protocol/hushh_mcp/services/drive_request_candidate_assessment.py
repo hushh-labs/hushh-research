@@ -23,9 +23,9 @@ from hushh_mcp.services.drive_request_package_assessment import (
     MAX_PROMPT_BYTES,
     BoundDocumentAssessment,
     BoundDocumentBatchAssessment,
-    _cited_day,
+    RequestAssessmentAuthorityError,
     assess_request_document_batch,
-    validate_document_batch,
+    validate_request_document_batch,
 )
 from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlan, semantic_plan_digest
 from hushh_mcp.services.google_drive_adapter import DriveReadError
@@ -334,7 +334,12 @@ async def assess_request_candidates(
             if assessment_timeout <= 0:
                 raise TimeoutError
             async with asyncio.timeout(assessment_timeout):
-                assessed = await assessor(request=request, retrieved=retrieved, user_id=user_id)
+                assessed = await assessor(
+                    request=request,
+                    retrieved=retrieved,
+                    user_id=user_id,
+                    require_current=require_current,
+                )
             if isinstance(assessed, BoundDocumentBatchAssessment):
                 if any(
                     item.source_version != content.source_version for item in assessed.documents
@@ -350,27 +355,10 @@ async def assess_request_candidates(
                 raw = assessed
             # Even an injected assessor must satisfy the production identity and
             # exact-quotation validator; never trust a test-local typed stand-in.
-            parsed = validate_document_batch(raw, retrieved=retrieved)
+            parsed = validate_request_document_batch(raw, request=request, retrieved=retrieved)
             item = parsed.documents[0]
             if item.source_version != content.source_version:
                 raise ValueError("assessment source changed")
-            if item.decision == "include" and plan.date_basis == "content":
-                if item.period_role == "unknown" or not item.covered_periods:
-                    raise ValueError("content period is unverified")
-                quotes = {citation.source_ref: citation.quote for citation in item.citations}
-                for period in item.covered_periods:
-                    quotation = "\n".join(quotes[ref] for ref in period.source_refs)
-                    if not all(
-                        _cited_day(date.fromisoformat(day), quotation)
-                        for day in (period.period_start, period.period_end)
-                    ):
-                        raise ValueError("content period is unverified")
-                if not any(
-                    date.fromisoformat(period.period_start) <= last
-                    and date.fromisoformat(period.period_end) >= first
-                    for period in item.covered_periods
-                ):
-                    raise ValueError("content period outside request")
             outcome: Literal["verified_match", "excluded", "unavailable"] = (
                 "verified_match"
                 if item.decision == "include"
@@ -392,6 +380,8 @@ async def assess_request_candidates(
                 "truncated": False,
             }
             observation["evidence_digest"] = _digest(observation)
+        except RequestAssessmentAuthorityError as error:
+            raise error.__cause__ or error
         except TimeoutError:
             observation = {**base, "decision": "unavailable", "code": "assessment_unavailable"}
         except (ValueError, TypeError, KeyError, AttributeError):
