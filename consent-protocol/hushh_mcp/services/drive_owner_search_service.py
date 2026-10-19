@@ -2624,6 +2624,7 @@ class DriveOwnerSearchService:
         """
         from hushh_mcp.services.drive_document_pages import OCR_IMAGE_MIMES
         from hushh_mcp.services.drive_request_candidate_assessment import (
+            CANDIDATE_OBSERVATION_CODES,
             CandidateContent,
             assess_request_candidates,
             verified_evidence_matches,
@@ -2749,6 +2750,20 @@ class DriveOwnerSearchService:
             checkpoint["semantic_coverage_incomplete"] = True
         else:
             raise DriveReadError("provider_response_invalid")
+        # Retain closed reason counts in the existing encrypted checkpoint. A
+        # consumed unavailable candidate must not lose its only diagnosis.
+        reason = observation.get("code")
+        if not isinstance(reason, str) or reason not in CANDIDATE_OBSERVATION_CODES:
+            reason = "unclassified"
+        counts = checkpoint.setdefault("semantic_outcome_counts", {})
+        key = f"{decision}:{reason}"
+        counts[key] = counts.get(key, 0) + 1
+        logger.info(
+            "drive_search.candidate decision=%s reason=%s position=%d",
+            decision,
+            reason,
+            position,
+        )
         checkpoint["semantic_assessed"] = position
         checkpoint["semantic_pending"] = pending[1:]
         done = (

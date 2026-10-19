@@ -53,6 +53,22 @@ _READ_CODES = frozenset(
 _EVIDENCE_CODES = frozenset(
     {"source_changed", "content_incomplete", "invalid_content_evidence", "content_too_large"}
 )
+# Only these bounded labels may enter checkpoint diagnostics or operational logs.
+CANDIDATE_OBSERVATION_CODES = (
+    _READ_CODES
+    | _EVIDENCE_CODES
+    | frozenset(
+        {
+            "identity_unresolved",
+            "content_unavailable",
+            "content_verified",
+            "content_excluded",
+            "content_uncertain",
+            "assessment_unavailable",
+            "assessment_invalid",
+        }
+    )
+)
 
 
 @dataclass(frozen=True)

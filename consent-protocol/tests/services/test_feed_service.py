@@ -807,6 +807,73 @@ def test_historical_drive_payment_reads_current_requester_scoped_status() -> Non
     assert "private.pdf" not in str(metadata)
 
 
+@pytest.mark.parametrize("viewer", ["owner", "requester"])
+def test_historical_partial_feed_uses_current_delivery_receipts(viewer) -> None:
+    request_id = "11111111-2222-4333-8444-555555555555"
+    service = FeedService()
+    db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "current_request_status": "partial",
+                    "current_delivery_total_count": 20,
+                    "current_delivery_confirmed_count": 20,
+                    "current_delivery_pending_count": 0,
+                    "file_name": "private.pdf",
+                    "semantic_outcome_counts": {"unavailable:unsupported_format": 27},
+                }
+            ]
+        ]
+    )
+    service._db = db
+    rows = service._with_drive_payment_status(
+        viewer,
+        [
+            {
+                "event_type": "document_share_outcome",
+                "metadata": {"request_id": request_id, "user_facing_status": "partial"},
+            }
+        ],
+    )
+    metadata = FeedService._to_item({"id": 1, **rows[0]})["metadata"]
+    assert metadata["user_facing_status"] == "partial"
+    assert metadata["current_delivery_total_count"] == 20
+    assert metadata["current_delivery_confirmed_count"] == 20
+    assert metadata["current_delivery_pending_count"] == 0
+    assert "private.pdf" not in str(metadata)
+    assert "unsupported_format" not in str(metadata)
+    sql, params = db.raw_calls[0]
+    assert params["user_id"] == viewer
+    assert "r.recipient_user_id=:user_id OR r.user_id=:user_id" in sql
+    # Recovery keeps superseded effects for audit but detaches their file claim.
+    # Like the detail projection, Feed must count only active progressive claims.
+    assert "selected.position=e.position" in sql
+    assert "b.progressive_batch=FALSE OR selected.origin_request_id=r.request_id" in sql
+
+
+def test_missing_delivery_lookup_does_not_reuse_snapshot_counts() -> None:
+    service = FeedService()
+    service._db = _QueuedDb(raw_results=[[]])
+    rows = service._with_drive_payment_status(
+        "unrelated",
+        [
+            {
+                "event_type": "document_share_outcome",
+                "metadata": {
+                    "request_id": "11111111-2222-4333-8444-555555555555",
+                    "user_facing_status": "partial",
+                    "current_delivery_total_count": 20,
+                    "current_delivery_confirmed_count": 20,
+                    "current_delivery_pending_count": 0,
+                },
+            }
+        ],
+    )
+    metadata = FeedService._to_item({"id": 1, **rows[0]})["metadata"]
+    assert not any(key.startswith("current_delivery_") for key in metadata)
+
+
 def test_document_feed_projects_owner_setup_and_exact_partial_refund_only_to_each_party() -> None:
     request_id = "11111111-2222-4333-8444-555555555555"
     owner_db = _QueuedDb(

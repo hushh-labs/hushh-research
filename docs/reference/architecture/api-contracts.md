@@ -2625,6 +2625,20 @@ Consent bundle. A Drive outcome dismissal also hides earlier outcome rows for
 that same request; its decision, progress, and payment entries remain visible.
 Account deletion removes its Feed rows and hide state.
 
+A historical Drive outcome with request status `partial` receives live,
+participant-scoped receipt counts in metadata: `current_delivery_total_count`,
+`current_delivery_confirmed_count` (`succeeded` plus `preexisting`) and
+`current_delivery_pending_count` (queued, dispatching or unknown). These counts
+cover approved batches for that request and recipient. They describe recorded
+permission outcomes, not a new check of the current Google ACL. Missing or
+inconsistent counts use neutral copy; a request-level `partial` alone never
+establishes a sharing failure. The request detail uses aggregate delivery counts,
+so a successful latest batch cannot conceal an earlier failed batch. Confirmed
+delivery does not establish exhaustive search coverage or authorize unverified
+candidates. The proxy and native HTTP transport pass these additive fields;
+older servers safely omit them.
+
+
 ### SSE (Server-Sent Events)
 
 | Method | Path                                                               | Description                                                                                                                                                                                                         |
