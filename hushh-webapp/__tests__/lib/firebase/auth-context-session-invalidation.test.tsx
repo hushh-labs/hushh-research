@@ -517,6 +517,35 @@ describe("AuthProvider terminal session invalidation", () => {
     await waitFor(() => expect(screen.getByTestId("verified-phone")).toHaveTextContent(identity.phone_number));
   });
 
+  it.each([
+    { restored: false, removed: false },
+    { restored: true, removed: false },
+    { restored: false, removed: true },
+    { restored: true, removed: true },
+  ])("keeps newer committed phone evidence after a read returns (restored: $restored, removed: $removed)", async ({ restored, removed }) => {
+    mocks.firebaseUser = makeUser("account-owner", restored ? "+14155550100" : "");
+    const previous = { user_id: "account-owner", phone_number: "+14155550101", phone_verified: true };
+    const latest = { user_id: "account-owner", phone_number: removed ? null : "+919000000001", phone_verified: !removed };
+    const publish = (identity: typeof latest) => {
+      mocks.identityPeek.mockReturnValue({ data: identity, isStale: false });
+      CacheService.getInstance().set(CACHE_KEYS.ACCOUNT_IDENTITY("account-owner"), identity);
+    };
+    mocks.identityRefresh.mockImplementationOnce(async () => {
+      publish(previous);
+      // The read is already accepted by the service. A later claim publishes
+      // before its awaiting AuthProvider consumer resumes.
+      queueMicrotask(() => publish(latest));
+      return previous;
+    });
+    render(<AuthProvider><SessionProbe /><VerifiedPhoneProbe /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    await act(async () => { await Promise.resolve(); });
+    expect(mocks.identityRefresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("verified-phone")).toHaveTextContent(latest.phone_number ?? "missing");
+    expect(screen.getByTestId("phone-status")).toHaveTextContent(removed ? "missing" : "verified");
+    expect(mocks.phoneClaimToken).not.toHaveBeenCalled();
+  });
+
   it.each(["foreign", "stale", "unverified", "bootstrap hint"])("ignores %s phone evidence in cache notifications", async (kind) => {
     mocks.firebaseUser = makeUser("account-owner", "");
     render(<AuthProvider><SessionProbe /><VerifiedPhoneProbe /></AuthProvider>);
@@ -845,13 +874,20 @@ describe("AuthProvider terminal session invalidation", () => {
     expect(mocks.replaceDocument).toHaveBeenCalledWith("/");
   });
 
-  it("does not revalidate an already-published session on web foreground", async () => {
-    renderProvider();
+  it.each(["fresh", "missing"])("preserves an already-published session on foreground with %s phone evidence", async (evidence) => {
+    if (evidence === "fresh") {
+      mocks.identityPeek.mockReturnValue({ data: {
+        user_id: "account-owner", phone_number: "+14155550100", phone_verified: true,
+      }, isStale: false });
+    }
+    render(<AuthProvider><SessionProbe /><VerifiedPhoneProbe /></AuthProvider>);
 
     await screen.findByText("Vault content for account-owner");
+    await act(async () => Promise.resolve());
     const currentUser = mocks.firebaseUser as User;
     vi.mocked(currentUser.getIdToken).mockClear();
     mocks.apiGetAccountSessionStatus.mockClear();
+    mocks.identityRefresh.mockClear();
 
     act(() => {
       emitLifecycle("background");
@@ -861,6 +897,9 @@ describe("AuthProvider terminal session invalidation", () => {
     await act(async () => Promise.resolve());
     expect(currentUser.getIdToken).not.toHaveBeenCalled();
     expect(mocks.apiGetAccountSessionStatus).not.toHaveBeenCalled();
+    expect(mocks.identityRefresh).toHaveBeenCalledTimes(evidence === "fresh" ? 0 : 1);
+    expect(screen.getByTestId("verified-phone")).toHaveTextContent("+14155550100");
+    expect(screen.getByTestId("phone-status")).toHaveTextContent("verified");
     expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
     expect(
       screen.getByText("Vault content for account-owner"),

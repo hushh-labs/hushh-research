@@ -309,9 +309,15 @@ function runWhenBrowserIsIdle(task: () => void): () => void {
   return () => globalThis.clearTimeout(timeout);
 }
 
-function cachedBackendPhoneIsMissing(userId: string): boolean {
+function cachedBackendPhoneIdentity(userId: string): AccountIdentity | null {
   const snapshot = AccountIdentityService.peekCachedIdentity(userId);
-  return Boolean(snapshot && !snapshot.isStale && backendPhoneIsMissing(snapshot.data, userId));
+  if (!snapshot || snapshot.isStale) return null;
+  return verifiedBackendPhoneNumber(snapshot.data, userId) || backendPhoneIsMissing(snapshot.data, userId)
+    ? snapshot.data : null;
+}
+
+function cachedBackendPhoneIsMissing(userId: string): boolean {
+  return backendPhoneIsMissing(cachedBackendPhoneIdentity(userId), userId);
 }
 
 // ============================================================================
@@ -589,19 +595,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // shadow. Contact normalization needs an authoritative region, so this
       // missing-phone path must consult Firebase even when that cache is fresh.
       const identity = await withinAccountSessionValidationBudget(
-        AccountIdentityService.refreshCurrentUserIdentity(currentUser, { force: true }),
+        AccountIdentityService.refreshCurrentUserIdentity(
+          currentUser,
+          { force: true },
+        ),
         Date.now() + PHONE_RECOVERY_REQUEST_BUDGET_MS,
       );
       if (!isCurrent()) return null;
 
-      const backendPhone = verifiedBackendPhoneNumber(identity, currentUser.uid);
+      // A newer claim can publish after this read returns but before the
+      // awaiting consumer resumes. Preserve that canonical phone evidence.
+      const phoneIdentity = cachedBackendPhoneIdentity(currentUser.uid) ?? identity;
+      const backendPhone = verifiedBackendPhoneNumber(phoneIdentity, currentUser.uid);
       if (backendPhone) {
         phoneNumberRef.current = backendPhone;
         setPhoneNumber(backendPhone);
         setPhoneNumberStatus("verified");
+      } else if (backendPhoneIsMissing(phoneIdentity, currentUser.uid)) {
+        phoneNumberRef.current = null;
+        setPhoneNumber(null);
+        setPhoneNumberStatus("missing");
       } else if (!phoneNumberRef.current && !hasActivePhoneAttempt()) {
-        setPhoneNumberStatus(backendPhoneIsMissing(identity, currentUser.uid) ||
-          cachedBackendPhoneIsMissing(currentUser.uid) || phoneNumberStatusRef.current === "missing"
+        setPhoneNumberStatus(phoneNumberStatusRef.current === "missing"
           ? "missing" : "unavailable");
       }
       return backendPhone || phoneNumberRef.current;
@@ -643,10 +658,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (retryTimer !== null) globalThis.clearTimeout(retryTimer);
       retryTimer = null;
     };
-    const freshIdentity = () => {
-      const snapshot = AccountIdentityService.peekCachedIdentity(expectedUid);
-      return snapshot && !snapshot.isStale ? snapshot.data : null;
-    };
+    const freshIdentity = () => cachedBackendPhoneIdentity(expectedUid);
     const hasFreshPhoneEvidence = () => {
       const identity = freshIdentity();
       return Boolean(verifiedBackendPhoneNumber(identity, expectedUid) || backendPhoneIsMissing(identity, expectedUid));
@@ -680,7 +692,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             AccountIdentityService.refreshCurrentUserIdentity(user, { force: true }),
             Date.now() + PHONE_RECOVERY_REQUEST_BUDGET_MS,
           );
-          applyPhoneIdentity(identity);
+          applyPhoneIdentity(freshIdentity() ?? identity);
         } else await resolveVerifiedPhoneNumber();
       } catch { /* Availability stays retryable. */ }
       finally { running = false; }

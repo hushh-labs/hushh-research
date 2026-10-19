@@ -389,6 +389,9 @@ requests are fenced by auth generation and publication order, so a late read
 cannot overwrite a newer read or committed phone save. A concurrent name/photo
 mutation still runs; its superseded identity snapshot is reconciled by a new
 read rather than replacing the newer phone claim.
+AuthProvider also rechecks fresh canonical phone evidence after an awaited read
+returns, including authoritative absence, so a claim published between service
+completion and consumer continuation cannot be reverted by the returned snapshot.
 
 The One setup family follows the same retained-surface rule. Its parent
 `app/one/loading.tsx` and `app/one/setup/loading.tsx` boundaries intentionally
