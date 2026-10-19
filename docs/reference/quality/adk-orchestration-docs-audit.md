@@ -48,7 +48,7 @@ Operating detail stays in the [dev pod runbook](../operations/dev-pod-first-ligh
 | Schema / rollback | Post-deploy: 65 migration rows, 964 applied, no failed migration or required-contract/checksum mismatch; history cleanup 249 deferred | Captured rollback: hub `00185-f9z` / source `e9482e4319ad`, frontend `00153-7ck` / source `991a06ccbc01`. Application rollback cannot recover destructively deleted history |
 | Hermes | Source `f082c71325`; profile and Gemma 12B default preserved | Focused relay checks and live response pass. Broad companion Python validation is incomplete and dependency alerts remain; this is not distribution clearance |
 
-**Verification receipt:** the broad parallel run retained 21,253 passes and one
+**Deployed application verification receipt:** the broad parallel run retained 21,253 passes and one
 Live-revocation fixture failure. The fixture now explicitly selects supported native
 GCP Live; its complete 15-case suite passes with unchanged assertions. All 1,475
 serial database checks and every test import pass. Web-core inputs remained
@@ -76,31 +76,30 @@ closed. See [native Browser evidence](../../../consent-protocol/docs/reference/p
 ### Local integration candidate — 2026-10-19 UTC
 
 Fresh main `f47a4832dbc` and frozen local ADK `42bb9823005` are integrated
-through `a06eac52b5` plus reviewed integration corrections in an isolated checkout. Peer edits and the active ADK tree
-remain intact. Provider-aware AI selection, Puppy controls and exact owner/vault
-authority were preserved across main's extracted UI models. Async AI/key/device
-operations now retain their original owner generation; Wallet reopen assertions
-were restored. No new push or environment deployment has occurred in this slice.
+through `b14bc29901` on the existing primary infrastructure branch. All ten peer
+drafts were preserved, including the PDF authoring paths moved to `.agents`.
+The active ADK tree and its later commits remain separate from this frozen intake.
+Provider-aware AI, Puppy controls, Wallet reopen assertions and original owner/vault
+generation fences survive the extracted UI models. New Drive file routes enforce
+Shared content admission; reset and deletion explicitly erase processing approval.
 
-Focused receipts: 350 backend passes (73 environment skips), 77 deployment checks,
-131 final authority/UI checks, 484 Back cases and 38 ADK error cases. TypeScript,
-generated UI contracts and Swift parsing pass. The `.agents` consolidation retains
-45 governed skills, 22 practices, 19 lanes and 40 workflows behind checked host
-adapters. All 209 maintained diagrams render after seven stale UI snapshots were consolidated;
-changed maps were visually inspected. These are local source results, not installed-cloud
-acceptance or a full core receipt. Read-only frontend/backend and parent governance
-review reconciled 307 exact structural ceilings: 228 findings match a frozen parent;
-79 are reviewed compositions. Historical annotations and 500/250/80 budgets remain;
-the ratchet and its negative controls pass. This does not clear product blockers.
+**All local core stages pass on that unchanged revision**, after focused retries
+for isolated database setup: 21,737 parallel passes, 1,215 serial passes, the complete
+26-case refused-fixture modules, and 396 additional real PostgreSQL cases. The
+parallel/serial runs retained 195/358 conditional or environment skips; the additional
+run exercises the dedicated-URL fixtures. Every test imports (29,899 collected).
+Web-core, MCP package verification and integration pass, including 191 frontend and
+396 backend PKM cases. Original refusals remain recorded; passed suites were reused.
+Local PostgreSQL is version 14; hosted CI owns version 17 and browser-layout parity.
 
-The combined core run passed web-core and retained 21,397 backend passes; it
-also exposed ten source/fixture failures and 388 strict test-database setup errors.
-The corrections enforce the content guard on new Drive file routes, erase private
-processing approval on reset and deletion, restore canonical schema order, and
-follow the new instruction paths. Their 337 focused checks and 766 real local
-PostgreSQL checks pass. The omitted-reset-cleanup negative control fails as intended.
-Test clusters close after use; the peer database and browser connection are preserved.
-The final combined core receipt is still pending. No new hosted CI or deployment is claimed.
+Focused authority, Back, recovery and negative controls also pass. No assertion,
+consent gate or global architecture budget was weakened. Reviewed exact debt ceilings
+retain the historical findings and 500/250/80 budgets. Canonical `.agents` sources
+retain 45 governed skills, 22 practices, 19 lanes and 40 workflows behind checked
+adapters. All 209 maintained diagrams render; changed maps were visually inspected.
+The private-pod Wiki correction persisted and passed readback. Test databases close
+after use; the existing browser and peer database remain untouched. No new hosted CI,
+push, pod installation or environment deployment is claimed by these local receipts.
 
 Files recovery now persists provider-confirmed cancellation before later checks and
 retains it across failure/restart. Exact-session HTTP 410 is a separate invalidation
