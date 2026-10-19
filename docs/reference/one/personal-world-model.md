@@ -141,6 +141,10 @@ An Azure page citation may legitimately have an empty title. Its raw title, URL
 and offsets remain exact; the source card uses only the generic "Public page"
 label. This does not relax URL, range, completion or billing validation. Starting
 anchors do not prohibit the search stage from using newly retrieved public URLs.
+If opening a public page fails, the search prompt uses its remaining native-tool
+call for an indexed URL/handle search. Unreadable pages remain unavailable. Final
+compilation audits proposed batches for distinct, owner-reviewable personal
+statements; structural receipt validation does not make a proposal a verified fact.
 
 Identity assessment/repair uses medium reasoning with an 8,192-token ceiling.
 Only final compilation/repair uses high reasoning. Other stages keep low effort,
