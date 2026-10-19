@@ -61,6 +61,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  Smile,
   MoonIcon,
   SunIcon,
   Plus,
@@ -1841,6 +1842,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                 {!message.deletedForEveryoneAt ? (
                                   <DirectMessageEmojiPicker
                                     label="React to message"
+                                    triggerIcon={<Smile className="h-5 w-5" />}
                                     triggerClassName={styles.messageActionButton}
                                     open={openReactionPicker === message.id}
                                     onOpenChange={(open) => {
@@ -2082,6 +2084,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     />
                     <DirectMessageEmojiPicker
                       key={draftScope}
+                      triggerIcon={<Smile className="h-5 w-5" />}
                       restoreTriggerFocusOnSelect={false}
                       disabled={sending || recordingVoice || !canCompose || Boolean(unconfirmedDraft)}
                       onEmojiSelect={(emoji) => {
