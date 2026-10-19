@@ -143,6 +143,17 @@ def test_frontend_vault_change_requires_byok_browser() -> None:
     assert plan.as_dict()["requires_web_dependencies"] is True
 
 
+def test_world_model_background_driver_requires_read_only_byok_browser() -> None:
+    for path in (
+        "hushh-webapp/components/profile/world-model-provider.tsx",
+        "hushh-webapp/lib/services/world-model-research-service.ts",
+    ):
+        plan = plan_for({path}, backend=False, frontend=True)
+        assert plan.run_reviewer_byok is True
+        assert plan.pkm_evaluator_runs == 0
+        assert plan.run_pkm_upgrade_gate is False
+
+
 def test_divergent_service_bases_do_not_reselect_already_deployed_vault_change() -> None:
     resolver = load_module()
     changed_by_base = {
@@ -282,6 +293,7 @@ def main() -> int:
         test_pkm_gate_policy_change_relies_on_always_on_contract_tests,
         test_unknown_path_keeps_expensive_lanes_skipped,
         test_frontend_vault_change_requires_byok_browser,
+        test_world_model_background_driver_requires_read_only_byok_browser,
         test_divergent_service_bases_do_not_reselect_already_deployed_vault_change,
         test_divergent_service_bases_preserve_owned_and_shared_protected_changes,
         test_missing_deployed_sha_fails_closed,

@@ -217,6 +217,20 @@ reason. This is evidence only: authority checks, migrations, deployment
 provenance, runtime health, and directly affected frontend/backend checks remain
 mandatory regardless of the expensive-lane selection.
 
+For reviewer BYOK, `required` selects execution; the existing UAT rollout
+classifier still records the result as advisory. A green step conclusion under
+`continue-on-error` is not a passing rehearsal: inspect the release receipt's
+`reviewer_byok` outcome. A healthy rollout does not satisfy reviewer acceptance
+when that proof is part of the task. The World Model background driver and its
+provider select this lane because automatic startup must respect read-only
+reviewer posture.
+
+For RCA acceptance, `repeat_reviewer_byok=true` repeats an already-selected
+baseline twice in independent browser lifetimes. It defaults to false, does not
+select an otherwise-skipped lane or authorize mutations, and records requested
+and completed pass counts in the release receipt. A failed pass stops that
+rehearsal; it does not change the existing advisory rollback policy.
+
 Live Gemini/Vertex candidate checks are opt-in, not ordinary CI gates. UAT
 dispatches default `run_live_model_checks=false`; explicitly setting it to
 `true` selects candidate-model readiness and synthetic PKM evaluation for a
