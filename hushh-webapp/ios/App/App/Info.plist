@@ -57,7 +57,7 @@
 		<true/>
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hussh One uses the microphone when you record a voice message or talk to One.</string>
+	<string>Hussh One uses the microphone when you make a voice call, record a voice message or talk to One.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Hussh One uses Face ID only when you choose to unlock your Vault on this device.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
@@ -73,6 +73,8 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
+		<string>voip</string>
+		<string>audio</string>
 		<string>location</string>
 	</array>
 	<key>UIFileSharingEnabled</key>

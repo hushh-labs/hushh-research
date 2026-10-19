@@ -19,10 +19,8 @@ import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/n
 import { MAX_BINDING_CLOCK_SKEW_MS, POD_SESSION_PREFIX, OwnerPodError, canonicalJson, p1363ToDer, readJson, subtle, verifyHubSignature } from "./owner-pod-crypto";
 export { POD_SESSION_PREFIX, OwnerPodError, canonicalJson, p1363ToDer } from "./owner-pod-crypto";
 
-export const OWNER_POD_DB_NAME = "hushh-owner-pod";
-const DB_VERSION = 1;
-const KEY_STORE = "app_keys";
-const PIN_STORE = "pins";
+export { OWNER_POD_DB_NAME } from "./owner-pod-storage";
+import { KEY_STORE, PIN_STORE, readRecord, writeRecord, deleteOwnerPodRecords } from "./owner-pod-storage";
 
 /** Renew this long before expiry so a turn never starts on a dying session. */
 const SESSION_RENEW_MARGIN_MS = 60 * 60 * 1000;
@@ -42,6 +40,7 @@ type AppKeyRecord = {
   key: CryptoKeyPair;
   publicKeyB64: string;
   subjectId: string | null;
+  communication?: { keyId: string; pair: CryptoKeyPair; publicKey: string };
 };
 
 type PinRecord = {
@@ -64,72 +63,6 @@ export type OwnerPodTransport = {
 
 // -- storage ------------------------------------------------------------------------
 
-const memoryKeys = new Map<string, AppKeyRecord>();
-const memoryPins = new Map<string, PinRecord>();
-function indexedDbAvailable(): boolean {
-  return typeof indexedDB !== "undefined" && indexedDB !== null;
-}
-
-async function openDb(): Promise<IDBDatabase | null> {
-  if (!indexedDbAvailable()) return null;
-  return await new Promise((resolve, reject) => {
-    const request = indexedDB.open(OWNER_POD_DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(KEY_STORE)) {
-        db.createObjectStore(KEY_STORE, { keyPath: "userId" });
-      }
-      if (!db.objectStoreNames.contains(PIN_STORE)) {
-        db.createObjectStore(PIN_STORE, { keyPath: "userId" });
-      }
-    };
-    request.onblocked = () => reject(new OwnerPodError("STORAGE_BLOCKED"));
-    request.onsuccess = () => {
-      const db = request.result;
-      db.onversionchange = () => db.close();
-      resolve(db);
-    };
-    request.onerror = () => reject(request.error ?? new OwnerPodError("STORAGE_UNAVAILABLE"));
-  });
-}
-
-async function readRecord<T>(store: string, userId: string): Promise<T | null> {
-  const db = await openDb();
-  if (!db) {
-    const fallback = store === KEY_STORE ? memoryKeys : memoryPins;
-    return (fallback.get(userId) as T | undefined) ?? null;
-  }
-  try {
-    return await new Promise<T | null>((resolve, reject) => {
-      const request = db.transaction(store, "readonly").objectStore(store).get(userId);
-      request.onsuccess = () => resolve((request.result as T | undefined) ?? null);
-      request.onerror = () => reject(request.error ?? new OwnerPodError("STORAGE_READ_FAILED"));
-    });
-  } finally {
-    db.close();
-  }
-}
-
-async function writeRecord<T extends { userId: string }>(store: string, record: T): Promise<void> {
-  const db = await openDb();
-  if (!db) {
-    const fallback = store === KEY_STORE ? memoryKeys : memoryPins;
-    (fallback as unknown as Map<string, T>).set(record.userId, record);
-    return;
-  }
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(store, "readwrite");
-      tx.objectStore(store).put(record);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new OwnerPodError("STORAGE_WRITE_FAILED"));
-      tx.onabort = () => reject(tx.error ?? new OwnerPodError("STORAGE_WRITE_ABORTED"));
-    });
-  } finally {
-    db.close();
-  }
-}
-
 async function readPin(userId: string): Promise<PinRecord> {
   const stored = await readRecord<PinRecord>(PIN_STORE, userId);
   if (stored?.endpoint && stored.endpoint.verificationVersion !== 1) {
@@ -148,22 +81,8 @@ async function readPin(userId: string): Promise<PinRecord> {
 
 /** Test and sign-out hook: forget everything held for one account. */
 async function forgetOwnerPodStateUnlocked(userId: string): Promise<void> {
-  memoryKeys.delete(userId);
-  memoryPins.delete(userId);
   forgetDirectAdmission(userId);
-  const db = await openDb();
-  if (!db) return;
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction([KEY_STORE, PIN_STORE], "readwrite");
-      tx.objectStore(KEY_STORE).delete(userId);
-      tx.objectStore(PIN_STORE).delete(userId);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new OwnerPodError("STORAGE_WRITE_FAILED"));
-    });
-  } finally {
-    db.close();
-  }
+  await deleteOwnerPodRecords(userId);
 }
 
 // -- the app key ----------------------------------------------------------------------
@@ -685,6 +604,39 @@ export function decodePodSessionClaims(session: string): Record<string, unknown>
 // Authority mutations share the owner lock; internal composition never re-enters it.
 export const refreshEndpointFromHub = serializeOwnerPodOperation(refreshEndpointFromHubUnlocked);
 export const ensureAppEnrollment = serializeOwnerPodOperation(ensureAppEnrollmentUnlocked);
+
+/** Purpose-separated encryption handle below the existing installation identity.
+ * No extractable private key, second device registry or plaintext key backup.
+ */
+export const communicationIdentity = serializeOwnerPodOperation(async (
+  userId: string, transport: OwnerPodTransport,
+): Promise<{ deviceId: string; keyId: string; pair: CryptoKeyPair; publicKey: string; signingKey: string }> => {
+  const deviceId = await ensureAppEnrollmentUnlocked(userId, transport);
+  const record = await ensureAppKey(userId);
+  let communication = record.communication;
+  if (!communication) {
+    const pair = await subtle().generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+    communication = { pair, keyId: crypto.randomUUID(), publicKey: bytesToBase64(
+      new Uint8Array(await subtle().exportKey("spki", pair.publicKey))) };
+    await writeRecord(KEY_STORE, { ...record, communication });
+  }
+  return { deviceId, ...communication, signingKey: record.publicKeyB64 };
+});
+
+/** Sign only the versioned communications domain using canonical device custody. */
+export const signCommunicationCommand = serializeOwnerPodOperation(async (
+  userId: string, operation: string, payload: Record<string, unknown>,
+): Promise<{ deviceId: string; nonce: string; expiresAt: number; signature: string }> => {
+  const record = await ensureAppKey(userId);
+  if (!record.subjectId) throw new OwnerPodError("COMMUNICATION_DEVICE_NOT_ENROLLED");
+  const proof = { deviceId: record.subjectId, nonce: crypto.randomUUID(), expiresAt: Math.floor(Date.now() / 1000) + 90 };
+  const hash = new Uint8Array(await subtle().digest("SHA-256", new TextEncoder().encode(canonicalJson(payload))));
+  const digest = Array.from(hash, byte => byte.toString(16).padStart(2, "0")).join("");
+  const signature = await signWithAppKey(record, canonicalJson([
+    "hussh-communications-command-v1", userId, operation, proof.deviceId, proof.nonce, proof.expiresAt, digest,
+  ]));
+  return { ...proof, signature };
+});
 export const openPodSession = serializeOwnerPodOperation(openPodSessionUnlocked);
 export const renewPodSession = serializeOwnerPodOperation(renewPodSessionUnlocked);
 export const currentPodSession = serializeOwnerPodOperation(currentPodSessionUnlocked);

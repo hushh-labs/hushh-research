@@ -7,7 +7,7 @@ Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.
 
 ## Frontend npm packages
 
-Package count: 1258
+Package count: 1274
 
 ### License summary
 
@@ -15,7 +15,7 @@ Package count: 1258
 - `(MIT AND Zlib)`: 1
 - `(MPL-2.0 OR Apache-2.0)`: 1
 - `0BSD`: 2
-- `Apache-2.0`: 187
+- `Apache-2.0`: 191
 - `Apache-2.0 AND LGPL-3.0-or-later`: 3
 - `Apache-2.0 AND LGPL-3.0-or-later AND MIT`: 1
 - `BlueOak-1.0.0`: 11
@@ -25,7 +25,7 @@ Package count: 1258
 - `CC0-1.0`: 1
 - `ISC`: 75
 - `LGPL-3.0-or-later`: 10
-- `MIT`: 906
+- `MIT`: 918
 - `MIT AND ISC`: 1
 - `MIT OR SEE LICENSE IN FEEL-FREE.md`: 1
 - `MIT-0`: 1
@@ -73,15 +73,16 @@ Package count: 1258
 - `@capacitor-firebase/analytics` `8.2.0` — Apache-2.0
 - `@capacitor-firebase/authentication` `8.2.0` — Apache-2.0
 - `@capacitor-firebase/messaging` `8.2.0` — Apache-2.0
-- `@capacitor/android` `8.3.1` — MIT
+- `@capacitor/android` `8.4.3` — MIT
 - `@capacitor/app` `8.1.0` — MIT
+- `@capacitor/browser` `8.0.4` — MIT
 - `@capacitor/camera` `8.2.1` — MIT
-- `@capacitor/cli` `8.4.1` — MIT
-- `@capacitor/core` `8.3.1` — MIT
+- `@capacitor/cli` `8.4.3` — MIT
+- `@capacitor/core` `8.4.3` — MIT
 - `@capacitor/filesystem` `8.1.2` — MIT
 - `@capacitor/google-maps` `8.0.1` — MIT
 - `@capacitor/google-maps/@googlemaps/js-api-loader` `2.1.1` — Apache-2.0
-- `@capacitor/ios` `8.3.1` — MIT
+- `@capacitor/ios` `8.4.3` — MIT
 - `@capacitor/keyboard` `8.0.5` — MIT
 - `@capacitor/preferences` `8.0.1` — MIT
 - `@capacitor/share` `8.0.1` — MIT
@@ -92,9 +93,9 @@ Package count: 1258
 - `@csstools/css-color-parser` `3.1.0` — MIT
 - `@csstools/css-parser-algorithms` `3.0.5` — MIT
 - `@csstools/css-tokenizer` `3.0.4` — MIT
-- `@emnapi/core` `1.11.1` — MIT
-- `@emnapi/runtime` `1.11.1` — MIT
-- `@emnapi/wasi-threads` `1.2.2` — MIT
+- `@emnapi/core` `1.11.3` — MIT
+- `@emnapi/runtime` `1.11.3` — MIT
+- `@emnapi/wasi-threads` `1.2.3` — MIT
 - `@epic-web/invariant` `1.0.0` — MIT
 - `@eslint-community/eslint-utils` `4.9.1` — MIT
 - `@eslint-community/regexpp` `4.12.2` — MIT
@@ -215,6 +216,8 @@ Package count: 1258
 - `@googlemaps/markerclusterer` `2.6.2` — Apache-2.0
 - `@grpc/grpc-js` `1.9.16` — Apache-2.0
 - `@grpc/proto-loader` `0.7.15` — Apache-2.0
+- `@hpke/common` `1.10.1` — MIT
+- `@hpke/core` `1.9.0` — MIT
 - `@humanfs/core` `0.19.2` — Apache-2.0
 - `@humanfs/node` `0.16.8` — Apache-2.0
 - `@humanfs/types` `0.15.0` — Apache-2.0
@@ -223,32 +226,32 @@ Package count: 1258
 - `@iconify/types` `2.0.0` — MIT
 - `@iconify/utils` `3.1.4` — MIT
 - `@img/colour` `1.1.0` — MIT
-- `@img/sharp-darwin-arm64` `0.35.0` — Apache-2.0
-- `@img/sharp-darwin-x64` `0.35.0` — Apache-2.0
-- `@img/sharp-freebsd-wasm32` `0.35.0` — Apache-2.0
-- `@img/sharp-libvips-darwin-arm64` `1.3.0` — LGPL-3.0-or-later
-- `@img/sharp-libvips-darwin-x64` `1.3.0` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linux-arm` `1.3.0` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linux-arm64` `1.3.0` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linux-ppc64` `1.3.0` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linux-riscv64` `1.3.0` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linux-s390x` `1.3.0` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linux-x64` `1.3.0` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linuxmusl-arm64` `1.3.0` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linuxmusl-x64` `1.3.0` — LGPL-3.0-or-later
-- `@img/sharp-linux-arm` `0.35.0` — Apache-2.0
-- `@img/sharp-linux-arm64` `0.35.0` — Apache-2.0
-- `@img/sharp-linux-ppc64` `0.35.0` — Apache-2.0
-- `@img/sharp-linux-riscv64` `0.35.0` — Apache-2.0
-- `@img/sharp-linux-s390x` `0.35.0` — Apache-2.0
-- `@img/sharp-linux-x64` `0.35.0` — Apache-2.0
-- `@img/sharp-linuxmusl-arm64` `0.35.0` — Apache-2.0
-- `@img/sharp-linuxmusl-x64` `0.35.0` — Apache-2.0
-- `@img/sharp-wasm32` `0.35.0` — Apache-2.0 AND LGPL-3.0-or-later AND MIT
-- `@img/sharp-webcontainers-wasm32` `0.35.0` — Apache-2.0
-- `@img/sharp-win32-arm64` `0.35.0` — Apache-2.0 AND LGPL-3.0-or-later
-- `@img/sharp-win32-ia32` `0.35.0` — Apache-2.0 AND LGPL-3.0-or-later
-- `@img/sharp-win32-x64` `0.35.0` — Apache-2.0 AND LGPL-3.0-or-later
+- `@img/sharp-darwin-arm64` `0.35.4` — Apache-2.0
+- `@img/sharp-darwin-x64` `0.35.4` — Apache-2.0
+- `@img/sharp-freebsd-wasm32` `0.35.4` — Apache-2.0
+- `@img/sharp-libvips-darwin-arm64` `1.3.3` — LGPL-3.0-or-later
+- `@img/sharp-libvips-darwin-x64` `1.3.3` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linux-arm` `1.3.3` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linux-arm64` `1.3.3` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linux-ppc64` `1.3.3` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linux-riscv64` `1.3.3` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linux-s390x` `1.3.3` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linux-x64` `1.3.3` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linuxmusl-arm64` `1.3.3` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linuxmusl-x64` `1.3.3` — LGPL-3.0-or-later
+- `@img/sharp-linux-arm` `0.35.4` — Apache-2.0
+- `@img/sharp-linux-arm64` `0.35.4` — Apache-2.0
+- `@img/sharp-linux-ppc64` `0.35.4` — Apache-2.0
+- `@img/sharp-linux-riscv64` `0.35.4` — Apache-2.0
+- `@img/sharp-linux-s390x` `0.35.4` — Apache-2.0
+- `@img/sharp-linux-x64` `0.35.4` — Apache-2.0
+- `@img/sharp-linuxmusl-arm64` `0.35.4` — Apache-2.0
+- `@img/sharp-linuxmusl-x64` `0.35.4` — Apache-2.0
+- `@img/sharp-wasm32` `0.35.4` — Apache-2.0 AND LGPL-3.0-or-later AND MIT
+- `@img/sharp-webcontainers-wasm32` `0.35.4` — Apache-2.0
+- `@img/sharp-win32-arm64` `0.35.4` — Apache-2.0 AND LGPL-3.0-or-later
+- `@img/sharp-win32-ia32` `0.35.4` — Apache-2.0 AND LGPL-3.0-or-later
+- `@img/sharp-win32-x64` `0.35.4` — Apache-2.0 AND LGPL-3.0-or-later
 - `@ionic/cli-framework-output` `2.2.8` — MIT
 - `@ionic/utils-array` `2.1.6` — MIT
 - `@ionic/utils-fs` `3.1.7` — MIT
@@ -270,16 +273,16 @@ Package count: 1258
 - `@material/web` `2.4.1` — Apache-2.0
 - `@mermaid-js/parser` `1.2.1` — MIT
 - `@napi-rs/wasm-runtime` `0.2.12` — MIT
-- `@next/env` `16.2.11` — MIT
+- `@next/env` `16.3.8` — MIT
 - `@next/eslint-plugin-next` `16.2.4` — MIT
-- `@next/swc-darwin-arm64` `16.2.11` — MIT
-- `@next/swc-darwin-x64` `16.2.11` — MIT
-- `@next/swc-linux-arm64-gnu` `16.2.11` — MIT
-- `@next/swc-linux-arm64-musl` `16.2.11` — MIT
-- `@next/swc-linux-x64-gnu` `16.2.11` — MIT
-- `@next/swc-linux-x64-musl` `16.2.11` — MIT
-- `@next/swc-win32-arm64-msvc` `16.2.11` — MIT
-- `@next/swc-win32-x64-msvc` `16.2.11` — MIT
+- `@next/swc-darwin-arm64` `16.3.8` — MIT
+- `@next/swc-darwin-x64` `16.3.8` — MIT
+- `@next/swc-linux-arm64-gnu` `16.3.8` — MIT
+- `@next/swc-linux-arm64-musl` `16.3.8` — MIT
+- `@next/swc-linux-x64-gnu` `16.3.8` — MIT
+- `@next/swc-linux-x64-musl` `16.3.8` — MIT
+- `@next/swc-win32-arm64-msvc` `16.3.8` — MIT
+- `@next/swc-win32-x64-msvc` `16.3.8` — MIT
 - `@nodable/entities` `3.0.0` — MIT
 - `@nodelib/fs.scandir` `2.1.5` — MIT
 - `@nodelib/fs.stat` `2.0.5` — MIT
@@ -370,6 +373,7 @@ Package count: 1258
 - `@redis/json` `6.2.1` — MIT
 - `@redis/search` `6.2.1` — MIT
 - `@redis/time-series` `6.2.1` — MIT
+- `@rive-app/canvas` `2.44.2` — MIT
 - `@rolldown/binding-android-arm64` `1.1.5` — MIT
 - `@rolldown/binding-darwin-arm64` `1.1.5` — MIT
 - `@rolldown/binding-darwin-x64` `1.1.5` — MIT
@@ -383,13 +387,16 @@ Package count: 1258
 - `@rolldown/binding-linux-x64-musl` `1.1.5` — MIT
 - `@rolldown/binding-openharmony-arm64` `1.1.5` — MIT
 - `@rolldown/binding-wasm32-wasi` `1.1.5` — MIT
+- `@rolldown/binding-wasm32-wasi/@emnapi/core` `1.11.1` — MIT
+- `@rolldown/binding-wasm32-wasi/@emnapi/runtime` `1.11.1` — MIT
+- `@rolldown/binding-wasm32-wasi/@emnapi/wasi-threads` `1.2.2` — MIT
 - `@rolldown/binding-wasm32-wasi/@napi-rs/wasm-runtime` `1.1.6` — MIT
 - `@rolldown/binding-win32-arm64-msvc` `1.1.5` — MIT
 - `@rolldown/binding-win32-x64-msvc` `1.1.5` — MIT
 - `@rolldown/pluginutils` `1.0.0-rc.7` — MIT
 - `@rtsao/scc` `1.1.0` — MIT
 - `@standard-schema/spec` `1.1.0` — MIT
-- `@swc/helpers` `0.5.15` — Apache-2.0
+- `@swc/helpers` `0.5.23` — Apache-2.0
 - `@tailwindcss/node` `4.2.4` — MIT
 - `@tailwindcss/oxide` `4.2.4` — MIT
 - `@tailwindcss/oxide-android-arm64` `4.2.4` — MIT
@@ -415,6 +422,7 @@ Package count: 1258
 - `@tanstack/react-virtual` `3.13.24` — MIT
 - `@tanstack/table-core` `8.21.3` — MIT
 - `@tanstack/virtual-core` `3.14.0` — MIT
+- `@tesseract.js-data/eng` `1.0.0` — MIT
 - `@testing-library/dom` `10.4.1` — MIT
 - `@testing-library/dom/aria-query` `5.3.0` — Apache-2.0
 - `@testing-library/jest-dom` `6.9.1` — MIT
@@ -524,13 +532,13 @@ Package count: 1258
 - `@unrs/resolver-binding-win32-x64-msvc` `1.11.1` — MIT
 - `@upsetjs/venn.js` `2.0.0` — MIT
 - `@vitejs/plugin-react` `6.0.1` — MIT
-- `@vitest/expect` `4.1.5` — MIT
-- `@vitest/mocker` `4.1.5` — MIT
-- `@vitest/pretty-format` `4.1.5` — MIT
-- `@vitest/runner` `4.1.5` — MIT
-- `@vitest/snapshot` `4.1.5` — MIT
-- `@vitest/spy` `4.1.5` — MIT
-- `@vitest/utils` `4.1.5` — MIT
+- `@vitest/expect` `4.1.11` — MIT
+- `@vitest/mocker` `4.1.11` — MIT
+- `@vitest/pretty-format` `4.1.11` — MIT
+- `@vitest/runner` `4.1.11` — MIT
+- `@vitest/snapshot` `4.1.11` — MIT
+- `@vitest/spy` `4.1.11` — MIT
+- `@vitest/utils` `4.1.11` — MIT
 - `@xmldom/xmldom` `0.8.15` — MIT
 - `abort-controller` `3.0.0` — MIT
 - `acorn` `8.15.0` — MIT
@@ -569,6 +577,7 @@ Package count: 1258
 - `baseline-browser-mapping` `2.11.20` — Apache-2.0
 - `big-integer` `1.6.52` — Unlicense
 - `bignumber.js` `9.3.1` — MIT
+- `bmp-js` `0.1.0` — MIT
 - `bplist-parser` `0.3.2` — MIT
 - `brace-expansion` `5.0.9` — MIT
 - `braces` `3.0.3` — MIT
@@ -833,6 +842,7 @@ Package count: 1258
 - `https-proxy-agent` `7.0.6` — MIT
 - `iconv-lite` `0.6.3` — MIT
 - `idb` `7.1.1` — ISC
+- `idb-keyval` `6.3.0` — Apache-2.0
 - `ignore` `5.3.2` — MIT
 - `import-fresh` `3.3.1` — MIT
 - `import-meta-resolve` `4.2.0` — MIT
@@ -877,6 +887,7 @@ Package count: 1258
 - `is-symbol` `1.1.1` — MIT
 - `is-typed-array` `1.1.15` — MIT
 - `is-unsafe` `2.0.0` — MIT
+- `is-url` `1.2.4` — MIT
 - `is-weakmap` `2.0.2` — MIT
 - `is-weakref` `1.1.1` — MIT
 - `is-weakset` `2.0.4` — MIT
@@ -887,7 +898,7 @@ Package count: 1258
 - `jiti` `2.6.1` — MIT
 - `jose` `6.2.3` — MIT
 - `js-tokens` `4.0.0` — MIT
-- `js-yaml` `4.3.1` — MIT
+- `js-yaml` `4.3.2` — MIT
 - `jsdom` `25.0.1` — MIT
 - `jsdom/tr46` `5.1.1` — MIT
 - `jsdom/webidl-conversions` `7.0.0` — BSD-2-Clause
@@ -1021,7 +1032,7 @@ Package count: 1258
 - `napi-postinstall` `0.3.4` — MIT
 - `native-run` `2.0.3` — MIT
 - `natural-compare` `1.4.0` — MIT
-- `next` `16.2.11` — MIT
+- `next` `16.3.8` — MIT
 - `next-themes` `0.4.6` — MIT
 - `node-domexception` `1.0.0` — MIT
 - `node-fetch` `2.7.0` — MIT
@@ -1039,6 +1050,7 @@ Package count: 1258
 - `obug` `2.1.1` — MIT
 - `once` `1.4.0` — ISC
 - `open` `8.4.2` — MIT
+- `opencollective-postinstall` `2.0.3` — MIT
 - `optionator` `0.9.4` — MIT
 - `own-keys` `1.0.1` — MIT
 - `p-limit` `3.1.0` — MIT
@@ -1143,7 +1155,7 @@ Package count: 1258
 - `set-function-length` `1.2.2` — MIT
 - `set-function-name` `2.0.2` — MIT
 - `set-proto` `1.0.0` — MIT
-- `sharp` `0.35.0` — Apache-2.0
+- `sharp` `0.35.4` — Apache-2.0
 - `shebang-command` `2.0.0` — MIT
 - `shebang-regex` `3.0.0` — MIT
 - `side-channel` `1.1.0` — MIT
@@ -1201,6 +1213,8 @@ Package count: 1258
 - `teeny-request/agent-base` `6.0.2` — MIT
 - `teeny-request/https-proxy-agent` `5.0.1` — MIT
 - `teeny-request/node-fetch` `3.3.2` — MIT
+- `tesseract.js` `7.0.0` — Apache-2.0
+- `tesseract.js-core` `7.0.0` — Apache-2.0
 - `text-segmentation` `1.0.3` — MIT
 - `through2` `4.0.2` — MIT
 - `tiny-invariant` `1.3.3` — MIT
@@ -1209,7 +1223,7 @@ Package count: 1258
 - `tinyglobby` `0.2.17` — MIT
 - `tinyglobby/fdir` `6.5.0` — MIT
 - `tinyglobby/picomatch` `4.0.4` — MIT
-- `tinyrainbow` `3.1.0` — MIT
+- `tinyrainbow` `3.1.1` — MIT
 - `tldts` `6.1.86` — MIT
 - `tldts-core` `6.1.86` — MIT
 - `to-regex-range` `5.0.1` — MIT
@@ -1257,9 +1271,10 @@ Package count: 1258
 - `victory-vendor` `36.9.2` — MIT AND ISC
 - `vite` `8.1.4` — MIT
 - `vite/picomatch` `4.0.4` — MIT
-- `vitest` `4.1.5` — MIT
+- `vitest` `4.1.11` — MIT
 - `vitest/picomatch` `4.0.4` — MIT
 - `w3c-xmlserializer` `5.0.0` — MIT
+- `wasm-feature-detect` `1.9.0` — Apache-2.0
 - `web-streams-polyfill` `3.3.3` — MIT
 - `web-vitals` `4.2.4` — Apache-2.0
 - `webidl-conversions` `3.0.1` — BSD-2-Clause
@@ -1290,10 +1305,23 @@ Package count: 1258
 - `yargs-parser` `21.1.1` — ISC
 - `yauzl` `3.2.1` — MIT
 - `yocto-queue` `0.1.0` — MIT
+- `zlibjs` `0.3.1` — MIT
 - `zod` `4.3.6` — MIT
 - `zod-validation-error` `4.0.2` — MIT
 - `zustand` `5.0.12` — MIT
 - `zwitch` `2.0.4` — MIT
+
+## Native calling SDK
+
+Package count: 1
+
+### License summary
+
+- `BSD-3-Clause`: 1
+
+### Package inventory
+
+- `WebRTC` `149.0.0` — BSD-3-Clause; [License](hushh-webapp/ios/App/App/WebRTC-LICENSE.txt)
 
 ## Backend Python packages
 

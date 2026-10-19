@@ -45,6 +45,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
 
         AppLifecycleHandlers.install()
+        if FirebaseApp.allApps?.isEmpty == false {
+            Task { @MainActor in CallingCoordinator.shared.launch() }
+        }
         NativeTestResetter.resetAppStateIfNeeded(configuration: nativeTestConfig)
         requestVoiceDeviceTestMicrophonePermissionIfNeeded()
 

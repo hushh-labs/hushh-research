@@ -100,6 +100,19 @@ These variables establish configuration, not live native OAuth, push delivery or
 private custody. Feeds carry only canonical consent metadata, public directory
 records and owner-published listings; private observations remain inside the pod.
 
+### People conversation navigation key
+
+`DIRECT_MESSAGE_ROUTE_KEY_V1` is optional, server-only base64-encoded 32-byte
+navigation key material. If unset, existing deployments retain their legacy
+derivation from `DIRECT_MESSAGE_ENCRYPTION_KEY_V1`. To retire message-key custody
+after verified E2EE history migration, preserve the exact previously derived
+navigation bytes in a separate environment-owned secret and bind this setting.
+Generating an unrelated value would invalidate existing `dm1` links. An empty
+or malformed configured value fails closed rather than restoring the old key.
+Never print, commit or expose either key to a browser or native client. Deployment
+binding and historical-link verification remain operator work; this change
+installs no secret or release flag. See [People calling](../one/people-calling.md).
+
 ### Wallet artwork catalog
 
 Wallet artwork optionally reads `HUSHH_WALLET_ARTWORK_CATALOG_PATH`, a local

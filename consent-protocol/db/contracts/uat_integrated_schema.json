@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 406,
+  "expected_migration_version": 407,
   "migration_version_policy": "exact",
   "required_functions": [
     "activate_reserved_wallet_cards",
@@ -739,6 +739,65 @@
       "revoked_by",
       "token_hash",
       "token_prefix"
+    ],
+    "direct_call_commands": [
+      "nonce",
+      "user_id",
+      "device_id",
+      "expires_at"
+    ],
+    "direct_call_signals": [
+      "sequence",
+      "call_id",
+      "sender_device_id",
+      "sender_sequence",
+      "envelope",
+      "proof"
+    ],
+    "direct_call_slots": [
+      "user_id",
+      "call_id"
+    ],
+    "direct_call_voip_outbox": [
+      "call_id",
+      "device_id",
+      "token_generation",
+      "attempts",
+      "next_attempt_at"
+    ],
+    "direct_call_voip_tokens": [
+      "device_id",
+      "user_id",
+      "key_id",
+      "token",
+      "generation",
+      "environment",
+      "topic",
+      "updated_at"
+    ],
+    "direct_calls": [
+      "id",
+      "conversation_id",
+      "caller_user_id",
+      "callee_user_id",
+      "caller_device_id",
+      "callee_device_id",
+      "state",
+      "revision",
+      "caller_connected",
+      "callee_connected",
+      "expires_at",
+      "created_at",
+      "offers",
+      "caller_proof"
+    ],
+    "direct_communication_keys": [
+      "device_id",
+      "user_id",
+      "key_id",
+      "public_key",
+      "enrollment_proof",
+      "created_at"
     ],
     "direct_message_attachments": [
       "ciphertext",
@@ -3821,5 +3880,5 @@
       "request_id"
     ]
   },
-  "expected_schema_head": 406
+  "expected_schema_head": 407
 }

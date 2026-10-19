@@ -230,6 +230,31 @@ def load_vendored_packages() -> list[dict[str, str]]:
     ]
 
 
+def load_native_calling_packages() -> list[dict[str, str]]:
+    """Exact binary license evidence; this does not inventory other native SDKs."""
+    resolved = (
+        REPO_ROOT
+        / "hushh-webapp/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+    )
+    evidence = "hushh-webapp/ios/App/App/WebRTC-LICENSE.txt"
+    digest = hashlib.sha256((REPO_ROOT / evidence).read_bytes()).hexdigest()
+    return [
+        {
+            "name": "WebRTC",
+            "version": pin["state"]["version"],
+            "license_file": evidence,
+            "license": "BSD-3-Clause"
+            if pin["state"]["version"] == "149.0.0"
+            and pin["state"]["revision"] == "ff4647dc67f00d037c199c69e1a1ee8ceda88236"
+            and digest
+            == "ab00a482b6a3902e40211b43c5d0441962ea99b6cc7c25c0f243fa270b78d482"
+            else "UNVERIFIED",
+        }
+        for pin in json.loads(resolved.read_text(encoding="utf-8"))["pins"]
+        if pin["identity"] == "webrtc"
+    ]
+
+
 def load_python_packages() -> list[dict[str, str]]:
     result = subprocess.run(
         [
@@ -341,6 +366,37 @@ def write_markdown(
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
+def update_native_calling_notice() -> None:
+    """Refresh only the native SDK projection, preserving other reviewed inventories."""
+    packages = load_native_calling_packages()
+    section = "\n".join(
+        [
+            "## Native calling SDK",
+            "",
+            f"Package count: {len(packages)}",
+            "",
+            "### License summary",
+            "",
+            render_summary(packages),
+            "",
+            "### Package inventory",
+            "",
+            render_package_list(packages),
+            "",
+        ]
+    )
+    current = ROOT_NOTICES.read_text(encoding="utf-8")
+    current = re.sub(
+        r"## Native calling SDK\n.*?(?=\n## |\Z)", "", current, flags=re.DOTALL
+    )
+    anchor = "## Backend Python packages\n"
+    if anchor not in current:
+        raise ValueError("Missing canonical backend inventory section")
+    ROOT_NOTICES.write_text(
+        current.replace(anchor, section + "\n" + anchor, 1), encoding="utf-8"
+    )
+
+
 def main() -> int:
     web_packages = load_web_packages()
     python_packages = load_python_packages()
@@ -351,6 +407,7 @@ def main() -> int:
         "Third-party dependency inventory for the hushh-research monorepo.",
         [
             ("Frontend npm packages", web_packages),
+            ("Native calling SDK", load_native_calling_packages()),
             ("Backend Python packages", python_packages),
             ("Vendored engineering resources", load_vendored_packages()),
         ],
@@ -366,6 +423,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--native-calling-only"]:
+        update_native_calling_notice()
+        raise SystemExit(0)
     if sys.argv[1:] == ["--python-license-evidence"]:
         print(json.dumps(python_license_evidence()))
         raise SystemExit(0)

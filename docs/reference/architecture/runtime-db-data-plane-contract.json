@@ -879,7 +879,7 @@
       "exact_tables": [
         "trusted_connections"
       ],
-      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer\u00e2\u2020\u2019inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
+      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer\u00c3\u00a2\u00e2\u20ac\u00a0\u00e2\u20ac\u2122inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
       "retention_policy": "Active directed edges persist as the owner's relationship graph; revoked edges are retained only for bounded operational review before compaction.",
       "deletion_behavior": "Delete rows where the deleting account is the owner or the trusted user; revoke active edges before deletion where possible.",
       "trust_boundary": "Backend stores only connection metadata (owner and trusted-user references, status, source, resolution method, optional label, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
@@ -2132,6 +2132,27 @@
       "plaintext_posture": "opaque_source_revision_recipient_and_device_delivery_metadata_only",
       "expected_row_growth": "one_intent_per_source_transition_and_one_receipt_per_registered_installation",
       "trust_boundary": "Current source status and exact request/membership epoch, recipient registry locks and account lifecycle barriers. No coordinates, encrypted envelope, private message, provider token or rendered notification text is stored."
+    },
+    {
+      "id": "direct_call_control",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "direct_communication_keys",
+        "direct_calls",
+        "direct_call_slots",
+        "direct_call_commands",
+        "direct_call_signals",
+        "direct_call_voip_tokens",
+        "direct_call_voip_outbox"
+      ],
+      "primary_access_path": "Signed, active-device and conversation-participant commands through /api/one/messages/calls; governed direct_call_retention maintenance entrypoint. Release admission remains disabled until encrypted-history and native qualification.",
+      "retention_policy": "Public device keys follow canonical device/account lifetime. Signaling is erased on terminal actions. Bounded direct_call_retention maintenance erases expired signaling and compacts terminal metadata after 24 hours; scheduler installation and live erasure proof are release prerequisites, not performed by this PR. Replay nonces expire after at most 120 seconds and are compacted in bounded batches. PushKit tokens follow active calling-installation lifetime and are removed on token invalidation, bounded authenticated logout cleanup, ownership transfer or provider invalidation. The opaque outbox is erased on terminal call cleanup/expiry; token rotation discards superseded work.",
+      "deletion_behavior": "Actor, conversation and trusted-device FK cascades remove dependent state; install_account_deletion_write_guards applies existing tombstone barriers. A block prevents signaling and credentials but still allows signed local-device end/cleanup. No message history is removed.",
+      "trust_boundary": "Media and plaintext SDP never enter these tables. HPKE ciphertext is bound to purpose, conversation, call, exact device keys and sequence; commands use canonical registered-device ECDSA proof with expiry and replay fencing. Peer identity comparison precedes accepting remote SDP. Keys here are public encryption/signing bindings, never private device keys, TURN shared secrets or vault keys. Server-readable PushKit tokens are delivery credentials, distinct from message/call contents; access is service-only. APNs delivery rechecks exact target-device status, relationship/block authority and token generation; HTTP telemetry is suppressed and token paths redacted.",
+      "plaintext_posture": "ciphertext_and_bounded_call_metadata",
+      "expected_row_growth": "bounded_per_call_and_device; terminal metadata requires governed compaction"
     }
   ]
 }

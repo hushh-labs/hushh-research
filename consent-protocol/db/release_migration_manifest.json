@@ -332,7 +332,8 @@
     "403_public_profile_bridge.sql",
     "404_one_placement_reader_foundation.sql",
     "405_one_legacy_shared_continuity.sql",
-    "406_stripe_payout_source_binding.sql"
+    "406_stripe_payout_source_binding.sql",
+    "407_direct_calls.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -705,6 +706,7 @@
     "358_circle_wars_weekly_opt_in.sql": "rollback/358_circle_wars_weekly_opt_in.rollback.sql",
     "359_independent_email_otp.sql": "rollback/359_independent_email_otp.rollback.sql",
     "360_uat_drive_collection_retirement.sql": "rollback/360_uat_drive_collection_retirement.rollback.sql",
-    "361_system_push_outbox.sql": "rollback/361_system_push_outbox.rollback.sql"
+    "361_system_push_outbox.sql": "rollback/361_system_push_outbox.rollback.sql",
+    "407_direct_calls.sql": "rollback/407_direct_calls.rollback.sql"
   }
 }

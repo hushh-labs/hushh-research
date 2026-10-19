@@ -1265,8 +1265,18 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // MARK: - Sign Out
     @objc func signOut(_ call: CAPPluginCall) {
+        let departingUser = Auth.auth().currentUser
+        Task { @MainActor in
+            guard Auth.auth().currentUser === departingUser else { call.reject("Session changed."); return }
+            await CallingCoordinator.shared.prepareSignOut(owner: departingUser?.uid)
+            guard Auth.auth().currentUser === departingUser else { call.reject("Session changed."); return }
+            self.finishNativeSignOut(call)
+        }
+    }
+
+    private func finishNativeSignOut(_ call: CAPPluginCall) {
         guard Thread.isMainThread else {
-            DispatchQueue.main.async { self.signOut(call) }
+            DispatchQueue.main.async { self.finishNativeSignOut(call) }
             return
         }
         if let operation = identityReauthentication { finishIdentity(operation, code: "session_changed") }

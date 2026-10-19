@@ -40,6 +40,8 @@ function ciWorkers(): number {
  */
 export default defineConfig({
   testDir: "./e2e",
+  // The real relay rehearsal owns its emulator/database/process lifecycle.
+  testIgnore: /direct-calls\.realtime\.spec\.ts/,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   // One retry absorbs a genuine transient. A second hid specs that fail two

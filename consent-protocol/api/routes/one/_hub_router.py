@@ -14,6 +14,7 @@ from .business_suggestions import router as business_suggestions_router
 from .byoc_azure import router as byoc_azure_router
 from .calendar import router as calendar_router
 from .calendar_workspace import router as calendar_workspace_router
+from .calls import router as calls_router
 from .capability_runtime import router as capability_runtime_router
 from .career import router as career_router
 from .circle_chat import router as circle_chat_router
@@ -87,6 +88,7 @@ router.include_router(agent_chat_router)
 router.include_router(agent_prompt_router)
 router.include_router(connections_router)
 router.include_router(messages_router)
+router.include_router(calls_router)
 router.include_router(wallet_card_access_router)
 router.include_router(calendar_router)
 router.include_router(circle_chat_router)

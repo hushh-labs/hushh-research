@@ -82,6 +82,20 @@
         C4A7B9010000000000000003 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000001; };
         C4A7B9010000000000000005 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000004; };
         C4A7B9010000000000000007 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000006; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C41120000000000000000000 /* CallingWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000000 /* CallingWire.swift */; };
+		C41120000000000000000001 /* CallingIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000001 /* CallingIdentity.swift */; };
+		C41120000000000000000002 /* CallingAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000002 /* CallingAPI.swift */; };
+		C41120000000000000000003 /* NativeAudioOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000003 /* NativeAudioOwnership.swift */; };
+		C41120000000000000000004 /* CallingMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000004 /* CallingMedia.swift */; };
+		C41120000000000000000005 /* CallingSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000005 /* CallingSystem.swift */; };
+		C41120000000000000000006 /* CallingCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000006 /* CallingCoordinator.swift */; };
+		C41120000000000000000007 /* CallingSignaling.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000007 /* CallingSignaling.swift */; };
+		C41120000000000000000008 /* HushhCallingPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000008 /* HushhCallingPlugin.swift */; };
+		C41130000000000000000001 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = C41130000000000000000002 /* WebRTC */; };
+		C41120000000000000000009 /* CallingOwnerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000009; };
+		C4112000000000000000000A /* CallingContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4111000000000000000000A; };
+		C4112000000000000000000B /* CallingLogout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4111000000000000000000B; };
+		C41140000000000000000002 /* WebRTC-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = C41140000000000000000001; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -181,6 +195,19 @@
         C4A7B9010000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatPreviewKeys.swift; path = App/Plugins/ChatPreviewKeys.swift; sourceTree = SOURCE_ROOT; };
         C4A7B9010000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
         C4A7B9010000000000000006 = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = ChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C41110000000000000000000 /* CallingWire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingWire.swift; path = Plugins/CallingWire.swift; sourceTree = "<group>"; };
+		C41110000000000000000001 /* CallingIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingIdentity.swift; path = Plugins/CallingIdentity.swift; sourceTree = "<group>"; };
+		C41110000000000000000002 /* CallingAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingAPI.swift; path = Plugins/CallingAPI.swift; sourceTree = "<group>"; };
+		C41110000000000000000003 /* NativeAudioOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeAudioOwnership.swift; path = Plugins/NativeAudioOwnership.swift; sourceTree = "<group>"; };
+		C41110000000000000000004 /* CallingMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingMedia.swift; path = Plugins/CallingMedia.swift; sourceTree = "<group>"; };
+		C41110000000000000000005 /* CallingSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingSystem.swift; path = Plugins/CallingSystem.swift; sourceTree = "<group>"; };
+		C41110000000000000000006 /* CallingCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingCoordinator.swift; path = Plugins/CallingCoordinator.swift; sourceTree = "<group>"; };
+		C41110000000000000000007 /* CallingSignaling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingSignaling.swift; path = Plugins/CallingSignaling.swift; sourceTree = "<group>"; };
+		C41110000000000000000008 /* HushhCallingPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HushhCallingPlugin.swift; path = Plugins/HushhCallingPlugin.swift; sourceTree = "<group>"; };
+		C41110000000000000000009 /* CallingOwnerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingOwnerSession.swift; path = Plugins/CallingOwnerSession.swift; sourceTree = "<group>"; };
+		C4111000000000000000000A /* CallingContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallingContractTests.swift; sourceTree = "<group>"; };
+		C4111000000000000000000B /* CallingLogout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingLogout.swift; path = Plugins/CallingLogout.swift; sourceTree = "<group>"; };
+		C41140000000000000000001 /* WebRTC-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "WebRTC-LICENSE.txt"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -190,6 +217,7 @@
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
 				5E5510A40000000000000003 /* LinkKit in Frameworks */,
+				C41130000000000000000001 /* WebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -257,6 +285,7 @@
 		504EC3061FED79650016851F /* App */ = {
 			isa = PBXGroup;
 			children = (
+				C41140000000000000000001 /* WebRTC-LICENSE.txt */,
                 C4A7B9010000000000000001,
 				A280438C2F21B1FC005B42F3 /* App.entitlements */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
@@ -296,6 +325,7 @@
 		BFD8E75FF1281CDA093C9339 /* AppTests */ = {
 			isa = PBXGroup;
 			children = (
+				C4111000000000000000000A /* CallingContractTests.swift */,
 				844A95957616D891DBC4D212 /* NativeSupportTests.swift */,
 				A11C0A710000000000000091 /* LocationEnvelopeCryptoTests.swift */,
 				A11C0A730000000000000021 /* OneVoiceInvocationCoordinatorTests.swift */,
@@ -308,6 +338,17 @@
 		E01327B97C0E35A824E086A8 /* Plugins */ = {
 			isa = PBXGroup;
 			children = (
+				C4111000000000000000000B /* CallingLogout.swift */,
+				C41110000000000000000009 /* CallingOwnerSession.swift */,
+				C41110000000000000000000 /* CallingWire.swift */,
+				C41110000000000000000001 /* CallingIdentity.swift */,
+				C41110000000000000000002 /* CallingAPI.swift */,
+				C41110000000000000000003 /* NativeAudioOwnership.swift */,
+				C41110000000000000000004 /* CallingMedia.swift */,
+				C41110000000000000000005 /* CallingSystem.swift */,
+				C41110000000000000000006 /* CallingCoordinator.swift */,
+				C41110000000000000000007 /* CallingSignaling.swift */,
+				C41110000000000000000008 /* HushhCallingPlugin.swift */,
 				D1F9F90F2F0E966A009FC3FB /* KaiPlugin.swift */,
 				ABCDEF000000000000000001 /* HusshIMessageSessionStore.swift */,
 				EE27DFB8DCD94B9C5C0516DD /* HushhSyncPlugin.swift */,
@@ -398,6 +439,7 @@
 			packageProductDependencies = (
 				4D22ABE82AF431CB00220026 /* CapApp-SPM */,
 				5E5510A40000000000000002 /* LinkKit */,
+				C41130000000000000000002 /* WebRTC */,
 			);
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
@@ -458,6 +500,7 @@
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
 				5E5510A40000000000000001 /* XCRemoteSwiftPackageReference "plaid-link-ios" */,
+				C41130000000000000000003 /* XCRemoteSwiftPackageReference "WebRTC" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
@@ -476,6 +519,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C41140000000000000000002 /* WebRTC-LICENSE.txt in Resources */,
 				504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */,
 				50B271D11FEDC1A000F3C39B /* public in Resources */,
 				504EC30F1FED79650016851F /* Assets.xcassets in Resources */,
@@ -535,6 +579,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C4112000000000000000000A /* CallingContractTests.swift in Sources */,
 				FEBC1F9C14F1FB5C3D876D51 /* NativeSupportTests.swift in Sources */,
 				A11C0A710000000000000092 /* LocationEnvelopeCryptoTests.swift in Sources */,
 				A11C0A730000000000000022 /* OneVoiceInvocationCoordinatorTests.swift in Sources */,
@@ -547,6 +592,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C4112000000000000000000B /* CallingLogout.swift in Sources */,
+				C41120000000000000000009 /* CallingOwnerSession.swift in Sources */,
+				C41120000000000000000000 /* CallingWire.swift in Sources */,
+				C41120000000000000000001 /* CallingIdentity.swift in Sources */,
+				C41120000000000000000002 /* CallingAPI.swift in Sources */,
+				C41120000000000000000003 /* NativeAudioOwnership.swift in Sources */,
+				C41120000000000000000004 /* CallingMedia.swift in Sources */,
+				C41120000000000000000005 /* CallingSystem.swift in Sources */,
+				C41120000000000000000006 /* CallingCoordinator.swift in Sources */,
+				C41120000000000000000007 /* CallingSignaling.swift in Sources */,
+				C41120000000000000000008 /* HushhCallingPlugin.swift in Sources */,
                 C4A7B9010000000000000002,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				A11C0A730000000000000011 /* OneVoiceAppIntent.swift in Sources */,
@@ -984,6 +1040,11 @@
 				minimumVersion = 7.1.2;
 			};
 		};
+		C41130000000000000000003 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC.git";
+			requirement = {kind = exactVersion; version = 149.0.0; };
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -996,6 +1057,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5E5510A40000000000000001 /* XCRemoteSwiftPackageReference "plaid-link-ios" */;
 			productName = LinkKit;
+		};
+		C41130000000000000000002 /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C41130000000000000000003;
+			productName = WebRTC;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
