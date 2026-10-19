@@ -366,6 +366,7 @@ def test_azure_pwm_probe_loads_production_contracts_without_application_secrets(
         None,
         "wording",
         "wrong_attribution",
+        "reject_supported_attribution",
         "missing_case",
         "wrong_contract",
         "invented_attempt",
@@ -387,6 +388,10 @@ def test_azure_pwm_primary_probe_requires_actual_attribution_decisions(monkeypat
     ]
     if defect == "wrong_attribution":
         rows[0]["supported"] = True
+    elif defect == "reject_supported_attribution":
+        for row in rows:
+            if row["case_id"] in {"metric", "authorship"}:
+                row["supported"] = False
     elif defect == "missing_case":
         rows.pop()
     elif defect == "unknown_case":
@@ -427,6 +432,11 @@ def test_azure_pwm_primary_probe_requires_actual_attribution_decisions(monkeypat
             "report",
         }
         assert "untrusted-model-identifier" not in json.dumps(diagnostic)
+        if defect == "reject_supported_attribution":
+            assert diagnostic == {
+                "azure_pwm_probe_failure": "source attribution",
+                "failed_fields": ["metric", "authorship"],
+            }
     else:
         asyncio.run(module._probe_primary(config, lambda: "synthetic"))
         event = json.loads(capsys.readouterr().out)
