@@ -25,6 +25,7 @@ from hushh_mcp.runtime_providers.dependency_health import (
     PROVIDER_UNAVAILABLE,
     classify_provider_error,
     is_advisory,
+    is_resource_exhausted,
     summarize,
 )
 
@@ -87,6 +88,21 @@ def test_unexplained_403_defaults_to_blocking() -> None:
 @pytest.mark.parametrize("status_code", [408, 429, 500, 502, 503, 504])
 def test_transport_and_quota_statuses_are_provider_outages(status_code: int) -> None:
     assert classify_provider_error(_ProviderError("upstream", status_code)) == PROVIDER_UNAVAILABLE
+
+
+def test_only_structured_resource_exhaustion_can_use_the_narrow_release_signal() -> None:
+    wrapped = RuntimeError("ADK wrapped provider error")
+    wrapped.__cause__ = _ProviderError("capacity", 429)
+    assert is_resource_exhausted(wrapped)
+    assert is_resource_exhausted(_ProviderError("capacity", None, "RESOURCE_EXHAUSTED"))
+    for error in (
+        asyncio.TimeoutError(),
+        _ProviderError("unavailable", 503),
+        _ProviderError(DUNNING_403, 403),
+        _ProviderError("forbidden", 403),
+        RuntimeError("quota mentioned without a provider status"),
+    ):
+        assert not is_resource_exhausted(error)
 
 
 @pytest.mark.parametrize("status_name", ["UNAVAILABLE", "RESOURCE_EXHAUSTED", "INTERNAL"])
