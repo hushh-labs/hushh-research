@@ -79,7 +79,8 @@ test("two authenticated owners exchange relay-only audio and stop capture on han
     await Promise.all([expect(alice.getByRole("heading", { name: "Verify this conversation" })).toBeVisible(),
       expect(bob.getByRole("heading", { name: "Verify this conversation" })).toBeVisible()]);
     const aliceCode = await alice.locator('[role="dialog"] code').innerText();
-    expect(await bob.locator('[role="dialog"] code').innerText()).toBe(aliceCode);
+    // Preserve the comparison without printing either code on assertion failure.
+    expect(await bob.locator('[role="dialog"] code').innerText() === aliceCode).toBe(true);
     await Promise.all([alice.getByRole("button", { name: "We compared the code" }).click(),
       bob.getByRole("button", { name: "We compared the code" }).click()]);
     await expect.poll(() => mediaEvidence(alice), { timeout: 20_000 }).toBe(true);
