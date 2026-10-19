@@ -2,6 +2,11 @@
 
 ## One PLG pilot task evidence
 
+The server caller and isolated Firestore consumer are maintained in the
+[private PLG dashboard integration PR](https://github.com/hushh-labs/hussh-matrix-dashboard/pull/124).
+Release the two services independently through their existing approved paths;
+adding this contract does not enable the exporter or campaign delivery.
+
 `POST /api/one/plg/snapshot` is a server-only integration hidden from public
 OpenAPI. It requires `ONE_PLG_EXPORT_ENABLED=true`, production runtime identity,
 dedicated `ONE_PLG_EXPORT_SECRET` (at least 32 characters), and private
