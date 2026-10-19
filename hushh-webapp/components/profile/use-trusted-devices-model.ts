@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
@@ -22,7 +22,13 @@ export interface TrustedDevice extends DeviceSyncFields {
 const UNLINK_WARNING = "This device will stop syncing immediately, and its local copy of your vault will be sealed on the device. Reconnecting requires approving it again in your browser and setting up the local vault from scratch.";
 export { UNLINK_WARNING };
 let nextReadScope = 0;
-function createReadScope() { return ++nextReadScope; }
+function createReadScope(ownerId: string | null, epoch: number, enabled: boolean, authGeneration: number | undefined,
+  ..._credentials: unknown[]) {
+  // Credentials invalidate the visit without retaining another copy.
+  return { active: false, ownerId, epoch, enabled, authGeneration, request: ++nextReadScope, actionGeneration: 0,
+    pending: null as symbol | null, mutation: 0, readStarted: 0, readSucceeded: 0,
+    auth: snapshotValidatedAuthSessionOwner() };
+}
 
 /** One cache and operation owner for web and native presentation. No credentials
  * or device identifiers enter the native action handles. */
@@ -31,27 +37,27 @@ export function useTrustedDevicesModel(ownerId: string | null, enabled: boolean)
   const visit = useId();
   const epoch = snapshotVaultSessionEpoch();
   const authGeneration = snapshotValidatedAuthSessionOwner()?.generation;
-  const scope = useMemo(() => ({ active: false, ownerId, epoch, enabled, request: createReadScope(), actionGeneration: 0,
-    pending: null as symbol | null, mutation: 0, readStarted: 0, readSucceeded: 0,
-    auth: snapshotValidatedAuthSessionOwner() }), [ownerId, epoch, enabled, vaultOwnerToken, authGeneration]);
+  const scope = useMemo(() => createReadScope(ownerId, epoch, enabled, authGeneration, vaultOwnerToken),
+    [ownerId, epoch, enabled, vaultOwnerToken, authGeneration]);
   useLayoutEffect(() => { scope.active = true; return () => { scope.active = false; }; }, [scope]);
   const actionGeneration = scope.actionGeneration;
-  const current = () => enabled && scope.active && !!scope.auth && scope.auth.userId === ownerId &&
-    isValidatedAuthSessionOwnerCurrent(scope.auth) && scope.epoch === snapshotVaultSessionEpoch();
+  const current = useCallback(() => enabled && scope.active && !!scope.auth && scope.auth.userId === ownerId &&
+    scope.auth.generation === scope.authGeneration && isValidatedAuthSessionOwnerCurrent(scope.auth) &&
+    scope.epoch === snapshotVaultSessionEpoch(), [enabled, scope, ownerId]);
   const canAct = () => {
     const privacy = nativePrivacyObservation().state;
     return current() && actionGeneration === scope.actionGeneration &&
       (!Capacitor.isNativePlatform() || !!privacy && privacy.appIsActive && !privacy.shielded);
   };
   const cacheKey = CACHE_KEYS.TRUSTED_DEVICES(ownerId || "anonymous");
-  const emptyStatus = () => ({ scope, confirmation: null as string | null, busy: false, error: "", uncertain: false,
+  const emptyStatus = useCallback(() => ({ scope, confirmation: null as string | null, busy: false, error: "", uncertain: false,
     unlinked: [] as readonly string[], puppyAccess: {} as Record<string, boolean>, byocReady: false,
-    changingPuppy: null as string | null, puppyNotice: "", pendingPuppyWithdrawal: [] as string[], pendingPodRevocations: [] as string[] });
+    changingPuppy: null as string | null, puppyNotice: "", pendingPuppyWithdrawal: [] as string[], pendingPodRevocations: [] as string[] }), [scope]);
   const [local, setLocal] = useState(emptyStatus);
   const status = local.scope === scope ? local : emptyStatus();
-  const patch = (next: Partial<typeof local>) => {
+  const patch = useCallback((next: Partial<typeof local>) => {
     if (current()) setLocal(previous => ({ ...(previous.scope === scope ? previous : emptyStatus()), ...next }));
-  };
+  }, [current, emptyStatus, scope]);
   const resource = useStaleResource<TrustedDevice[]>({
     cacheKey, enabled: !!ownerId && enabled, requestScope: `${visit}:${scope.request}`, resourceLabel: "trusted-devices",
     retainOnInvalidate: true,
@@ -80,7 +86,7 @@ export function useTrustedDevicesModel(ownerId: string | null, enabled: boolean)
       .then(entries => { if (!cancelled && current()) patch({ puppyAccess: Object.fromEntries(entries) }); })
       .catch(() => { if (!cancelled && current()) patch({ puppyAccess: {} }); });
     return () => { cancelled = true; };
-  }, [scope, vaultOwnerToken, puppyDeviceIds]);
+  }, [current, patch, vaultOwnerToken, puppyDeviceIds]);
   const changePuppyAccess = async (id: string) => {
     if (!canAct() || scope.pending || status.uncertain || !status.byocReady || !vaultOwnerToken || !ownerId ||
         status.puppyAccess[id] === undefined || !devices.some(device => device.device_id === id && device.status === "active" && device.platform === "macos")) return;

@@ -99,7 +99,7 @@ async def notification_events(
         return admitted
 
     try:
-        queue = await asyncio.wait_for(
+        subscription: asyncio.Queue[Any] = await asyncio.wait_for(
             (
                 consent_listener.subscribe_consent_queue(user_id, snapshot_resets=True)
                 if snapshot_resets
@@ -107,6 +107,7 @@ async def notification_events(
             ),
             max(0, deadline - clock()),
         )
+        queue = subscription
         if lease is not None:
             lease.queue = queue
         if not await active():
@@ -123,7 +124,7 @@ async def notification_events(
             if authorize is not None:
                 wake_at = min(wake_at, recheck_at)
             try:
-                event = await asyncio.wait_for(queue.get(), max(0, wake_at - now))
+                event = await asyncio.wait_for(subscription.get(), max(0, wake_at - now))
             except TimeoutError:
                 if not await active():
                     return

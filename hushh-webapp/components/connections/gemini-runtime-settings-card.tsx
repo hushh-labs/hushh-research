@@ -83,11 +83,10 @@ class RuntimeSettingsVisit {
   readonly selection = { current: 0 };
   readonly pending = { current: false };
   readonly validating = { current: false };
-  readonly authGeneration = snapshotValidatedAuthSessionOwner()?.generation;
   credentialCurrent() { return this.current() && snapshotValidatedAuthSessionOwner()?.generation === this.authGeneration; }
   savedConfiguration: { transport: GeminiRuntimeTransport; project: string; location: string } = { transport: "developer_api", project: "", location: "global" };
   // Credential changes select a new visit, without retaining another replica.
-  constructor(readonly owner: string | null | undefined, readonly enabled: boolean, readonly epoch: number, ..._credentials: unknown[]) {}
+  constructor(readonly owner: string | null | undefined, readonly enabled: boolean, readonly epoch: number, readonly authGeneration: number | undefined, ..._credentials: unknown[]) {}
   start() { this.live = this.enabled; }
   retire() { this.live = false; this.read += 1; }
   current() { return this.live && !!this.owner && this.epoch === snapshotVaultSessionEpoch() && snapshotValidatedAuthSessionOwner()?.userId === this.owner; }
@@ -118,7 +117,7 @@ export function useGeminiRuntimeSettingsModel({
 }: GeminiRuntimeSettingsCardProps & { enabled?: boolean }) {
   const epoch = snapshotVaultSessionEpoch();
   const authGeneration = snapshotValidatedAuthSessionOwner()?.generation;
-  const visit = useMemo(() => new RuntimeSettingsVisit(userId, enabled, epoch, vaultKey, vaultOwnerToken), [userId, vaultKey, vaultOwnerToken, enabled, epoch, authGeneration]);
+  const visit = useMemo(() => new RuntimeSettingsVisit(userId, enabled, epoch, authGeneration, vaultKey, vaultOwnerToken), [userId, vaultKey, vaultOwnerToken, enabled, epoch, authGeneration]);
   useLayoutEffect(() => { visit.start(); return () => visit.retire(); }, [visit]);
   const current = useCallback(() => visit.current(), [visit]);
   const captureOwnerGuard = useCallback(() => {
@@ -278,7 +277,7 @@ export function useGeminiRuntimeSettingsModel({
       setHasSavedProviderKey(false);
       if (!visit.draftEdited) { setTransport("developer_api"); setVertexProject(""); setVertexLocation("global"); }
     }
-  }, [captureOwnerGuard, setHasSavedProviderKey, setOtherProvider, current, visit, credentialRevisionRef, selectionRevisionRef, selectionPendingRef, validationPendingRef, setCredentialValidation, setLoadFailed, setMode, setHasSavedKey, setTransport, setVertexProject, setVertexLocation, setSelectedOption, setHasExplicitSelection, userId, vaultKey, vaultOwnerToken, vaultReady, requiresExplicitSelection]);
+  }, [captureOwnerGuard, setHasSavedProviderKey, setOtherProvider, visit, credentialRevisionRef, selectionRevisionRef, selectionPendingRef, validationPendingRef, setCredentialValidation, setLoadFailed, setMode, setHasSavedKey, setTransport, setVertexProject, setVertexLocation, setSelectedOption, setHasExplicitSelection, userId, vaultKey, vaultOwnerToken, vaultReady, requiresExplicitSelection]);
 
   useEffect(() => {
     void refresh();

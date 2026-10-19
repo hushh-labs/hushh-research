@@ -30119,7 +30119,7 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/notification_stream.py",
       "symbol": "notification_events",
-      "value": 86
+      "value": 87
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -75527,5 +75527,14 @@
         "review": "Read-only backend review: preserve Drive hub/content authority and cancellation projection, exact Search model/tool binding, notification contracts and focused negative controls. Deployment flags and canonical-instruction validation reviewed; no permission or assertion weakened."
       }
     ]
+  },
+  "notification_subscription_type_review_20261019": {
+    "reviewer": "parent integration verification",
+    "candidate_parent_revision": "7973211bbd",
+    "key": "function_size|consent-protocol/api/routes/notification_stream.py|notification_events|function exceeds the advisory gene budget",
+    "before": 86,
+    "after": 87,
+    "source_sha256": "25ee88f070492cb49d5930a36669b89571aa21ea21ed815b6e2aa373c4709365",
+    "review": "Typed non-optional subscription is separated from the nullable cleanup handle. Existing stream lifetime, authority checks, cancellation and finally unsubscribe remain unchanged. Five nearest lifecycle tests and full mypy pass. One line only; no budget or exclusion change."
   }
 }
