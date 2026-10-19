@@ -82,6 +82,13 @@ Shorter names and unlinked institutional/company/aggregator records remain
 uncertain. Raw citations are not independent verification of their contents, so
 Azure candidates remain for owner review. No minimum finding count is forced.
 
+An identity assessment that fails schema or evidence validation may receive one
+paid, tool-free model repair using the same admitted identity and received
+sources. The replacement must pass the unchanged validators. The host never
+fills a candidate or substitutes an identity decision. Repair preserves owner
+authority, the final-report time/slot reserve and every charged usage receipt;
+insufficient time pauses the slice without another search.
+
 Azure usage receipts contain only input, output and cached-token counts plus
 provider elapsed milliseconds. They use the existing charged model slots in the
 encrypted work checkpoint and are excluded from model-visible research history.
