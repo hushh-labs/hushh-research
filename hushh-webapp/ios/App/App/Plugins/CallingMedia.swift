@@ -14,7 +14,10 @@ struct CallingAudioGate {
 /// are independent prerequisites for enabling the microphone or remote audio.
 @MainActor
 final class CallingMedia: NSObject, RTCPeerConnectionDelegate {
-    private let factory = RTCPeerConnectionFactory()
+    private let factory: RTCPeerConnectionFactory? = {
+        guard RTCInitializeSSL() else { return nil }
+        return RTCPeerConnectionFactory()
+    }()
     private var connection: RTCPeerConnection?
     private var track: RTCAudioTrack?
     private var gathering: CheckedContinuation<Void, Error>?
@@ -31,7 +34,7 @@ final class CallingMedia: NSObject, RTCPeerConnectionDelegate {
     }
 
     func open(_ relay: [String: Any]) throws {
-        guard connection == nil, relay["iceTransportPolicy"] as? String == "relay",
+        guard let factory, connection == nil, relay["iceTransportPolicy"] as? String == "relay",
               let servers = relay["iceServers"] as? [[String: Any]], !servers.isEmpty else { throw CallingError.invalid }
         try reserve()
         let audio = RTCAudioSession.sharedInstance()
