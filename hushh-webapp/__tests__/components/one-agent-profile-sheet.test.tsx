@@ -68,7 +68,8 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   }),
 }));
 vi.mock("@/lib/pkm/use-pkm-domain-change-revision", () => ({ usePkmDomainChangeRevision: () => mocks.revision }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }), usePathname: () => "/one" }));
+vi.mock("@/lib/services/private-text-approval-service", () => ({ PrivateTextApprovalService: { get: async () => null } }));
 vi.mock("@/lib/services/feed-service", () => ({
   FeedService: { list: mocks.list, markRead: mocks.markRead },
 }));

@@ -25,11 +25,28 @@ import sys
 import time
 import warnings
 from contextlib import redirect_stderr, redirect_stdout
+from functools import partial
 from pathlib import Path
+from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+def _synthetic_model_binding() -> dict:
+    from hushh_mcp.services.drive_request_package_assessment import (
+        semantic_request_model_binding,
+    )
+
+    selected = semantic_request_model_binding()
+    if selected["provider"] != "azure_openai":
+        return selected
+    # This fixture marker is report provenance only. The eval sends authored
+    # synthetic strings and never queries or grants a real owner's approval.
+    return semantic_request_model_binding(
+        provider="azure_openai", approval_generation=str(UUID(int=0))
+    )
 
 
 class EvaluationStageError(RuntimeError):
@@ -352,6 +369,11 @@ def _provenance() -> dict:
         "hushh_mcp/services/drive_request_model_feedback.py",
         "hushh_mcp/services/drive_request_package_assessment.py",
         "hushh_mcp/services/drive_suggestion_service.py",
+        "hushh_mcp/services/drive_request_package_service.py",
+        "hushh_mcp/runtime_providers/azure_adk.py",
+        "hushh_mcp/one_adk/azure_workload_identity.py",
+        "hushh_mcp/managed_ai_config.py",
+        "config/managed-ai-runtime.json",
     )
     hashes = {path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest() for path in paths}
     try:
@@ -368,7 +390,12 @@ async def evaluate_case(case: dict, *, progress: dict | None = None) -> dict:
         CandidateContent,
         assess_request_candidates,
     )
-    from hushh_mcp.services.drive_request_package_assessment import assess_request_document_batch
+    from hushh_mcp.services.drive_request_package_assessment import (
+        assess_request_document_batch,
+        build_semantic_request_azure_model,
+        interpret_request_document_batch,
+    )
+    from hushh_mcp.services.drive_request_package_service import assessment_policy_version
     from hushh_mcp.services.drive_request_semantic_plan import (
         compile_semantic_queries,
         semantic_plan_digest,
@@ -381,12 +408,27 @@ async def evaluate_case(case: dict, *, progress: dict | None = None) -> dict:
     if progress is None:
         progress = {"active_stage": "case_execution", "stage_outcomes": {}}
 
+    model_binding = _synthetic_model_binding()
+    model_kwargs = {}
+    if model_binding["provider"] == "azure_openai":
+
+        async def synthetic_current():
+            # This standalone corpus contains authored synthetic fixtures only.
+            return None
+
+        model_kwargs["model"] = build_semantic_request_azure_model(
+            require_current=synthetic_current, model_binding=model_binding
+        )
+
     async def planner(**kwargs):
         return await _model_call(
-            "planner", interpret_semantic_live_search(**kwargs), progress=progress
+            "planner", interpret_semantic_live_search(**kwargs, **model_kwargs), progress=progress
         )
 
     async def assessor(**kwargs):
+        kwargs["model_binding"] = model_binding
+        if model_kwargs:
+            kwargs["interpreter"] = partial(interpret_request_document_batch, **model_kwargs)
         return await _model_call(
             "candidate_assessment", assess_request_document_batch(**kwargs), progress=progress
         )
@@ -489,6 +531,7 @@ async def evaluate_case(case: dict, *, progress: dict | None = None) -> dict:
                     read_candidate=read,
                     require_current=current,
                     assessor=assessor,
+                    policy_version=assessment_policy_version(model_binding),
                     assessment_timeout_seconds=75,
                     total_timeout_seconds=85,
                 ),
@@ -563,10 +606,11 @@ async def evaluate_case(case: dict, *, progress: dict | None = None) -> dict:
 
 async def run(*, selected: list[dict], reps: int, project: str | None, timeout: int) -> dict:
     from hushh_mcp.runtime_providers import bind_managed_vertex_project
-    from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+    from hushh_mcp.services.drive_request_package_service import assessment_policy_version
 
     initial_source = _provenance()
-    configured_model = resolve_fleet_model_name("gemini-default")
+    model_binding = _synthetic_model_binding()
+    configured_model = model_binding["deployment"]
     rows = []
     with bind_managed_vertex_project(project):
         for case in selected:
@@ -650,10 +694,12 @@ async def run(*, selected: list[dict], reps: int, project: str | None, timeout: 
             json.dumps(selected, default=sorted, sort_keys=True).encode()
         ).hexdigest(),
         "configured_model": configured_model,
+        "model_binding": model_binding,
+        "assessment_policy_version": assessment_policy_version(model_binding),
         "provider_model_version": None,
         "observed_token_usage": None,
         "observed_cost_usd": None,
-        "vertex_project_scoped": project is not None,
+        "vertex_project_scoped": project is not None and model_binding["provider"] == "gemini",
         "attempted": len(rows),
         "completed": len(completed),
         "errors": len(rows) - len(completed),

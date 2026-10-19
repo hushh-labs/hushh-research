@@ -46,6 +46,7 @@ import { nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { OnePresenceAvatar, type OnePresenceState } from "@/components/agent/one-presence-avatar";
+import { PrivateTextApprovalControl } from "@/components/agent/private-text-approval-control";
 import { TodoListPkmService } from "@/lib/services/todo-list-pkm-service";
 import { openTodoItems, type TodoItem } from "@/lib/todos/todo-list-model";
 import {
@@ -432,6 +433,7 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
           {sheet ? <SheetTitle className={styles.title}>{profileName}</SheetTitle> : <h2 className={styles.title}>{profileName}</h2>}
         </div>
         {modelControl ? <div className={styles.modelControl}>{modelControl}</div> : null}
+        {open && user ? <PrivateTextApprovalControl user={user} /> : null}
         <Tabs value={tab} onValueChange={changeTab} className={styles.tabs}>
           <TabsList
             className={styles.tabList}

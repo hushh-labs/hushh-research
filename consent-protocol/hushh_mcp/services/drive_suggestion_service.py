@@ -10,6 +10,7 @@ import json
 import logging
 import re
 from datetime import UTC, date, datetime, time, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -32,6 +33,10 @@ from hushh_mcp.services.drive_document_retrieval import (
 from hushh_mcp.services.drive_live_reader import DriveLiveReader
 from hushh_mcp.services.drive_packet_contract import EvidenceModel
 from hushh_mcp.services.drive_request_model_feedback import validation_feedback
+from hushh_mcp.services.drive_request_package_assessment import (
+    private_semantic_request_model,
+    validate_semantic_model_binding,
+)
 from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlan
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingError,
@@ -476,11 +481,13 @@ async def interpret_live_search(*, prompt, user_id):
     return await _interpret_live_search(prompt=prompt, user_id=user_id, semantic=False)
 
 
-async def interpret_semantic_live_search(*, prompt, user_id):
-    return await _interpret_live_search(prompt=prompt, user_id=user_id, semantic=True)
+async def interpret_semantic_live_search(*, prompt, user_id, model=None, model_binding=None):
+    if model is None:
+        model = await private_semantic_request_model(user_id=user_id, model_binding=model_binding)
+    return await _interpret_live_search(prompt=prompt, user_id=user_id, semantic=True, model=model)
 
 
-async def _interpret_live_search(*, prompt, user_id, semantic):
+async def _interpret_live_search(*, prompt, user_id, semantic, model=None):
     manifest = ManifestLoader.load(
         str(Path(__file__).resolve().parents[1] / "agents/documents/agent.yaml")
     )
@@ -489,6 +496,7 @@ async def _interpret_live_search(*, prompt, user_id, semantic):
     agent = build_single_turn_agent(
         gene,
         output_schema=SemanticLiveSearchModelPlan if semantic else LiveSearchModelPlan,
+        **({"model": model} if model is not None else {}),
     )
     try:
         result = await run_single_turn(
@@ -533,8 +541,18 @@ async def plan_live_search(planner, *, prompt, user_id) -> LiveSearchPlan:
     raise AssertionError("unreachable")
 
 
-async def plan_semantic_live_search(planner, *, prompt, user_id) -> SemanticLiveSearchModelPlan:
+async def plan_semantic_live_search(
+    planner, *, prompt, user_id, require_current=None, model_binding=None
+) -> SemanticLiveSearchModelPlan:
     """Validate the entire semantic output; never replace an invalid interpretation."""
+    if planner is interpret_semantic_live_search:
+        selected_binding = validate_semantic_model_binding(model_binding)
+        model = await private_semantic_request_model(
+            user_id=user_id,
+            require_current=require_current,
+            model_binding=selected_binding,
+        )
+        planner = partial(planner, model=model, model_binding=selected_binding)
     original_prompt = prompt
     started = asyncio.get_running_loop().time()
     for attempt in (1, 2):

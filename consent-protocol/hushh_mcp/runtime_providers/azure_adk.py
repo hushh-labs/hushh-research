@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -376,6 +376,9 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
     client: None = Field(default=None, exclude=True, repr=False)
     endpoint: str
     token_supplier: Callable[[], str] = Field(exclude=True, repr=False)
+    require_current: Callable[[], Awaitable[None]] | None = Field(
+        default=None, exclude=True, repr=False
+    )
     timeout_seconds: float = Field(default=60, gt=0, le=120)
     client_factory: Callable[..., Any] | None = Field(default=None, exclude=True, repr=False)
 
@@ -414,6 +417,7 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
         tenant_id: str,
         client_id: str,
         timeout_seconds: float = 60,
+        require_current: Callable[[], Awaitable[None]] | None = None,
     ) -> AzureOpenAIAdkModel:
         from hushh_mcp.one_adk.azure_workload_identity import azure_openai_token_provider
 
@@ -421,6 +425,7 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
             model=deployment,
             endpoint=endpoint,
             timeout_seconds=timeout_seconds,
+            require_current=require_current,
             token_supplier=azure_openai_token_provider(tenant_id=tenant_id, client_id=client_id),
         )
 
@@ -442,6 +447,8 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
         async with factory(
             api_key=token, base_url=self.endpoint, timeout=self.timeout_seconds, max_retries=0
         ) as client:
+            if self.require_current is not None:
+                await self.require_current()
             if not stream:
                 response = await client.responses.create(**kwargs)
                 yield _response(response, allowed_names=allowed)

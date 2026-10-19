@@ -467,6 +467,8 @@ class DriveRequestBulkService:
                     self.semantic_planner,
                     prompt=json.dumps(prompt, ensure_ascii=False),
                     user_id=user_id,
+                    require_current=self.require_owner,
+                    model_binding=context.get("semanticModelBinding"),
                 )
             except Exception as error:
                 if isinstance(error, DriveReadError):
@@ -563,6 +565,12 @@ class DriveRequestBulkService:
             **({"brain": brain.as_checkpoint()} if brain is not None else {}),
             **({"plan_source": plan_source} if plan_source is not None else {}),
             **({"semantic_search": True} if context.get("semanticSearch") is True else {}),
+            **(
+                {"semantic_model_binding": context["semanticModelBinding"]}
+                if context.get("semanticSearch") is True
+                and context.get("semanticModelBinding") is not None
+                else {}
+            ),
             # A new automatic request shares every in-period match. An owner
             # takeover keeps the owner's exact review.
             **(

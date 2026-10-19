@@ -8,12 +8,21 @@ changing it meant a redeploy and every person on a lane shared one answer.
 from __future__ import annotations
 
 import asyncio
+import os
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
+from api.middleware import require_firebase_auth, require_firebase_auth_read_only
+from api.routes.one import models as model_routes
 from hushh_mcp import constants
 from hushh_mcp.runtime_providers import model_catalog
 from hushh_mcp.services import model_preference_service as prefs
+from hushh_mcp.services import private_text_processing_approval_service as approval
 
 
 def test_catalog_comes_from_the_registry_not_the_environment(
@@ -134,7 +143,11 @@ async def test_a_busy_preference_store_does_not_block_catalog_resolution(
 
 
 @pytest.mark.asyncio
-async def test_an_unavailable_model_is_refused_with_the_list_that_is() -> None:
+async def test_an_unavailable_model_is_refused_with_the_list_that_is(monkeypatch) -> None:
+    async def unused_pool():
+        return None
+
+    monkeypatch.setattr(prefs, "get_pool", unused_pool)
     with pytest.raises(prefs.ModelPreferenceError) as caught:
         await prefs.set_preference(user_id="someone", model_id="gemini-3.1-pro-preview")
     assert caught.value.code == "MODEL_NOT_SELECTABLE"
@@ -143,3 +156,268 @@ async def test_an_unavailable_model_is_refused_with_the_list_that_is() -> None:
     with pytest.raises(prefs.ModelPreferenceError) as missing_user:
         await prefs.set_preference(user_id="  ", model_id="gemini-3.8-flash")
     assert missing_user.value.code == "USER_REQUIRED"
+
+
+def _approved_row():
+    return {
+        "enabled": True,
+        "disclosure_version": approval.PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION,
+        "generation": uuid.uuid4(),
+        "accepted_at": datetime.now(UTC),
+        "revoked_at": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_private_azure_approval_is_owner_bound_and_rechecked_before_each_send(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    row = _approved_row()
+
+    async def read(owner):
+        return row if owner == "owner-a" else None
+
+    monkeypatch.setattr(approval, "_read", read)
+    grant = await approval.require_private_azure_text_approval("owner-a")
+    require_current = approval.private_azure_text_require_current(grant)
+    sent = []
+
+    async def send():
+        await require_current()
+        sent.append("synthetic")
+
+    await send()  # positive control: current approval permits the boundary
+    assert sent == ["synthetic"]
+    with pytest.raises(approval.PrivateTextApprovalError, match="current approval"):
+        await approval.require_private_azure_text_approval("owner-b")
+    row["enabled"] = False
+    with pytest.raises(approval.PrivateTextApprovalError):
+        await send()  # a retry cannot reuse the earlier successful check
+    row["enabled"] = True
+    row["generation"] = uuid.uuid4()
+    with pytest.raises(approval.PrivateTextApprovalError) as changed:
+        await send()  # reapproval cannot revive work from the old generation
+    assert changed.value.code == "PRIVATE_AZURE_TEXT_APPROVAL_CHANGED"
+    assert sent == ["synthetic"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["missing", "legacy-version", "no-receipt"])
+async def test_model_selection_and_legacy_receipts_cannot_grant_private_azure(monkeypatch, state):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    row = _approved_row()
+    if state == "legacy-version":
+        row["disclosure_version"] = "pwm-azure-bing-v1"
+    elif state == "no-receipt":
+        row["accepted_at"] = None
+
+    async def read(_owner):
+        return None if state == "missing" else row
+
+    monkeypatch.setattr(approval, "_read", read)
+    monkeypatch.setattr(constants, "GEMINI_MODEL", "azure-choice-is-not-approval")
+    assert (await approval.get_private_text_approval(user_id="owner"))["enabled"] is False
+    with pytest.raises(approval.PrivateTextApprovalError):
+        await approval.require_private_azure_text_approval("owner")
+
+
+@pytest.mark.asyncio
+async def test_private_approval_store_failure_denies_and_cancellation_propagates(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+
+    async def broken_pool():
+        raise RuntimeError("sensitive provider diagnostic must not escape")
+
+    monkeypatch.setattr(approval, "get_pool", broken_pool)
+    for operation in (
+        approval.get_private_text_approval(user_id="owner"),
+        approval.require_private_azure_text_approval("owner"),
+        approval.set_private_text_approval(
+            user_id="owner",
+            enabled=True,
+            expected_generation=None,
+            disclosure_version=approval.PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION,
+        ),
+    ):
+        with pytest.raises(approval.PrivateTextApprovalError) as unavailable:
+            await operation
+        assert unavailable.value.status_code == 503
+        assert "sensitive" not in str(unavailable.value)
+
+    async def cancelled_pool():
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(approval, "get_pool", cancelled_pool)
+    with pytest.raises(asyncio.CancelledError):
+        await approval.require_private_azure_text_approval("owner")
+
+
+def test_private_approval_route_uses_authenticated_owner_and_rejects_body_owner(monkeypatch):
+    calls = []
+
+    async def write(**kwargs):
+        calls.append(kwargs)
+        return {"enabled": kwargs["enabled"]}
+
+    monkeypatch.setattr(approval, "set_private_text_approval", write)
+    app = FastAPI()
+    app.include_router(model_routes.router)
+    client = TestClient(app)
+    path = "/api/one/models/private-text-approval"
+    assert client.get(path).status_code == 401
+    assert client.put(path, json={"enabled": False}).status_code == 401
+    app.dependency_overrides[require_firebase_auth] = lambda: "authenticated-owner"
+    assert client.put(path, json={"enabled": False, "expected_generation": None}).status_code == 200
+    assert calls == [
+        {
+            "user_id": "authenticated-owner",
+            "enabled": False,
+            "expected_generation": None,
+            "disclosure_version": None,
+        }
+    ]
+    for invalid in (
+        {"enabled": True, "user_id": "another-owner"},
+        {"enabled": "true"},
+        {"enabled": True, "generation": str(uuid.uuid4())},
+        {"enabled": False},
+        {"enabled": False, "expected_generation": "not-a-generation"},
+    ):
+        assert client.put(path, json=invalid).status_code == 422
+    assert len(calls) == 1
+
+    async def stale_write(**_kwargs):
+        raise approval.PrivateTextApprovalError(
+            "Read the changed approval.",
+            code="PRIVATE_AZURE_TEXT_APPROVAL_CHANGED",
+            status_code=409,
+        )
+
+    monkeypatch.setattr(approval, "set_private_text_approval", stale_write)
+    stale = client.put(path, json={"enabled": False, "expected_generation": str(uuid.uuid4())})
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "PRIVATE_AZURE_TEXT_APPROVAL_CHANGED"
+
+
+def test_private_approval_is_uat_only_and_requires_current_explicit_disclosure(monkeypatch):
+    async def untouched_pool():
+        pytest.fail("no storage access before environment/disclosure checks")
+
+    monkeypatch.setattr(approval, "get_pool", untouched_pool)
+    app = FastAPI()
+    app.include_router(model_routes.router)
+    app.dependency_overrides[require_firebase_auth] = lambda: "owner"
+    app.dependency_overrides[require_firebase_auth_read_only] = lambda: "owner"
+    client = TestClient(app)
+    path = "/api/one/models/private-text-approval"
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "production")
+    assert client.get(path).status_code == 403
+    assert client.put(path, json={"enabled": False, "expected_generation": None}).status_code == 403
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV")
+    for version in (None, "pwm-azure-bing-v1", "privacy-2.6"):
+        response = client.put(
+            path,
+            json={
+                "enabled": True,
+                "expected_generation": None,
+                "disclosure_version": version,
+            },
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "PRIVATE_AZURE_TEXT_DISCLOSURE_MISMATCH"
+
+
+@pytest.mark.asyncio
+async def test_private_approval_postgres_replay_revoke_and_generation_fence(monkeypatch):
+    """Real SQL protects durable approval; isolated schema leaves other suites alone."""
+    url = os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("An isolated PostgreSQL database is required.")
+    import asyncpg
+
+    root = Path(__file__).resolve().parents[1] / "db"
+    name = "364_one_private_text_processing_approvals"
+    migration = (root / "migrations" / f"{name}.sql").read_text()
+    rollback = (root / "migrations/rollback" / f"{name}.rollback.sql").read_text()
+    schema = f"private_approval_{uuid.uuid4().hex}"
+    url = url.replace("postgresql+psycopg2://", "postgresql://", 1)
+    connection = await asyncpg.connect(url)
+    await connection.execute(f'CREATE SCHEMA "{schema}"')
+    pool = await asyncpg.create_pool(
+        url, min_size=1, max_size=2, server_settings={"search_path": schema}
+    )
+
+    async def get_pool():
+        return pool
+
+    monkeypatch.setattr(approval, "get_pool", get_pool)
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    try:
+        await pool.execute("CREATE TABLE actor_profiles (user_id TEXT PRIMARY KEY)")
+        await pool.execute("INSERT INTO actor_profiles VALUES ('owner-a'), ('owner-b')")
+        await pool.execute(migration)
+        await pool.execute(migration)
+        assert (await approval.get_private_text_approval(user_id="owner-a"))["enabled"] is False
+        first = await approval.set_private_text_approval(
+            user_id="owner-a",
+            enabled=True,
+            expected_generation=None,
+            disclosure_version=approval.PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION,
+        )
+        same = await approval.set_private_text_approval(
+            user_id="owner-a",
+            enabled=True,
+            expected_generation=first["generation"],
+            disclosure_version=approval.PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION,
+        )
+        assert same == first  # an unchanged choice with current CAS preserves the grant
+        assert (await approval.get_private_text_approval(user_id="owner-b"))["enabled"] is False
+        grant = await approval.require_private_azure_text_approval("owner-a")
+        revoked = await approval.set_private_text_approval(
+            user_id="owner-a",
+            enabled=False,
+            expected_generation=first["generation"],
+        )
+        assert revoked["generation"] != first["generation"]
+        assert revoked["accepted_at"] == first["accepted_at"]
+        assert revoked["revoked_at"] is not None
+        for stale_generation in (None, first["generation"]):
+            with pytest.raises(approval.PrivateTextApprovalError) as stale:
+                await approval.set_private_text_approval(
+                    user_id="owner-a",
+                    enabled=True,
+                    expected_generation=stale_generation,
+                    disclosure_version=approval.PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION,
+                )
+            assert stale.value.status_code == 409
+            assert (await approval.get_private_text_approval(user_id="owner-a")) == revoked
+        with pytest.raises(approval.PrivateTextApprovalError):
+            await approval.private_azure_text_require_current(grant)()
+        fresh = await approval.set_private_text_approval(
+            user_id="owner-a",
+            enabled=True,
+            expected_generation=revoked["generation"],
+            disclosure_version=approval.PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION,
+        )
+        assert fresh["enabled"] is True
+        assert fresh["generation"] not in (first["generation"], revoked["generation"])
+        with pytest.raises(approval.PrivateTextApprovalError):
+            await approval.private_azure_text_require_current(grant)()
+        async with pool.acquire() as conn:
+            with pytest.raises(asyncpg.RaiseError, match="rollback_refused_nonempty_table"):
+                await conn.execute(rollback)
+            # The deliberate rollback refusal leaves this transaction aborted.
+            await conn.execute("ROLLBACK")
+        await pool.execute("DELETE FROM actor_profiles WHERE user_id = 'owner-a'")
+        assert (
+            await pool.fetchval("SELECT COUNT(*) FROM one_private_text_processing_approvals") == 0
+        )
+        await pool.execute(rollback)
+    finally:
+        await pool.close()
+        await connection.execute(f'DROP SCHEMA "{schema}" CASCADE')
+        await connection.close()

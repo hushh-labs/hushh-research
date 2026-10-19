@@ -77,6 +77,7 @@ def _revision() -> dict:
                         {"name": "DRIVE_WORK_DRAIN_ENABLED", "value": "true"},
                         {"name": "DRIVE_WORKER_MODE", "value": "true"},
                         {"name": "DRIVE_WORKER_V1_ONLY", "value": "true"},
+                        {"name": "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "value": "gemini"},
                         {"name": "ENVIRONMENT", "value": "uat"},
                     ],
                 },

@@ -41,11 +41,38 @@ PDF_PAGE_READ_SECONDS = 55
 logger = drive_logger(__name__)
 
 
-def assessment_policy_version():
+def assessment_policy_version(model_binding=None):
+    """Legacy/package genes retain Gemini; explicit semantic bindings seal provenance."""
     manifest = Path(__file__).resolve().parents[1] / "agents/documents/agent.yaml"
     configured_model = resolve_fleet_model_name("gemini-default")
-    digest = hashlib.sha256(manifest.read_bytes() + b"\0" + configured_model.encode()).hexdigest()
+    binding = configured_model.encode()
+    if model_binding is not None:
+        from hushh_mcp.services.drive_request_package_assessment import (
+            validate_semantic_model_binding,
+        )
+
+        selected = validate_semantic_model_binding(model_binding)
+        if selected["provider"] != "gemini":
+            binding = json.dumps(
+                {"legacy_model": configured_model, "semantic_request": selected},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+    digest = hashlib.sha256(manifest.read_bytes() + b"\0" + binding).hexdigest()
     return "package-v1:" + digest
+
+
+def _package_policy_version(job):
+    """These legacy package genes are Gemini-only even during an Azure request pilot."""
+    binding = job.get("checkpoint", {}).get("semantic_model_binding")
+    if binding is not None:
+        from hushh_mcp.services.drive_request_package_assessment import (
+            validate_semantic_model_binding,
+        )
+
+        if validate_semantic_model_binding(binding)["provider"] != "gemini":
+            raise DriveReadError("assessment_policy_changed")
+    return assessment_policy_version(binding)
 
 
 def _excerpt(text):
@@ -244,7 +271,7 @@ class DriveRequestPackageService:
             await self.store.require_evaluation_current(job)
 
         semaphore = asyncio.Semaphore(3)
-        policy_version = assessment_policy_version()
+        policy_version = _package_policy_version(job)
         reusable = await self._reusable_manifest(job)
 
         async def read(candidate):
@@ -485,7 +512,7 @@ class DriveRequestPackageService:
     async def _assemble(self, job):
         assemble_started = time.perf_counter()
         assessments, unreadable = [], []
-        policy_version = assessment_policy_version()
+        policy_version = _package_policy_version(job)
         after, truncated, excluded = 0, False, 0
         counts = {}
         while True:
