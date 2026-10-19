@@ -284,7 +284,8 @@ final class HushhSessionPrivacyShield: NSObject {
         ) { [weak self, weak overlay, weak visual] finished in
             guard let self, self.pendingRelease?.id == release else { return }
             guard finished, let overlay, let visual, self.overlayView === overlay, self.visualCover === visual,
-                  self.documents.accepts(documentId), self.state.canCompleteSessionValidation(
+                  self.documents.accepts(documentId), UIApplication.shared.applicationState == .active,
+                  self.state.canCompleteSessionValidation(
                     generation: requestedGeneration, appIsActive: self.lifecycleIsActive && appIsActive
                   ) else { self.cancelPendingRelease(); self.reassertCover(); return }
             overlay.removeFromSuperview()
