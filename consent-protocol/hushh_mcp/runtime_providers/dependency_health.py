@@ -108,7 +108,17 @@ def classify_provider_error(error: BaseException) -> str:
     an outage look like a candidate defect.
     """
     for current in _iter_causes(error):
-        if isinstance(current, (asyncio.TimeoutError, TimeoutError, ConnectionError)):
+        if isinstance(current, (asyncio.TimeoutError, TimeoutError)):
+            cause = current.__cause__ or current.__context__
+            # Some callers use TimeoutError as a sanitized presentation wrapper
+            # for every failure. Inspect that preserved cause instead of hiding
+            # a schema, permission or application fault as provider downtime.
+            # asyncio.wait_for's own deadline is caused by cancellation; that
+            # remains a genuine timeout, not an application failure.
+            if cause is not None and not isinstance(cause, asyncio.CancelledError):
+                continue
+            return PROVIDER_UNAVAILABLE
+        if isinstance(current, ConnectionError):
             return PROVIDER_UNAVAILABLE
 
         status = _status_code(current) if isinstance(current, Exception) else None
