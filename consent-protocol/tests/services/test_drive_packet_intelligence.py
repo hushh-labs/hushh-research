@@ -105,6 +105,29 @@ def _request_planner_response():
     }
 
 
+def test_semantic_planner_feedback_identifies_safe_cross_field_rule_without_values():
+    from hushh_mcp.services.drive_request_model_feedback import validation_feedback
+    from hushh_mcp.services.drive_suggestion_service import SemanticLiveSearchModelPlan
+
+    private = "PRIVATE_UNSEEN_PERSON"
+    invalid = _request_planner_response()
+    invalid["terms"] = [private]
+    invalid["term_groups"] = [["Different Subject"]]
+    with pytest.raises(ValidationError) as caught:
+        SemanticLiveSearchModelPlan.model_validate(invalid)
+    feedback = validation_feedback(caught.value, schema=SemanticLiveSearchModelPlan)
+    assert feedback["issues"] == [{"location": [], "type": "drive_term_group_canonical_mismatch"}]
+    assert private not in json.dumps(feedback)
+
+    invalid = _request_planner_response()
+    invalid["subject_scope"] = "metadata_listing"
+    with pytest.raises(ValidationError) as caught:
+        SemanticLiveSearchModelPlan.model_validate(invalid)
+    assert validation_feedback(caught.value, schema=SemanticLiveSearchModelPlan)["issues"] == [
+        {"location": [], "type": "drive_semantic_scope_mismatch"}
+    ]
+
+
 async def test_request_planner_asks_valid_output_once_and_corrects_only_schema_failures():
     from hushh_mcp.services.drive_suggestion_service import plan_semantic_live_search
 

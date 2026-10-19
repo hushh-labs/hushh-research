@@ -9,6 +9,23 @@ from pydantic import BaseModel, ValidationError
 from pydantic_core import ErrorType
 
 _ERROR_TYPES = frozenset(get_args(ErrorType))
+# Model-validator failures have no field location. Only these authored,
+# value-free cross-field codes may reach a correction prompt.
+_SAFE_PLAN_RULES = frozenset(
+    {
+        "drive_subject_incomplete",
+        "drive_specific_subject_missing",
+        "drive_metadata_subject_conflict",
+        "drive_term_group_canonical_mismatch",
+        "drive_count_requires_recent_sort",
+        "drive_search_boundary_missing",
+        "drive_date_requires_file_activity",
+        "drive_mixed_date_filters",
+        "drive_calendar_range_invalid",
+        "drive_semantic_subject_incomplete",
+        "drive_semantic_scope_mismatch",
+    }
+)
 _MAX_ISSUES = 8
 _MAX_PATH = 8
 _MAX_INDEX = 999
@@ -57,6 +74,11 @@ def validation_feedback(error: BaseException, *, schema: type[BaseModel]) -> dic
                 break
         kind = issue.get("type")
         result["issues"].append(
-            {"location": location, "type": kind if kind in _ERROR_TYPES else "validation_error"}
+            {
+                "location": location,
+                "type": kind
+                if kind in _ERROR_TYPES or kind in _SAFE_PLAN_RULES
+                else "validation_error",
+            }
         )
     return result

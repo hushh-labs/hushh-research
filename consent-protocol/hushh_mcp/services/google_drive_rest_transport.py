@@ -204,11 +204,12 @@ def _provider_search_evidence(item: dict[str, Any]) -> dict[str, Any]:
                 continue
             if (
                 not isinstance(field, str)
-                or not 1 <= len(field) <= limit
+                or len(field) > limit
                 or any(ord(char) < 32 or ord(char) == 127 for char in field)
             ):
                 raise DriveReadError("provider_response_invalid")
-            projected[key] = field
+            if field:
+                projected[key] = field
         return projected
 
     owners = item.get("owners")
@@ -217,7 +218,9 @@ def _provider_search_evidence(item: dict[str, Any]) -> dict[str, Any]:
             raise DriveReadError("provider_response_invalid")
         result["owners"] = [person(owner) for owner in owners]
     if item.get("sharingUser") is not None:
-        result["sharingUser"] = person(item["sharingUser"])
+        sharing_user = person(item["sharingUser"])
+        if sharing_user:
+            result["sharingUser"] = sharing_user
     return result
 
 

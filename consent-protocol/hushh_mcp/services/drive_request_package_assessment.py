@@ -27,6 +27,8 @@ MAX_BATCH_DOCUMENTS = 6
 MAX_PACKAGE_DOCUMENTS = 120
 MAX_PROMPT_BYTES = 160 * 1024
 ASSESSMENT_TIMEOUT_SECONDS = 60
+REQUEST_ASSESSMENT_TIMEOUT_SECONDS = 75
+REQUEST_FIRST_ATTEMPT_TIMEOUT_SECONDS = 55
 
 
 class RequestAssessmentAuthorityError(RuntimeError):
@@ -776,11 +778,25 @@ async def assess_request_document_batch(
         "retrieved_documents": retrieved,
     }
     prompt = _prompt(payload)
-    async with asyncio.timeout(ASSESSMENT_TIMEOUT_SECONDS):
+    # Leave a bounded retry slot if Vertex never answers the first request.
+    # A local timeout is transport absence, never an assessment decision.
+    async with asyncio.timeout(REQUEST_ASSESSMENT_TIMEOUT_SECONDS):
         for attempt in (1, 2):
             await _require_request_current(require_current)
             try:
-                result = await interpreter(prompt=prompt, user_id=user_id)
+                if attempt == 1:
+                    first_slot = asyncio.timeout(REQUEST_FIRST_ATTEMPT_TIMEOUT_SECONDS)
+                    try:
+                        async with first_slot:
+                            result = await interpreter(prompt=prompt, user_id=user_id)
+                    except TimeoutError:
+                        if not first_slot.expired():
+                            raise
+                        # Only our first-call deadline grants a second attempt.
+                        # Preserve the exact prompt and the outer 75-second cap.
+                        continue
+                else:
+                    result = await interpreter(prompt=prompt, user_id=user_id)
             except Exception as error:
                 if attempt == 2:
                     raise
