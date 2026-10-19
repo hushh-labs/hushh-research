@@ -60,6 +60,31 @@ struct HushhNativeNavigationScrollState {
     }
 }
 
+/// Native-scroller counterpart of kai-bottom-chrome-visibility's authored
+/// displacement policy. Only the active renderer supplies scroll samples.
+struct HushhNativeContentScrollState {
+    private var lastY: CGFloat?
+    private var direction: CGFloat = 0
+    private var distance: CGFloat = 0
+    private(set) var progress: CGFloat = 0
+    mutating func reset(progress: CGFloat = 0) { lastY = nil; direction = 0; distance = 0; self.progress = min(1, max(0, progress)) }
+    mutating func apply(y: CGFloat, fromPerson: Bool) -> CGFloat? {
+        guard y.isFinite else { return nil }
+        let next = max(0, y)
+        guard let previous = lastY else { lastY = next; return progress }
+        lastY = next
+        if !fromPerson && next > 10 { return nil }
+        let delta = next - previous
+        if next <= 10 { direction = -1; distance = 0; progress = 0; return 0 }
+        guard abs(delta) >= 1.5 else { return nil }
+        let nextDirection: CGFloat = delta > 0 ? 1 : -1
+        if nextDirection != direction { direction = nextDirection; distance = 0 }
+        distance += abs(delta)
+        guard distance >= 15 else { return nil }
+        progress = min(1, max(0, progress + delta / 84)); return progress
+    }
+}
+
 enum HushhNativeNavigationArtwork {
     static func items(image: (String) -> UIImage? = { UIImage(named: $0) }) -> [UITabBarItem]? {
         let labels = ["Chat", "One", "Connect", "Feed"]
@@ -120,6 +145,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     ]
     private var state = HushhNativeNavigationState()
     private var scrollState = HushhNativeNavigationScrollState()
+    private var contentScrollState = HushhNativeContentScrollState()
     private var scrollFollowing = false
     private var scrollPressHeld = false
     private var pendingScrollSnap = false
@@ -253,7 +279,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             guard let self else { call.resolve(["applied": false]); return }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             guard Set(call.options.keys).isSubset(of: ["documentId", "revision", "interactionEpoch", "privacyGeneration", "scrollGeneration", "sequence", "progress", "travel"]),
-                  self.scrollActive, let container = self.compositor,
+                  self.scrollActive, let container = self.compositor, container.workspaceScrollOwner == nil,
                   call.getString("documentId") == self.state.documentId,
                   call.getInt("revision") == self.state.revision,
                   call.getInt("interactionEpoch") == self.state.interactionEpoch,
@@ -286,6 +312,8 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     private func invalidateScroll(snap: Bool) {
         scrollState.invalidate()
         let snapped = reconcileScrollSnap(requested: snap)
+        let travel = ceil(contentHeight) + 6
+        contentScrollState.reset(progress: snap || snapped ? 0 : (compositor?.bottomChromeScrollOffset ?? 0) / max(1, travel))
         guard let document = state.documentId else { return }
         notifyListeners("scrollResetRequested", data: ["documentId": document, "revision": state.revision,
             "interactionEpoch": state.interactionEpoch, "privacyGeneration": HushhSessionPrivacyShield.shared.snapshot().generation,
@@ -329,6 +357,15 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                 // Hold the current visual position through release. Snapping
                 // on touch-down would move touch-up-inside away from the finger.
                 self.invalidateScroll(snap: false)
+            }
+            compositor.workspaceScrollChanged = { [weak self, weak compositor] identity, y, fromPerson in
+                guard let self, let compositor else { return }
+                guard let y else { self.contentScrollState.reset(); self.invalidateScroll(snap: true); return }
+                guard compositor.workspaceScrollOwner == identity, self.state.documentId == identity.documentId, self.scrollActive,
+                      let progress = self.contentScrollState.apply(y: y, fromPerson: fromPerson) else { return }
+                let travel = ceil(self.contentHeight) + 6
+                compositor.setBottomChromeScrollOffset(UIAccessibility.isReduceMotionEnabled ? 0 : min(160, progress * travel))
+                self.publishPresentationProbe()
             }
         } else if let shield = host.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {
             host.insertSubview(bar, belowSubview: shield)

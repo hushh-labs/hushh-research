@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ uid: "owner", token: "private-token", unlocked: true,
@@ -8,9 +8,10 @@ vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken
 vi.mock("@/lib/services/drive-packet-service", () => ({ DrivePacketService: state }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: {} }));
 
-import { DrivePacketCatalog } from "@/components/consent/drive-packet-catalog";
+import { DrivePacketCatalog, useOwnerPacketPageModel } from "@/components/consent/drive-packet-catalog";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import type { DrivePacket } from "@/lib/services/drive-packet-service";
 
 // Synthetic packets only: the owner's list as the server sends it.
 const id = (n: number) => `${String(n).padStart(8, "0")}-1111-4111-8111-111111111111`;
@@ -57,6 +58,32 @@ async function openPacket(title: string) {
 }
 
 describe("owner packets as a history list", () => {
+  it("keeps the price editor in its existing owner without publishing on Done or accepting a retired visit", async () => {
+    let authorized = true;
+    const guard = () => { if (!authorized) throw new Error("session_changed"); };
+    const changed = vi.fn();
+    const view = renderHook(() => useOwnerPacketPageModel({ packet: ready as DrivePacket, token: "synthetic-token", guard, onChanged: changed }));
+    act(() => view.result.current.actions.find(action => action.id === "price")?.onSelect?.());
+    const firstCurrent = view.result.current.editorCurrent, firstCancel = view.result.current.cancelPrice;
+    expect(firstCurrent()).toBe(true);
+    const revision = view.result.current.inputRevision();
+    act(() => { expect(view.result.current.changePrice("19.95", revision)).toBe(true); });
+    act(() => { expect(view.result.current.changePrice("1.00", revision)).toBe(false); });
+    await act(async () => { expect(await view.result.current.finishPrice()).toBe(true); });
+    expect(view.result.current.price).toBe("19.95");
+    expect(state.listing).not.toHaveBeenCalled(); expect(changed).not.toHaveBeenCalled();
+    expect(firstCurrent()).toBe(false);
+    act(() => view.result.current.actions.find(action => action.id === "price")?.onSelect?.());
+    act(() => firstCancel());
+    expect(view.result.current.editingPrice).toBe(true);
+    act(() => view.result.current.changePrice("22.00"));
+    act(() => view.result.current.cancelPrice());
+    expect(view.result.current.price).toBe("19.95");
+    // Authority is checked synchronously, not after another React render.
+    authorized = false;
+    act(() => { expect(view.result.current.changePrice("33.00")).toBe(false); });
+    expect(view.result.current.current()).toBe(false);
+  });
   it("shows one row per packet with plain status words, document count, dates and price", async () => {
     render(<DrivePacketCatalog />);
     await screen.findByText("Example Bank statements");

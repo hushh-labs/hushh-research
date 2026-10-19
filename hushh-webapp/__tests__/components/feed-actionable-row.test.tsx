@@ -159,53 +159,82 @@ describe("FeedActionableRow", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
-  it("keeps a two-action decision compact and on one row", () => {
+  it("draws Accept and Decline as a check and a cross beside the request", async () => {
+    const accept = vi.fn();
+    const decline = vi.fn();
     render(
       <FeedActionableRow
         item={actionable({
           id: "connection:request-1",
           actions: [
-            {
-              key: "accept",
-              label: "Accept",
-              tone: "primary",
-              run: vi.fn(),
-            },
-            {
-              key: "decline",
-              label: "Decline",
-              tone: "danger",
-              confirm: true,
-              run: vi.fn(),
-            },
+            { key: "accept", label: "Accept", tone: "primary", run: accept },
+            { key: "decline", label: "Decline", tone: "danger", confirm: true, run: decline },
           ],
         })}
       />,
     );
 
-    expect(screen.getByTestId("feed-action-buttons")).toHaveClass(
-      "flex-nowrap",
-      "justify-end",
-    );
-    expect(screen.getByTestId("feed-actionable-connection:request-1"))
-      .toHaveAttribute("data-row-layout", "person");
-    for (const button of [
-      screen.getByRole("button", { name: "Accept" }),
-      screen.getByRole("button", {
-        name: "Decline (tap again to confirm)",
-      }),
-    ]) {
-      expect(button).toHaveClass("w-auto", "min-w-[5.5rem]");
-      expect(button).not.toHaveClass("w-full");
-    }
+    const row = screen.getByTestId("feed-actionable-connection:request-1");
+    // One compact row: the actions live in the trailing column, not on a line below.
+    expect(row).toHaveAttribute("data-row-layout", "settings");
+    expect(row.querySelector('[data-slot="settings-row-trailing"]')).not.toHaveClass("w-full", "pt-1");
+    expect(screen.getByTestId("feed-action-buttons")).toHaveClass("flex-nowrap", "justify-end");
 
-    // Connection decisions deliberately occupy their own phone line: the
-    // person's name and request stay legible above the paired actions.
-    expect(
-      screen
-        .getByTestId("feed-actionable-connection:request-1")
-        .querySelector('[data-slot="settings-row-trailing"]'),
-    ).toHaveClass("w-full", "pt-1");
+    // Icon-only controls keep their names, and each is its own 44px target.
+    const acceptButton = screen.getByRole("button", { name: "Accept" });
+    const declineButton = screen.getByRole("button", { name: "Decline (tap again to confirm)" });
+    for (const button of [acceptButton, declineButton]) {
+      expect(button).toHaveClass("!size-11");
+      expect(button.querySelector("svg")).not.toBeNull();
+      expect(button).not.toHaveTextContent(/\S/);
+    }
+    expect(acceptButton.parentElement).toBe(declineButton.parentElement);
+
+    // Accept answers at once; Decline is still the two-tap confirmation.
+    fireEvent.click(acceptButton);
+    expect(accept).toHaveBeenCalledOnce();
+    // The row unlocks once Accept settles; only then can Decline arm.
+    await act(async () => {});
+    fireEvent.click(declineButton);
+    expect(decline).not.toHaveBeenCalled();
+    const armed = screen.getByRole("button", { name: "Confirm Decline" });
+    expect(armed).toHaveTextContent("Sure?");
+    fireEvent.click(armed);
+    expect(decline).toHaveBeenCalledOnce();
+  });
+
+  it("leaves out the supporting line when a row has nothing to add", () => {
+    render(
+      <FeedActionableRow
+        item={actionable({
+          id: "gmail-needs-reply",
+          title: "10 messages need your reply",
+          description: "",
+          actions: [{ key: "open-mail", label: "Open Mail", tone: "primary", run: vi.fn() }],
+        })}
+      />,
+    );
+    const row = screen.getByTestId("feed-actionable-gmail-needs-reply");
+    expect(row).toHaveTextContent("10 messages need your reply");
+    expect(row.querySelector('[data-slot="feed-event-description"]')).toBeNull();
+    expect(row.querySelector('[data-slot="settings-row-description"]')).toBeNull();
+    expect(screen.getByRole("button", { name: "Open Mail" })).toBeInTheDocument();
+  });
+
+  it("keeps a single action beside the text on a compact row", () => {
+    render(
+      <FeedActionableRow
+        item={actionable({
+          id: "gmail-needs-reply",
+          actions: [{ key: "open-mail", label: "Open Mail", tone: "primary", run: vi.fn() }],
+        })}
+      />,
+    );
+    const trailing = screen
+      .getByTestId("feed-actionable-gmail-needs-reply")
+      .querySelector('[data-slot="settings-row-trailing"]');
+    expect(trailing).not.toHaveClass("w-full", "pt-1");
+    expect(screen.getByRole("button", { name: "Open Mail" })).toHaveAttribute("data-profile-role", "action");
   });
 
   it("keeps the requested duration visible in compact mobile decision labels", () => {

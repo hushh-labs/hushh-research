@@ -1,14 +1,14 @@
-import { act, fireEvent, render, screen, waitFor, within, cleanup } from "@testing-library/react";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { act, fireEvent, render, renderHook, screen, waitFor, within, cleanup } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
 import { PkmNaturalPanel } from "@/components/profile/pkm-natural-panel";
+import { usePkmNaturalModel } from "@/components/profile/use-pkm-natural-model";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import { PkmExportService } from "@/lib/services/pkm-export-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { buildLocationMemoryPresentation } from "@/lib/profile/location-memory-presentation";
@@ -40,8 +40,9 @@ vi.mock("@/lib/observability/client", () => ({ trackEvent }));
 
 // The document editor has its own persistence/session behavior suite.
 vi.mock("@/components/profile/soul-memory-panel", () => ({
-  SoulMemoryPanel: () => <div>Soul document</div>,
+  SoulMemoryPanelBody: () => <div>Soul document</div>,
 }));
+vi.mock("@/components/profile/use-soul-memory-model", () => ({ useSoulMemoryModel: () => ({}) }));
 
 const push = vi.fn();
 const replace = vi.fn();
@@ -147,6 +148,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     authState.loading = false;
     authState.sessionVerificationRequired = false;
     vaultState.tokenExpiresAt = Date.now() + 60_000;
+    vaultState.vaultOwnerToken = "memory-only-owner-token";
     publishValidatedAuthSessionOwner("reviewer");
     vi.spyOn(PersonalKnowledgeModelService, "getMetadata").mockResolvedValue(
       baseMetadata() as never,
@@ -358,16 +360,6 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(screen.queryByText("Owner B hidden note")).toBeNull();
   });
 
-  it("routes every Memory outcome through the initiating-owner guard", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/profile/pkm-natural-panel.tsx"),
-      "utf8",
-    );
-    expect(source).toContain("memoryOwnerIdRef.current !== ownerId");
-    expect(source).toContain("memoryOwnerIdRef.current = null");
-    expect(source.match(/trackEvent\("one_memory_action"/g)).toHaveLength(1);
-  });
-
   // Home shows one "Recently learned" row into /one/pkm/recent; the memory
   // rows themselves render in the recent view.
   async function openMainScreen(view: "home" | "recent" = "home") {
@@ -465,7 +457,6 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(screen.getByText("Readable file. Keep it private.")).toBeTruthy();
     expect(screen.getAllByText("Download Memory")).toHaveLength(1);
     expect(screen.queryByText("Your copy")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Sharing and price for Financial" }));
     expect(await screen.findByRole("region", { name: "Sharing and price for Financial" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Set sharing price for Financial · Profile" })).toBeVisible();
     expect(screen.queryByText("Whole bundle price")).toBeNull();
@@ -603,6 +594,111 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     // accounts scope is NOT shared even though another scope in the same domain is.
     await waitFor(() => expect(meta2).toHaveTextContent("Private"));
     expect(meta2).not.toHaveTextContent("Shared");
+  });
+
+  it("hides a selected Saved record immediately when its owner is replaced", async () => {
+    const view = render(<PkmNaturalPanel view="recent" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open memory: Risk Profile" }));
+    expect(await screen.findByText("balanced")).toBeVisible();
+    // Renewal is not owner replacement: keep the selected record in place.
+    vaultState.vaultOwnerToken = "renewed-memory-only-token";
+    view.rerender(<PkmNaturalPanel view="recent" />);
+    expect(screen.getByText("balanced")).toBeVisible();
+    let finish!: (metadata: ReturnType<typeof baseMetadata>) => void;
+    vi.mocked(PersonalKnowledgeModelService.getMetadata).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    authState.user = otherUser;
+    publishValidatedAuthSessionOwner(otherUser.uid);
+    view.rerender(<PkmNaturalPanel view="recent" />);
+    try {
+      expect(screen.queryByText("balanced")).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Risk Profile" })).toBeNull();
+    } finally {
+      view.unmount();
+      await act(async () => { finish({ ...baseMetadata(), domains: [] }); });
+    }
+  });
+
+  it("retires private model values and writers synchronously when the owner changes", async () => {
+    const observations: { owner: string; note: string; data: unknown }[] = [];
+    const scopeWrite = vi.spyOn(PersonalKnowledgeModelService, "updateScopeExposure").mockResolvedValue({ success: true } as never);
+    const save = vi.spyOn(PkmWriteCoordinator, "saveMergedDomain").mockResolvedValue({ success: false } as never);
+    const view = renderHook(() => {
+      const model = usePkmNaturalModel({ view: "recent" });
+      observations.push({ owner: authState.user.uid, note: model.captureText, data: model.domainDetail.data });
+      return model;
+    });
+    await waitFor(() => expect(view.result.current.recentMemories.length).toBeGreaterThan(0));
+    act(() => view.result.current.setSelectedDomainKey("financial"));
+    await waitFor(() => expect(view.result.current.domainDetail.data).toEqual(FULL_BLOB.financial));
+    const card = view.result.current.recentMemories.find(value => value.value === "balanced")!;
+    act(() => { view.result.current.openMemory(card); view.result.current.changeCaptureText("Owner A note"); });
+    await waitFor(() => expect(view.result.current.sharingImpacts["financial::profile"]).toBeDefined());
+    const retired = view.result.current;
+    authState.user = otherUser;
+    publishValidatedAuthSessionOwner(otherUser.uid);
+    view.rerender();
+    expect(observations.filter(value => value.owner === otherUser.uid).every(value => value.note === "" && value.data === null)).toBe(true);
+    await act(async () => {
+      retired.changeCaptureText("Late owner A text");
+      retired.setCaptureMessage("Late owner A message");
+      retired.setCaptureSharingImpactAcknowledged(true);
+      await retired.persistMemoryCardChange({ card, action: "edited", nextValue: "changed" });
+      await retired.updateSharingBundles({ domain: "financial", manifest: financialManifest("private") as never, scopeHandles: ["financial.profile"], enabled: true });
+      await retired.updateMemoryScopeSharing(card, "private");
+    });
+    expect(save).not.toHaveBeenCalled();
+    expect(scopeWrite).not.toHaveBeenCalled();
+    expect(view.result.current.captureText).toBe("");
+    expect(view.result.current.captureMessage).toBeNull();
+    expect(view.result.current.captureSharingImpactAcknowledged).toBe(false);
+  });
+
+  it("does not follow a settled Saved write with reads or feedback after verification is lost", async () => {
+    let finish!: (value: never) => void;
+    const writer = vi.spyOn(PkmWriteCoordinator, "saveMergedDomain").mockImplementationOnce(async params => {
+      await params.beforeEffect?.();
+      await params.build({ currentDomainData: FULL_BLOB.preferences } as never);
+      return new Promise(resolve => { finish = resolve; });
+    });
+    const view = renderHook(() => usePkmNaturalModel({ view: "recent" }));
+    await waitFor(() => expect(view.result.current.recentMemories.length).toBeGreaterThan(0));
+    const card = view.result.current.recentMemories.find(value => value.value === "aisle seat")!;
+    act(() => view.result.current.openMemory(card));
+    await waitFor(() => expect(view.result.current.sharingImpacts["preferences::travel"]).toBeDefined());
+    let operation!: Promise<void>;
+    act(() => { operation = view.result.current.persistMemoryCardChange({ card, action: "edited", nextValue: "window seat" }); });
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    const reads = vi.mocked(PersonalKnowledgeModelService.getMetadata).mock.calls.length;
+    authState.sessionVerificationRequired = true;
+    view.rerender();
+    await act(async () => { finish({ success: true } as never); await operation; });
+    expect(PersonalKnowledgeModelService.getMetadata).toHaveBeenCalledTimes(reads);
+    expect(trackEvent).not.toHaveBeenCalledWith("one_memory_action", expect.objectContaining({ action: "detail_edited" }));
+    expect(clearAgentPkmContext).not.toHaveBeenCalled();
+    expect(view.result.current.memoryActionId).toBeNull();
+    expect(writer).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases an export lock after verification recovery without publishing stale feedback", async () => {
+    let finish!: (value: { saved: boolean; filename: string; domainCount: number }) => void;
+    const download = vi.spyOn(PkmExportService, "downloadMemoryExport").mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const view = render(<PkmNaturalPanel />);
+    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Download Memory" }));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    authState.sessionVerificationRequired = true;
+    view.rerender(<PkmNaturalPanel />);
+    await act(async () => finish({ saved: true, filename: "synthetic-export.json", domainCount: 1 }));
+    expect(screen.queryByText(/Saved synthetic-export/)).toBeNull();
+    expect(trackEvent).not.toHaveBeenCalledWith("one_memory_action", expect.objectContaining({ action: "export_saved" }));
+    authState.sessionVerificationRequired = false;
+    view.rerender(<PkmNaturalPanel />);
+    const retry = screen.getByRole("button", { name: "Download Memory" });
+    expect(retry).toBeEnabled();
+    download.mockResolvedValueOnce({ saved: true, filename: "current-export.json", domainCount: 1 });
+    fireEvent.click(retry);
+    await screen.findByText(/Saved current-export.json/);
+    expect(download).toHaveBeenCalledTimes(2);
   });
 
   // Edit and forget run on a memory Memory owns. Finance owns every financial

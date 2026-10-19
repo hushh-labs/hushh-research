@@ -372,9 +372,8 @@ async def test_azure_pwm_dispatch_keeps_owner_authority_and_keyless_tokens(
     kwargs = azure_run.await_args.kwargs
     assert kwargs["identity"] == IDENTITY
     assert kwargs["primary_deployment"] == "pwm-primary"
-    assert kwargs["phi_deployment"] == "pwm-phi"
     assert kwargs["primary_token_supplier"] is token_supplier
-    assert kwargs["phi_token_supplier"] is token_supplier
+    assert not any(key.startswith("phi_") for key in kwargs)
     await kwargs["require_access"]()
 
 
@@ -760,6 +759,9 @@ async def test_status_attaches_progress_only_while_research_is_live(monkeypatch)
     from hushh_mcp.services import world_model_service as service
 
     monkeypatch.setattr(jobs, "validate_first_party_owner_token", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        service, "validate_first_party_owner_token", AsyncMock(return_value=object())
+    )
     monkeypatch.setattr(jobs, "one_profile_research_enabled", lambda: True)
     monkeypatch.setattr(
         service, "validate_first_party_owner_token", AsyncMock(return_value=object())

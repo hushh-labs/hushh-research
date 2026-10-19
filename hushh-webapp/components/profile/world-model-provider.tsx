@@ -256,6 +256,9 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
         ownerId: owner,
         ownerDecisions,
         refresh: explicitRefresh,
+        // Keep read warming, but do not enroll or resume research on fixture
+        // unlock. Explicit UI actions retain the rehearsal's admission guard.
+        readOnly: shouldSkipReviewerBackgroundWritesForAutomation() && !explicitRefresh && !explicitRetry,
         onProgress: (next) => {
           if (!progress || progressContent(next) !== progressContent(progress))
             lastActivityAt = Date.now();
@@ -340,9 +343,14 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
 }
 
 /** The research state, wherever the caller is mounted. */
-export const useWorldModelResearch = (): WorldModelResearchState =>
-  useSyncExternalStore(
+export function useWorldModelResearch(active = true): WorldModelResearchState {
+  const { user, loading, sessionVerificationRequired } = useAuth();
+  const { vaultKey, vaultOwnerToken, isVaultUnlocked, tokenExpiresAt } = useVault();
+  const expected = active && !loading && !sessionVerificationRequired && isVaultUnlocked && user && vaultKey && vaultOwnerToken &&
+    (tokenExpiresAt === null || Date.now() < tokenExpiresAt) ? { owner: user.uid, key: vaultKey, token: vaultOwnerToken } : null;
+  return useSyncExternalStore(
     worldModelResearchStore.subscribe,
-    worldModelResearchStore.getSnapshot,
+    () => worldModelResearchStore.getSnapshotFor(expected),
     worldModelResearchStore.getServerSnapshot,
   );
+}

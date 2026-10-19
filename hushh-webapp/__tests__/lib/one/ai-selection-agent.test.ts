@@ -47,6 +47,8 @@ const OPENAI = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  publishValidatedAuthSessionOwner(null);
+  publishValidatedAuthSessionOwner("owner-1");
   mocks.record.mockResolvedValue(undefined);
 });
 
@@ -219,7 +221,7 @@ describe("ai-selection agent client", () => {
       vertexProject: null,
       vertexLocation: null,
     });
-    expect(mocks.record).toHaveBeenCalledWith(input, "gemini");
+    expect(mocks.record).toHaveBeenCalledWith(input, "gemini", null, expect.any(Function));
   });
 });
 
@@ -253,4 +255,18 @@ it("requires a provider-verified receipt when returning an Azure pod to its defa
     }),
   );
   expect(await clearAgentAiSelectionFor(null, true)).toBe("cleared");
+});
+
+it.each(["clear", "share"])("refuses %s after an owner change during status lookup", async operation => {
+  mocks.status.mockImplementationOnce(async () => {
+    publishValidatedAuthSessionOwner("other-owner");
+    return CAPABLE;
+  });
+  const result = operation === "clear" ? await clearAgentAiSelectionFor("gemini") : await shareGeminiSelectionWithAgent({
+    userId: "owner-1", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token", credential: "synthetic-key",
+    transport: "developer_api", vertexProject: null, vertexLocation: null,
+  });
+  expect(result).toBe(operation === "clear" ? "failed" : "Your account changed. Try again.");
+  expect(mocks.pod).not.toHaveBeenCalled();
+  expect(mocks.record).not.toHaveBeenCalled();
 });

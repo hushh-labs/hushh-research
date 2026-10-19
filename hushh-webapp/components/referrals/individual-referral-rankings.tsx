@@ -10,8 +10,8 @@ import styles from "./referral-rankings.module.css";
 const PAGE_SIZE = 10;
 
 /** Cursor pages stay on one published snapshot throughout an active browse. */
-export function IndividualReferralRankings({ firstPage, user, onRefresh }: {
-  firstPage: LeaderboardPage;
+export function useIndividualReferralRankings({ firstPage, user, onRefresh }: {
+  firstPage: LeaderboardPage | null;
   user: User | null | undefined;
   onRefresh: () => void;
 }) {
@@ -26,7 +26,7 @@ export function IndividualReferralRankings({ firstPage, user, onRefresh }: {
   useEffect(() => () => { sequence.current += 1; }, []);
 
   const loadPage = async (afterRank: number) => {
-    if (!user || pending.current) return;
+    if (!user || !data || pending.current) return;
     pending.current = true;
     setBusy(true);
     setFailedCursor(null);
@@ -58,7 +58,19 @@ export function IndividualReferralRankings({ firstPage, user, onRefresh }: {
     }
   };
 
-  const viewer = data.viewer ?? data.entries.find((entry) => entry.is_viewer);
+  const viewer = data?.viewer ?? data?.entries.find((entry) => entry.is_viewer);
+  return { data, cursor, busy, failedCursor, viewer, loadPage,
+    hasNewSnapshot: Boolean(page && firstPage?.snapshot_id && data?.snapshot_id !== firstPage.snapshot_id),
+    latest: () => { if (!pending.current) { setPage(null); setFailedCursor(null); } } };
+}
+export type IndividualReferralRankingsModel = ReturnType<typeof useIndividualReferralRankings>;
+
+export function IndividualReferralRankings(props: { firstPage: LeaderboardPage; user: User | null | undefined; onRefresh: () => void }) {
+  return <IndividualReferralRankingsBody model={useIndividualReferralRankings(props)} user={props.user} />;
+}
+export function IndividualReferralRankingsBody({ model, user }: { model: IndividualReferralRankingsModel; user: User | null | undefined }) {
+  const { data, cursor, busy, failedCursor, viewer, loadPage, hasNewSnapshot, latest } = model;
+  if (!data) return null;
   return <div className={styles.pagedList} aria-busy={busy}>
     {data.entries.length ? <ReferralRankingList label="Individual standings">
       {data.entries.map((entry) => <ReferralRankingRow key={entry.rank} rank={entry.rank}
@@ -70,7 +82,7 @@ export function IndividualReferralRankings({ firstPage, user, onRefresh }: {
     {cursor > 0 || data.next_after_rank != null || viewer ? <nav aria-label="Individual ranking pages" className={styles.pagination}>
       {viewer && !data.entries.some((entry) => entry.is_viewer) ? <Button variant="muted" size="compact" disabled={busy} onClick={() => void loadPage(Math.floor((viewer.rank - 1) / PAGE_SIZE) * PAGE_SIZE)}>Your rank #{viewer.rank}</Button> : null}
       <span className={styles.pageNumber}>Page {Math.floor(cursor / PAGE_SIZE) + 1}</span>
-      {page && firstPage.snapshot_id && data.snapshot_id !== firstPage.snapshot_id ? <Button variant="muted" size="compact" disabled={busy} onClick={() => { setPage(null); setFailedCursor(null); }}>Latest rankings</Button> : null}
+      {hasNewSnapshot ? <Button variant="muted" size="compact" disabled={busy} onClick={latest}>Latest rankings</Button> : null}
       {cursor > 0 ? <Button variant="muted" size="compact" disabled={busy} onClick={() => void loadPage(Math.max(0, cursor - PAGE_SIZE))}>Previous</Button> : null}
       {data.next_after_rank != null ? <Button variant="muted" size="compact" disabled={busy} onClick={() => void loadPage(data.next_after_rank!)}>Next</Button> : null}
     </nav> : null}

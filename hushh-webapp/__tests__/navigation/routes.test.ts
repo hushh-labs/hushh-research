@@ -164,6 +164,9 @@ describe("navigation routes", () => {
     expect(buildProfileRoute({ panel: "preferences", detail: "voice" })).toBe(
       "/one/profile/preferences/voice",
     );
+    expect(buildProfileRoute({ panel: "preferences", detail: "device" })).toBe("/one/profile/preferences");
+    expect(resolveProfileRouteState("/one/profile/preferences/device")).toEqual({ panel: "preferences", detail: null });
+    expect(buildCanonicalProfileRouteFromLegacyQuery("/one/profile", "panel=preferences&detail=device")).toBe("/one/profile/preferences");
     expect(buildProfileRoute({ panel: "security", detail: "vault" })).toBe(
       "/one/profile/security/vault",
     );

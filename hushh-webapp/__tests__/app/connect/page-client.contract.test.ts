@@ -3,7 +3,10 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { getDirectoryPersonDescription } from "@/app/connect/directory-person-label";
+import {
+  getDirectoryPersonDescription,
+  getDirectoryPersonEmail,
+} from "@/app/connect/directory-person-label";
 
 describe("Connect canonical surface contract", () => {
   it("uses the shared Profile/One header and settings-row geometry", () => {
@@ -155,6 +158,16 @@ describe("Connect canonical surface contract", () => {
         maskedPhone: "******4455",
       }),
     ).toBe("a***l@example.com");
+  });
+
+  it("offers a directory row an email or nothing, never a phone", () => {
+    const base = { displayName: "Abdul Zalil", maskedPhone: "98******10" };
+    expect(getDirectoryPersonEmail({ ...base, email: "abdul@example.test", maskedEmail: "a***l@example.test" })).toBe("abdul@example.test");
+    expect(getDirectoryPersonEmail({ ...base, email: null, maskedEmail: "a***l@example.test" })).toBe("a***l@example.test");
+    expect(getDirectoryPersonEmail({ ...base, email: null, maskedEmail: null })).toBeUndefined();
+    // The caption helper still falls back to the phone for the voice card; the
+    // row must not use it.
+    expect(getDirectoryPersonDescription({ ...base, email: null, maskedEmail: null })).toBe("98******10");
   });
 
   it("keeps email as the preferred secondary identity", () => {

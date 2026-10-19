@@ -514,6 +514,9 @@ const ROSTER: RosterRow[] = [
 ];
 
 function rosterBody(rows: RosterRow[], legacy = false): string {
+  // The production icon's 16px box matters to this layout fixture; its
+  // detailed paths are owned by ContactsBookIcon, not by a row geometry test.
+  const contactSourceIcon = '<svg data-testid="row-contact-source" role="img" aria-label="Connected from your contacts" class="size-4 shrink-0" viewBox="0 0 16 16" fill="none"><rect x="2" y="1.75" width="10.75" height="12.5" rx="1.65" stroke="var(--ios-account-label)" stroke-width="1.1"/><circle cx="8.5" cy="6.25" r="1.45" fill="var(--ios-account-accent)"/></svg>';
   const cells = rows
     .map((row, index) => {
       const action =
@@ -541,7 +544,7 @@ function rosterBody(rows: RosterRow[], legacy = false): string {
         : CIRCLE_MEMBER_ROW_CLASSNAME;
       const nameMarkup = legacy
         ? `<p data-testid="row-name" class="break-words text-[15px] font-semibold leading-snug text-foreground">${row.name}</p>`
-        : `<p class="${CIRCLE_MEMBER_NAME_ROW_CLASSNAME}"><span data-testid="row-name" class="${CIRCLE_MEMBER_NAME_CLASSNAME}">${row.name}</span></p>`;
+        : `<p class="${cn(CIRCLE_MEMBER_NAME_ROW_CLASSNAME, "flex items-center gap-1.5")}"><span data-testid="row-name" class="${CIRCLE_MEMBER_NAME_CLASSNAME}">${row.name}</span>${row.fromContacts ? contactSourceIcon : ""}</p>`;
 
       return `<div data-testid="row" data-row="${index}" class="${rowClass}">
   <span data-testid="row-avatar" class="${cn(
@@ -555,7 +558,7 @@ function rosterBody(rows: RosterRow[], legacy = false): string {
   ${
     legacy
       ? `${action}${menu}`
-      : `<div class="${cn(CIRCLE_MEMBER_TRAILING_CLASSNAME, row.action !== "none" && CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME)}">${row.fromContacts ? '<span data-testid="row-contact-source" class="h-5 shrink-0 whitespace-nowrap rounded-full bg-[color:var(--app-neutral-fill)] px-1.5 text-[10px] font-medium leading-5 text-[color:var(--app-secondary-label)]">From contacts</span>' : ''}<div class="flex shrink-0 items-center justify-end gap-1">${action}${menu}</div></div>`
+      : `<div class="${cn(CIRCLE_MEMBER_TRAILING_CLASSNAME, row.action !== "none" && CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME)}"><div class="flex shrink-0 items-center justify-end gap-1">${action}${menu}</div></div>`
   }
 </div>`;
     })
@@ -616,7 +619,7 @@ const CANDIDATES = [
   "ui-text-page-title",
   "divide-y",
   "divide-border/60",
-  "h-5", "shrink-0", "whitespace-nowrap", "px-1.5", "text-[10px]", "font-medium", "leading-5", "gap-1", "items-center", "justify-end", "flex", "bg-[color:var(--app-neutral-fill)]", "text-[color:var(--app-secondary-label)]",
+  "size-4", "shrink-0", "gap-1.5", "gap-1", "items-center", "justify-end", "flex",
   "rounded-[var(--app-card-radius-standard,24px)]",
   "bg-[color:var(--app-card-surface-default-solid)]",
 ];
@@ -774,18 +777,27 @@ test.describe("Circle roster row", () => {
       for (const avatar of avatars) {
         expect(avatar.left).toBeGreaterThanOrEqual(PAGE_PADDING_PX - 1);
       }
-      const badgeMetrics = await page.getByTestId("row-contact-source").evaluateAll(nodes => nodes.map(node => {
-        const badge = node as HTMLElement;
-        const row = badge.closest('[data-testid="row"]')!;
+      const iconMetrics = await page.getByTestId("row-contact-source").evaluateAll(nodes => nodes.map(node => {
+        const icon = node as SVGElement;
+        const row = icon.closest('[data-testid="row"]')!;
         const menu = row.querySelector('[data-testid="row-menu"]')!.getBoundingClientRect();
-        const box = badge.getBoundingClientRect();
-        return { right: box.right, menuLeft: menu.left, width: box.width, scrollWidth: badge.scrollWidth, clientWidth: badge.clientWidth, whiteSpace: getComputedStyle(badge).whiteSpace };
+        const box = icon.getBoundingClientRect();
+        return {
+          right: box.right,
+          menuLeft: menu.left,
+          sharesMenuLine: box.top < menu.bottom && box.bottom > menu.top,
+          width: box.width,
+          height: box.height,
+        };
       }));
-      expect(badgeMetrics).toHaveLength(2);
-      for (const badge of badgeMetrics) {
-        expect(badge.right).toBeLessThanOrEqual(width - PAGE_PADDING_PX);
-        expect(badge.whiteSpace).toBe("nowrap");
-        expect(badge.scrollWidth).toBeLessThanOrEqual(badge.clientWidth + 1);
+      expect(iconMetrics).toHaveLength(2);
+      for (const icon of iconMetrics) {
+        expect(icon.width).toBe(16);
+        expect(icon.height).toBe(16);
+        if (icon.sharesMenuLine) {
+          expect(icon.right).toBeLessThanOrEqual(icon.menuLeft);
+        }
+        expect(icon.right).toBeLessThanOrEqual(width - PAGE_PADDING_PX);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     });

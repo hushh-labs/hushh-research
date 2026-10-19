@@ -75,7 +75,10 @@ const NAMES = [
   "Sam Patel",
 ];
 const connections = () =>
-  NAMES.slice(0, Number(dataset().connections ?? NAMES.length)).map(
+  Array.from(
+    { length: Number(dataset().connections ?? NAMES.length) },
+    (_, index) => NAMES[index] ?? `Connection ${index + 1}`,
+  ).map(
     (displayName, index) => ({
       connectionId: `connection-${index}`,
       userId: `user-${index}`,

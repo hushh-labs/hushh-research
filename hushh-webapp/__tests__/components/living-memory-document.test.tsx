@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LiveMirrorClaim, LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 import type { MemoryRefreshStatus } from "@/lib/pkm/memory-refresh";
@@ -13,8 +13,10 @@ const m = vi.hoisted(() => ({
   epoch: 0,
   view: null as LiveMirrorView | null,
   listeners: new Set<() => void>(),
+  privacy: { generation: 0, appIsActive: true, shielded: false },
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: m.navigate }) }));
+vi.mock("@/lib/capacitor/session-privacy", () => ({ nativePrivacyObservation: () => ({ state: m.privacy }) }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: m.uid } }),
 }));
@@ -45,6 +47,10 @@ vi.mock("@/lib/services/cache-service", () => ({
 }));
 
 import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
+import { useNativeMemory, nativeMemoryText, type NativeMemoryModel } from "@/components/profile/use-native-memory";
+import { validNativeMemoryPath, type NativeDrawerChoice, type NativeProfilePage } from "@/lib/capacitor/native-drawers";
+import { buildPkmDomainPresentation } from "@/lib/profile/pkm-profile-presentation";
+import { buildPkmSectionPreviewPresentation } from "@/lib/profile/pkm-section-preview";
 import { applyLiveMirrorReadTime, buildLiveMirrorProjection } from "@/lib/pkm/live-mirror-projection";
 import { formatLiveMirrorDateTime, formatLiveMirrorValue, liveMirrorSourceRoute } from "@/lib/pkm/live-mirror-presentation";
 import {
@@ -143,8 +149,176 @@ beforeEach(() => {
   m.epoch = 0;
   m.view = mirror();
   m.listeners.clear();
+  m.privacy = { generation: 0, appIsActive: true, shielded: false };
 });
 afterEach(cleanup);
+
+describe("native Memory operation boundary", () => {
+  function model(overrides: Partial<NativeMemoryModel> = {}): NativeMemoryModel {
+    return { owner: "synthetic-owner", active: true, detail: null, loading: false, metadataReady: true, sharingReady: true,
+      metadataFailed: false, sharingFailed: false, domains: [], connections: [], selectedDomain: null, selectedConnection: null,
+      permissions: [], upgrade: null, manifestLoading: false, manifestFailed: false, pendingPermissions: {},
+      preview: { open: false, title: "", presentation: null, loading: false, error: null, deletingEntityKey: null },
+      openDomain: vi.fn(), openConnection: vi.fn(), openSharing: vi.fn(), openRoot: vi.fn(), refresh: vi.fn(), navigate: vi.fn(), closePreview: vi.fn(), openRetainedDetails: vi.fn(), openFinancialContext: vi.fn(),
+      previewPermission: vi.fn().mockResolvedValue(undefined), setPosture: vi.fn().mockResolvedValue(undefined),
+      removeEntity: vi.fn().mockResolvedValue(true), editEntity: vi.fn(), revoke: vi.fn().mockResolvedValue(undefined), ...overrides };
+  }
+  it("returns Live memory to its retained root and distinguishes blocked Back from a committed pop", () => {
+    const input = model();
+    const hook = renderHook(({ value }) => useNativeMemory(value), { initialProps: { value: input } });
+    const live = hook.result.current.pages[0].sections.flatMap(section => section.rows).find(row => row.label === "Live memory")!;
+    act(() => { void hook.result.current.rows.get(live.id)!({} as NativeDrawerChoice); });
+    expect(hook.result.current.pages.map(page => page.id)).toEqual(["memory", "memory-live"]);
+    expect(hook.result.current.navigationBlocked()).toBe(false);
+    act(() => { expect(hook.result.current.back()).toBe(true); });
+    expect(hook.result.current.pages.map(page => page.id)).toEqual(["memory"]);
+    act(() => { void hook.result.current.rows.get(live.id)!({} as NativeDrawerChoice); });
+    hook.rerender({ value: { ...input, preview: { ...input.preview, deletingEntityKey: "synthetic-pending-write" } } });
+    expect(hook.result.current.navigationBlocked()).toBe(true);
+    act(() => { expect(hook.result.current.back()).toBe(true); });
+    expect(hook.result.current.pages.map(page => page.id)).toEqual(["memory", "memory-live"]);
+    hook.rerender({ value: input });
+    m.privacy.shielded = true;
+    expect(hook.result.current.navigationBlocked()).toBe(true);
+  });
+
+  it("keeps shared grants opaque and fences sensitive disclosure and asynchronous copying", async () => {
+    let copyAllowed = true;
+    const person = { personRef: "private-person-ref", person: "Synthetic person", labels: ["Legal entity"], items: [] };
+    const shared = { location: { page: "person" }, shared: { failed: false, shares: [], people: [person], refresh: vi.fn() }, person,
+      received: { shares: [], failed: false, refresh: vi.fn() }, card: { items: [{ key: "private-grant-ref", label: "Legal entity", state: "ready", sensitive: false,
+        sharedAt: null, accessEndsAt: null, purpose: null, fields: [{ name: "Registered agent", sensitivity: "sensitive" }],
+        data: { fein: "12-3456789", trade_name: "Acme Coffee", registered_agent: "Jordan Lee" } }], retry: vi.fn() },
+      exposed: [], actionRevision: "synthetic-visit", canCopy: () => copyAllowed, openShared: vi.fn(), openDrive: vi.fn(), selectPerson: vi.fn(), toggleExposure: vi.fn(), back: vi.fn(), reset: vi.fn(),
+    } as unknown as NonNullable<NativeMemoryModel["shared"]>;
+    const hook = renderHook(({ value }) => useNativeMemory(model({ shared: value })), { initialProps: { value: shared } });
+    const reading = () => JSON.stringify(hook.result.current.pages);
+    expect(validNativeMemoryPath(hook.result.current.pages)).toBe(true);
+    expect(reading()).toContain("Acme Coffee");
+    expect(reading()).not.toMatch(/12-3456789|Jordan Lee|private-person-ref|private-grant-ref/);
+    const reveal = hook.result.current.pages.at(-1)!.sections[0]!.rows.find(row => row.label === "Show Legal entity")!;
+    act(() => { void hook.result.current.rows.get(reveal.id)?.(); });
+    expect(shared.toggleExposure).toHaveBeenCalledExactlyOnceWith("private-grant-ref");
+    hook.rerender({ value: { ...shared, exposed: ["private-grant-ref"] } });
+    expect(reading()).toContain("12-3456789");
+    expect(validNativeMemoryPath([{ id: "memory" }, { id: "memory-shared" }, { id: "memory-confirm" }] as NativeProfilePage[])).toBe(false);
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const exec = Object.getOwnPropertyDescriptor(document, "execCommand");
+    let reject!: (error: Error) => void;
+    const fallback = vi.fn(() => true);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(() => new Promise<void>((_, failure) => { reject = failure; })) } });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: fallback });
+    try {
+      const copy = hook.result.current.pages.at(-1)!.sections[0]!.rows.find(row => row.label === "Copy Trade name")!;
+      let pending: void | Promise<void> = undefined;
+      act(() => { pending = hook.result.current.rows.get(copy.id)?.(); });
+      copyAllowed = false; // A privacy/grant/disclosure withdrawal wins the await.
+      await act(async () => { reject(new Error("clipboard_unavailable")); await pending; });
+      expect(fallback).not.toHaveBeenCalled();
+      expect(document.querySelector("textarea")).toBeNull();
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard); else Reflect.deleteProperty(navigator, "clipboard");
+      if (exec) Object.defineProperty(document, "execCommand", exec); else Reflect.deleteProperty(document, "execCommand");
+    }
+  });
+  it("bounds large category projections, preserves Unicode and rejects callbacks from a retired owner", () => {
+    const text = "😀漢字".repeat(5000);
+    const chunks = nativeMemoryText(text);
+    expect(chunks.join("")).toBe(text);
+    expect(chunks.every(chunk => chunk.length <= 3000 && !/[\uD800-\uDBFF]$/.test(chunk))).toBe(true);
+    const input = model({ domains: Array.from({ length: 2100 }, (_, index) => buildPkmDomainPresentation({
+      domain: { key: `synthetic-domain-${index}`, displayName: `Category ${index}`, attributeCount: 1, summary: {}, availableScopes: [], lastUpdated: null }, activeGrants: [] })) });
+    const hook = renderHook(({ input }) => useNativeMemory(input), { initialProps: { input } });
+    const rows = hook.result.current.pages[0]!.sections[0]!.rows;
+    expect(rows.length).toBeLessThanOrEqual(42);
+    const command = hook.result.current.rows.get(rows.find(row => row.label === "Category 0")!.id)!;
+    act(() => { void command(); });
+    expect(input.openDomain).toHaveBeenCalledWith("synthetic-domain-0");
+    const search = hook.result.current.pages[0]!.memorySearch!;
+    act(() => { void hook.result.current.rows.get(search.id)!({ text: "Category 2099" } as NativeDrawerChoice); });
+    expect(hook.result.current.pages[0]!.sections[0]!.rows.some(row => row.label === "Category 2099")).toBe(true);
+    expect(hook.result.current.pages[0]!.sections[0]!.rows.some(row => row.label === "Category 0")).toBe(false);
+    hook.rerender({ input: { ...input, owner: "replacement-owner" } });
+    act(() => { void command(); });
+    expect(input.openDomain).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(hook.result.current.pages)).not.toContain("synthetic-domain-0");
+  });
+  it("keeps long navigation text admissible without dropping its complete detail content", () => {
+    const title = "😀".repeat(300), summary = "漢".repeat(5000);
+    const domain = { ...buildPkmDomainPresentation({ domain: { key: "synthetic", displayName: "Synthetic", attributeCount: 1, summary: {}, availableScopes: [], lastUpdated: null }, activeGrants: [] }), title, summary };
+    const hook = renderHook(() => useNativeMemory(model({ detail: "domain:synthetic", domains: [domain], selectedDomain: domain })));
+    expect(hook.result.current.pages.every(page => page.title.length <= 256)).toBe(true);
+    const details = hook.result.current.pages.at(-1)!.sections.flatMap(section => section.rows);
+    expect(details.filter(row => row.readOnly).map(row => row.label).join("\n")).toContain(title);
+    expect(details.every(row => row.label.length <= 4096 && (row.detail?.length ?? 0) <= 4096)).toBe(true);
+    expect(details.filter(row => row.readOnly).map(row => row.label).join("")).toContain(summary);
+  });
+  it("keeps a failed revocation visible and rejects its confirmation across privacy generations", async () => {
+    m.privacy = { generation: 0, appIsActive: true, shielded: false };
+    const grant = { id: "private-grant", scope: "attr.synthetic.*", domainTitle: "Synthetic category", readableAccessLabel: "Approved details" };
+    const connection = { id: "private-connection", requesterLabel: "Synthetic connection", grants: [grant], domains: ["Synthetic category"], broadAccessCount: 0, accessCount: 1 } as NativeMemoryModel["connections"][number];
+    const input = model({ detail: "connection:private-connection", selectedConnection: connection, connections: [connection], revoke: vi.fn().mockRejectedValue(new Error("synthetic unavailable")) });
+    const projected: NativeProfilePage[][] = [];
+    const hook = renderHook(({ value }) => {
+      const result = useNativeMemory(value); projected.push(result.pages); return result;
+    }, { initialProps: { value: input } });
+    const choose = (label: string) => {
+      const row = hook.result.current.pages.at(-1)!.sections.flatMap(section => section.rows).find(row => row.label === label)!;
+      return hook.result.current.rows.get(row.id)!;
+    };
+    act(() => { void choose("Revoke this access category")(); });
+    const staleConfirm = choose("Revoke access");
+    m.privacy = { ...m.privacy, generation: 1 };
+    await act(async () => { await staleConfirm(); });
+    expect(input.revoke).not.toHaveBeenCalled();
+    act(() => { void choose("Cancel")(); });
+    act(() => { void choose("Revoke this access category")(); });
+    await act(async () => { await choose("Revoke access")(); });
+    expect(input.revoke).toHaveBeenCalledOnce();
+    expect(hook.result.current.pages.at(-1)!.id).toBe("memory-confirm");
+    expect(hook.result.current.pages.at(-1)!.sections.flatMap(section => section.rows).some(row => row.label.includes("Couldn't confirm"))).toBe(true);
+    expect(JSON.stringify(hook.result.current.pages)).not.toMatch(/private-grant|attr\.synthetic|private-connection/);
+    const first = projected.length;
+    hook.rerender({ value: { ...input, detail: "sharing", selectedConnection: null } });
+    expect(projected.slice(first).every(validNativeMemoryPath)).toBe(true);
+    expect(projected[first]!.map(page => page.id)).toEqual(["memory", "memory-sharing"]);
+  });
+  it("keeps valid ancestry when a saved entity disappears before confirmation settlement", () => {
+    const domain = buildPkmDomainPresentation({ domain: { key: "synthetic", displayName: "Synthetic", attributeCount: 1, summary: {}, availableScopes: [], lastUpdated: null }, activeGrants: [] });
+    const input = model({ detail: "domain:synthetic", domains: [domain], selectedDomain: domain,
+      preview: { open: true, title: "Synthetic section", loading: false, error: null, deletingEntityKey: null,
+        presentation: { title: "Synthetic section", stats: [], groups: [{ kind: "entities", items: [{ key: "display-only", title: "Synthetic record", fields: [], deletable: true }] }] } } });
+    const projected: NativeProfilePage[][] = [];
+    const hook = renderHook(({ value }) => { const state = useNativeMemory(value); projected.push(state.pages); return state; }, { initialProps: { value: input } });
+    const choose = (label: string) => {
+      const row = hook.result.current.pages.at(-1)!.sections.flatMap(section => section.rows).find(row => row.label === label)!;
+      act(() => { void hook.result.current.rows.get(row.id)!(); });
+    };
+    choose("Synthetic record"); choose("Remove saved entry");
+    const first = projected.length;
+    hook.rerender({ value: { ...input, preview: { ...input.preview, presentation: null } } });
+    expect(projected.slice(first).every(validNativeMemoryPath)).toBe(true);
+    expect(hook.result.current.pages.at(-1)!.sections.flatMap(section => section.rows).find(row => row.label === "Remove")?.enabled).toBe(false);
+    hook.rerender({ value: { ...input, preview: { ...input.preview, open: false, presentation: null } } });
+    expect(hook.result.current.pages.map(page => page.id)).toEqual(["memory", "memory-domain"]);
+    expect(hook.result.current.back()).toBe(false);
+    expect(input.removeEntity).not.toHaveBeenCalled();
+  });
+  it("changes the opaque action handle when a different saved record reuses its display position", () => {
+    const presentation = (id: string) => buildPkmSectionPreviewPresentation({ domain: "financial", domainTitle: "Finance",
+      permissionLabel: "Context", topLevelScopePath: "context", value: { context: { entries: [{ id, text: "Same visible text", category: "general" }] } } });
+    const domain = buildPkmDomainPresentation({ domain: { key: "financial", displayName: "Finance", attributeCount: 1, summary: {}, availableScopes: [], lastUpdated: null }, activeGrants: [] });
+    const input = model({ detail: "domain:financial", domains: [domain], selectedDomain: domain,
+      preview: { open: true, title: "Context", loading: false, error: null, deletingEntityKey: null, presentation: presentation("original_private_id") } });
+    const hook = renderHook(({ value }) => useNativeMemory(value), { initialProps: { value: input } });
+    const row = () => hook.result.current.pages.at(-1)!.sections.flatMap(section => section.rows).find(row => row.label === "General")!;
+    const oldHandle = row().id;
+    hook.rerender({ value: { ...input, preview: { ...input.preview, presentation: presentation("replacement_private_id") } } });
+    expect(row().id).not.toBe(oldHandle);
+    expect(hook.result.current.rows.has(oldHandle)).toBe(false);
+    expect(JSON.stringify(hook.result.current.pages)).not.toMatch(/original_private_id|replacement_private_id/);
+  });
+});
 
 describe("Profile Live Mirror", () => {
   it("opens the existing Saved and Add workspace only while unlocked", () => {

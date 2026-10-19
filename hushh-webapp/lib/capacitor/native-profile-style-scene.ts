@@ -11,7 +11,7 @@ export const STYLE_CHOICE_OPTIONS = {
   length: OWNER_STYLE_LENGTHS.map(value => ({ value, label: OWNER_STYLE_LENGTH_LABEL[value] })),
   language: OWNER_STYLE_LANGUAGES.map(value => ({ value, label: OWNER_STYLE_LANGUAGE_LABEL[value] })),
 };
-export type NativeProfileStyleIdentity = NativeDrawerIdentity & { family: "profile"; scene: "writing-style" };
+export type NativeProfileStyleIdentity = NativeDrawerIdentity & { family: "profile"; scene: "writing-style"; destinationId?: string };
 export type NativeProfileStyleProjection = NativeProfileStyleIdentity & NativeControlAppearance & {
   updateSequence: number; privacyGeneration: number; draftRevision: number; acknowledgedEditRevision: number;
   draft: OwnerStyleSettings; choices: typeof STYLE_CHOICE_OPTIONS;
@@ -31,7 +31,7 @@ export interface NativeProfileStyleScenePort {
   addListener(event: "profileStyleEdit", listener: (edit: NativeProfileStyleEdit) => void): Promise<PluginListenerHandle>;
   addListener(event: "profileStyleAction", listener: (action: NativeProfileStyleAction) => void): Promise<PluginListenerHandle>;
 }
-const identityKeys = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene"];
+const identityKeys = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene", "destinationId"];
 const fields = ["preferred_name", "tone", "length", "language", "avoid_em_dashes", "owner_style_note"] as const;
 function closed(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).every(key => keys.includes(key));
@@ -40,7 +40,8 @@ function count(value: unknown, minimum = 0): boolean { return Number.isSafeInteg
 function identity(value: NativeProfileStyleIdentity): boolean {
   return !!value && value.family === "profile" && value.scene === "writing-style" &&
     [value.documentId, value.ownerEpoch].every(id => typeof id === "string" && id.length > 0 && id.length <= 128) &&
-    count(value.ownerGeneration, 1) && count(value.revision, 1);
+    count(value.ownerGeneration, 1) && count(value.revision, 1) &&
+    (value.destinationId === undefined || typeof value.destinationId === "string" && value.destinationId.length > 0 && value.destinationId.length <= 128);
 }
 function fieldValue(field: string, value: unknown): boolean {
   if (value === null) return true;
@@ -62,8 +63,8 @@ export function validNativeProfileStyleProjection(value: NativeProfileStyleProje
 }
 export class NativeProfileStyleFence extends NativeProfileSceneFence<NativeProfileStyleProjection, NativeProfileStyleEdit, NativeProfileStyleAction> {
   constructor(owner: NativeProfileStyleIdentity) {
-    const same = (value: NativeProfileStyleIdentity) => identity(value) && sameNativeDrawer(value, owner) && value.scene === owner.scene;
-    super(owner, { state: validNativeProfileStyleProjection,
+    const same = (value: NativeProfileStyleIdentity) => identity(value) && sameNativeDrawer(value, owner) && value.scene === owner.scene && value.destinationId === owner.destinationId;
+    super(owner, { state: value => validNativeProfileStyleProjection(value) && same(value),
       edit: value => !!value && same(value) && closed(value, [...identityKeys, "updateSequence", "privacyGeneration", "editRevision", "field", "value", "composing"]) &&
         fields.includes(value.field) && fieldValue(value.field, value.value) && typeof value.composing === "boolean",
       action: value => !!value && same(value) && closed(value, [...identityKeys, "updateSequence", "privacyGeneration", "editRevision", "sequence", "action"]) &&

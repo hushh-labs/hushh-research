@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useWorldModelOwnerState } from "./world-model-owner-state";
 import { SettingsGroup } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import { HelperText } from "@/components/app-ui/typography";
@@ -17,85 +18,89 @@ export function useWorldModelOwnerAction({
   ownerId,
   vaultKey,
   vaultOwnerToken,
+  enabled = true,
 }: {
   ownerId: string;
   vaultKey: string;
   vaultOwnerToken: string;
+  enabled?: boolean;
 }) {
-  const [busy, setBusy] = useState(false);
-  const pendingAction = useRef(false);
-  const [message, setMessage] = useState("");
-  const current = useRef({ ownerId, vaultKey, vaultOwnerToken });
-  current.current = { ownerId, vaultKey, vaultOwnerToken };
+  const ownerSession = useMemo(() => ({ live: false, pending: false, ownerId, vaultKey, vaultOwnerToken, controller: new AbortController() }), [ownerId, vaultKey, vaultOwnerToken]);
+  const [busy, setBusy] = useWorldModelOwnerState(ownerSession, false);
+  const [message, setMessage] = useWorldModelOwnerState(ownerSession, "");
+  const current = useRef({ ownerId, vaultKey, vaultOwnerToken, enabled });
+  current.current = { ownerId, vaultKey, vaultOwnerToken, enabled };
   const active = useRef(true);
-  const lifetime = useRef(new AbortController());
   const guard = () =>
     createAgentPkmCaptureGuard({
       userId: ownerId,
-      signal: lifetime.current.signal,
+      signal: ownerSession.controller.signal,
       isEnabled: () =>
-        active.current &&
+        ownerSession.live && active.current && enabled && current.current.enabled &&
         current.current.ownerId === ownerId &&
         current.current.vaultKey === vaultKey &&
         current.current.vaultOwnerToken === vaultOwnerToken,
     });
-  useEffect(() => {
+  useLayoutEffect(() => {
     active.current = true;
-    lifetime.current = new AbortController();
+    ownerSession.live = !!ownerId && !!vaultKey && !!vaultOwnerToken;
+    ownerSession.controller = new AbortController();
     return () => {
       active.current = false;
-      lifetime.current.abort();
+      ownerSession.live = false; ownerSession.controller.abort();
     };
-  }, []);
+  }, [ownerSession, ownerId, vaultKey, vaultOwnerToken]);
   async function run(action: () => Promise<void>) {
-    if (pendingAction.current) return;
-    pendingAction.current = true;
+    if (ownerSession.pending || !enabled || !ownerSession.live) return false;
+    ownerSession.pending = true;
     const capture = guard();
     setBusy(true);
     setMessage("");
     try {
       await capture.assertCurrent();
       await action();
+      return capture.isCurrent();
     } catch {
       if (capture.isCurrent())
         setMessage(
           "Couldn’t finish. Check your verified contact or try again.",
         );
+      return false;
     } finally {
-      pendingAction.current = false;
-      if (capture.isCurrent()) setBusy(false);
+      ownerSession.pending = false;
+      setBusy(false);
     }
   }
-  return { busy, message, setMessage, guard, run, active, current, lifetime };
+  return { busy, message, setMessage, guard, run, active, current, ownerSession };
 }
 
-export function WorldModelInvitations({
+type InvitationProps = { ownerId: string; vaultKey: string; vaultOwnerToken: string; enabled?: boolean };
+const EMPTY_INVITATIONS: WorldModelInvitation[] = [];
+export function useWorldModelInvitations({
   ownerId,
   vaultKey,
   vaultOwnerToken,
-}: {
-  ownerId: string;
-  vaultKey: string;
-  vaultOwnerToken: string;
-}) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [link, setLink] = useState<string | null>(null);
-  const [rows, setRows] = useState<WorldModelInvitation[]>([]);
-  const [revision, setRevision] = useState(0);
-  const { busy, message, setMessage, guard, run, active, current, lifetime } =
-    useWorldModelOwnerAction({ ownerId, vaultKey, vaultOwnerToken });
+  enabled = true,
+}: InvitationProps) {
+  const { busy, message, setMessage, guard, run, active, current, ownerSession } =
+    useWorldModelOwnerAction({ ownerId, vaultKey, vaultOwnerToken, enabled });
+  const [name, setName] = useWorldModelOwnerState(ownerSession, "");
+  const [email, setEmail] = useWorldModelOwnerState(ownerSession, "");
+  const [phone, setPhone] = useWorldModelOwnerState(ownerSession, "");
+  const [link, setLink] = useWorldModelOwnerState<string | null>(ownerSession, null);
+  const [rows, setRows] = useWorldModelOwnerState(ownerSession, EMPTY_INVITATIONS);
+  const [revision, setRevision] = useWorldModelOwnerState(ownerSession, 0);
   const session = { vaultKey, vaultOwnerToken };
   const emailValid = !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const phoneValid = !phone.trim() || /^\+[1-9]\d{7,14}$/.test(phone.trim());
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     const capture = createAgentPkmCaptureGuard({
       userId: ownerId,
       signal: controller.signal,
       isEnabled: () =>
-        active.current &&
+        ownerSession.live && active.current && current.current.enabled &&
         current.current.ownerId === ownerId &&
         current.current.vaultKey === vaultKey &&
         current.current.vaultOwnerToken === vaultOwnerToken,
@@ -109,7 +114,35 @@ export function WorldModelInvitations({
           setMessage("Invitations couldn’t be opened. Try again.");
       });
     return () => controller.abort();
-  }, [ownerId, vaultKey, vaultOwnerToken, revision, active, current, setMessage]);
+  }, [ownerId, vaultKey, vaultOwnerToken, revision, active, current, setMessage, setRows, enabled, ownerSession]);
+  const create = (snapshot = { name, email, phone }) => run(async () => {
+    const capture = guard();
+    const clean = { name: snapshot.name.trim(), email: snapshot.email.trim(), phone: snapshot.phone.trim() };
+    if (!clean.name || (!clean.email && !clean.phone) || clean.name.length > 160 || clean.email.length > 320 || clean.phone.length > 16 ||
+        clean.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean.email) || clean.phone && !/^\+[1-9]\d{7,14}$/.test(clean.phone)) throw new Error("Invalid invitation contact.");
+    await capture.assertCurrent();
+    const result = await WorldModelInvitationsService.create({ ...session, isCurrent: capture.isCurrent, signal: ownerSession.controller.signal }, clean.email || clean.phone,
+      { subject_name: clean.name, ...(clean.email && clean.phone ? { secondary_contact: clean.phone } : {}) });
+    await capture.assertCurrent();
+    setLink(result.url); setEmail(""); setPhone(""); setName(""); setRevision(value => value + 1);
+  });
+  const share = () => run(async () => {
+    if (!link) return;
+    const capture = guard(); await capture.assertCurrent();
+    try {
+      const delivery = await shareLink({ title: "Your Personal World Model", text: "Claim your Personal World Model on One. You control the research and sharing.", dialogTitle: "Share invitation", url: link });
+      if (capture.isCurrent()) setMessage(delivery === "copied" ? "Invitation copied." : "Invitation opened in your share sheet.");
+    } catch (error) { if (!isShareCancellationError(error)) throw error; }
+  });
+  const revoke = (id: string) => run(async () => {
+    const capture = guard(); await capture.assertCurrent(); await WorldModelInvitationsService.revoke({ ...session, isCurrent: capture.isCurrent, signal: ownerSession.controller.signal }, id);
+    await capture.assertCurrent(); setLink(null); setRevision(value => value + 1);
+  });
+  return { name, setName, email, setEmail, phone, setPhone, link, rows, busy, message, emailValid, phoneValid, create, share, revoke };
+}
+
+export function WorldModelInvitations(props: InvitationProps) {
+  const { name, setName, email, setEmail, phone, setPhone, link, rows, busy, message, emailValid, phoneValid, create, share, revoke } = useWorldModelInvitations(props);
   return (
     <SettingsGroup>
       <div className="space-y-3 px-4 py-3">
@@ -157,27 +190,7 @@ export function WorldModelInvitations({
           disabled={
             busy || !name.trim() || (!email.trim() && !phone.trim()) || !emailValid || !phoneValid
           }
-          onClick={() =>
-            void run(async () => {
-              const capture = guard();
-              const result = await WorldModelInvitationsService.create(
-                { ...session, isCurrent: capture.isCurrent, signal: lifetime.current.signal },
-                email.trim() || phone.trim(),
-                {
-                  subject_name: name.trim(),
-                  ...(email.trim() && phone.trim()
-                    ? { secondary_contact: phone.trim() }
-                    : {}),
-                },
-              );
-              await capture.assertCurrent();
-              setLink(result.url);
-              setEmail("");
-              setPhone("");
-              setName("");
-              setRevision((value) => value + 1);
-            })
-          }
+          onClick={() => void create()}
         >
           Create invitation
         </Button>
@@ -185,28 +198,7 @@ export function WorldModelInvitations({
           <Button
             size="compact"
             disabled={busy}
-            onClick={() =>
-              void run(async () => {
-                const capture = guard();
-                await capture.assertCurrent();
-                try {
-                  const delivery = await shareLink({
-                    title: "Your Personal World Model",
-                    text: "Claim your Personal World Model on One. You control the research and sharing.",
-                    dialogTitle: "Share invitation",
-                    url: link,
-                  });
-                  if (capture.isCurrent())
-                    setMessage(
-                      delivery === "copied"
-                        ? "Invitation copied."
-                        : "Invitation opened in your share sheet.",
-                    );
-                } catch (error) {
-                  if (!isShareCancellationError(error)) throw error;
-                }
-              })
-            }
+            onClick={() => void share()}
           >
             Share invitation
           </Button>
@@ -227,18 +219,7 @@ export function WorldModelInvitations({
                   size="compact"
                   variant="none"
                   disabled={busy}
-                  onClick={() =>
-                    void run(async () => {
-                      const capture = guard();
-                      await WorldModelInvitationsService.revoke(
-                        { ...session, isCurrent: capture.isCurrent, signal: lifetime.current.signal },
-                        row.id,
-                      );
-                      await capture.assertCurrent();
-                      setLink(null);
-                      setRevision((value) => value + 1);
-                    })
-                  }
+                  onClick={() => void revoke(row.id)}
                 >
                   Revoke
                 </Button>

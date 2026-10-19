@@ -2812,11 +2812,16 @@ export class PersonalKnowledgeModelService {
     expectedManifestVersion?: number;
     revokeMatchingActiveGrants?: boolean;
     vaultOwnerToken?: string;
+    beforeEffect?: () => Promise<void>;
+    mayPublish?: () => boolean;
   }): Promise<PkmScopeExposureResult> {
+    if (params.beforeEffect) await params.beforeEffect();
     const response = await ApiService.apiFetch(
       `${this.PKM_API_PREFIX}/domains/${encodeURIComponent(params.domain)}/scope-exposure`,
       {
         method: "POST",
+        beforeDispatch: params.beforeEffect,
+        isEffectCurrent: params.mayPublish,
         headers: {
           "Content-Type": "application/json",
           ...this.getAuthHeaders(params.vaultOwnerToken),
@@ -2877,10 +2882,12 @@ export class PersonalKnowledgeModelService {
       payload.manifest && typeof payload.manifest === "object"
         ? (payload.manifest as DomainManifest)
         : null;
-    const cache = CacheService.getInstance();
-    cache.set(CACHE_KEYS.DOMAIN_MANIFEST(params.userId, params.domain), manifest, CACHE_TTL.MEDIUM);
-    cache.invalidate(CACHE_KEYS.PKM_METADATA(params.userId));
-    CacheSyncService.onConsentMutated(params.userId);
+    if (params.mayPublish?.() !== false) {
+      const cache = CacheService.getInstance();
+      cache.set(CACHE_KEYS.DOMAIN_MANIFEST(params.userId, params.domain), manifest, CACHE_TTL.MEDIUM);
+      cache.invalidate(CACHE_KEYS.PKM_METADATA(params.userId));
+      CacheSyncService.onConsentMutated(params.userId);
+    }
     return {
       success: payload.success === true,
       message: typeof payload.message === "string" ? payload.message : undefined,

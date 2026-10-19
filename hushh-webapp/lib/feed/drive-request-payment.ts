@@ -221,7 +221,7 @@ function requestPeriod(context: SharingRequestContext): string | null {
 function requestedDate(requestedAt: number | null): string | null {
   return requestedAt === null || !Number.isFinite(new Date(requestedAt).getTime())
     ? null : `Requested ${new Intl.DateTimeFormat(undefined, {
-    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+    month: "short", day: "numeric",
   }).format(new Date(requestedAt))}`;
 }
 

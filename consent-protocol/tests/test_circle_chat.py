@@ -53,7 +53,7 @@ def chat_db():
                 text("""
               CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY);
               CREATE TABLE vault_keys(user_id TEXT PRIMARY KEY REFERENCES actor_profiles(user_id));
-              CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY REFERENCES actor_profiles(user_id) ON DELETE CASCADE, display_name TEXT, photo_url TEXT, custom_photo_url TEXT);
+              CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY REFERENCES actor_profiles(user_id) ON DELETE CASCADE, display_name TEXT, email TEXT, photo_url TEXT, custom_photo_url TEXT);
               CREATE TABLE one_location_circles(id UUID PRIMARY KEY, owner_user_id TEXT REFERENCES actor_profiles(user_id) ON DELETE CASCADE, name TEXT, status TEXT DEFAULT 'active', is_system BOOLEAN DEFAULT false, system_kind TEXT, updated_at TIMESTAMPTZ DEFAULT now());
               CREATE TABLE one_location_circle_memberships(circle_id UUID REFERENCES one_location_circles(id) ON DELETE CASCADE, user_id TEXT REFERENCES actor_profiles(user_id) ON DELETE CASCADE, status TEXT DEFAULT 'active', joined_at TIMESTAMPTZ DEFAULT clock_timestamp(), metadata JSONB NOT NULL DEFAULT '{}'::jsonb, PRIMARY KEY(circle_id,user_id));
               CREATE TABLE one_location_recipient_keys(user_id TEXT REFERENCES actor_profiles(user_id) ON DELETE CASCADE, key_id TEXT, public_key_jwk JSONB, encrypted_private_key_jwk JSONB, status TEXT DEFAULT 'active', created_at TIMESTAMPTZ DEFAULT now());
@@ -84,6 +84,9 @@ def chat_db():
                 )
                 cursor.execute(
                     (ROOT / "db/migrations/357_circle_chat_message_actions.sql").read_text()
+                )
+                cursor.execute(
+                    (ROOT / "db/migrations/362_circle_chat_member_add_batches.sql").read_text()
                 )
         raw.close()
 
@@ -532,6 +535,68 @@ def test_reactions_and_membership_events_follow_current_message_access(chat_db):
     )
     with pytest.raises(CircleChatError):
         service.react("alice", circle, message_id, "❤️", True)
+
+
+def test_member_add_batch_is_exact_and_legacy_events_stay_separate(chat_db):
+    service = CircleChatService(chat_db)
+    circle = _seed(chat_db)
+    batch_id = str(uuid.uuid4())
+    with chat_db.engine.begin() as conn:
+        conn.execute(text("INSERT INTO actor_profiles VALUES ('dana'),('erin')"))
+        conn.execute(
+            text("""INSERT INTO actor_identity_cache(user_id,display_name,email)
+            VALUES ('dana','dana','dana@example.test'),('erin','Erin',NULL)""")
+        )
+        conn.execute(
+            text("SELECT set_config('hushh.circle_member_add_batch_id', :batch, true)"),
+            {"batch": batch_id},
+        )
+        for person in ("carol", "dana"):
+            conn.execute(
+                text("""INSERT INTO one_location_circle_memberships(circle_id,user_id,metadata)
+                  VALUES(CAST(:circle AS uuid),:person,'{"addedBy":"alice"}'::jsonb)"""),
+                {"circle": circle, "person": person},
+            )
+        conn.execute(text("SELECT set_config('hushh.circle_member_add_batch_id', '', true)"))
+        conn.execute(
+            text("""INSERT INTO one_location_circle_memberships(circle_id,user_id,metadata)
+              VALUES(CAST(:circle AS uuid),'erin','{"addedBy":"alice"}'::jsonb)"""),
+            {"circle": circle},
+        )
+
+    events = service.messages("alice", circle)["events"]
+    grouped = [event for event in events if event["batchId"] == batch_id]
+    assert [event["subjectName"] for event in grouped] == ["Carol", "dana"]
+    assert {event["actorName"] for event in grouped} == {"Alice"}
+    assert [event["subjectName"] for event in events if event["batchId"] is None] == [
+        "Alice",
+        "Bob",
+        "Erin",
+    ]
+
+    # The down path restores a functioning trigger before dropping batch_id.
+    raw = chat_db.engine.raw_connection()
+    raw.autocommit = True
+    try:
+        with raw.cursor() as cursor:
+            cursor.execute(
+                (
+                    ROOT / "db/migrations/rollback/362_circle_chat_member_add_batches.rollback.sql"
+                ).read_text()
+            )
+        with chat_db.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE one_location_circle_memberships SET status='left' WHERE circle_id=CAST(:circle AS uuid) AND user_id='erin'"
+                ),
+                {"circle": circle},
+            )
+        with raw.cursor() as cursor:
+            cursor.execute(
+                (ROOT / "db/migrations/362_circle_chat_member_add_batches.sql").read_text()
+            )
+    finally:
+        raw.close()
 
 
 @pytest.mark.parametrize("emoji", ["💛", "👍🏽", "👩🏽‍💻", "🇮🇳", "1️⃣", "👨‍👩‍👧‍👦"])

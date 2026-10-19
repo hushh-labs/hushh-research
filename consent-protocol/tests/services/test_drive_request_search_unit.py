@@ -1,7 +1,9 @@
 """Provider metadata search for a request includes date-named shortcut targets."""
 
 import json
+from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -21,7 +23,13 @@ from hushh_mcp.services.drive_request_bulk_service import (
     DriveRequestBulkService,
     _deterministic_statement_plan,
 )
+from hushh_mcp.services.drive_request_candidate_assessment import assess_request_candidates
+from hushh_mcp.services.drive_request_package_service import assessment_policy_version
 from hushh_mcp.services.drive_request_package_store import _public_package, _review_status
+from hushh_mcp.services.drive_request_semantic_plan import (
+    compile_semantic_queries,
+    semantic_plan_digest,
+)
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import (
@@ -31,6 +39,65 @@ from hushh_mcp.services.google_drive_adapter import (
     DriveReadError,
     GoogleDriveAdapter,
 )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_available", [True, False])
+async def test_sealed_semantic_request_uses_model_without_lexical_fallback(model_available):
+    from hushh_mcp.services.drive_suggestion_service import SemanticLiveSearchModelPlan
+
+    checkpoint = _semantic_checkpoint("Ember Vale")
+    context = {
+        "purpose": {
+            **checkpoint["semantic_purpose"],
+            "periodStart": "2026-09-01",
+            "periodEnd": "2026-09-30",
+        },
+        "revision": 3,
+        "semanticSearch": True,
+        "autoshare": True,
+    }
+    planned = {
+        "mode": "find",
+        "file_kind": "any",
+        "subject_scope": "specific_records",
+        "subject_complete": True,
+        "semantic_intent": "other",
+        "discovery_clues": ["Ember Vale"],
+        "required_entities": [],
+        "expected_document_anatomy": "A record about the requested person.",
+        "semantic_query": checkpoint["semantic_plan"],
+    }
+    SemanticLiveSearchModelPlan.model_validate(planned)
+    planner = AsyncMock(
+        return_value=planned, side_effect=None if model_available else TimeoutError()
+    )
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=AsyncMock(return_value=None)),
+        create_for_request=AsyncMock(return_value={"jobId": "semantic-job"}),
+    )
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(request_bulk_context=AsyncMock(return_value=context)),
+        search=search,
+        semantic_planner=planner,
+        require_owner=AsyncMock(),
+        owner_index=SimpleNamespace(owner_vocabulary=AsyncMock(return_value=None)),
+    )
+    service._brain_plan = AsyncMock(side_effect=AssertionError("lexical fallback"))
+    if model_available:
+        assert await service.start_search(
+            user_id="owner", request_id="request", authority_mode="trusted_auto"
+        ) == {"jobId": "semantic-job"}
+        arguments = search.create_for_request.await_args.kwargs
+        assert arguments["semantic_search"] is True and arguments["plan_source"] == "model"
+        assert arguments["plan"]["semantic_query"] == checkpoint["semantic_plan"]
+    else:
+        with pytest.raises(DriveReadError, match="provider_unavailable"):
+            await service.start_search(
+                user_id="owner", request_id="request", authority_mode="trusted_auto"
+            )
+        search.create_for_request.assert_not_awaited()
+    service._brain_plan.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -2401,6 +2468,433 @@ def _real_rest_service(monkeypatch, respond):
     ), adapter
 
 
+def _semantic_checkpoint(subject):
+    # Supply the frozen model contract, not a second test-local query planner.
+    plan = {
+        "version": 1,
+        "status": "ready",
+        "metadata_listing": False,
+        "date_basis": "title_created_modified",
+        "clarification": None,
+        "clauses": [
+            {
+                "predicates": [
+                    {
+                        "id": "person",
+                        "kind": "entity",
+                        "value": subject,
+                        "match": "phrase",
+                        "negated": False,
+                        "discovery_terms": [],
+                    }
+                ]
+            }
+        ],
+    }
+    queries = compile_semantic_queries(plan, file_kind="document")
+    checkpoint = _checkpoint()
+    checkpoint.update(
+        authority_mode="trusted_auto",
+        request_revision=3,
+        request_subject_terms=subject.split(),
+        request_notes=False,
+        queries=queries,
+        arguments=queries[0]["arguments"],
+        semantic_plan=plan,
+        semantic_plan_digest=semantic_plan_digest(plan),
+        semantic_assessment_policy=assessment_policy_version(),
+        semantic_pending=[],
+        semantic_seen=[],
+        semantic_purpose={"purpose": f"Documents containing {subject}"},
+    )
+    return checkpoint
+
+
+def _semantic_content_io(service, bodies, decisions):
+    """Replace external content/model I/O; keep production evidence validation."""
+    reads = []
+
+    class Reader:
+        def __init__(self, *, user_id, require_access):
+            assert user_id == "owner"
+            self.require_access = require_access
+
+        async def read_compilation_match(self, *, match):
+            await self.require_access()
+            reads.append(match["file_id"])
+            return (
+                SimpleNamespace(name=match["name"], mime_type=match["mime_type"], version="9"),
+                bodies[match["file_id"]],
+                False,
+            )
+
+    async def model(*, request, retrieved, user_id, require_current):
+        await require_current()
+        source = retrieved["untrusted_external_content"][0]
+        # These pre-labelled synthetic answers test transport/selection/binding,
+        # not whether a real model can infer relevance from arbitrary language.
+        return {
+            "documents": [
+                {
+                    "document_ref": source["document_ref"],
+                    "decision": decisions[source["text"]],
+                    "confidence": 100,
+                    "reason": "Source-bound fixture assessment.",
+                    "citations": [{"source_ref": source["source_ref"], "quote": source["text"]}],
+                    "covered_periods": [],
+                }
+            ]
+        }
+
+    service.reader_factory = Reader
+    service.candidate_assessor = partial(assess_request_candidates, assessor=model)
+    service.store = SimpleNamespace(require_current=AsyncMock())
+    return reads
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("subject", ["Alder Rowan", "Nia O'Keefe", "Zoë Amari"])
+async def test_semantic_request_keeps_fifty_generic_titles_and_resumes_unique_candidates(
+    monkeypatch,
+    subject,
+):
+    first = [
+        _provider_file(f"generic-{n}", f"Research notebook {n}", version="9") for n in range(50)
+    ]
+    additional = _provider_file("later-match", "Untitled document", version="9")
+
+    def respond(path, params, keys):
+        if path == "/drives":
+            return {"drives": []}
+        assert path == "/files"
+        if params.get("pageToken") == "second-page":
+            return {"files": first[25:], "nextPageToken": "third-page"}
+        if params.get("pageToken") == "third-page":
+            return {"files": [first[0], additional]}
+        assert "pageToken" not in params
+        return {"files": first[:25], "nextPageToken": "second-page"}
+
+    service, adapter = _real_rest_service(monkeypatch, respond)
+    bodies = {item["id"]: f"Unrelated meeting record {n}." for n, item in enumerate(first)}
+    bodies["generic-37"] = f"The agreement was signed by {subject}."
+    bodies["later-match"] = f"Follow-up research with {subject}."
+    labels = {body: "exclude" for body in bodies.values()}
+    labels[bodies["generic-37"]] = labels[bodies["later-match"]] = "include"
+    reads = _semantic_content_io(service, bodies, labels)
+    checkpoint = _semantic_checkpoint(subject)
+    job = {"user_id": "owner", "generation": 7, "checkpoint": checkpoint}
+
+    checkpoint, files, incomplete, done = await service._page(job)
+    assert not files and not incomplete and not done
+    assert checkpoint["page_token"] == "second-page"
+    assert len(checkpoint["semantic_pending"]) == 25
+    assert checkpoint["coverage_counts"]["providerRowsScanned"] == 25
+    assert checkpoint["coverage_counts"].get("excludedByFilenameCount", 0) == 0
+    assert reads == []  # Provider metadata is never already a verified match.
+
+    verified = []
+    for _ in range(60):
+        # Simulate a new slice/process deserializing the persisted checkpoint.
+        checkpoint = json.loads(json.dumps(checkpoint))
+        job["checkpoint"] = checkpoint
+        checkpoint, files, incomplete, done = await service._page(job)
+        assert not incomplete
+        verified.extend(files)
+        if done:
+            break
+    assert done
+    assert [item["id"] for item in verified] == ["generic-37", "later-match"]
+    assert len(reads) == len(set(reads)) == 51
+    assert checkpoint["semantic_pending"] == []
+    assert checkpoint["coverage_counts"]["providerRowsScanned"] == 52
+    assert checkpoint["coverage_counts"]["uniqueCandidateCount"] == 51
+    assert checkpoint["coverage_counts"]["verifiedCandidateCount"] == 2
+    assert checkpoint["coverage_counts"]["contentExcludedCount"] == 49
+    assert checkpoint["coverage_counts"]["deduplicatedCount"] == 1
+    assert [params.get("pageToken") for path, params, _ in adapter.calls if path == "/files"] == [
+        None,
+        "second-page",
+        "third-page",
+    ]
+    for item in verified:
+        assert item["contentVerified"] is True and item["sourceVersion"] == "9"
+        evidence = item["requestEvidence"]
+        assert evidence["source"]["id"] == item["id"]
+        assert evidence["owner_user_id"] == "owner"
+        assert evidence["request_id"] == checkpoint["request_origin_id"]
+        assert evidence["request_revision"] == 3 and evidence["connection_generation"] == 7
+        assert evidence["plan_digest"] == checkpoint["semantic_plan_digest"]
+
+
+@pytest.mark.asyncio
+async def test_semantic_unavailable_preserves_pending_candidate_for_retry(monkeypatch):
+    service, _ = _real_rest_service(monkeypatch, lambda *_: pytest.fail("discovery repeated"))
+    subject = "Ember Vale"
+    checkpoint = _semantic_checkpoint(subject)
+    item = _provider_file("pending", "Untitled", version="9")
+    checkpoint.update(
+        semantic_pending=[{**item, "sourceVersion": "9"}], semantic_discovery_done=True
+    )
+    reads = _semantic_content_io(
+        service,
+        {"pending": f"Agreement with {subject}."},
+        {f"Agreement with {subject}.": "include"},
+    )
+    successful_reader = service.reader_factory
+
+    class UnavailableReader:
+        def __init__(self, **kwargs):
+            pass
+
+        async def read_compilation_match(self, **kwargs):
+            raise DriveReadError("provider_unavailable", retryable=True)
+
+    service.reader_factory = UnavailableReader
+    before = deepcopy(checkpoint)
+    job = {"user_id": "owner", "generation": 7, "checkpoint": checkpoint}
+    with pytest.raises(DriveReadError, match="provider_unavailable") as failure:
+        await service._page(job)
+    assert failure.value.retryable
+    assert checkpoint == before and reads == []
+    service.reader_factory = successful_reader
+    updated, files, incomplete, done = await service._page(job)
+    assert done and not incomplete and [item["id"] for item in files] == ["pending"]
+    assert updated["semantic_pending"] == []
+
+
+@pytest.mark.asyncio
+async def test_semantic_permanent_unavailable_marks_partial_coverage_and_continues(monkeypatch):
+    service, _ = _real_rest_service(monkeypatch, lambda *_: pytest.fail("discovery repeated"))
+    checkpoint = _semantic_checkpoint("Ember Vale")
+    unavailable = _provider_file("unsupported", "Archived document", version="9")
+    available = _provider_file("supported", "Untitled document", version="9")
+    checkpoint.update(
+        semantic_pending=[{**item, "sourceVersion": "9"} for item in [unavailable, available]],
+        semantic_discovery_done=True,
+    )
+    reads = _semantic_content_io(
+        service,
+        {"supported": "Agreement with another person."},
+        {"Agreement with another person.": "exclude"},
+    )
+    supported_reader = service.reader_factory
+
+    class Reader(supported_reader):
+        async def read_compilation_match(self, *, match):
+            if match["file_id"] == "unsupported":
+                raise DriveReadError("unsupported_format")
+            return await super().read_compilation_match(match=match)
+
+    service.reader_factory = Reader
+    job = {"user_id": "owner", "generation": 7, "checkpoint": checkpoint}
+    updated, files, incomplete, done = await service._page(job)
+    assert not incomplete and not done and files == []
+    assert updated["semantic_coverage_incomplete"] is True
+    assert updated["coverage_counts"]["unavailableCandidateCount"] == 1
+    assert [item["id"] for item in updated["semantic_pending"]] == ["supported"]
+    job["checkpoint"] = updated
+    updated, files, incomplete, done = await service._page(job)
+    assert done and not incomplete and files == []
+    assert updated["coverage_counts"]["contentExcludedCount"] == 1
+    assert reads == ["supported"]
+
+    # The source may complete and stream verified files. The separate coverage
+    # marker survives so the final request cannot report exhaustive no_match.
+    store, commit_job, writes = _semantic_commit_store(monkeypatch, checkpoint)
+    monkeypatch.setattr(DriveBulkShareStore, "refresh_request", AsyncMock())
+    result = await store.commit_page(commit_job, checkpoint=updated, files=[], done=True)
+    assert result["status"] == "completed" and result["incomplete_search"] is False
+    assert updated["semantic_coverage_incomplete"] is True
+    assert writes[-1]["incomplete"] is False
+
+
+@pytest.mark.asyncio
+async def test_semantic_pending_short_slice_yields_without_retry_error(monkeypatch):
+    checkpoint = _semantic_checkpoint("Mira Quill")
+    checkpoint["semantic_pending"] = [{"id": "pending"}]
+    job = {"job_id": "job", "user_id": "owner", "generation": 7, "checkpoint": checkpoint}
+    store = SimpleNamespace(
+        claim=AsyncMock(return_value=job),
+        release=AsyncMock(return_value="queued"),
+        require_current=AsyncMock(),
+        commit_page=AsyncMock(),
+    )
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    page = AsyncMock(side_effect=AssertionError("short slice read pending content"))
+    monkeypatch.setattr(service, "_page", page)
+    before = deepcopy(checkpoint)
+    assert await service.run_one(user_id="owner", job_id="job", deadline_seconds=15) == "queued"
+    store.release.assert_awaited_once_with(job)
+    store.commit_page.assert_not_awaited()
+    page.assert_not_awaited()
+    assert checkpoint == before
+
+
+def _semantic_commit_store(monkeypatch, saved_checkpoint, *, incomplete=False):
+    """Execute the production transaction callback; replace SQL/encryption I/O."""
+    writes = []
+    store = DriveOwnerSearchStore(
+        db=SimpleNamespace(),
+        cipher=SimpleNamespace(digest=lambda *_: "synthetic-file-digest"),
+    )
+    connection = SimpleNamespace(execute=lambda statement, params: writes.append(params))
+    monkeypatch.setattr(
+        store, "_current", lambda *_: {"matched": 0, "incomplete_search": incomplete}
+    )
+    monkeypatch.setattr(store, "_checkpoint", lambda *_: deepcopy(saved_checkpoint))
+    monkeypatch.setattr(store, "_seal", lambda *_: "synthetic-envelope")
+    monkeypatch.setattr(store, "_view", lambda row: row)
+
+    def row(connection, query, params):
+        if query.startswith("SELECT position"):
+            return None
+        assert query.startswith("UPDATE drive_owner_search_jobs")
+        writes.append(params)
+        return {
+            "status": params["state"],
+            "matched": params["count"],
+            "incomplete_search": params["incomplete"],
+        }
+
+    monkeypatch.setattr(store, "_row", row)
+    monkeypatch.setattr(
+        store, "_transaction", AsyncMock(side_effect=lambda operation: operation(connection))
+    )
+    return store, {"job_id": "job", "user_id": "owner", "generation": 7}, writes
+
+
+@pytest.mark.asyncio
+async def test_semantic_commit_rejects_unverified_files_with_verified_negative_control(monkeypatch):
+    checkpoint = _semantic_checkpoint("Tala Birch")
+    item = {**_provider_file("original", "Untitled", version="9"), "sourceVersion": "9"}
+    checkpoint.update(semantic_pending=[item], semantic_discovery_done=True)
+    service, _ = _real_rest_service(monkeypatch, lambda *_: pytest.fail("discovery repeated"))
+    _semantic_content_io(
+        service, {"original": "Tala Birch signed."}, {"Tala Birch signed.": "include"}
+    )
+    updated, verified, _, _ = await service._page(
+        {"user_id": "owner", "generation": 7, "checkpoint": checkpoint}
+    )
+    store, job, writes = _semantic_commit_store(monkeypatch, checkpoint)
+
+    for unverified in [item, {**item, "contentVerified": True}]:
+        with pytest.raises(DriveReadError, match="provider_response_invalid"):
+            await store.commit_page(job, checkpoint=updated, files=[unverified])
+        assert writes == []
+    # Same frozen request/source, now carrying production-validated evidence.
+    result = await store.commit_page(job, checkpoint=updated, files=verified)
+    assert result["status"] == "running" and result["matched"] == 1
+    assert len(writes) == 2  # One result insert and one checkpoint update.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("direction", ["upgrade", "downgrade"])
+async def test_semantic_commit_cannot_change_saved_search_mode(monkeypatch, direction):
+    semantic = _semantic_checkpoint("Tala Birch")
+    legacy = _checkpoint()
+    saved, proposed = (legacy, semantic) if direction == "upgrade" else (semantic, legacy)
+    store, job, writes = _semantic_commit_store(monkeypatch, saved)
+    with pytest.raises(DriveReadError, match="search_superseded"):
+        await store.commit_page(job, checkpoint=proposed, files=[])
+    assert writes == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("authority_mode", ["owner", "trusted_auto"])
+async def test_request_stop_withdraws_running_search_authority(monkeypatch, authority_mode):
+    from hushh_mcp.services import drive_owner_search_store as store_module
+
+    now = datetime.now(UTC)
+    checkpoint = {
+        "request_origin_id": "request",
+        "request_revision": 3,
+        "authority_mode": authority_mode,
+    }
+    request = {
+        "status": "pending",
+        "revision": 3,
+        "expires_at": now + timedelta(minutes=10),
+        "bulk_search_started_at": now,
+        "access_stop_requested_at": None,
+        "preparation_error_code": "trusted_auto_active",
+        "recipient_user_id": "recipient",
+        "request_envelope": {},
+    }
+    row = {
+        "status": "running",
+        "lease_id": "lease",
+        "lease_expires_at": now + timedelta(minutes=2),
+        "expires_at": now + timedelta(minutes=10),
+        "consent_version": store_module.CONSENT_VERSION,
+    }
+    store = object.__new__(DriveOwnerSearchStore)
+    store.search_cipher = SimpleNamespace(open=lambda *args, **kwargs: {"trusted_auto": True})
+    monkeypatch.setattr(store, "_access", lambda *args: None)
+    monkeypatch.setattr(store, "_evidence_current", lambda *args: None)
+    monkeypatch.setattr(store, "_owned", lambda *args, **kwargs: row)
+    monkeypatch.setattr(store, "_checkpoint", lambda *args: checkpoint)
+    monkeypatch.setattr(store, "background_current", lambda *args, **kwargs: None)
+    monkeypatch.setattr(store_module, "automatic_recipient_current", lambda *args, **kwargs: True)
+
+    def request_row(connection, statement, parameters):
+        assert "access_stop_requested_at" in statement
+        return request
+
+    monkeypatch.setattr(store, "_row", request_row)
+    connection = SimpleNamespace(execute=lambda *args: SimpleNamespace(scalar_one=lambda: now))
+    job = {
+        "job_id": "job",
+        "user_id": "owner",
+        "generation": 7,
+        "lease_id": "lease",
+        "checkpoint": checkpoint,
+    }
+    # Control: the same running lease and current consent allow request work.
+    assert store._current(connection, job) is row
+    # Stop does not change the revision, Trusted/Allow or background setting.
+    request["access_stop_requested_at"] = now
+    with pytest.raises(DriveReadError, match="search_superseded"):
+        store._current(connection, job)
+
+
+@pytest.mark.asyncio
+async def test_semantic_authority_revoked_during_read_cannot_publish_or_advance(monkeypatch):
+    service, _ = _real_rest_service(monkeypatch, lambda *_: pytest.fail("discovery repeated"))
+    checkpoint = _semantic_checkpoint("Mira Quill")
+    item = _provider_file("pending", "Untitled", version="9")
+    checkpoint.update(
+        semantic_pending=[{**item, "sourceVersion": "9"}], semantic_discovery_done=True
+    )
+    model = AsyncMock(side_effect=AssertionError("revoked content reached model"))
+    service.candidate_assessor = partial(assess_request_candidates, assessor=model)
+    revoked = False
+
+    async def current(job):
+        if revoked:
+            raise DriveReadError("connection_changed")
+
+    class Reader:
+        def __init__(self, **kwargs):
+            pass
+
+        async def read_compilation_match(self, *, match):
+            nonlocal revoked
+            revoked = True
+            return (
+                SimpleNamespace(name="Untitled", mime_type=item["mimeType"], version="9"),
+                "Mira Quill signed.",
+                False,
+            )
+
+    service.store = SimpleNamespace(require_current=current)
+    service.reader_factory = Reader
+    before = deepcopy(checkpoint)
+    with pytest.raises(DriveReadError, match="connection_changed"):
+        await service._page({"user_id": "owner", "generation": 7, "checkpoint": checkpoint})
+    assert checkpoint == before
+    model.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_request_search_returns_separate_coordinated_categories(monkeypatch):
     plan = {"mode": "find", "terms": ["contract", "invoice"], "file_kind": "document"}
@@ -2961,3 +3455,230 @@ async def test_page_handoff_failure_preserves_checkpoint_without_provider_retry(
         auto.share_available = AsyncMock(return_value=1)
         assert await auto.continue_batches(max_jobs=1) == 1
         auto.share_available.assert_awaited_once_with(user_id="owner", request_id="pending-request")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field", ["provider", "deployment", "config_fingerprint", "approval_generation"]
+)
+async def test_semantic_commit_cannot_change_sealed_model_binding(monkeypatch, field):
+    from hushh_mcp.services import drive_request_package_assessment as assessment
+
+    monkeypatch.setattr(assessment, "validate_semantic_model_binding", lambda value: value)
+    checkpoint = _semantic_checkpoint("Synthetic Subject")
+    checkpoint["semantic_model_binding"] = {
+        "provider": "azure_openai",
+        "deployment": "synthetic-deployment",
+        "config_fingerprint": "a" * 64,
+        "approval_generation": "synthetic-generation",
+    }
+    store, job, writes = _semantic_commit_store(monkeypatch, checkpoint)
+    changed = deepcopy(checkpoint)
+    changed["semantic_model_binding"][field] = "changed"
+    with pytest.raises(DriveReadError, match="search_superseded"):
+        await store.commit_page(job, checkpoint=changed, files=[])
+    assert writes == []
+    result = await store.commit_page(job, checkpoint=deepcopy(checkpoint), files=[])
+    assert result["status"] == "running" and len(writes) == 1
+
+
+@pytest.mark.asyncio
+async def test_semantic_checkpoint_seals_explicit_binding_and_its_policy(monkeypatch):
+    from hushh_mcp.services import drive_request_package_assessment as assessment
+
+    monkeypatch.setattr(
+        assessment, "validate_semantic_model_binding", lambda value: deepcopy(value)
+    )
+    binding = {
+        "provider": "azure_openai",
+        "deployment": "synthetic-deployment",
+        "config_fingerprint": "a" * 64,
+        "approval_generation": "synthetic-generation",
+    }
+    store = SimpleNamespace(
+        clear_legacy_completed_request=AsyncMock(),
+        by_client=AsyncMock(return_value=None),
+        create=AsyncMock(return_value=({"jobId": "synthetic-job"}, True)),
+        align_request_expiry=AsyncMock(),
+    )
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    service.run_one = AsyncMock()
+    service.status = AsyncMock(return_value={"jobId": "synthetic-job", "status": "queued"})
+    monkeypatch.setattr(search_module, "wake_drive_work", AsyncMock())
+    await service.create_for_request(
+        user_id="owner",
+        request_id="12345678-1234-1234-1234-123456789012",
+        request_revision=1,
+        purpose={
+            "purpose": "Synthetic Subject records",
+            "periodStart": "2026-09-02",
+            "periodEnd": "2026-10-02",
+        },
+        plan={
+            "mode": "find",
+            "terms": [],
+            "file_kind": "any",
+            "semantic_query": _semantic_checkpoint("Synthetic Subject")["semantic_plan"],
+        },
+        require_current=AsyncMock(),
+        semantic_search=True,
+        semantic_model_binding=binding,
+    )
+    sealed = store.create.await_args.kwargs["checkpoint"]
+    assert sealed["semantic_model_binding"] == binding
+    assert sealed["semantic_model_binding"] is not binding
+    assert sealed["semantic_assessment_policy"] == assessment_policy_version(binding)
+    assert sealed["semantic_assessment_policy"] != assessment_policy_version()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", [None, "gemini", "azure_openai"])
+async def test_semantic_resume_uses_sealed_provider_instead_of_global_selector(
+    monkeypatch, provider
+):
+    from hushh_mcp.services import drive_request_package_assessment as assessment
+
+    gemini = {
+        "provider": "gemini",
+        "deployment": "synthetic-gemini",
+        "config_fingerprint": "b" * 64,
+        "approval_generation": None,
+    }
+    selected = {**gemini, "provider": provider or "gemini"}
+    if provider == "azure_openai":
+        selected.update(deployment="synthetic-azure", approval_generation="sealed-generation")
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
+    from hushh_mcp.services import private_text_processing_approval_service as approval
+
+    approval_guard = AsyncMock()
+    monkeypatch.setattr(approval, "require_private_azure_text_approval", approval_guard)
+    monkeypatch.setattr(
+        assessment, "validate_semantic_model_binding", lambda value: deepcopy(value or gemini)
+    )
+    checkpoint = _semantic_checkpoint("Synthetic Subject")
+    if provider is not None:
+        checkpoint["semantic_model_binding"] = selected
+        checkpoint["semantic_assessment_policy"] = assessment_policy_version(selected)
+    item = {**_provider_file("source", "Untitled", version="9"), "sourceVersion": "9"}
+    checkpoint.update(semantic_pending=[item], semantic_discovery_done=True)
+    service, _ = _real_rest_service(monkeypatch, lambda *_: pytest.fail("discovery repeated"))
+    reads = _semantic_content_io(service, {"source": "Synthetic subject evidence."}, {})
+    service.candidate_assessor = None
+
+    async def respond(**kwargs):
+        source = kwargs["retrieved"]["untrusted_external_content"][0]
+        return {
+            "documents": [
+                {
+                    "document_ref": source["document_ref"],
+                    "decision": "exclude",
+                    "confidence": 90,
+                    "reason": "No requested substantive relation.",
+                    "citations": [],
+                    "covered_periods": [],
+                }
+            ]
+        }
+
+    model = AsyncMock(side_effect=respond)
+    monkeypatch.setattr(assessment, "assess_request_document_batch", model)
+    updated, files, incomplete, done = await service._page(
+        {"user_id": "owner", "generation": 7, "checkpoint": checkpoint}
+    )
+    assert reads == ["source"] and files == [] and done and not incomplete
+    assert model.await_args.kwargs["model_binding"] == selected
+    assert updated.get("semantic_model_binding") == checkpoint.get("semantic_model_binding")
+    if provider == "azure_openai":
+        assert approval_guard.await_count >= 2
+        assert all(
+            call.kwargs == {"expected_generation": "sealed-generation"}
+            for call in approval_guard.await_args_list
+        )
+    else:
+        approval_guard.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_semantic_binding_drift_stops_before_content_read_or_assessment(monkeypatch):
+    from hushh_mcp.services import drive_request_package_assessment as assessment
+
+    checkpoint = _semantic_checkpoint("Synthetic Subject")
+    checkpoint["semantic_model_binding"] = {"provider": "azure_openai"}
+    checkpoint.update(semantic_pending=[{"id": "never-read"}], semantic_discovery_done=True)
+    service = DriveOwnerSearchService(transport=SimpleNamespace())
+    service.store = SimpleNamespace(require_current=AsyncMock())
+    service.reader_factory = lambda **_: pytest.fail("content read after binding drift")
+    monkeypatch.setattr(
+        assessment,
+        "validate_semantic_model_binding",
+        lambda _: (_ for _ in ()).throw(ValueError("binding changed")),
+    )
+    with pytest.raises(DriveReadError, match="source_changed"):
+        await service._page({"user_id": "owner", "generation": 7, "checkpoint": checkpoint})
+
+
+@pytest.mark.asyncio
+async def test_azure_approval_revoked_during_assessment_cannot_advance_pending_queue(monkeypatch):
+    from hushh_mcp.services import drive_request_package_assessment as assessment
+    from hushh_mcp.services import private_text_processing_approval_service as approval
+
+    binding = {
+        "provider": "azure_openai",
+        "deployment": "synthetic-azure",
+        "config_fingerprint": "a" * 64,
+        "approval_generation": "sealed-generation",
+    }
+    monkeypatch.setattr(assessment, "validate_semantic_model_binding", lambda _: deepcopy(binding))
+    approval_guard = AsyncMock()
+    monkeypatch.setattr(approval, "require_private_azure_text_approval", approval_guard)
+    checkpoint = _semantic_checkpoint("Synthetic Subject")
+    checkpoint["semantic_model_binding"] = binding
+    checkpoint["semantic_assessment_policy"] = assessment_policy_version(binding)
+    item = {**_provider_file("source", "Untitled", version="9"), "sourceVersion": "9"}
+    checkpoint.update(semantic_pending=[item], semantic_discovery_done=True)
+    service, _ = _real_rest_service(monkeypatch, lambda *_: pytest.fail("discovery repeated"))
+    _semantic_content_io(service, {"source": "Synthetic source evidence."}, {})
+    service.candidate_assessor = None
+
+    async def respond(**kwargs):
+        approval_guard.side_effect = PermissionError("approval revoked while model ran")
+        source = kwargs["retrieved"]["untrusted_external_content"][0]
+        return {
+            "documents": [
+                {
+                    "document_ref": source["document_ref"],
+                    "decision": "exclude",
+                    "confidence": 90,
+                    "reason": "No requested relation.",
+                    "citations": [],
+                    "covered_periods": [],
+                }
+            ]
+        }
+
+    model = AsyncMock(side_effect=respond)
+    monkeypatch.setattr(assessment, "assess_request_document_batch", model)
+    with pytest.raises(PermissionError):
+        await service._page({"user_id": "owner", "generation": 7, "checkpoint": checkpoint})
+    model.assert_awaited_once()
+    assert checkpoint["semantic_pending"] == [item]
+    assert "semantic_assessed" not in checkpoint
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("remove", [False, True])
+async def test_page_commit_cannot_add_or_remove_model_binding(monkeypatch, remove):
+    from hushh_mcp.services import drive_request_package_assessment as assessment
+
+    monkeypatch.setattr(assessment, "validate_semantic_model_binding", lambda value: value)
+    legacy = _checkpoint()
+    bound = deepcopy(legacy)
+    bound["semantic_plan"] = _semantic_checkpoint("Synthetic Subject")["semantic_plan"]
+    bound["semantic_model_binding"] = {"provider": "gemini"}
+    saved, proposed = (bound, legacy) if remove else (legacy, bound)
+    # Keep the search mode identical: this regression specifically fences model binding.
+    saved["semantic_plan"] = proposed["semantic_plan"] = bound["semantic_plan"]
+    store, job, writes = _semantic_commit_store(monkeypatch, saved)
+    with pytest.raises(DriveReadError, match="search_superseded"):
+        await store.commit_page(job, checkpoint=proposed, files=[])
+    assert writes == []

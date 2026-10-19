@@ -47,7 +47,7 @@ describe("Connect page layout contract", () => {
     );
 
     const connectionsMapStart = source.indexOf(
-      "group.items.map((connection) => (",
+      "group.items.map((connection) =>",
     );
     const connectionsPagerStart = source.indexOf(
       "{connectionsHasMore ?",
@@ -61,8 +61,8 @@ describe("Connect page layout contract", () => {
     );
     expect(
       connectionRows,
-      "the connections list still renders a SettingsRow",
-    ).toContain("<SettingsRow");
+      "the connections list renders Feed-anatomy ConnectPersonRow rows",
+    ).toContain("<ConnectPersonRow");
     expect(connectionRows).not.toMatch(/^\s*stackTrailingOnMobile\s*$/m);
     expect(connectionRows).toContain("trailing=");
   });

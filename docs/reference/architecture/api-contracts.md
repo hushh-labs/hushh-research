@@ -144,6 +144,26 @@ its broker cleanup and admission release; it is not a device acknowledgement.
 Absent, completed or mismatched turns return `state: unconfirmed`. The browser
 bounds the stop wait and displays uncertainty rather than claiming success.
 See the [stream implementation](../streaming/streaming-implementation-guide.md#direct-puppy-streams).
+## Messages unread action count
+
+`GET /api/one/messages/unread-count` requires the existing Firebase ID token
+and returns only `{ "unreadCount": number }` with `Cache-Control: private,
+no-store`. The owner comes from verified authentication, never a caller-supplied
+user ID. Web uses the existing `/api/one/[...path]` proxy; native uses the shared
+`ApiService` HTTP transport.
+
+The Messages roster tile uses this exact total of received unread People and
+Circle messages, including totals above 100. The calculation reuses the native
+notification badge's owner/membership/deletion filters without its display cap;
+it reads no message bodies and changes no read state. Empty means zero; a failed
+request retains the previous verified count or an unresolved indicator.
+
+The home counter rechecks on shared Feed and direct-message invalidations,
+focus, foreground, visibility and connectivity recovery. It uses the existing
+visible-page 45-second shared clock as a fallback, including cross-device web
+reads that do not emit a Feed change. Existing conversation visibility and
+read-through boundaries remain authoritative for clearing unread messages.
+
 ## Circle Wars weekly participation
 
 Migration 358 extends `one_referral_circle_selections` and
@@ -1034,6 +1054,24 @@ Items carry an opaque `scopeRef` (repeated as `scope`, matching the proposal car
 `hushh_mcp/consent/requestable_scope_policy.py` refuses (runtime secrets,
 credentials, keys, tokens, protocol namespaces) never appear, here or in any
 other person-to-person catalog, and are refused again at request creation.
+
+### Personal World Model research
+
+`POST /api/one/world-model/ensure` starts/resumes the existing owner-bound research
+job after setup and unlock. The backend resolves fresh authenticated name,
+verified email and canonical verified phone when available; at least one verified
+contact is required. `POST /api/one/world-model/research` retains its strict
+`{name,email?,phone_number?}` compatibility body and rejects identifiers that do
+not match that owner. It is not an arbitrary-person lookup endpoint.
+
+UAT's Azure GPT-5 mini adapter uses native Bing receipts and strict structured
+output behind the same routes. Fresh `pwm-azure-bing-v1` consent remains required.
+`GET /api/one/world-model/jobs/stream` retains `progress`, cumulative validated
+`partial`, `ping` and terminal `result` events with private/no-store headers.
+Status and stream reads recheck authority before releasing checkpoint findings.
+Reports remain view-only (`pkm_written:false`); source and identity review precede
+the owner's existing encrypted memory save. See the [PWM contract](../one/personal-world-model.md)
+and [stream implementation](../streaming/streaming-implementation-guide.md).
 
 ### One Runtime Configuration
 
@@ -2170,7 +2208,7 @@ not the product owner for live location.
 | DELETE | `/api/one/location/circles/{circle_id}/invite-code` | VAULT_OWNER Bearer | Owner-only revoke of the active code |
 | GET | `/api/one/location/circles/{circle_id}/eligible-connections` | VAULT_OWNER Bearer | Active-member list of that caller's own active connections who are not active Circle members or covered by a pending invitation. With no query parameters the legacy complete arrays remain unchanged; supplying `page`, `limit<=100`, or `query` adds `{page,hasMore,totalCount}` and bounds `eligibleConnections` after stable filtering/ordering by the displayed safe name/email handle only. Hidden email domains and phones are not searchable. `pendingInvites` and `remainingCapacity` retain their existing meanings. Owner-removed users are offered only to the canonical Circle owner. |
 | POST | `/api/one/location/circles/trusted?summaryOnly=true` | VAULT_OWNER Bearer | Find or create the empty, manually curated Trusted Circle and return overview metadata without materializing its complete roster. It never reads Connections or adds, restores, or reconciles a member; existing memberships remain untouched. Omitting `summaryOnly` preserves the legacy complete Circle response. |
-| POST | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | OWNER-ONLY batch ADD of the owner's selected active connections, including to Trusted. Only the Circle owner may add anyone, and only the owner may read or create the join code: sharing through a Circle is authorized by shared membership alone, so whoever decides membership decides who may receive the owner's location. Details: every person named must already be an active connection of the actor, so membership is written outright rather than invited, and each is notified by name. Actor identity comes only from the token. Terminal invitees keep the 12-hour Circle-wide cooldown so a direct add cannot overrule a decline, someone who LEFT the Circle within the same 12 hours cannot be re-added by anyone including the owner, and only the canonical owner may re-add an owner-removed user. There is no cap on how many Circles a person may belong to. An SMS/Emergency Circle holds at most 10 people; Trusted and ordinary Circles hold at most 100. Existing SMS Circles are lowered to 10 on the owner's next bootstrap and nobody already on one is removed. Any pending invitation for an added person is marked accepted. Adding grants no location, SMS, or trusted authorization; the response's `invites` array is retained and always empty |
+| POST | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | OWNER-ONLY batch ADD of the owner's selected active connections, including to Trusted. Only the Circle owner may add anyone, and only the owner may read or create the join code: sharing through a Circle is authorized by shared membership alone, so whoever decides membership decides who may receive the owner's location. Details: every person named must already be an active connection of the actor, so membership is written outright rather than invited, and each is notified by name. Actor identity comes only from the token. Terminal invitees keep the 12-hour Circle-wide cooldown so a direct add cannot overrule a decline, someone who LEFT the Circle within the same 12 hours cannot be re-added by anyone including the owner, and only the canonical owner may re-add an owner-removed user. There is no cap on how many Circles a person may belong to. An SMS/Emergency Circle holds the owner plus at most 10 added contacts (11 members total); Trusted and ordinary Circles hold at most 100. Migration 363 raises existing active SMS Circle limits from 10 to 11, and owner bootstrap reconciles stale values without removing members. Rolling back the limit reduces future room only and preserves every existing membership. Any pending invitation for an added person is marked accepted. Adding grants no location, SMS, or trusted authorization; the response's `invites` array is retained and always empty |
 | GET | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | List the authenticated user's incoming invitations or outgoing invitations authored by that member; Circle owners may also see outgoing invitations for moderation |
 | POST | `/api/one/location/circle-member-invites/{invite_id}/accept` | VAULT_OWNER Bearer | Invitee-only acceptance after Circle-first locking and revalidation that the actual inviter remains an active Circle member and their direct connection remains active; only an owner-authored invitation may restore an owner-removed membership. Acceptance atomically joins and creates source-aware connection origins without location/SMS/trusted authorization |
 | POST | `/api/one/location/circle-member-invites/{invite_id}/decline` | VAULT_OWNER Bearer | Invitee-only decline of a pending targeted Circle invitation |
@@ -3800,6 +3838,18 @@ hidden or access is lost; downloads have two scheduler slots. Native physical
 requests remain awaited after logical cancellation. Open owned dialogs block
 read acknowledgements, as do unresolved incoming decryption failures, including
 after the rendered 300-message window trims older rows.
+
+Circle chat `messages` also returns current-membership activity in `events`.
+Migration 362 adds nullable `batch_id` to membership events. One reviewed
+multi-person add writes a fresh batch UUID across its members, including actions
+processed in several 20-person chunks; the response exposes it as optional
+`batchId` for the client to show one line with each authorized member's safe
+display label. The server includes the complete oldest returned batch when the
+200-event window cuts through it. Separate actions and historical rows with no
+batch marker remain separate. Existing clients ignore the extra field, while
+new clients accept responses without it. Deploy migration 362 before the backend;
+rolling back the app is safe, but rolling back the migration discards grouping
+markers and restores the earlier trigger before dropping the column.
 
 Circle photos reuse the 256px profile picker but mutate the circle identity.
 The API verifies and decodes a single PNG, JPEG or WebP frame up to 512 by 512

@@ -15,6 +15,154 @@ import pytest
 PROTOCOL_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = PROTOCOL_ROOT / "scripts" / "verify_managed_vertex_runtime.py"
 LIVE_ASSERTION_PATH = PROTOCOL_ROOT.parent / "scripts" / "ci" / "assert_one_voice_live_probe.py"
+SUMMARY_PATH = PROTOCOL_ROOT.parent / "scripts" / "ci" / "summarize_uat_managed_vertex_logs.py"
+
+
+@pytest.mark.parametrize("transport", ["textPayload", "jsonPayload", "prefixed_text"])
+def test_vertex_log_summary_emits_only_validated_diagnostic_fields(tmp_path, transport):
+    marker = "SYNTHETIC_PRIVATE_ERROR_DO_NOT_PRINT"
+    receipt = {
+        "check": "managed_vertex_runtime",
+        "config_hash": "a" * 64,
+        "classification": "provider_unavailable",
+        "ok": False,
+        "resource_exhausted": True,
+        "error_type": "ClientError",
+        "error": marker,
+        "owner": marker,
+        "probes": [
+            {
+                "probe": "one_chat:gemini-test@global",
+                "ok": False,
+                "classification": "provider_unavailable",
+                "resource_exhausted": True,
+                "error_type": "ClientError",
+                "error": marker,
+                "prompt": marker,
+            }
+        ],
+    }
+    if transport == "prefixed_text":
+        receipt["probes"][0]["error_type"] = marker
+    payload = (
+        receipt
+        if transport == "jsonPayload"
+        else ("managed_vertex_probe_result " + json.dumps(receipt))
+    )
+    if transport == "prefixed_text":
+        payload = "synthetic log wrapper " + payload
+    probe_path = tmp_path / "probe.json"
+    key = "jsonPayload" if transport == "jsonPayload" else "textPayload"
+    probe_path.write_text(json.dumps([{key: payload}, {"textPayload": marker}]))
+    build_path = tmp_path / "build.json"
+    build_path.write_text(
+        json.dumps(
+            [
+                {
+                    "textPayload": 'Step #4 - "verify-managed-vertex-runtime": '
+                    "Required UAT runtime probe did not fully pass: " + marker
+                },
+                {"textPayload": marker},
+            ]
+        )
+    )
+    result = subprocess.run(  # noqa: S603 - fixed local CLI, synthetic log files, no providers
+        [sys.executable, str(SUMMARY_PATH), str(probe_path), "--build-logs", str(build_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert marker not in result.stdout + result.stderr
+    assert json.loads(result.stdout) == {
+        "receipt": {
+            "check": "managed_vertex_runtime",
+            "config_hash": "a" * 64,
+            "classification": "provider_unavailable",
+            "ok": False,
+            "resource_exhausted": True,
+            "error_type": "ClientError",
+            "probes": [
+                {
+                    "probe": "one_chat:gemini-test@global",
+                    "ok": False,
+                    "classification": "provider_unavailable",
+                    "resource_exhausted": True,
+                    "error_type": "OtherError" if transport == "prefixed_text" else "ClientError",
+                }
+            ],
+        },
+        "gate_failures": ["Required UAT runtime probe"],
+    }
+
+
+@pytest.mark.parametrize(
+    "defect", ["missing", "malformed", "duplicate", "wrong_type", "unsafe_name", "unsafe_hash"]
+)
+def test_invalid_vertex_log_summary_fails_closed_but_retains_safe_build_reason(tmp_path, defect):
+    marker = "SYNTHETIC_PRIVATE_ERROR_DO_NOT_PRINT"
+    receipt = {
+        "check": "managed_vertex_runtime",
+        "config_hash": "a" * 64,
+        "classification": "provider_unavailable",
+        "ok": False,
+        "probes": [
+            {
+                "probe": "one_chat:gemini-test@global",
+                "ok": False,
+                "classification": "provider_unavailable",
+                "error": marker,
+            }
+        ],
+    }
+    if defect == "wrong_type":
+        receipt["ok"] = marker
+    elif defect == "unsafe_name":
+        receipt["probes"][0]["probe"] = marker
+    elif defect == "unsafe_hash":
+        receipt["config_hash"] = marker
+    entry = {"textPayload": "managed_vertex_probe_result " + json.dumps(receipt)}
+    raw = (
+        marker
+        if defect == "malformed"
+        else json.dumps(
+            [] if defect == "missing" else [entry, entry] if defect == "duplicate" else [entry]
+        )
+    )
+    build_path = tmp_path / "build.json"
+    build_path.write_text(json.dumps([{"textPayload": "One chat Vertex target failed " + marker}]))
+    result = subprocess.run(  # noqa: S603 - local diagnostic CLI with synthetic stdin
+        [sys.executable, str(SUMMARY_PATH), "--build-logs", str(build_path)],
+        input=raw,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert marker not in result.stdout + result.stderr
+    assert json.loads(result.stdout) == {"receipt": None, "gate_failures": ["One chat Vertex"]}
+
+
+def test_malformed_vertex_build_logs_do_not_echo_parser_input(tmp_path):
+    marker = "SYNTHETIC_PRIVATE_ERROR_DO_NOT_PRINT"
+    build_path = tmp_path / "build.json"
+    build_path.write_text(marker)
+    receipt = {
+        "check": "managed_vertex_runtime",
+        "ok": False,
+        "classification": "application_broken",
+        "probes": [],
+    }
+    result = subprocess.run(  # noqa: S603 - local CLI with synthetic diagnostic JSON
+        [sys.executable, str(SUMMARY_PATH), "--build-logs", str(build_path)],
+        input=json.dumps([{"jsonPayload": receipt}]),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert marker not in result.stdout + result.stderr
+    assert json.loads(result.stdout) == {"receipt": receipt, "gate_failures": []}
 
 
 def test_production_live_probe_requires_exact_success() -> None:
@@ -364,7 +512,9 @@ async def test_command_rehearsal_runs_the_real_location_flow_without_a_provider(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("scenario", ["success", "billing_denied", "adk_error", "empty_reply"])
+@pytest.mark.parametrize(
+    "scenario", ["success", "billing_denied", "resource_exhausted", "adk_error", "empty_reply"]
+)
 async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
     monkeypatch: pytest.MonkeyPatch, scenario: str
 ) -> None:
@@ -402,6 +552,10 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
         async def generate_content_async(self, *_args, **_kwargs):
             if self.project == "hushh-gemini-bridge" and scenario == "billing_denied":
                 raise RuntimeError("Billing is not enabled")
+            if scenario == "resource_exhausted":
+                error = RuntimeError("Synthetic structured provider response")
+                error.status_code = 429
+                raise error
             if scenario == "adk_error":
                 yield SimpleNamespace(error_code="MAX_TOKENS", error_message="", content=None)
             elif scenario == "empty_reply":
@@ -430,11 +584,16 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
     assert report["advisory"] is chat_available
     if not chat_available:
         expected_classification = (
-            "provider_unavailable" if scenario == "billing_denied" else "candidate_misconfigured"
+            "provider_unavailable"
+            if scenario in {"billing_denied", "resource_exhausted"}
+            else "candidate_misconfigured"
         )
         assert chat_probe["classification"] == expected_classification
         assert report["classification"] == expected_classification
-        assert report["candidate_models_exercised"] is (scenario != "billing_denied")
+        assert chat_probe["resource_exhausted"] is (scenario == "resource_exhausted")
+        assert report["candidate_models_exercised"] is (
+            scenario not in {"billing_denied", "resource_exhausted"}
+        )
 
 
 @pytest.mark.asyncio

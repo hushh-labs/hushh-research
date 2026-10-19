@@ -80,6 +80,7 @@ tests/services/test_drive_live_query.py
 tests/services/test_drive_owner_share.py
 tests/services/test_drive_owner_search_postgres.py
 tests/services/test_drive_request_search_unit.py
+tests/services/test_drive_request_candidate_assessment.py
 tests/services/test_drive_request_review_policy.py
 tests/services/test_drive_request_package_store_postgres.py
 tests/services/test_drive_agent_package_flow_postgres.py
@@ -1276,6 +1277,7 @@ tests/test_pkm_answer_catalog.py
 tests/test_answer_center_surface_integration.py
 
 tests/test_world_model.py
+tests/test_world_model_azure.py
 tests/test_world_model_story.py
 tests/test_world_model_contracts.py
 

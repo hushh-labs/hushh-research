@@ -234,6 +234,41 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   manifest-backed planner (default off); its model-failure fallback stays
   recorded in `planner_fallback`.
 
+### Declared: request-local semantic Drive search
+
+- Owner: Documents `agent_documents_request_search` plans a
+  `SemanticLiveSearchModelPlan` independently of the legacy live-search
+  instruction; its `semantic_query` is a strict versioned disjunction of
+  conjunctions. Documents `agent_documents_request_assessment` assesses candidates through
+  `generic_request_candidate_v1`. Both instructions live in
+  `hushh_mcp/agents/documents/agent.yaml`; no service-local semantic prompt or
+  lexical substitute participates in this policy.
+- Admission: only new UAT requests seal `semantic_search_policy_version=1`.
+  `DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=false` stops new enrollment. Historical
+  and refunded requests keep their original contracts. This supersedes the
+  October 17 deterministic-planner decision only for the enrolled cohort.
+- Host validation: validate and escape the complete interpretation, retain
+  provider content hits independently of filenames, and assess a durable bounded
+  candidate queue under the existing search lease. Only source-bound positive
+  observations commit as eligible results. Unresolved identities require input;
+  model/provider failure remains unavailable; incomplete reads cannot establish
+  an exhausted empty result. Scores and spelling clues grant no authority.
+- Failed output may receive one bounded correction using only schema-owned
+  field locations, error types and closed evidence-integrity rules. A transient
+  provider failure retries the same prompt, without semantic correction feedback.
+  Both assessor attempts share the original model deadline and recheck current
+  authority; a valid exclusion or uncertainty is never retried to change its meaning.
+- Source, request revision, connection generation, original purpose, plan digest
+  and assessment-policy digest bind encrypted evidence. The permission worker
+  checks the assessed provider version, current consent and payment separately.
+  Selected dates retain title → created → modified precedence by default;
+  explicit created/modified or content-period intent remains distinct.
+- Promotion evidence: production-function regression tests plus the opt-in
+  `consent-protocol/scripts/eval_drive_semantic_request.py` exercise independently labelled
+  synthetic planner and assessor cases. Report all-attempt precision/recall,
+  abstentions, errors and latency. These checks do not prove complete Google UI
+  parity, OCR accuracy on arbitrary originals or production-corpus recall.
+
 ### Declared: Continuous Drive evidence and reusable packets
 
 - Owner: existing Documents `agent_documents_suggestions` gene in
@@ -951,3 +986,13 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   candidate membership, conflict conditions and topic receipt checks validate
   model output; they do not choose queries or generate replacement interpretations.
 - Scope and exact prompt: [Personal World Model KT](../../../docs/reference/one/personal-world-model.md).
+- Azure UAT: GPT-5 mini owns planning, candidate assessment, attribution and report
+  meaning using that same manifest. Adapter instructions select the execution
+  stage and conservative citation-only identity boundary; native JSON schema and
+  host validation reject malformed or unreceived evidence. Candidate/source ID
+  namespaces and observed-attempt gates enforce evidence provenance, not meaning.
+  The policy fingerprint includes active stage instructions and transport bounds,
+  invalidating old drafts while preserving paid-attempt accounting. The existing
+  no-traffic candidate probe evaluates six synthetic attribution cases and the
+  production output schemas through the real primary gateway. Live owner precision and nonprofessional/social
+  coverage remain separate quality questions; no claim count proves them.

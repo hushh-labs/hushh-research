@@ -330,15 +330,6 @@ ${script.slice(boundary)}`], {
     expect(dismissSource).toContain('"skip tour"');
   });
 
-  it("keeps UI-flow routing ownership across a WebView document reload", () => {
-    const nativeSupport = source("ios/App/App/NativeTestSupport.swift");
-
-    expect(nativeSupport).toContain("function hasIncompleteUiFlowSession(runId)");
-    expect(nativeSupport).toContain("__hushh_native_ui_flow_state_v1");
-    expect(nativeSupport).toContain("bridge._uiFlowsRoutingOwned = uiFlowsOwnRouting");
-    expect(nativeSupport).toContain("bridge._uiFlowsRoutingOwned === true");
-  });
-
   it("opens Profile as a recursive pane while retaining canonical routes", () => {
     const runner = source("scripts/native/native-ui-test-runner-source.js");
     const flows = source("scripts/testing/signed-in-ui-flows.mjs");

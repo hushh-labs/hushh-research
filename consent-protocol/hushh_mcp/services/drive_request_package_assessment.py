@@ -7,22 +7,168 @@ model assessments, never calibrated probabilities or permission grants.
 
 from __future__ import annotations
 
+import asyncio
 import calendar
 import json
+import os
 import re
+import uuid
+from collections.abc import Awaitable, Callable
 from datetime import date, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+from hushh_mcp.runtime_providers.vertex_failover import is_retryable_vertex_error
+from hushh_mcp.services.drive_request_model_feedback import validation_feedback
 
 MAX_BATCH_DOCUMENTS = 6
 MAX_PACKAGE_DOCUMENTS = 120
 MAX_PROMPT_BYTES = 160 * 1024
 ASSESSMENT_TIMEOUT_SECONDS = 60
+REQUEST_ASSESSMENT_TIMEOUT_SECONDS = 75
+REQUEST_FIRST_ATTEMPT_TIMEOUT_SECONDS = 55
+
+
+def semantic_request_model_binding(
+    *, provider: str | None = None, approval_generation: str | None = None
+) -> dict[str, str | None]:
+    """Resolve a provider descriptor without granting access to private content."""
+    from hushh_mcp.managed_ai_config import load_pwm_policy, profile_hash
+    from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+    from hushh_mcp.runtime_settings import managed_ai_settings
+
+    provider = (
+        (
+            os.environ.get("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini")
+            if provider is None
+            else provider
+        )
+        .strip()
+        .lower()
+    )
+    if provider == "gemini":
+        if approval_generation is not None:
+            raise ValueError("Gemini binding cannot contain an Azure approval")
+        settings = managed_ai_settings()
+        return {
+            "provider": "gemini",
+            "deployment": resolve_fleet_model_name("gemini-default"),
+            "config_fingerprint": settings.config_hash,
+            "approval_generation": None,
+        }
+    if provider != "azure_openai" or os.environ.get("ENVIRONMENT", "").lower() != "uat":
+        raise ValueError("Unsupported Documents semantic model binding")
+    policy = load_pwm_policy(environment="uat")
+    if policy["provider"] != "azure_openai_web_search":
+        raise ValueError("Documents requires the trusted UAT Azure configuration")
+    if approval_generation is not None:
+        try:
+            approval_generation = str(uuid.UUID(approval_generation))
+        except (ValueError, TypeError, AttributeError):
+            raise ValueError("Invalid private text approval generation") from None
+    return {
+        "provider": "azure_openai",
+        "deployment": policy["azure"]["primary_deployment"],
+        "config_fingerprint": profile_hash(policy["azure"]),
+        "approval_generation": approval_generation,
+    }
+
+
+def validate_semantic_model_binding(binding: dict | None) -> dict[str, str | None]:
+    """Freeze old jobs on Gemini and reject a changed or disabled Azure binding."""
+    if binding is None:
+        return semantic_request_model_binding(provider="gemini")
+    if not isinstance(binding, dict) or set(binding) != {
+        "provider",
+        "deployment",
+        "config_fingerprint",
+        "approval_generation",
+    }:
+        raise ValueError("Invalid Documents model binding")
+    provider = binding.get("provider")
+    generation = binding.get("approval_generation")
+    if (
+        not isinstance(provider, str)
+        or provider not in {"gemini", "azure_openai"}
+        or (provider == "azure_openai" and generation is None)
+    ):
+        raise ValueError("Invalid Documents model binding")
+    if (
+        not isinstance(binding.get("deployment"), str)
+        or not isinstance(binding.get("config_fingerprint"), str)
+        or (generation is not None and not isinstance(generation, str))
+    ):
+        raise ValueError("Invalid Documents model binding")
+    if (
+        provider == "azure_openai"
+        and os.environ.get("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini").strip().lower()
+        != "azure_openai"
+    ):
+        raise ValueError("Azure Documents pilot is disabled")
+    expected = semantic_request_model_binding(provider=provider, approval_generation=generation)
+    if binding != expected:
+        raise ValueError("Documents model binding changed")
+    return expected
+
+
+def build_semantic_request_azure_model(*, require_current, model_binding: dict | None = None):
+    """Trusted transport construction; callers must supply their invocation authority."""
+    from hushh_mcp.managed_ai_config import load_pwm_policy
+    from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
+
+    binding = (
+        semantic_request_model_binding()
+        if model_binding is None
+        else validate_semantic_model_binding(model_binding)
+    )
+    if binding["provider"] != "azure_openai" or require_current is None:
+        raise ValueError("Azure Documents transport requires a current-authority guard")
+    config = load_pwm_policy(environment="uat")["azure"]
+    return AzureOpenAIAdkModel.from_keyless(
+        endpoint=config["primary_endpoint"],
+        deployment=config["primary_deployment"],
+        tenant_id=config["tenant_id"],
+        client_id=config["client_id"],
+        require_current=require_current,
+    )
+
+
+async def private_semantic_request_model(
+    *, user_id, require_current=None, model_binding: dict | None = None
+):
+    """Bind one explicit owner approval generation for this operation and every retry."""
+    binding = (
+        semantic_request_model_binding()
+        if model_binding is None
+        else validate_semantic_model_binding(model_binding)
+    )
+    if binding["provider"] == "gemini":
+        return None
+    from hushh_mcp.services.private_text_processing_approval_service import (
+        private_azure_text_require_current,
+        require_private_azure_text_approval,
+    )
+
+    await _require_request_current(require_current)
+    grant = await require_private_azure_text_approval(
+        user_id, expected_generation=binding["approval_generation"]
+    )
+    approval_current = private_azure_text_require_current(grant)
+
+    async def current():
+        await _require_request_current(require_current)
+        await approval_current()
+
+    return build_semantic_request_azure_model(require_current=current, model_binding=binding)
+
+
+class RequestAssessmentAuthorityError(RuntimeError):
+    """Keep a failed current-authority guard outside model-failure handling."""
 
 
 class EvidenceQuote(BaseModel):
@@ -566,18 +712,22 @@ def _prompt(payload: dict) -> str:
     return prompt
 
 
-async def _interpret(*, prompt, user_id, output_schema):
+async def _interpret(
+    *, prompt, user_id, output_schema, gene_id="agent_documents_suggestions", model=None
+):
     manifest = ManifestLoader.load(
         str(Path(__file__).resolve().parents[1] / "agents/documents/agent.yaml")
     )
-    gene = next(child for child in manifest.subagents if child.id == "agent_documents_suggestions")
+    gene = next(child for child in manifest.subagents if child.id == gene_id)
     if (
         gene.privacy.plaintext_telemetry
         or gene.runtime.adk_mode != "single_turn"
         or gene.runtime.transport != ["in_process"]
     ):
         raise ValueError("invalid package interpreter")
-    agent = build_single_turn_agent(gene, output_schema=output_schema)
+    agent = build_single_turn_agent(
+        gene, output_schema=output_schema, **({"model": model} if model is not None else {})
+    )
     result = await run_single_turn(
         agent,
         prompt_parts=prompt,
@@ -590,6 +740,19 @@ async def _interpret(*, prompt, user_id, output_schema):
 
 async def interpret_document_batch(*, prompt, user_id):
     return await _interpret(prompt=prompt, user_id=user_id, output_schema=DocumentBatchAssessment)
+
+
+async def interpret_request_document_batch(*, prompt, user_id, model=None, model_binding=None):
+    """Use the bounded request-local Documents gene; legacy package modes stay separate."""
+    if model is None:
+        model = await private_semantic_request_model(user_id=user_id, model_binding=model_binding)
+    return await _interpret(
+        prompt=prompt,
+        user_id=user_id,
+        output_schema=DocumentBatchAssessment,
+        gene_id="agent_documents_request_assessment",
+        model=model,
+    )
 
 
 async def interpret_package(*, prompt, user_id):
@@ -649,6 +812,74 @@ def validate_document_batch(result, *, retrieved: dict) -> BoundDocumentBatchAss
     return BoundDocumentBatchAssessment(documents=bound)
 
 
+def _request_period(request: dict) -> tuple[date, date] | None:
+    if request.get("dateBasis") != "content":
+        return None
+    first, last = (
+        date.fromisoformat(request["periodStart"]),
+        date.fromisoformat(request["periodEnd"]),
+    )
+    if first > last:
+        raise ValueError("reversed requested content period")
+    return first, last
+
+
+def validate_request_document_batch(
+    result, *, request: dict, retrieved: dict
+) -> BoundDocumentBatchAssessment:
+    """Preserve exact evidence checks, including requested content-date grounding."""
+    period_window = _request_period(request)
+    parsed = validate_document_batch(result, retrieved=retrieved)
+    if period_window is None:
+        return parsed
+    first, last = period_window
+    for item in parsed.documents:
+        if item.decision != "include":
+            continue
+        if item.period_role == "unknown" or not item.covered_periods:
+            raise ValueError("content period is unverified")
+        quotes = {citation.source_ref: citation.quote for citation in item.citations}
+        for period in item.covered_periods:
+            quotation = "\n".join(quotes[ref] for ref in period.source_refs)
+            if not all(
+                _cited_day(date.fromisoformat(day), quotation)
+                for day in (period.period_start, period.period_end)
+            ):
+                raise ValueError("content period is unverified")
+        if not any(
+            date.fromisoformat(period.period_start) <= last
+            and date.fromisoformat(period.period_end) >= first
+            for period in item.covered_periods
+        ):
+            raise ValueError("content period outside request")
+    return parsed
+
+
+def _model_validation_error(error: BaseException) -> BaseException | None:
+    """Only structured-output failures qualify for a model correction."""
+    current = error
+    seen = set()
+    for _ in range(6):
+        if id(current) in seen:
+            break
+        seen.add(id(current))
+        if isinstance(current, (ValidationError, json.JSONDecodeError)):
+            return current
+        current = current.__cause__ or current.__context__
+        if current is None:
+            break
+    return None
+
+
+async def _require_request_current(require_current):
+    if require_current is None:
+        return
+    try:
+        await require_current()
+    except Exception as error:
+        raise RequestAssessmentAuthorityError("request authority ended") from error
+
+
 async def assess_document_batch(
     *, request: dict, retrieved: dict, user_id: str, interpreter=interpret_document_batch
 ) -> BoundDocumentBatchAssessment:
@@ -664,6 +895,112 @@ async def assess_document_batch(
         user_id=user_id,
     )
     return validate_document_batch(result, retrieved=retrieved)
+
+
+async def assess_request_document_batch(
+    *,
+    request: dict,
+    retrieved: dict,
+    user_id: str,
+    interpreter=interpret_request_document_batch,
+    require_current: Callable[[], Awaitable[None]] | None = None,
+    model_binding: dict | None = None,
+) -> BoundDocumentBatchAssessment:
+    """At most one correction or transient retry inside the existing model budget.
+
+    A correction adds only bounded machine feedback to the original request and
+    sources. Valid exclusions and uncertainty are complete model judgments.
+    """
+    if request.get("assessmentMode") not in {None, "generic_request_candidate_v1"}:
+        raise ValueError("invalid request assessment mode")
+    _sources(retrieved)
+    _request_period(request)
+    request = {**request, "assessmentMode": "generic_request_candidate_v1"}
+    payload = {
+        "package_mode": "document_assessment",
+        "document_request": request,
+        "retrieved_documents": retrieved,
+    }
+    prompt = _prompt(payload)
+    if interpreter is interpret_request_document_batch:
+        selected_binding = validate_semantic_model_binding(model_binding)
+        model = await private_semantic_request_model(
+            user_id=user_id,
+            require_current=require_current,
+            model_binding=selected_binding,
+        )
+        interpreter = partial(interpreter, model=model, model_binding=selected_binding)
+    # Leave a bounded retry slot if the provider never answers the first request.
+    # A local timeout is transport absence, never an assessment decision.
+    async with asyncio.timeout(REQUEST_ASSESSMENT_TIMEOUT_SECONDS):
+        for attempt in (1, 2):
+            await _require_request_current(require_current)
+            try:
+                if attempt == 1:
+                    first_slot = asyncio.timeout(REQUEST_FIRST_ATTEMPT_TIMEOUT_SECONDS)
+                    try:
+                        async with first_slot:
+                            result = await interpreter(prompt=prompt, user_id=user_id)
+                    except TimeoutError:
+                        if not first_slot.expired():
+                            raise
+                        # Only our first-call deadline grants a second attempt.
+                        # Preserve the exact prompt and the outer 75-second cap.
+                        continue
+                else:
+                    result = await interpreter(prompt=prompt, user_id=user_id)
+            except Exception as error:
+                if attempt == 2:
+                    raise
+                invalid = _model_validation_error(error)
+                if invalid is None:
+                    if not is_retryable_vertex_error(error):
+                        raise
+                    # Confirmed transient transport failure has no judgment to
+                    # correct. Replay the same prompt within the shared budget.
+                    await asyncio.sleep(0.5)
+                    continue
+                feedback = validation_feedback(invalid, schema=DocumentBatchAssessment)
+            else:
+                await _require_request_current(require_current)
+                try:
+                    return validate_request_document_batch(
+                        result, request=request, retrieved=retrieved
+                    )
+                except ValueError as error:
+                    if attempt == 2:
+                        raise
+                    feedback = validation_feedback(error, schema=DocumentBatchAssessment)
+                    # These are host-owned structural evidence failures only.
+                    # Unknown errors and Pydantic values never become prose in
+                    # a correction prompt; no model judgment is replaced here.
+                    if type(error) is ValueError and len(error.args) == 1:
+                        rule = {
+                            "assessment must account for every supplied document exactly once": (
+                                "all_document_refs_required_once"
+                            ),
+                            "assessment citation does not match observed content": (
+                                "citation_must_match_same_document_source"
+                            ),
+                            "content period requires same-document cited evidence": (
+                                "period_requires_cited_same_document_source"
+                            ),
+                            "content period is unverified": (
+                                "included_coverage_requires_cited_role_and_endpoint_dates"
+                            ),
+                            "content period outside request": (
+                                "included_coverage_requires_requested_overlap"
+                            ),
+                        }.get(error.args[0] if isinstance(error.args[0], str) else None)
+                        if rule:
+                            feedback["rule"] = rule
+            prompt = _prompt(
+                {
+                    **payload,
+                    "assessment_validation_feedback": feedback,
+                }
+            )
+    raise AssertionError("unreachable")
 
 
 async def assess_package(

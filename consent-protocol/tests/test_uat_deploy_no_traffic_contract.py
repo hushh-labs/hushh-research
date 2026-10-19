@@ -11,10 +11,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import httpx
 import pytest
 import yaml
-from openai import APITimeoutError
 
 from hushh_mcp.managed_ai_config import load_profile
 from tests._deploy_contract import (
@@ -24,6 +22,59 @@ from tests._deploy_contract import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.parametrize(
+    ("repeat", "fail_at", "expected_calls", "completed"),
+    [(False, 0, 1, 1), (True, 0, 2, 2), (True, 1, 1, 0), (True, 2, 2, 1)],
+)
+def test_selected_reviewer_repetition_requires_each_independent_pass(
+    tmp_path: Path, repeat: bool, fail_at: int, expected_calls: int, completed: int
+) -> None:
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    inputs = workflow.get("on", workflow.get(True))["workflow_dispatch"]["inputs"]
+    assert inputs["repeat_reviewer_byok"]["default"] is False
+    step = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("id") == "verify-reviewer-byok"
+    )
+    command = step["run"].replace("${{ inputs.repeat_reviewer_byok }}", str(repeat).lower())
+    command = command.replace("/tmp/uat-reviewer-byok.log", str(tmp_path / "reviewer.log"))  # noqa: S108 - redirect the authored log path into the isolated fixture
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    probe = binary / "node"
+    probe.write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\nfrom pathlib import Path\n"
+        "counter = Path(os.environ['PROBE_COUNT'])\n"
+        "number = int(counter.read_text()) + 1 if counter.exists() else 1\n"
+        "counter.write_text(str(number))\n"
+        "if number == int(os.environ['PROBE_FAIL_AT']): sys.exit(1)\n"
+        "print('PASS synthetic_read_only_baseline')\n"
+    )
+    probe.chmod(0o700)
+    output = tmp_path / "outputs"
+    count = tmp_path / "calls"
+    result = subprocess.run(  # noqa: S603 - actual authored step, synthetic non-authorizing probe
+        [shutil.which("bash") or "bash", "-c", command],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{binary}{os.pathsep}{os.environ.get('PATH', '')}",
+            "GITHUB_OUTPUT": str(output),
+            "PROBE_COUNT": str(count),
+            "PROBE_FAIL_AT": str(fail_at),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert (result.returncode == 0) is (fail_at == 0)
+    assert int(count.read_text()) == expected_calls
+    recorded = output.read_text().splitlines() if output.exists() else []
+    assert recorded == [f"passes_completed={number}" for number in range(1, completed + 1)]
 
 
 @pytest.mark.parametrize(
@@ -314,56 +365,127 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
             assert not invoked
 
 
-@pytest.mark.parametrize(("timeouts", "should_pass"), [(1, True), (2, False)])
-def test_azure_pwm_phi_probe_retries_one_timeout_but_never_waives_a_second(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    timeouts: int,
-    should_pass: bool,
-) -> None:
+def test_azure_pwm_probe_loads_production_contracts_without_application_secrets():
+    script = REPO_ROOT / "consent-protocol/scripts/verify_azure_pwm_runtime.py"
+    code = (
+        "import importlib.util; "
+        f"spec=importlib.util.spec_from_file_location('probe', {str(script)!r}); "
+        "module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); "
+        "module._initialize_synthetic_runtime(); "
+        "values, schemas=module._production_contract_examples(); "
+        "assert set(values) == set(schemas) == {'assessment','finding','report','planner'}"
+    )
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key
+        not in {
+            "APP_SIGNING_KEY",
+            "VAULT_DATA_KEY",
+            "DATABASE_URL",
+            "DB_CONNECTION_STRING",
+        }
+    }
+    environment["ENVIRONMENT"] = "uat"
+    result = subprocess.run(  # noqa: S603 - fixed probe import, no external input or credentials
+        [sys.executable, "-c", code],
+        env=environment,
+        cwd=script.parent.parent,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        None,
+        "wording",
+        "wrong_attribution",
+        "reject_supported_attribution",
+        "missing_case",
+        "wrong_contract",
+        "invented_attempt",
+        "wrong_finding",
+        "unknown_case",
+    ],
+)
+def test_azure_pwm_primary_probe_requires_actual_attribution_decisions(monkeypatch, capsys, defect):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk import world_model_azure
+
     script = REPO_ROOT / "consent-protocol/scripts/verify_azure_pwm_runtime.py"
     spec = importlib.util.spec_from_file_location("azure_pwm_runtime_probe", script)
-    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    calls = 0
-
-    class FakeClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        @property
-        def chat(self):
-            return SimpleNamespace(completions=SimpleNamespace(create=self.create))
-
-        async def create(self, **_kwargs):
-            nonlocal calls
-            calls += 1
-            if calls <= timeouts:
-                raise APITimeoutError(request=httpx.Request("POST", "https://example.test"))
-            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))])
-
-    monkeypatch.setattr(module, "AsyncOpenAI", lambda **_kwargs: FakeClient())
-    config = {"phi_endpoint": "https://example.test/", "phi_deployment": "synthetic-phi"}
-    if should_pass:
-        asyncio.run(module._probe_phi(config, "synthetic-token"))
+    rows = [
+        {"case_id": key, "supported": expected} for key, _, _, expected in module._ATTRIBUTION_CASES
+    ]
+    if defect == "wrong_attribution":
+        rows[0]["supported"] = True
+    elif defect == "reject_supported_attribution":
+        for row in rows:
+            if row["case_id"] in {"metric", "authorship"}:
+                row["supported"] = False
+    elif defect == "missing_case":
+        rows.pop()
+    elif defect == "unknown_case":
+        rows[-1]["case_id"] = "untrusted-model-identifier"
+    examples, _schemas = module._production_contract_examples()
+    if defect == "wording":
+        examples["report"]["summary"] = "No search was performed in this fictional evaluation."
+    elif defect == "wrong_contract":
+        examples["planner"]["action"] = "search"
+    elif defect == "invented_attempt":
+        examples["report"]["coverage"][0]["attempt_ids"] = [1]
+    elif defect == "wrong_finding":
+        examples["finding"] = {"skip": False}
+    structured = AsyncMock(return_value={"decisions": rows, **examples})
+    monkeypatch.setattr(
+        world_model_azure,
+        "AzurePwmGateway",
+        lambda **kwargs: SimpleNamespace(structured=structured),
+    )
+    config = {
+        "primary_endpoint": "https://synthetic.openai.azure.com/openai/v1/",
+        "primary_deployment": "synthetic-primary",
+    }
+    if defect not in {None, "wording"}:
+        with pytest.raises(RuntimeError, match="evaluation failed"):
+            asyncio.run(module._probe_primary(config, lambda: "synthetic"))
+        diagnostic = json.loads(capsys.readouterr().out)
+        assert set(diagnostic["failed_fields"]) <= {
+            "repository",
+            "degree",
+            "merge",
+            "namesake",
+            "metric",
+            "authorship",
+            "assessment",
+            "finding",
+            "planner",
+            "report",
+        }
+        assert "untrusted-model-identifier" not in json.dumps(diagnostic)
+        if defect == "reject_supported_attribution":
+            assert diagnostic == {
+                "azure_pwm_probe_failure": "source attribution",
+                "failed_fields": ["metric", "authorship"],
+            }
     else:
-        with pytest.raises(APITimeoutError):
-            asyncio.run(module._probe_phi(config, "synthetic-token"))
-    assert calls == 2
-    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert [event["result"] for event in events] == (
-        ["start", "timeout", "start", "ok"]
-        if should_pass
-        else ["start", "timeout", "start", "timeout"]
-    )
-    assert all(
-        set(event) == {"azure_pwm_runtime_probe_stage", "result", "elapsed_ms", "attempt"}
-        for event in events
-    )
+        asyncio.run(module._probe_primary(config, lambda: "synthetic"))
+        event = json.loads(capsys.readouterr().out)
+        assert event["azure_pwm_attribution_cases"] == 6
+        assert event["azure_pwm_production_contracts"] == 4
+        assert len(event["policy_sha256"]) == 64
+    structured.assert_awaited_once()
+    request = structured.call_args.kwargs
+    assert request["purpose"] == "source_attribution_evaluation"
+    assert len(request["payload"]["cases"]) == 6
+    assert all("supported" not in case for case in request["payload"]["cases"])
 
 
 def test_uat_drive_worker_uses_the_evaluated_fleet_model() -> None:
@@ -377,6 +499,81 @@ def test_uat_drive_worker_uses_the_evaluated_fleet_model() -> None:
     assert "HUSSH_GEMINI_TEXT_MODEL=${MANAGED_TEXT_MODEL}" in _read(
         "deploy/drive/deploy_worker_service.sh"
     )
+
+
+def test_uat_semantic_provider_reaches_api_and_both_worker_revisions() -> None:
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    steps = workflow["jobs"]["deploy"]["steps"]
+    selector = "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT"
+    flag = "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER"
+    for step_id in ("deploy-backend", "deploy-drive-worker", "deploy-drive-v1-worker"):
+        step = next(item for item in steps if item.get("id") == step_id)
+        assert step["env"][selector] == "${{ vars." + selector + " || 'gemini' }}"
+    backend = next(item for item in steps if item.get("id") == "deploy-backend")
+    assert f"_{flag}=${{{selector}}}" in backend["run"]
+    build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    assert build["substitutions"][f"_{flag}"] == "gemini"
+    deployment = next(step for step in build["steps"] if step["id"] == "deploy-backend")
+    assert (
+        "_DRIVE_SEARCH_SETTINGS=${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}|${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER}"
+        in deployment["env"]
+    )
+    deployed_script = _read("scripts/deploy/backend-deploy.sh")
+    assert f'"{flag}=${{_{flag}}}"' in deployed_script
+    assert (
+        '"DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}"'
+        in deployed_script
+    )
+    for script in ("deploy_worker_service.sh", "deploy_v1_worker_service.sh"):
+        source = _read(f"deploy/drive/{script}")
+        assert f'{selector}="${{{selector}:-gemini}}"' in source
+        assert f"{flag}=${{{selector}}}" in source
+        assert f'EXPECTED_SEMANTIC_MODEL_PROVIDER="${{{selector}}}"' in source
+    for lane in ("dev", "production"):
+        assert f"_{flag}=" not in _read(f".github/workflows/deploy-{lane}.yml")
+
+
+@pytest.mark.parametrize("lane", ["api", "worker", "v1"])
+@pytest.mark.parametrize("provider", [None, "gemini", "azure_openai", "unknown"])
+def test_uat_semantic_provider_deploy_guards_fail_closed(tmp_path, lane, provider) -> None:
+    selector = "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT"
+    environment = {"PATH": os.environ["PATH"]}
+    if provider is not None:
+        environment[selector] = provider
+    if lane == "api":
+        workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+        backend = next(
+            step
+            for step in workflow["jobs"]["deploy"]["steps"]
+            if step.get("id") == "deploy-backend"
+        )
+        start = backend["run"].index(
+            "if grep -q '^[[:space:]]*_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER:'"
+        )
+        end = backend["run"].index("\nfi", start) + len("\nfi")
+        guard = backend["run"][start:end]
+        (tmp_path / "deploy").mkdir()
+        (tmp_path / "deploy/backend.cloudbuild.yaml").write_text(
+            "  _DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER: gemini\n"
+        )
+        # GitHub supplies this declared default before the shell starts.
+        environment.setdefault(selector, "gemini")
+        guard = 'SUBSTITUTIONS=""\n' + guard
+    else:
+        script = "deploy_worker_service.sh" if lane == "worker" else "deploy_v1_worker_service.sh"
+        source = _read(f"deploy/drive/{script}")
+        start = source.index(f'{selector}="${{{selector}:-gemini}}"')
+        end = source.index("\nesac", start) + len("\nesac")
+        guard = source[start:end]
+    result = subprocess.run(  # noqa: S603 - bounded authored guards, synthetic env, no cloud calls
+        [shutil.which("bash") or "bash", "-c", "set -euo pipefail\n" + guard],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is (provider != "unknown")
 
 
 def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
@@ -1128,6 +1325,8 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
         *,
         deploy_env: str = "uat",
         voice_enabled: str = "true",
+        drive_provider: str = "gemini",
+        drive_enabled: str = "true",
     ) -> subprocess.CompletedProcess[str]:
         line = (
             "managed_vertex_probe_result " + json.dumps(report)
@@ -1136,12 +1335,16 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
         )
         return subprocess.run(  # noqa: S603 - fixed shell executes repository verdict logic with synthetic values
             ["/bin/bash", "-c", script],
+            cwd=REPO_ROOT,
             env={
                 "PATH": str(Path(sys.executable).parent) + os.pathsep + os.defpath,
                 "PROJECT_ID": "hushh-pda-uat",
                 "genai_project_id": project,
                 "_DEPLOY_ENV": deploy_env,
                 "_ONE_VOICE_LIVE_ENABLED": voice_enabled,
+                "_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER": drive_provider,
+                "_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED": drive_enabled,
+                "_CLOUD_RUN_NO_TRAFFIC": "true",
                 "_MANAGED_AI_CONFIG_HASH": "checked-profile-hash",
                 "_GENAI_PROJECT_ID": project,
                 "_VERTEX_LIVE_MODEL_ID": "reviewed-live-model",
@@ -1188,6 +1391,62 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
     }
     assert run_verdict(partial, 85).returncode != 0
     assert run_verdict(healthy, 1).returncode != 0
+    exhausted = {
+        **healthy,
+        "ok": False,
+        "classification": "provider_unavailable",
+        "candidate_models_exercised": False,
+        "one_chat_probe_ok": False,
+        "one_voice_probe_ok": False,
+        "probes": [
+            {
+                "probe": name,
+                "ok": False,
+                "classification": "provider_unavailable",
+                "resource_exhausted": True,
+            }
+            for name in (
+                "one_chat:synthetic@global",
+                "embedding",
+                "one_voice_live:reviewed-live-model@reviewed-live-location",
+            )
+        ],
+    }
+    assert run_verdict(exhausted, 1, drive_provider="azure_openai").returncode == 0
+    assert (
+        run_verdict(exhausted, 1, drive_provider="azure_openai", drive_enabled="false").returncode
+        != 0
+    )
+    assert run_verdict(exhausted, 1).returncode != 0
+    assert (
+        run_verdict(exhausted, 1, deploy_env="production", drive_provider="azure_openai").returncode
+        != 0
+    )
+    for unsafe in (
+        {
+            **exhausted,
+            "probes": [
+                {**exhausted["probes"][0], "resource_exhausted": False},
+                *exhausted["probes"][1:],
+            ],
+        },
+        {
+            **exhausted,
+            "probes": [
+                {**exhausted["probes"][0], "classification": "candidate_misconfigured"},
+                *exhausted["probes"][1:],
+            ],
+        },
+        {**exhausted, "probes": exhausted["probes"][1:]},
+        {**exhausted, "probes": exhausted["probes"][:2]},
+        {**exhausted, "config_hash": "other-profile"},
+        {**exhausted, "one_chat_project": "wrong-project"},
+        {**exhausted, "one_voice_project": "wrong-project"},
+    ):
+        assert run_verdict(unsafe, 1, drive_provider="azure_openai").returncode != 0, unsafe
+    assert run_verdict(exhausted, 0, drive_provider="azure_openai").returncode != 0
+    contradictory = {**exhausted, "probes": healthy["probes"]}
+    assert run_verdict(contradictory, 1, drive_provider="azure_openai").returncode != 0
     legacy = run_verdict(partial, 85, deploy_env="dev", voice_enabled="false")
     assert legacy.returncode == 0, legacy.stderr
     assert "Release CONTINUES" in legacy.stdout

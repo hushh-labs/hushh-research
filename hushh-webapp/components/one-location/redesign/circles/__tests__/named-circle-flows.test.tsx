@@ -3,6 +3,7 @@ import {
   act,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
   within,
@@ -18,6 +19,7 @@ import {
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { CIRCLE_MEMBER_MENU_CLASSNAME } from "@/components/one-location/redesign/circles/circle-member-row-layout";
+import { useCreateCirclePeopleModel } from "@/components/one-location/redesign/circles/create-circle-people-step";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
@@ -107,6 +109,28 @@ function detailProps(
 describe("named Circle flows", () => {
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it.each([true, false])("settles the retained people model before creating another Circle (add selected: %s)", async (addSelected) => {
+    const props = createProps();
+    const { result, rerender } = renderHook(({ circleId }) => useCreateCirclePeopleModel({
+      circleId, circleName: "Roommates", active: true,
+      onLoad: props.onLoadPeople, onAdd: props.onAddPeople,
+      onComplete: props.onComplete, onBack: vi.fn(), onSavingChange: vi.fn(),
+    }), { initialProps: { circleId: "first-circle" } });
+
+    for (const circleId of ["first-circle", "second-circle"]) {
+      if (circleId === "second-circle") rerender({ circleId });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      if (addSelected) act(() => result.current.add("asha"));
+      await act(async () => result.current.finish(addSelected));
+      expect(props.onComplete).toHaveBeenLastCalledWith(circleId);
+      expect(result.current.saving).toBe(false);
+      expect(result.current.mutationPending()).toBe(false);
+    }
+    expect(props.onComplete).toHaveBeenCalledTimes(2);
+    expect(props.onAddPeople).toHaveBeenCalledTimes(addSelected ? 2 : 0);
+    if (addSelected) expect(props.onAddPeople).toHaveBeenLastCalledWith("second-circle", ["asha"]);
   });
 
   it("adds selected contacts in step 2 without creating another Circle on retry", async () => {
@@ -766,7 +790,8 @@ describe("named Circle flows", () => {
     expect(within(roster).getByLabelText("Verified advisor")).toBeTruthy();
     const badge = within(roster).getByLabelText("Connected from your contacts");
     expect(badge).toBeTruthy();
-    expect(badge.closest("p")).toBeNull();
+    expect(badge.previousElementSibling).toHaveTextContent("Asha Contact");
+    expect(badge.querySelector("svg")).toBeTruthy();
     expect(screen.getByText("Asha Contact")).toHaveAttribute("title", "Asha Contact");
   });
 
@@ -1743,8 +1768,8 @@ describe("named Circle flows", () => {
   it("shows SMS Circle capacity below Add people and keeps selection within that limit", async () => {
     const smsCircle = {
       ...circle("sms-circle", "Emergency Circle"),
-      memberCount: 9,
-      memberLimit: 10,
+      memberCount: 10,
+      memberLimit: 11,
       isSystem: true,
       systemKind: "sms" as const,
     };
@@ -1766,10 +1791,9 @@ describe("named Circle flows", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     const sheet = await screen.findByRole("dialog", { name: "Add people" });
     expect(
-      await within(sheet).findByText(
-        "SMS Circle limit: 10 people total. 9 members are in this Circle; you can add 1 more person.",
-      ),
+      await within(sheet).findByText("You can add 1 more person."),
     ).toBeInTheDocument();
+    expect(within(sheet).queryByText("Choose connections.")).toBeNull();
 
     const asha = within(sheet).getByRole("button", { name: /Asha Meena/i });
     const neel = within(sheet).getByRole("button", { name: /Neel Shah/i });
@@ -1885,9 +1909,7 @@ describe("named Circle flows", () => {
     const input = (await screen.findByLabelText(
       "Circle name",
     )) as HTMLInputElement;
-    const saveButton = screen.getByTestId("one-location-circle-name-save");
     expect(input).toHaveClass("rounded-[14px]");
-    expect(saveButton).toHaveClass("rounded-[14px]");
     expect(input).toHaveClass(
       "focus-visible:border-border",
       "focus-visible:ring-0",
@@ -1896,6 +1918,15 @@ describe("named Circle flows", () => {
       "focus-visible:border-[color:var(--app-accent)]",
     );
     expect(input.className).not.toContain("focus-visible:ring-[3px]");
+    const renameSheet = screen.getByRole("dialog", { name: "Rename Circle" });
+    const saveAction = within(renameSheet).getByRole("button", { name: "Save" });
+    const actionGroup = saveAction.closest('[data-ui-role="flow-actions"]');
+    const cancelAction = within(renameSheet)
+      .getByRole("button", { name: "Cancel" })
+      .closest('[data-action-priority="secondary"]');
+    expect(actionGroup).toHaveClass("max-w-[244px]", "[&>div]:gap-1.5");
+    expect(saveAction).toHaveClass("h-[50px]");
+    expect(cancelAction).not.toHaveClass("border-t", "pt-2");
 
     // Only an empty name blocks the write; one character is a name.
     fireEvent.change(input, { target: { value: "   " } });
@@ -2700,6 +2731,52 @@ describe("named Circle flows", () => {
     );
   }, 15000);
 
+  it("lets an SMS Circle owner select ten contacts and shows only the remaining count", async () => {
+    const contacts = Array.from({ length: 11 }, (_, index) => ({
+      connectionId: `sms-connection-${index + 1}`,
+      userId: `sms-person-${index + 1}`,
+      displayName: `SMS Person ${index + 1}`,
+    }));
+    const onInviteConnections = vi.fn(async () => undefined);
+    render(<CircleDetailFlow
+      circleId="sms-circle"
+      {...detailProps(async () => ({
+        ...circle("sms-circle", "SMS Circle"), systemKind: "sms", isSystem: true, memberLimit: 11,
+        viewerCapabilities: {
+          canInviteMembers: true,
+          canViewInviteCode: false,
+          canRotateInviteCode: false,
+          canManageCircle: true,
+          canModerateInvites: true,
+        },
+      }))}
+      onLoadEligibleConnections={vi.fn(async () => ({
+        eligibleConnections: contacts, pendingInvites: [], remainingCapacity: 10,
+      }))}
+      onInviteConnections={onInviteConnections}
+    />);
+
+    const addPeople = await screen.findByRole("button", { name: "Add people" });
+    expect(screen.queryByRole("heading", { name: "Invite" })).toBeNull();
+    expect(screen.queryByTestId("one-location-circle-invite-card")).toBeNull();
+    expect(addPeople).toHaveClass("bg-transparent", "hover:text-[color:var(--app-accent)]", "active:text-[color:var(--app-accent)]");
+    expect(addPeople.querySelector("svg.profile-pane-icon .profile-pane-icon-accent")).toBeTruthy();
+    expect(addPeople.querySelector('[data-slot="settings-row-chevron"]')).toBeNull();
+    fireEvent.click(addPeople);
+    const sheet = await screen.findByRole("dialog", { name: "Add people" });
+    expect(await within(sheet).findByText("You can add 10 more people.")).toBeInTheDocument();
+    expect(within(sheet).queryByText("Choose connections.")).toBeNull();
+    expect(within(sheet).queryByText(/SMS Circle limit|available;|right now/i)).toBeNull();
+    for (const contact of contacts.slice(0, 10)) {
+      fireEvent.click(within(screen.getByTestId(`one-location-circle-eligible-${contact.userId}`)).getByRole("button"));
+    }
+    expect(within(screen.getByTestId("one-location-circle-eligible-sms-person-11")).getByRole("button")).toBeDisabled();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Add 10 people" }));
+    await waitFor(() => expect(onInviteConnections).toHaveBeenCalledWith(
+      "sms-circle", contacts.slice(0, 10).map((contact) => contact.userId),
+    ));
+  });
+
   it("keeps the sheet open when sending fails so the selection can be retried", async () => {
     const onLoadEligibleConnections = vi.fn(async () => ({
       eligibleConnections: [
@@ -3391,8 +3468,8 @@ describe("a Circle with only the current user stays compact", () => {
     expect(screen.queryByText("Try a different name.")).toBeNull();
   });
 
-  it("offers the Invite row without a second identical empty-state button", async () => {
-    // A Circle you can add to already has an "Add people" card on this screen.
+  it("offers one Add people action without a second empty-state button", async () => {
+    // A Circle you can add to already has an "Add people" action on this screen.
     // A second identical button is not a second option, it is the same one
     // twice -- and it made "Add people" ambiguous to anything looking for it.
     const onLoad = vi.fn(async () => emptyCircle("sms"));

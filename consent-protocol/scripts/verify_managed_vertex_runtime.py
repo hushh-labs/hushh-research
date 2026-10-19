@@ -35,6 +35,7 @@ from hushh_mcp.runtime_providers.dependency_health import (  # noqa: E402
     PROVIDER_UNAVAILABLE,
     classify_provider_error,
     is_advisory,
+    is_resource_exhausted,
     summarize,
 )
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name  # noqa: E402
@@ -244,6 +245,7 @@ async def _probe_scoped_projects() -> dict[str, object]:
                     "probe": name,
                     "ok": False,
                     "classification": classify_provider_error(outcome),
+                    "resource_exhausted": is_resource_exhausted(outcome),
                     "error_type": type(outcome).__name__,
                     "error": str(outcome)[:400],
                 }
@@ -438,6 +440,7 @@ async def main() -> dict[str, object]:
                     "probe": name,
                     "ok": False,
                     "classification": classify_provider_error(outcome),
+                    "resource_exhausted": is_resource_exhausted(outcome),
                     "error_type": type(outcome).__name__,
                     "error": str(outcome)[:400],
                 }
@@ -496,6 +499,7 @@ def _run() -> int:
             "check": "managed_vertex_runtime",
             "ok": False,
             "classification": classification,
+            "resource_exhausted": is_resource_exhausted(exc),
             "advisory": is_advisory(classification),
             "error_type": type(exc).__name__,
             "error": str(exc)[:400],

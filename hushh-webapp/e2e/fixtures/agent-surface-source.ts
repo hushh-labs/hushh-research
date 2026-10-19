@@ -131,7 +131,7 @@ const brandTileClass = one(
 
 const nameMatch = one(
   header,
-  /<div className="(truncate text-base[^"]+)">\s*\{([^}]+)\}/,
+  /<div data-profile-role=\{!isPuppySurface \? "label" : undefined\} className="(truncate text-base[^"]+)">\s*\{([^}]+)\}/,
   "agent name",
   WORKSPACE_PATH,
 );
@@ -333,7 +333,7 @@ const oneHiddenExpression = oneHiddenMatches[0][1];
  */
 const oneComposerMatch = one(
   workspace,
-  /<textarea\s+ref=\{composerTextareaRef\}\s+data-testid=\{\s*composerExpanded\s*\?\s*"agent-chat-composer-expanded-textarea"\s*:\s*"(agent-chat-composer-textarea)"\s*\}\s*aria-label=\{composerExpanded\s*\?\s*"Expanded message One"\s*:\s*"([^"]+)"\}/,
+  /<textarea\s+data-profile-composer="true"\s+ref=\{composerTextareaRef\}\s+data-testid=\{\s*composerExpanded\s*\?\s*"agent-chat-composer-expanded-textarea"\s*:\s*"(agent-chat-composer-textarea)"\s*\}\s*aria-label=\{composerExpanded\s*\?\s*"Expanded message One"\s*:\s*"([^"]+)"\}/,
   "One's composer textarea",
   WORKSPACE_PATH,
 );
@@ -443,7 +443,7 @@ const transcript = workspace.slice(workspace.indexOf("ref={transcriptRef}"), wor
 const transcriptClasses = one(transcript, /className=\{cn\(\s*"([^"]+)",\s*"([^"]+)"/, "transcript scroll classes", WORKSPACE_PATH);
 const welcomeDescriptionLayout = one(
   welcome,
-  /<p className=\{cn\("([^"]+)",\s*CHAT_WELCOME_COPY_CLASSNAME\)\}/,
+  /<p data-profile-role="header-description" className=\{cn\("([^"]+)",\s*CHAT_WELCOME_COPY_CLASSNAME\)\}/,
   "welcome description using shared chat typography",
   WORKSPACE_PATH,
 )[1];
@@ -460,7 +460,7 @@ export const AGENT_SURFACE_SOURCE = {
     viewportClass: one(transcriptViewport, /"(relative min-h-0 flex-1 overflow-hidden)"/, "transcript viewport", WORKSPACE_PATH)[1],
     sectionClass: one(welcome, /<section className="([^"]+)"/, "welcome section", WORKSPACE_PATH)[1],
     columnClass: one(welcome, /<div className="([^"]+)"/, "welcome reading column", WORKSPACE_PATH)[1],
-    headingClass: one(welcome, /<h2 className="([^"]+)"/, "welcome heading", WORKSPACE_PATH)[1],
+    headingClass: one(welcome, /<h2 data-profile-role="identity-name" className="([^"]+)"/, "welcome heading", WORKSPACE_PATH)[1],
     descriptionClass: `${welcomeDescriptionLayout} ${welcomeDescriptionTypography}`,
     scrollClass: `${transcriptClasses[1]} ${transcriptClasses[2]}`,
     transcriptColumnClass: one(transcript, /<div className="(mx-auto flex min-h-full [^"]+)"/, "transcript reading column", WORKSPACE_PATH)[1],

@@ -446,7 +446,9 @@ function FeedPageSession({
           needsReplyCount === 1
             ? "A message needs your reply"
             : `${needsReplyCount} messages need your reply`,
-        description: "Open Mail to review your inbox threads.",
+        // No supporting line: the title says what is waiting and the button
+        // already says where to go, so a third line would only repeat them.
+        description: "",
         onSelect: () => router.push(ROUTES.GMAIL),
         chevron: true,
         actions: [
@@ -1038,7 +1040,12 @@ function FeedPageSession({
           {hasRegularActionables ? (
             <section aria-label="Needs you">
               <SectionLabel>Needs you</SectionLabel>
-              <div className="divide-y divide-[color:var(--foundation-hairline)]">
+              {/* The Profile type scale covers this list only (name, supporting line,
+                  action label); the other Feed sections keep theirs. */}
+              <div
+                data-profile-type-scale=""
+                className="divide-y divide-[color:var(--foundation-hairline)]"
+              >
                 {regularActionables.map((item) => (
                   <FeedActionableRow key={item.id} item={item} />
                 ))}

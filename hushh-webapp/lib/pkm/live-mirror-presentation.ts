@@ -448,6 +448,11 @@ export interface LiveMirrorClaimText {
   detail: string | null;
 }
 
+/** Stable presentation identity while values or source order elsewhere change. */
+export function liveMirrorConflictKey(conflict: LiveMirrorConflict): string {
+  return JSON.stringify([conflict.predicate, conflict.claims.map(claim => [claim.source, claim.label])]);
+}
+
 export function liveMirrorClaimText(
   claim: LiveMirrorClaim,
   predicate: string,

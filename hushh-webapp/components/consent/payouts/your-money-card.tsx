@@ -19,7 +19,7 @@ import type { HashcoinWalletResource } from "./redeem-action";
 import { readyCoins, readyCoinsWait } from "./redemption-copy";
 
 /** One short state for the coin row; the review row and the sheet it opens explain the rest. */
-function coinSummary(live: HashcoinBalance, liveRedeemEnabled: boolean, bank: PayoutAccountState | null): string {
+export function coinSummary(live: HashcoinBalance, liveRedeemEnabled: boolean, bank: PayoutAccountState | null): string {
   const holds = live.holds?.length ?? 0;
   if (live.held || holds > 0) return holds > 1 ? `Under review · ${holds} items` : "Under review";
   if (!liveRedeemEnabled) return "100 Hussh Coins = $1";
@@ -29,11 +29,11 @@ function coinSummary(live: HashcoinBalance, liveRedeemEnabled: boolean, bank: Pa
 }
 
 /** The review to explain first: a balance below zero (or an unexplained hold) has no Activity item. */
-function firstHold(live: HashcoinBalance): HashcoinHold | null {
+export function firstHold(live: HashcoinBalance): HashcoinHold | null {
   return live.holds?.find((hold) => hold.id === "balance") ?? live.holds?.[0] ?? null;
 }
 
-function holdDetail(hold: HashcoinHold): string {
+export function holdDetail(hold: HashcoinHold): string {
   const about = hold.requestLabel ?? (hold.since ? `Since ${shortDate(hold.since)}` : null);
   return [about, holdNextStepCopy(hold.nextStep)].filter(Boolean).join(" · ");
 }

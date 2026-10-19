@@ -372,6 +372,19 @@ SHA; explicit scopes remain available. Dev consumes the exact green branch SHA
 without an application merge to main. UAT and production retain their main-SHA
 and environment gates. Workflow changes become active only after governed main
 landing; feature-branch source does not change the running workflow definition.
+For reviewer BYOK, `required` selects execution; the existing UAT rollout
+classifier still records the result as advisory. A green step conclusion under
+`continue-on-error` is not a passing rehearsal: inspect the release receipt's
+`reviewer_byok` outcome. A healthy rollout does not satisfy reviewer acceptance
+when that proof is part of the task. The World Model background driver and its
+provider select this lane because automatic startup must respect read-only
+reviewer posture.
+
+For RCA acceptance, `repeat_reviewer_byok=true` repeats an already-selected
+baseline twice in independent browser lifetimes. It defaults to false, does not
+select an otherwise-skipped lane or authorize mutations, and records requested
+and completed pass counts in the release receipt. A failed pass stops that
+rehearsal; it does not change the existing advisory rollback policy.
 
 Live Gemini/Vertex candidate checks are opt-in, not ordinary CI gates. UAT
 dispatches default `run_live_model_checks=false`; explicitly setting it to
@@ -435,9 +448,9 @@ actually run it, instead of every lane:
 The backend side includes `scripts/ci/**` and excludes the named web-only lane
 scripts, so a new script is backend by default rather than scheduling nothing. The filter
 step sets `predicate-quantifier: 'some-with-excludes'` for that `!` pattern;
-filters without a `!` pattern behave exactly as before. The iOS filter uses
-the same mechanism to leave out `hushh-webapp/components/onboarding/setup/**`,
-which nothing the CI-run XCUITest renders imports.
+filters without a `!` pattern behave exactly as before. The iOS filter includes
+the onboarding setup screens now reached through the login render graph, plus
+the shared Profile owner-state, Gemini and World Model controller inputs.
 
 Guards, both in the backend CI manifest:
 `consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py` derives
@@ -445,8 +458,9 @@ which `scripts/ci/` files each path-filtered job runs (through
 `orchestrate.sh <stage>` and everything those scripts reference, plus every
 script the lane's own code names) and fails when one of them would not
 schedule that job. `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`
-traces the XCUITest render path's imports and fails if it ever reaches
-`components/onboarding/setup/`.
+traces the XCUITest render path's imports and requires the reached onboarding
+screens and selected shared Profile inputs to schedule the native lane. It does
+not schedule iOS for every unrelated frontend change.
 
 One gap is known: the guard runs in the backend lane, so a PR that changes
 only `web-*.sh` does not run it. If such a PR makes a web script call a

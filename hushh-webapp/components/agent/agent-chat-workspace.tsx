@@ -99,7 +99,6 @@ import {
   Loader2,
   LogIn,
   Mail,
-  Mic,
   RotateCcw,
   Send,
   StopSquare,
@@ -160,6 +159,7 @@ import { bucketEmailDeliveryTimelineItems } from "@/lib/agent/agent-chat-email-d
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
+import { ProfilePaneMicrophoneIcon } from "@/components/profile/profile-pane-icons";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { SecretCaptureCard, type KeptSecretRef } from "@/components/secrets/secret-capture-card";
@@ -1659,12 +1659,12 @@ function AgentWelcomePanel({
   return (
     // Keep the greeting close to the header; viewport-height centering creates
     // an increasingly large gap on taller screens.
-    <section className="flex flex-col pb-4 pt-2">
+    <section className="flex flex-col pb-2 pt-2">
       <div className="mx-auto flex w-full max-w-2xl flex-col items-start px-1 text-left sm:px-2">
-        <h2 className="max-w-full break-words text-[36px] font-semibold leading-[1.12] tracking-[-0.75px] text-foreground max-sm:font-[family-name:var(--font-app-display)] sm:text-[44px]">
+        <h2 data-profile-role="identity-name" className="max-w-full break-words text-foreground [overflow-wrap:anywhere]">
           Hi {name}
         </h2>
-        <p className={cn("mt-3 max-w-xl", CHAT_WELCOME_COPY_CLASSNAME)}>
+        <p data-profile-role="header-description" className={cn("mt-2 max-w-xl", CHAT_WELCOME_COPY_CLASSNAME)}>
           What would you like to do today?
         </p>
         <AgentPromptSuggestions
@@ -9555,7 +9555,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           data-native-voice-control-id="one_voice_agent_chat_start"
           data-testid="one-voice-agent-chat-start"
           data-agent-composer-action="mic"
-          className="text-[rgba(0,0,0,0.50)] max-sm:text-[color:var(--app-accent-deep)] dark:text-zinc-400 dark:max-sm:text-[color:var(--app-accent-deep)]"
+          className="text-[color:var(--ios-account-label)]"
           disabled={!canToggleVoice}
           onClick={() => {
             void startConversationalVoice();
@@ -9563,7 +9563,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           aria-label="Start voice mode"
           title="Start voice mode"
         >
-          <Mic className="h-4 w-4" />
+          <ProfilePaneMicrophoneIcon size={20} />
         </ShellActionSurface>
       ) : null}
       {stoppableTurn && (isStreaming || isChatLoading) && !canSend ? (
@@ -9649,6 +9649,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         className,
       )}
       data-agent-chat-workspace="page"
+      data-profile-type-scale="chat"
       data-agent-chat-route={isCanonicalChatRoute ? "root" : "embedded"}
       data-agent-history-drawer-open={isHistoryDrawerOpen ? "true" : undefined}
       data-one-chat-surface
@@ -9764,7 +9765,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   which agent is answering, so it names the agent actually on
                   screen rather than the workspace. */}
               <div className="min-w-0">
-                <div className="truncate text-base font-semibold leading-5 text-foreground">
+                <div data-profile-role={!isPuppySurface ? "label" : undefined} className="truncate text-base font-semibold leading-5 text-foreground">
                   {isPuppySurface ? "Puppy One" : oneDisplayName}
                 </div>
                 <ChatAgentSubtitle text={chatHeaderSubtitle({
@@ -11464,6 +11465,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       }
                     >
                       <textarea
+                        data-profile-composer="true"
                         ref={composerTextareaRef}
                         data-testid={
                           composerExpanded

@@ -168,9 +168,10 @@ export function ContactRow({
       <ContactAvatar label={label} photoUrl={photoUrl} verified={verified} />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-start gap-1.5">
-          <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
+          <span className="min-w-0 truncate text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
             {label}
           </span>
+          {fromContacts ? <ContactSourceBadge /> : null}
         </span>
         {subtitle ? (
           <span className="mt-0.5 block truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
@@ -178,7 +179,6 @@ export function ContactRow({
           </span>
         ) : null}
       </span>
-      {fromContacts ? <ContactSourceBadge /> : null}
       <ContactRowAction
         selected={selected}
         busy={busy}

@@ -159,7 +159,7 @@ images, emoji, and provider logos are not home-agent artwork.
 8. **Apple design grammar** (adopted principles; enforced by shared primitive tests and `verify:design-system` where applicable):
    - Radius grammar: shapes carry meaning. `--app-radius-pill` = action signal (CTAs, chips, search, toggles); `--app-radius-lg` (18px) = compact utility cards (the shipped `--app-card-radius-*` 20/22/24 contract remains canonical for app cards); `--app-radius-sm` (8px) = compact utility rects. Do not invent radii between the stops in new components.
    - Field geometry: direct-entry controls use `--app-input-radius`, which resolves to the capsule stop `--app-radius-pill`. `Input`, `InputGroup`, `Textarea`, `SelectTrigger`, `CommandInput`, and combobox field shells use it; compound controls keep only their outer shell rounded. Use `--app-form-field-gap` (label/control), `--app-form-related-gap` (label/related action), and `--app-form-section-gap` (primary/secondary sections) instead of local spacing guesses. Credential fallback groups keep the “Can’t get in?” descriptor on one centered line and all available quiet actions on the next centered row inside a capped `max-w-[21rem]` measure. Separate multiple actions with middle-dot separators; never add a second primary CTA, pill, column, or vertical divider. If only one action is available, keep it as the single centered element without a separator. Use `--app-form-section-gap` for the larger pause after the primary unlock action and `--app-form-related-gap` to keep the descriptor close to its action row. Visible link text stays close to the descriptor while the transparent control retains a 44px hit area; do not add pill padding, `self-start`, or a left-anchored row. Recovery, alternate unlock, and Sign out share the same quiet escape row when present.
-   - Press physics: the system-wide active state is the `.press-scale` utility (`--motion-press-scale: 0.95`, transform-only, reduced-motion aware), layered with the md-ripple. Wired into the Morphy Button and all segmented primitives; do not write per-component press styles.
+   - Press physics: the shared pressed state is a flat opacity/color change with the md-ripple; no scale, spring or bounce. The compatibility `--motion-press-scale` token is `1`, and `.press-scale` no longer transforms. Use the shared Button/segmented primitives rather than per-component press styles.
    - Weight ladder: self-hosted Plus Jakarta Sans 400 / 600 / 700. CSS navigation weight 550 resolves to the 600 face; CSS primary-action weight 650 resolves to the 700 face. The airy lead uses regular 400.
    - Typography rungs: `.type-lead` (28/400), `.type-lead-airy` (24/400), `.type-tagline` (21/600), `.type-dense-link` (17/400/2.41) join the Foundation scale for editorial/marketing surfaces.
    - Elevation doctrine: UI elevation comes from surface change and backdrop blur, not chrome shadows. `--app-shadow-product` is the single photographic drop-shadow, reserved for imagery resting on a surface; `--app-blur-frosted` is the frosted-chrome baseline.
@@ -278,7 +278,7 @@ The Profile page is the canonical settings implementation for the app.
 Reference:
 
 1. `hushh-webapp/components/app-ui/settings-ui.tsx`
-2. `hushh-webapp/app/profile/profile-workspace-page.tsx`
+2. `hushh-webapp/components/profile/profile-workspace-page.tsx`
 3. [Profile Settings Design System](./profile-settings-design-system.md)
 4. [App Surface Design System](./app-surface-design-system.md)
 5. [App Surface Audit Matrix](./app-surface-audit-matrix.md)

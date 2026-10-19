@@ -465,6 +465,9 @@ try {
   const { PROFILE_MENU_GROUPS } = await profileLoader.ssrLoadModule("/components/profile/profile-menu-model.ts");
   const rows = await profileLoader.ssrLoadModule("/components/icons/agents/row-icons.tsx");
   const accountIcons = await profileLoader.ssrLoadModule("/components/icons/agents/index.ts");
+  const payoutInnerIcons = await profileLoader.ssrLoadModule("/components/profile/profile-inner-icons.tsx");
+  const payoutSecondaryIcons = await profileLoader.ssrLoadModule("/components/profile/profile-secondary-icons.tsx");
+  const { GeminiLogo } = await profileLoader.ssrLoadModule("/components/brand/gemini-logo.tsx");
   const formIcons = [
     { id: "style-name", icon: rows.PreferredNameRowIcon },
     { id: "style-tone", icon: rows.ToneRowIcon },
@@ -476,27 +479,43 @@ try {
     { id: "account-wallet", icon: accountIcons.WalletAgentIcon },
     { id: "account-reset", icon: accountIcons.ResetRowIcon },
     { id: "account-delete", icon: accountIcons.DeleteRowIcon },
+    { id: "appearance", icon: accountIcons.AppearanceRowIcon },
+    { id: "accent", icon: accountIcons.AccentRowIcon },
+    { id: "voice", icon: accountIcons.VoiceRowIcon },
+    { id: "vault-methods", icon: accountIcons.FingerprintProfileIcon },
+    { id: "vault-password", icon: accountIcons.PassphraseRowIcon },
+    { id: "payout-receipt", icon: payoutSecondaryIcons.ProfileSecondaryReceiptIcon },
+    { id: "payout-warning", icon: payoutInnerIcons.ProfileInnerWarningIcon },
+    { id: "payout-progress", icon: payoutInnerIcons.ProfileInnerProgressIcon },
+    { id: "payout-review", icon: payoutInnerIcons.ProfileInnerReviewIcon },
+    { id: "gemini", icon: GeminiLogo, original: true, size: 32 },
   ];
   for (const entry of [...PROFILE_MENU_GROUPS.flatMap(group => group.entries), ...formIcons]) {
     if (!/^[a-z][a-z-]*$/.test(entry.id)) throw new Error("Invalid authored Profile asset id");
-    const markup = renderToStaticMarkup(createElement(entry.icon, { size: profileGlyphSize }));
+    const glyphSize = entry.size ?? profileGlyphSize;
+    const markup = renderToStaticMarkup(createElement(entry.icon, { size: glyphSize }));
     const document = new JSDOM(markup, { contentType: "image/svg+xml" }).window.document;
     const svg = document.documentElement;
     svg.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns", "http://www.w3.org/2000/svg");
     const fill = svg.getAttribute("fill");
     const colorHex = /^#[0-9a-f]{6}$/i.test(fill ?? "") ? fill : null;
+    const original = entry.original === true;
+    const accentFill = fill === "var(--app-accent)";
     const accentSelector = ".profile-account-icon-accent, .profile-account-icon-accent-fill, .profile-pane-icon-accent, .profile-pane-icon-accent-fill";
-    const hasAccent = svg.querySelector(accentSelector) !== null;
-    svg.setAttribute("style", "color:#000000");
-    for (const node of [svg, ...svg.querySelectorAll("*")]) {
-      for (const attribute of ["fill", "stroke"]) {
-        if (/^#[0-9a-f]{6}$/i.test(node.getAttribute(attribute) ?? "")) node.setAttribute(attribute, "#000000");
+    const hasAccent = accentFill || svg.querySelector(accentSelector) !== null;
+    if (!original) {
+      svg.setAttribute("style", "color:#000000");
+      if (accentFill) svg.setAttribute("fill", "#000000");
+      for (const node of [svg, ...svg.querySelectorAll("*")]) {
+        for (const attribute of ["fill", "stroke"]) {
+          if (/^#[0-9a-f]{6}$/i.test(node.getAttribute(attribute) ?? "")) node.setAttribute(attribute, "#000000");
+        }
       }
     }
     for (const layer of hasAccent ? ["base", "accent"] : ["base"]) {
       const artwork = svg.cloneNode(true);
       for (const node of artwork.querySelectorAll("path,circle,rect,ellipse,line,polyline,polygon")) {
-        const accented = node.matches(accentSelector);
+        const accented = accentFill || node.matches(accentSelector);
         if ((layer === "base" && accented) || (layer === "accent" && !accented)) node.setAttribute("opacity", "0");
         if (node.matches(".profile-account-icon-accent-fill, .profile-pane-icon-accent-fill")) node.setAttribute("fill", "#000000");
       }
@@ -506,19 +525,38 @@ try {
       for (const scale of [1, 2, 3]) {
         const filename = `icon@${scale}x.png`;
         await emit(`${directory}/${filename}`, await sharp(Buffer.from(artwork.outerHTML))
-          .resize(profileGlyphSize * scale, profileGlyphSize * scale).png().toBuffer());
+          .resize(glyphSize * scale, glyphSize * scale).png().toBuffer());
         images.push({ filename, idiom: "universal", scale: `${scale}x` });
       }
       await emit(`${directory}/Contents.json`, Buffer.from(JSON.stringify({
         images, info: { author: "xcode", version: 1 },
-        properties: { "template-rendering-intent": "template" },
+        properties: { "template-rendering-intent": original ? "original" : "template" },
       }, null, 2) + "\n"));
     }
-    profileAssets.push({ id: entry.id, colorHex, hasAccent });
+    profileAssets.push({ id: entry.id, colorHex, hasAccent, original });
+  }
+  // The same authored vendor files/crop as ProfileConnectorGlyph. Match its
+  // 22-point optical size in the shared 28-point native artwork well.
+  const { CONNECTOR_ARTWORK } = await profileLoader.ssrLoadModule("/lib/profile/connector-artwork.ts");
+  for (const [key, artwork] of Object.entries(CONNECTOR_ARTWORK)) {
+    const id = `connector-${key.replaceAll("_", "-")}`;
+    const directory = `ios/App/App/Assets.xcassets/HushhProfile-${id}-base.imageset`;
+    const images = [];
+    for (const scale of [1, 2, 3]) {
+      let source = sharp(await readFile(resolve(WEB_ROOT, "public/icons/connectors", artwork.file)));
+      if (artwork.crop) source = source.extract(artwork.crop);
+      const inset = 3 * scale, filename = `icon@${scale}x.png`;
+      await emit(`${directory}/${filename}`, await source.resize(22 * scale, 22 * scale, { fit: "contain", background: TRANSPARENT })
+        .extend({ top: inset, bottom: inset, left: inset, right: inset, background: TRANSPARENT }).png().toBuffer());
+      images.push({ filename, idiom: "universal", scale: `${scale}x` });
+    }
+    await emit(`${directory}/Contents.json`, Buffer.from(JSON.stringify({ images, info: { author: "xcode", version: 1 },
+      properties: { "template-rendering-intent": artwork.monochrome ? "template" : "original" } }, null, 2) + "\n"));
+    profileAssets.push({ id, colorHex: null, hasAccent: false, original: !artwork.monochrome });
   }
 } finally { await profileLoader.close(); }
 await emit("ios/App/App/Plugins/NativeProfileArtwork.swift", Buffer.from(`// Generated by scripts/design/generate-hushh-brand-assets.mjs. Do not edit.
-// Source: components/profile/profile-menu-model.ts and its rendered React icons.
+// Source: Profile menu/icons and lib/profile/connector-artwork.ts.
 import UIKit
 
 enum NativeProfileArtwork {
@@ -531,14 +569,15 @@ enum NativeProfileArtwork {
     static func resolve(_ id: String) -> Artwork? {
         let colorHex: String?
         let hasAccent: Bool
+        let original: Bool
         switch id {
-${profileAssets.map(entry => `        case ${JSON.stringify(entry.id)}: colorHex = ${entry.colorHex ? JSON.stringify(entry.colorHex) : "nil"}; hasAccent = ${entry.hasAccent}`).join("\n")}
+${profileAssets.map(entry => `        case ${JSON.stringify(entry.id)}: colorHex = ${entry.colorHex ? JSON.stringify(entry.colorHex) : "nil"}; hasAccent = ${entry.hasAccent}; original = ${entry.original}`).join("\n")}
         default: return nil
         }
         guard let base = UIImage(named: "HushhProfile-\\(id)-base") else { return nil }
         let accent = hasAccent ? UIImage(named: "HushhProfile-\\(id)-accent") : nil
         guard !hasAccent || accent != nil else { return nil }
-        return Artwork(base: base.withRenderingMode(.alwaysTemplate),
+        return Artwork(base: base.withRenderingMode(original ? .alwaysOriginal : .alwaysTemplate),
                        accent: accent?.withRenderingMode(.alwaysTemplate), colorHex: colorHex)
     }
 }

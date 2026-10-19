@@ -186,23 +186,39 @@ for (const dark of [false, true]) {
       await expect(connectionGroup.getByLabel("Connected from your contacts")).toHaveCount(0);
       await expect(page.getByTestId("connection-source-contacts").getByText("Jordan Lee", { exact: true })).toHaveCount(1);
       await expect(page.getByTestId("connection-source-other").getByText("Alex Chen", { exact: true })).toHaveCount(1);
-      const rowGeometry = await connectionGroup.locator('[data-testid="settings-row"]').evaluateAll(rows => rows.map(row => {
+      const rowGeometry = await connectionGroup.locator('[data-testid="connect-person-row"]').evaluateAll(rows => rows.map(row => {
         const rect = row.getBoundingClientRect();
-        const avatar = row.querySelector('[data-avatar-size="list"]')!.getBoundingClientRect();
+        const avatar = row.querySelector('[data-avatar-size="compact"]')!.getBoundingClientRect();
         const title = row.querySelector('[data-slot="settings-row-title"]')!.getBoundingClientRect();
         const description = row.querySelector('[data-slot="settings-row-description"]')!;
         const trailing = row.querySelector('[data-slot="settings-row-trailing"]')!.getBoundingClientRect();
-        return { left: rect.left, right: rect.right, avatarLeft: avatar.left, avatarWidth: avatar.width, titleRight: title.right, trailingLeft: trailing.left, date: description.textContent,
+        return { height: rect.height, left: rect.left, right: rect.right, avatarLeft: avatar.left, avatarWidth: avatar.width, titleRight: title.right, trailingLeft: trailing.left, date: description.textContent,
           actions: [...row.querySelectorAll('[data-slot="settings-row-trailing"] button')].map(button => ({ width: button.getBoundingClientRect().width, height: button.getBoundingClientRect().height })),
         };
       }));
-      expect(rowGeometry.every(row => Math.abs(row.avatarLeft - row.left) < 1 && row.avatarWidth === 44)).toBe(true);
+      // Feed's ordinary-row anatomy: a 26px face centred in a 30px well, so the
+      // face starts 2px in from the row edge, and the row is compact.
+      expect(rowGeometry.every(row => Math.abs(row.avatarLeft - row.left - 2) < 1 && row.avatarWidth === 26)).toBe(true);
+      expect(rowGeometry.every(row => row.height <= 60)).toBe(true);
       expect(rowGeometry.every(row => row.titleRight <= row.trailingLeft && row.date === "Connected 28 Sep")).toBe(true);
       expect(rowGeometry.every(row => row.actions.every(action => action.width >= 44 && action.height >= 44))).toBe(true);
-      const cards = page.getByTestId("directory-person-card");
+      // The face sits on the centre line of its name block (one line or two), in
+      // both lists, never above it.
+      const centred = await page.locator('[data-testid="connect-person-row"], [data-testid="directory-person-row"]').evaluateAll((rows) => rows.map((row) => {
+        const avatar = row.querySelector('[data-avatar-size="compact"]')!.getBoundingClientRect();
+        const title = row.querySelector('[data-slot="settings-row-title"]')!.getBoundingClientRect();
+        const description = row.querySelector('[data-slot="settings-row-description"]')?.closest("span:not([data-slot])")?.getBoundingClientRect();
+        const block = description ? { top: title.top, bottom: description.bottom } : { top: title.top, bottom: title.bottom };
+        return Math.abs((avatar.top + avatar.bottom) / 2 - (block.top + block.bottom) / 2);
+      }));
+      expect(centred.length).toBeGreaterThan(5);
+      expect(centred.every((offset) => offset <= 1)).toBe(true);
+      const cards = page.getByTestId("directory-person-row");
       await expect(cards).toHaveCount(3);
       await expect(cards.first()).toContainText("p***0@example.com");
-      await expect(cards.first().getByTestId("directory-person-masked-phone")).toHaveText("98******10");
+      // An email or no line: a masked phone is never shown on a directory row.
+      await expect(cards.first()).not.toContainText("98******10");
+      await expect(page.getByTestId("directory-person-masked-phone")).toHaveCount(0);
       await expect(cards.first().getByText("Alex Chen", { exact: true })).toHaveCount(0);
       await expect(cards.first()).toContainText("2 mutual connections");
       const mutual = cards.first().getByRole("button", { name: "Open mutual connection Alex Chen's profile" });
@@ -247,9 +263,11 @@ for (const dark of [false, true]) {
         return { left: r.left, top: r.top, right: r.right, width: r.width };
       }));
       expect(geometry.every((r) => r.left >= 0 && r.right <= width)).toBe(true);
-      if (width >= 768) expect(new Set(geometry.map((r) => r.top)).size).toBe(1);
-      else if (width >= 640) expect(geometry[0].top).toBe(geometry[1].top);
-      else expect(geometry[1].top).toBeGreaterThan(geometry[0].top);
+      expect(geometry.every((r) => r.left >= 0 && r.right <= width)).toBe(true);
+      // One column at every width, rows no taller than a compact person row plus
+      // its mutual-connections line.
+      expect(geometry[1].top).toBeGreaterThan(geometry[0].top);
+      expect(geometry.every((r) => Math.abs(r.width - geometry[0].width) <= 1)).toBe(true);
       await page.getByRole("button", { name: /Remove connection with Alex Chen/ }).click();
       const dialog = page.getByRole("alertdialog");
       await expect(dialog).toBeVisible();
@@ -280,14 +298,15 @@ for (const width of [320, 1440]) {
   test(`keeps a long connection name clear of actions at ${width}px`, async ({ page }) => {
     await open(page, width, false, undefined, () => { document.documentElement.dataset.longConnectionName = "1"; });
     await settle(page, width);
-    const row = page.getByTestId("connect-my-connections-group").getByTestId("settings-row").filter({ hasText: "24E2100221 Mayank Featherstonehaugh-Rajendran" });
+    const row = page.getByTestId("connect-my-connections-group").getByTestId("connect-person-row").filter({ hasText: "24E2100221 Mayank Featherstonehaugh-Rajendran" });
     await expect(row).toHaveCount(1);
+    // The name wraps in its column and the row grows; nothing is cut off or
+    // pushed under the actions.
     const fit = await row.evaluate(node => {
       const title = node.querySelector<HTMLElement>('[data-slot="settings-row-title"]')!;
       const trailing = node.querySelector('[data-slot="settings-row-trailing"]')!;
-      const name = title.querySelector('span[title]') as HTMLElement;
-      const style = getComputedStyle(name);
-      return title.scrollWidth <= title.clientWidth + 1 && title.getBoundingClientRect().right <= trailing.getBoundingClientRect().left && style.whiteSpace === 'nowrap' && style.textOverflow === 'ellipsis' && name.getBoundingClientRect().height <= parseFloat(style.lineHeight) + 1;
+      const style = getComputedStyle(title);
+      return title.scrollWidth <= title.clientWidth + 1 && title.getBoundingClientRect().right <= trailing.getBoundingClientRect().left && style.overflowWrap === 'anywhere' && style.textOverflow !== 'ellipsis' && node.getBoundingClientRect().height >= title.getBoundingClientRect().height;
     });
     expect(fit).toBe(true);
     await expect(row.getByRole("button", { name: /^Message / })).toBeEnabled();
@@ -320,7 +339,7 @@ for (const width of [320, 393, 1440]) {
     const invite = group.getByTestId("connect-invite-to-one");
     await expect(empty).toHaveCount(1);
     await expect(invite).toBeVisible();
-    await expect(group.getByTestId("directory-person-card")).toHaveCount(0);
+    await expect(group.getByTestId("directory-person-row")).toHaveCount(0);
     // Search focus can still be smoothly scrolling the page. Read all viewport
     // boxes in one turn so scrolling cannot move between measurements.
     const { emptyBox, inviteBox, groupBox } = await group.evaluate((node, label) => {
@@ -362,33 +381,39 @@ for (const width of [320, 393, 1440]) {
     }
     await page.getByRole("button", { name: "Clear search" }).click();
     await expect(search).toHaveValue("");
-    await expect(group.getByTestId("directory-person-card")).toHaveCount(3);
+    await expect(group.getByTestId("directory-person-row")).toHaveCount(3);
     await expect(empty).toHaveCount(0);
     expect(errors).toEqual([]);
   });
 
-  test(`wraps a long directory identity without squeezing phone cards at ${width}px`, async ({ page }, testInfo) => {
+  test(`wraps a long directory identity beside its action at ${width}px`, async ({ page }, testInfo) => {
     await open(page, width, false, undefined, () => {
       document.documentElement.dataset.longDirectoryIdentity = "1";
     });
-    const cards = page.getByTestId("directory-person-card");
+    const cards = page.getByTestId("directory-person-row");
     await expect(cards).toHaveCount(3);
     const first = cards.first();
     await expect(first).toContainText("Avery Featherstonehaugh-Rajendran");
     await expect(first).toContainText("a***@international-research-department.example.com");
-    await expect(first.getByTestId("directory-person-masked-phone")).toHaveText("98******10");
+    await expect(first).not.toContainText("98******10");
     const groupBox = await page.getByTestId("connect-directory-group").boundingBox();
     const cardBox = await first.boundingBox();
     expect(groupBox).not.toBeNull();
     expect(cardBox).not.toBeNull();
-    if (width < 640) expect(Math.abs(cardBox!.width - groupBox!.width)).toBeLessThanOrEqual(2);
+    expect(Math.abs(cardBox!.width - groupBox!.width)).toBeLessThanOrEqual(2);
     expect(await first.evaluate(node => [...node.querySelectorAll<HTMLElement>("span, button")]
       .every(child => child.scrollWidth <= child.clientWidth + 1))).toBe(true);
     const add = first.getByRole("button", { name: "Connect", exact: true });
     await expect(add).toBeEnabled();
     const actionBox = await add.boundingBox();
+    // The button is a 44px target around a compact 32px pill.
     expect(actionBox!.height).toBeGreaterThanOrEqual(44);
+    const pill = await add.locator("span").first().boundingBox();
+    expect(pill!.height).toBeLessThanOrEqual(34);
     expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
+    // The identity keeps its own column: the action never sits on the text.
+    const textBox = await first.locator('[data-slot="settings-row-title"]').boundingBox();
+    expect(textBox!.x + textBox!.width).toBeLessThanOrEqual(actionBox!.x + 1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     const shotDir = process.env.CONNECT_GRID_SHOT_DIR;
     if (shotDir && width === 393) {
@@ -396,5 +421,130 @@ for (const width of [320, 393, 1440]) {
       await first.scrollIntoViewIfNeeded();
       await page.screenshot({ path: path.join(shotDir, `connect-393-long-identity-${testInfo.project.name}.png`) });
     }
+  });
+}
+
+// ---- Profile type roles (profile-ui skill) ------------------------------------
+// Values are the Profile pane's, read from the running native app on 2026-10-18.
+const read = (page: Page, selector: string, index = 0) =>
+  page.locator(selector).nth(index).evaluate((node) => {
+    const s = getComputedStyle(node);
+    return { size: s.fontSize, weight: s.fontWeight, line: s.lineHeight, color: s.color };
+  });
+
+for (const width of [320, 393, 768]) {
+  test(`Connect takes the Profile type roles at ${width}px, and only while it is the page`, async ({ page }) => {
+    await open(page, width, false);
+    await settle(page, width);
+    const px = (value: string) => Number.parseFloat(value);
+
+    // Surface header: the shell title.
+    expect(await read(page, '[data-testid="top-app-bar-breadcrumb-trail"]')).toMatchObject({ size: "20px", weight: "600", line: "23px" });
+    // Primary label: both tabs, selected or not.
+    for (const index of [0, 1]) {
+      expect(await read(page, '[data-ui-role="agent-tab-label"]', index)).toMatchObject({ size: "13px", weight: "550", line: "15.6px" });
+    }
+    // The title of a list outranks the heading nested under it.
+    const parent = await read(page, ".connect-section-control-label", 0);
+    const child = await read(page, '[data-testid="connect-my-connections-group"] [data-slot="settings-group-heading"]', 0);
+    expect(parent).toMatchObject({ size: "13px", weight: "550" });
+    expect(child).toMatchObject({ size: "10px", weight: "600", line: "14px" });
+    expect(px(parent.size)).toBeGreaterThanOrEqual(px(child.size));
+    // Name and its secondary line.
+    const row = '[data-testid="connect-my-connections-group"] [data-testid="connect-person-row"]';
+    expect(await read(page, `${row} [data-slot="settings-row-title"]`)).toMatchObject({ size: "13px", weight: "400", line: "15.86px" });
+    expect(await read(page, `${row} [data-slot="settings-row-description"]`)).toMatchObject({ size: "12px", weight: "400", line: "15.6px" });
+    // Directory: the helper line, an email line and the action label.
+    expect(await read(page, '[data-testid="connect-directory-group"] [data-slot="settings-group-description"]')).toMatchObject({ size: "12px", line: "15.6px" });
+    expect(await read(page, '[data-testid="directory-person-row"] [data-slot="settings-row-description"]')).toMatchObject({ size: "12px" });
+    expect(await read(page, '[data-testid="directory-person-row"] [data-profile-role="action"]')).toMatchObject({ size: "12px", weight: "500", line: "15.6px" });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+
+    // Negative control: take the page out of the scale and the same elements fall
+    // back to the app-wide roles, so the rules are scoped, not global.
+    await page.locator("[data-connect-page]").evaluate((node) => node.removeAttribute("data-profile-type-scale"));
+    expect(await read(page, '[data-testid="top-app-bar-breadcrumb-trail"]')).not.toMatchObject({ size: "20px" });
+    expect(await read(page, `${row} [data-slot="settings-row-title"]`)).not.toMatchObject({ size: "13px" });
+  });
+
+  test(`a drag that starts inside My connections reaches People at ${width}px`, async ({ page }) => {
+    await open(page, width, false, undefined, () => {
+      document.documentElement.dataset.connections = "14";
+      document.documentElement.dataset.bottomChrome = "1";
+    });
+    await expect(page.getByTestId("connect-my-connections-group").getByTestId("connect-person-row")).toHaveCount(14, { timeout: 30_000 });
+    await expect(page.getByTestId("directory-person-row")).toHaveCount(3);
+    const root = page.locator("[data-app-scroll-root]");
+    const list = page.locator("#connect-my-connections-panel");
+    const rows = page.getByTestId("connect-my-connections-group").getByTestId("connect-person-row");
+
+    // The list is part of the page: not a scroller, not a scroll trap.
+    expect(await list.evaluate((node) => {
+      const s = getComputedStyle(node);
+      return { overflowY: s.overflowY, overscroll: s.overscrollBehaviorY, own: node.scrollHeight - node.clientHeight };
+    })).toEqual({ overflowY: "visible", overscroll: "auto", own: 0 });
+
+    const wheelFromRow = async () => {
+      const box = await rows.nth(3).boundingBox();
+      await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      const before = await root.evaluate((node) => node.scrollTop);
+      for (let step = 0; step < 6; step += 1) await page.mouse.wheel(0, 700);
+      await page.waitForTimeout(150);
+      return (await root.evaluate((node) => node.scrollTop)) - before;
+    };
+    // The active pager measures its height in ResizeObserver + rAF after the
+    // rows mount. Wait for that layout commit before testing wheel propagation.
+    await expect.poll(() => root.evaluate((node) => node.scrollHeight - node.clientHeight)).toBeGreaterThan(600);
+    const maxScroll = await root.evaluate((node) => node.scrollHeight - node.clientHeight);
+    // The gesture carries all the way to the end of the page, through People.
+    expect(await wheelFromRow()).toBeGreaterThanOrEqual(maxScroll - 2);
+
+    // The last result and its action stay clear of the bottom chrome.
+    await root.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+    await expect.poll(async () => {
+      const last = await page.getByTestId("directory-person-row").last().boundingBox();
+      const chrome = await page.locator("[data-fixture-bottom-shell]").boundingBox();
+      return Boolean(last && chrome && last.y + last.height <= chrome.y);
+    }).toBe(true);
+
+    // The 44px action targets reach past the column, so the list's shell must not
+    // be a clipped box: a clipped one can be scrolled sideways (a click that
+    // scrolls the target into view moved every row 10px left and cut the avatars).
+    const shell = page.locator('[data-testid="connect-my-connections-group"] [data-slot="settings-group-shell"]');
+    expect(await shell.evaluate((node) => getComputedStyle(node).overflowX)).toBe("visible");
+    await page.getByRole("button", { name: /^Remove connection with/ }).last().focus();
+    expect(await shell.evaluate((node) => node.scrollLeft)).toBe(0);
+
+    // Negative control: the old markup (a capped list that contains its
+    // overscroll) swallows the same gesture, so the assertion above can fail.
+    await root.evaluate((node) => { node.scrollTop = 0; });
+    await list.evaluate((node) => node.classList.add("max-h-[min(60dvh,28rem)]", "overflow-y-auto", "overscroll-contain"));
+    expect(await wheelFromRow()).toBeLessThan(maxScroll / 2);
+  });
+}
+
+// 200% enlargement of the narrowest and the standard phone is a 160px and a 196px
+// layout viewport. Long names wrap and rows grow; nothing is clipped, nothing
+// slides under an action, and the page does not scroll sideways.
+for (const width of [160, 196]) {
+  test(`keeps long names and actions readable at 200% enlargement (${width}px layout width)`, async ({ page }) => {
+    await open(page, width, false, undefined, () => {
+      document.documentElement.dataset.longConnectionName = "1";
+      document.documentElement.dataset.longDirectoryIdentity = "1";
+    });
+    await expect(page.getByTestId("connect-my-connections-group").getByTestId("connect-person-row")).toHaveCount(6, { timeout: 30_000 });
+    await expect(page.getByTestId("directory-person-row")).toHaveCount(3);
+    const rows = page.locator('[data-testid="connect-person-row"], [data-testid="directory-person-row"]');
+    const fits = await rows.evaluateAll((nodes, viewport) => nodes.map((row) => {
+      const box = row.getBoundingClientRect();
+      const text = row.querySelector<HTMLElement>('[data-slot="settings-row-title"]')!.getBoundingClientRect();
+      const trailing = row.querySelector('[data-slot="settings-row-trailing"]')!.getBoundingClientRect();
+      const reach = [...row.querySelectorAll<HTMLElement>('[data-slot="settings-row-trailing"] button')]
+        .every((button) => { const r = button.getBoundingClientRect(); return r.left >= 0 && r.right <= viewport && r.width >= 44 && r.height >= 44; });
+      return text.right <= trailing.left + 1 && box.right <= viewport + 1 && reach;
+    }), width);
+    expect(fits.length).toBeGreaterThan(8);
+    expect(fits.every(Boolean)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   });
 }

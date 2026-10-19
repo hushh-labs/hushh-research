@@ -534,6 +534,24 @@ describe("PKM cache behavior", () => {
     ).toEqual(result.manifest);
   });
 
+  it("fences sharing dispatch and suppresses late cache publication without misreporting a committed result", async () => {
+    let current = false;
+    const beforeEffect = async () => { if (!current) throw new DOMException("Retired", "AbortError"); };
+    const params = { userId: "user-1", domain: "financial", changes: [], beforeEffect, mayPublish: () => current };
+    await expect(PersonalKnowledgeModelService.updateScopeExposure(params)).rejects.toMatchObject({ name: "AbortError" });
+    expect(apiFetchMock).not.toHaveBeenCalled();
+    let finish!: (response: Response) => void;
+    apiFetchMock.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    current = true;
+    const operation = PersonalKnowledgeModelService.updateScopeExposure(params);
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(apiFetchMock.mock.calls[0]![1]).toMatchObject({ beforeDispatch: beforeEffect, isEffectCurrent: params.mayPublish });
+    current = false;
+    finish(new Response(JSON.stringify({ success: true, manifest: { domain: "financial" } }), { status: 200 }));
+    await expect(operation).resolves.toMatchObject({ success: true });
+    expect(CacheService.getInstance().get(CACHE_KEYS.DOMAIN_MANIFEST("user-1", "financial"))).toBeNull();
+  });
+
   it("throws a typed conflict error for manifest version mismatches", async () => {
     apiFetchMock.mockResolvedValue(
       new Response(

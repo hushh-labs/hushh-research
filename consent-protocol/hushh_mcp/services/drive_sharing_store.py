@@ -31,6 +31,7 @@ from hushh_mcp.services.drive_owner_allowed import (
     LEGACY_DEFAULT_PRICE_CENTS,
     LEGACY_REQUEST_POLICY,
     OWNER_ALLOWED_KEY,
+    SEMANTIC_SEARCH_POLICY_VERSION,
     automatic_recipient_current,
     autoshare_enabled,
     autoshare_request,
@@ -39,6 +40,8 @@ from hushh_mcp.services.drive_owner_allowed import (
     owner_allowed_record,
     package_allow_marker,
     request_has_document_scope,
+    semantic_search_enrollment_enabled,
+    semantic_search_request,
     valid_owner_price_cents,
     valid_request_price_cents,
     whole_dollar_request,
@@ -88,6 +91,46 @@ OWNER_SETUP_CODES = frozenset(
 
 def _new_requests_use_legacy_flow() -> bool:
     return os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true"
+
+
+def _new_semantic_model_binding(connection, *, owner_user_id: str) -> dict | None:
+    """Freeze the Azure pilot only for an owner with current durable approval.
+
+    An unapproved owner's new request retains the existing Gemini semantic
+    contract. A failed approval read aborts request creation; it never grants
+    Azure processing or silently treats an unavailable store as a denial.
+    """
+    from hushh_mcp.services.drive_request_package_assessment import (
+        semantic_request_model_binding,
+    )
+
+    provider = os.getenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini").strip().lower()
+    if provider == "gemini":
+        return None
+    if provider != "azure_openai" or os.getenv("ENVIRONMENT", "").strip().lower() != "uat":
+        raise ValueError("Invalid Documents semantic provider")
+    from hushh_mcp.services.private_text_processing_approval_service import (
+        PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION,
+    )
+
+    row = (
+        connection.execute(
+            text(
+                """SELECT generation FROM one_private_text_processing_approvals
+            WHERE user_id=:user AND enabled IS TRUE
+              AND disclosure_version=:disclosure AND accepted_at IS NOT NULL
+            FOR SHARE"""
+            ),
+            {"user": owner_user_id, "disclosure": PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION},
+        )
+        .mappings()
+        .first()
+    )
+    if row is None:
+        return None
+    return semantic_request_model_binding(
+        provider="azure_openai", approval_generation=str(row["generation"])
+    )
 
 
 def _period_conflict_view(private) -> dict:
@@ -1457,6 +1500,8 @@ class DriveSharingStore(DriveDocumentStore):
                 "v1LiveRequest": private.get("v1_live_request") is True,
                 "trustedAuto": private.get("trusted_auto") is True,
                 "autoshare": autoshare_request(private),
+                "semanticSearch": semantic_search_request(private),
+                "semanticModelBinding": private.get("semantic_model_binding"),
                 "reusablePacket": private.get("reusable_packet"),
             }
 
@@ -1738,6 +1783,18 @@ class DriveSharingStore(DriveDocumentStore):
                 else {}
             )
             setup_code = self._setup_code(setup) if setup else None
+            enroll_semantic_search = bool(
+                not owner_initiated
+                and not agent_package
+                and not v1_live_request
+                and autoshare_enabled()
+                and semantic_search_enrollment_enabled()
+            )
+            semantic_model_binding = (
+                _new_semantic_model_binding(connection, owner_user_id=owner_user_id)
+                if enroll_semantic_search
+                else None
+            )
             envelope = self.sharing_cipher.seal(
                 {
                     **payload,
@@ -1754,6 +1811,16 @@ class DriveSharingStore(DriveDocumentStore):
                     **(
                         {"request_flow": AUTOSHARE_REQUEST_FLOW}
                         if not owner_initiated and not agent_package and autoshare_enabled()
+                        else {}
+                    ),
+                    **(
+                        {"semantic_search_policy_version": SEMANTIC_SEARCH_POLICY_VERSION}
+                        if enroll_semantic_search
+                        else {}
+                    ),
+                    **(
+                        {"semantic_model_binding": semantic_model_binding}
+                        if semantic_model_binding is not None
                         else {}
                     ),
                     **(

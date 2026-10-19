@@ -1,4 +1,4 @@
-import type { HushhNativeDrawersPlugin } from "./native-drawers";
+import { hasNativeProfileScene, type HushhNativeDrawersPlugin } from "./native-drawers";
 import { NativeProfileNameFence, validNativeProfileNameProjection,
   type NativeProfileNameAction, type NativeProfileNameEdit, type NativeProfileNameIdentity,
   type NativeProfileNameProjection, type NativeProfileNameScenePort } from "./native-profile-name-scene";
@@ -12,8 +12,7 @@ export type NativeProfileNameActions<T> = {
 };
 type Plugin = HushhNativeDrawersPlugin & NativeProfileNameScenePort;
 export function hasNativeProfileNameScene(plugin: HushhNativeDrawersPlugin): plugin is Plugin {
-  return [plugin.applyProfileNameScene, plugin.confirmProfileNameAction, plugin.settleProfileNameAction,
-    plugin.retireProfileNameScene].every(method => typeof method === "function");
+  return hasNativeProfileScene(plugin, "account-name");
 }
 
 /** Compatibility facade: preserve the qualified name port and private schema

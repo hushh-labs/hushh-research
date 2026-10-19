@@ -19,20 +19,24 @@ import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
 
 export const TODO_LIST_PKM_DOMAIN = "one_todos" as const;
 
-export type TodoType = "automatic" | "manual";
-export type TodoStatus = "pending" | "done" | "deleted";
-export const TODO_SOURCE_LABELS = {
-  calendar: "Calendar",
-  gmail: "Gmail",
-  drive: "Drive",
-  kai: "Finance",
-  kyc: "KYC",
-  location: "Location",
-  connections: "Connections",
-  consent: "Consent",
-  agent: "Private agent",
-} as const;
-export type TodoSourceAgent = keyof typeof TODO_SOURCE_LABELS | null;
+import {
+  TODO_SOURCE_LABELS,
+  type TodoType,
+  type TodoStatus,
+  type TodoSourceAgent,
+  type TodoItem,
+} from "@/lib/todos/todo-list-model";
+export {
+  TODO_SOURCE_LABELS,
+  openTodoItems,
+  completedTodoItems,
+} from "@/lib/todos/todo-list-model";
+export type {
+  TodoType,
+  TodoStatus,
+  TodoSourceAgent,
+  TodoItem,
+} from "@/lib/todos/todo-list-model";
 
 /** Explicit follow-up metadata supplied by a live agent/domain publisher. */
 export type AgentTodo = {
@@ -41,28 +45,6 @@ export type AgentTodo = {
   source: Exclude<TodoSourceAgent, null>;
   title: string;
   href: string;
-};
-
-/**
- * The private task model. `userId` is intentionally not duplicated in the
- * value: the encrypted PKM domain is already owner-scoped by user id.
- */
-export type TodoItem = {
-  id: string;
-  title: string;
-  type: TodoType;
-  date: string | null;
-  time: string | null;
-  status: TodoStatus;
-  sourceAgent: TodoSourceAgent;
-  sourceId: string | null;
-  link: string | null;
-  notes: string | null;
-  createdAt: string;
-  updatedAt: string;
-  completedAt: string | null;
-  deletedAt: string | null;
-  revision?: number;
 };
 
 export type CreateTodoInput = {
@@ -193,7 +175,10 @@ function normalizeItem(value: unknown): TodoItem | null {
     status: normalizeStatus(value.status, completedAt, deletedAt),
     sourceAgent: normalizeSource(value.sourceAgent ?? value.source, type),
     sourceId,
-    link: normalizeLink(value.link, id.startsWith("feed_") && Boolean(sourceId?.startsWith("feed:"))),
+    link: normalizeLink(
+      value.link,
+      id.startsWith("feed_") && Boolean(sourceId?.startsWith("feed:")),
+    ),
     notes: value.notes ? String(value.notes) : null,
     revision:
       Number.isSafeInteger(value.revision) && Number(value.revision) >= 0
@@ -256,7 +241,10 @@ export function buildTodo(
     status: "pending",
     sourceAgent: source,
     sourceId,
-    link: normalizeLink(input.link, id.startsWith("feed_") && Boolean(sourceId?.startsWith("feed:"))),
+    link: normalizeLink(
+      input.link,
+      id.startsWith("feed_") && Boolean(sourceId?.startsWith("feed:")),
+    ),
     notes: text(input.notes, 1_200) || null,
     createdAt: now,
     updatedAt: now,
@@ -337,13 +325,23 @@ export function gmailTodoInput(event: GmailTodoEvent): CreateTodoInput | null {
 }
 
 /** Live Feed tasks are projections; only owner completion/dismissal is saved. */
-export function agentTodoInput(id: string, item: AgentTodo): CreateTodoInput | null {
-  if (typeof id !== "string" || !item || typeof item.title !== "string") return null;
+export function agentTodoInput(
+  id: string,
+  item: AgentTodo,
+): CreateTodoInput | null {
+  if (typeof id !== "string" || !item || typeof item.title !== "string")
+    return null;
   const sourceId = typeof item.key === "string" ? item.key.trim() : id.trim();
   const title = text(item.title, 240);
   const link = normalizeInternalRouteHref(item.href);
-  if (!sourceId || sourceId.length > 220 || !title || !link ||
-      !Object.hasOwn(TODO_SOURCE_LABELS, item.source)) return null;
+  if (
+    !sourceId ||
+    sourceId.length > 220 ||
+    !title ||
+    !link ||
+    !Object.hasOwn(TODO_SOURCE_LABELS, item.source)
+  )
+    return null;
   return {
     id: `feed_${sourceId}`,
     sourceId: `feed:${sourceId}`,
@@ -355,16 +353,9 @@ export function agentTodoInput(id: string, item: AgentTodo): CreateTodoInput | n
 }
 
 export function isLiveAgentTodo(task: TodoItem): boolean {
-  return task.id.startsWith("feed_") && Boolean(task.sourceId?.startsWith("feed:"));
-}
-
-/** Active rows are pending tasks. Completed and dismissed rows stay private. */
-export function openTodoItems(tasks: TodoItem[]): TodoItem[] {
-  return tasks.filter((task) => task.status === "pending");
-}
-
-export function completedTodoItems(tasks: TodoItem[]): TodoItem[] {
-  return tasks.filter((task) => task.status === "done");
+  return (
+    task.id.startsWith("feed_") && Boolean(task.sourceId?.startsWith("feed:"))
+  );
 }
 
 export function readTodoListState(
@@ -477,7 +468,7 @@ export const TodoListPkmService = {
       domain: TODO_LIST_PKM_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => null);
+    });
     return readTodoListState(domainData);
   },
 

@@ -16,6 +16,7 @@ struct HushhSessionPrivacyState {
     private(set) var cause = "inactive"
     private var inactiveCycleOpen = false
     private var presentationRetirements = Set<UUID>()
+    var hasPendingPresentationRetirement: Bool { !presentationRetirements.isEmpty }
     var shouldPublishRetirementCompletion: Bool { shielded }
     mutating func beginPresentationRetirement() -> UUID {
         let token = UUID()
@@ -53,6 +54,12 @@ struct HushhSessionPrivacyState {
 
     mutating func markAppActive() {
         inactiveCycleOpen = false
+    }
+
+    mutating func protectForPresentationRecovery() {
+        guard !shielded else { return }
+        protectForAppInactive()
+        markAppActive() // This is an active-app failure, not a fabricated lifecycle event.
     }
 
     @discardableResult
@@ -96,6 +103,16 @@ struct HushhSessionPrivacyDocumentState {
         observed.contains(documentId) && !retired.contains(documentId)
     }
 }
+
+#if DEBUG
+private final class HushhPrivacyDiagnosticOverlay: UIView {
+    var readStatus: (() -> String?)?
+    override var accessibilityValue: String? {
+        get { readStatus?() }
+        set { /* Diagnostics are a read-only projection, never an unlock port. */ }
+    }
+}
+#endif
 
 /**
  * Native, process-local cover for the WebView while the app returns from the
@@ -189,6 +206,19 @@ final class HushhSessionPrivacyShield: NSObject {
         publishState()
     }
 
+    /// Escalate a stalled native presentation into the existing user-controlled
+    /// recovery surface. Never reload, sign out or replay a feature operation.
+    func protectForPresentationRecovery() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard lifecycleIsActive, UIApplication.shared.applicationState == .active, !state.shielded else { return }
+        state.protectForPresentationRecovery()
+        cancelRecovery()
+        installOverlayIfNeeded() // Cover the actual window before retiring private presenters.
+        recoveryPanel?.isHidden = false
+        publishState()
+        UIAccessibility.post(notification: .screenChanged, argument: recoveryTitle)
+    }
+
     func snapshot() -> Snapshot {
         dispatchPrecondition(condition: .onQueue(.main))
         return Snapshot(shielded: state.shielded, generation: state.generation,
@@ -256,7 +286,10 @@ final class HushhSessionPrivacyShield: NSObject {
                 completion: { _ in overlay.removeFromSuperview() }
             )
         }
-        NotificationCenter.default.post(name: Self.presentationDidChange, object: self)
+        // Release is authoritative state for every presentation consumer, not
+        // only the caller awaiting its bridge Promise. Broadcast it through the
+        // same lifecycle owner so a delayed receipt cannot strand JS isolation.
+        publishState()
         return true
     }
 
@@ -329,7 +362,17 @@ final class HushhSessionPrivacyShield: NSObject {
             return
         }
 
+        #if DEBUG
+        let overlay = HushhPrivacyDiagnosticOverlay(frame: .zero)
+        overlay.readStatus = { [weak self] in
+            guard let self else { return nil }
+            // Read at observation time: a missing foreground callback must not
+            // make an earlier cached application-state value look current.
+            return "NATIVE_PRIVACY_STATE shielded=\(self.state.shielded) lifecycle_active=\(self.lifecycleIsActive) application_active=\(UIApplication.shared.applicationState == .active) recovery_visible=\(self.recoveryPanel?.isHidden == false) recovery_scheduled=\(self.recoveryWorkItem != nil) retirement_pending=\(self.state.hasPendingPresentationRetirement)"
+        }
+        #else
         let overlay = UIView(frame: .zero)
+        #endif
         overlay.translatesAutoresizingMaskIntoConstraints = false
         // Match LaunchScreen.storyboard exactly so the cover reads as the app
         // itself rather than a loading state.
@@ -359,7 +402,7 @@ final class HushhSessionPrivacyShield: NSObject {
 
         let detail = UILabel(frame: .zero)
         detail.translatesAutoresizingMaskIntoConstraints = false
-        detail.text = "Your private information is still hidden. Try again, or restart this session."
+        detail.text = "Your private information is hidden. Try again. Restarting locks the vault and may discard unsent drafts."
         detail.textColor = .secondaryLabel
         detail.font = .preferredFont(forTextStyle: .subheadline)
         detail.adjustsFontForContentSizeCategory = true

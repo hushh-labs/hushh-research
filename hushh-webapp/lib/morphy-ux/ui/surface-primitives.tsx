@@ -251,13 +251,27 @@ export function TrustNoteCard({
 export function WarningCard({
   title,
   description,
+  tone = "warning",
 }: {
   title: string;
   description: string;
+  tone?: "warning" | "neutral";
 }) {
   return (
-    <div className={cn(WARNING_SURFACE, "flex gap-3 p-3.5")}>
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+    <div
+      className={cn(
+        tone === "neutral"
+          ? "rounded-[var(--app-card-radius-compact,16px)] bg-[color:var(--app-neutral-fill)] text-[color:var(--app-primary-label)]"
+          : WARNING_SURFACE,
+        "flex gap-3 p-3.5",
+      )}
+    >
+      <AlertTriangle
+        className={cn(
+          "mt-0.5 h-4 w-4 shrink-0",
+          tone === "neutral" && "text-[color:var(--app-accent)]",
+        )}
+      />
       <div>
         <p className="ui-text-row-label-emphasized">{title}</p>
         <p className="ui-text-row-description">{description}</p>

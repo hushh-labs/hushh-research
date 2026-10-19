@@ -6,8 +6,27 @@ import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui"
 import { AccountProfileIcon, GmailAgentIcon } from "../../components/icons/agents";
 import accountStyles from "../../components/profile/profile-your-account.module.css";
 import { AppPageShell } from "../../components/app-ui/app-page-shell";
+import { Sheet, SheetContent, SheetTitle } from "../../components/ui/sheet";
+import { Dialog, DialogContent, DialogTitle } from "../../components/ui/dialog";
 
 const pane = document.getElementById("root")!.dataset.pane === "true";
+
+function NestedOverlayStudy() {
+  const [sheet, setSheet] = useState(false), [preview, setPreview] = useState(false);
+  return <NativeFeaturePage pane open title="Your account" owner="synthetic" context="photo"
+    onBack={() => undefined} onClose={() => undefined}>
+    <button onClick={() => setSheet(true)}>Photo options</button>
+    <Sheet open={sheet} onOpenChange={setSheet}>
+      <SheetContent side="bottom" showCloseButton={false}>
+        <SheetTitle>Photo options</SheetTitle>
+        <button onClick={() => { setSheet(false); setPreview(true); }}>View photo</button>
+      </SheetContent>
+    </Sheet>
+    <Dialog open={preview} onOpenChange={setPreview}>
+      <DialogContent><DialogTitle>Photo preview</DialogTitle><p>Public preview</p></DialogContent>
+    </Dialog>
+  </NativeFeaturePage>;
+}
 
 function NestedProfileStudy() {
   const [detail, setDetail] = useState(false);
@@ -27,6 +46,7 @@ function NestedProfileStudy() {
 }
 
 createRoot(document.getElementById("root")!).render(
+  document.getElementById("root")!.dataset.overlays === "true" ? <NestedOverlayStudy /> :
   document.getElementById("root")!.dataset.stack === "true" ? <NestedProfileStudy /> :
   <NativeFeaturePage pane={pane} contentInset={pane ? "profile" : undefined} open title="Preferences" owner="synthetic" context="synthetic" onBack={() => undefined}
     bodyClassName="profile-pane-scroll-root"

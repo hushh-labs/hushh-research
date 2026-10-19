@@ -1,0 +1,66 @@
+name: Diagnose UAT Managed Vertex Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: "Failed UAT backend Cloud Build UUID"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  diagnose:
+    name: Read redacted UAT probe verdict
+    runs-on: ubuntu-latest
+    environment:
+      name: uat
+      deployment: false
+    steps:
+      - name: Validate build identity
+        shell: bash
+        env:
+          BUILD_ID: ${{ inputs.build_id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BUILD_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            echo "A Cloud Build UUID is required." >&2
+            exit 1
+          fi
+
+      - name: Check out diagnostic sanitizer
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Authenticate for read-only UAT logging
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Read and redact exact build probe logs
+        shell: bash
+        env:
+          BUILD_ID: ${{ inputs.build_id }}
+        run: |
+          set -euo pipefail
+          probe_logs="$(mktemp)"
+          build_logs="$(mktemp)"
+          trap 'rm -f "$probe_logs" "$build_logs"' EXIT
+          gcloud logging read \
+            "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"genai-ready-${BUILD_ID}\" AND textPayload:\"managed_vertex_probe_result\"" \
+            --project=hushh-pda-uat --freshness=24h --limit=20 --format=json > "$probe_logs"
+          gcloud logging read \
+            "resource.type=\"build\" AND resource.labels.build_id=\"${BUILD_ID}\"" \
+            --project=hushh-pda-uat --freshness=24h --limit=200 --format=json > "$build_logs"
+          python3 scripts/ci/summarize_uat_managed_vertex_logs.py "$probe_logs" --build-logs "$build_logs"

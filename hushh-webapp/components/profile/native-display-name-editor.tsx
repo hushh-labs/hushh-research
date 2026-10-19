@@ -136,7 +136,7 @@ export function NativeDisplayNameEditor(props: DisplayNameEditorProps & {
       if (retired && replica.current === current && nativeDrawerOwnerIsCurrent(current.identity)) live.current.props.onCancel?.();
     });
     return true;
-  });
+  }, props.destinationId ? { profile_pane: "1" } : undefined);
   if (renderer !== "web") return <div aria-busy={renderer === "checking"} data-native-profile-name-state={renderer} />;
   const form = <DisplayNameEditorForm model={model} className={props.className} onCancel={props.onCancel} />;
   return props.portalFallback ? props.webHost ? createPortal(form, props.webHost) : null : form;

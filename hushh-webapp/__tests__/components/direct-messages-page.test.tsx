@@ -441,7 +441,7 @@ describe("DirectMessagesPage", () => {
   });
 
   it("acknowledges received inbox bodies, without treating sender messages or push hints as delivery", async () => {
-    mocks.query = "";
+    mocks.search = "";
     mocks.listConversations.mockResolvedValue({ items: [{ ...mocks.conversation, latestMessage: visibleMessage }], unreadCount: 1 });
     render(<DirectMessagesPage />);
     await waitFor(() => expect(mocks.acknowledgeDelivery).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conversation-1", messageIds: ["visible-message"], isEffectCurrent: expect.any(Function) })));
@@ -1131,7 +1131,14 @@ describe("DirectMessagesPage", () => {
     }));
     expect(mocks.morphyToast.promise).not.toHaveBeenCalled();
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
+    // Reply must work from the direct long-press opening too; changing a
+    // controlled Radix `open` prop does not call its onOpenChange callback.
+    vi.useFakeTimers();
+    try {
+      pointer("pointerdown");
+      act(() => vi.advanceTimersByTime(1_000));
+      pointer("pointerup");
+    } finally { vi.useRealTimers(); }
     fireEvent.click(await screen.findByRole("menuitem", { name: "Reply" }));
     expect(screen.getByText("Replying to yourself")).toBeVisible();
 

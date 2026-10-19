@@ -69,6 +69,11 @@ export type AiSelectionOutcome =
     }
   | { ok: false; code: AiSelectionRefusalCode };
 
+function captureAiOwner(expectedUserId?: string): () => boolean {
+  const owner = snapshotValidatedAuthSessionOwner();
+  return () => !!owner && (!expectedUserId || owner.userId === expectedUserId) && isValidatedAuthSessionOwnerCurrent(owner);
+}
+
 /** The hub's agent status, or null when it cannot be read. */
 async function readAgentStatus(): Promise<AgentStatus | null> {
   try {
@@ -155,13 +160,17 @@ export function parseAgentAiSelection(body: unknown): AgentAiSelection | null {
   };
 }
 
-export async function readAgentAiSelection(): Promise<AgentAiSelection | null> {
+export async function readAgentAiSelection(isCurrent = captureAiOwner()): Promise<AgentAiSelection | null> {
+  if (!isCurrent()) throw new Error("OWNER_CHANGED");
   const response = await ApiService.ownerPodRequest("ai-selection", {
     method: "GET",
     cache: "no-store",
-  });
+  }, false, undefined, undefined, isCurrent);
+  if (!isCurrent()) throw new Error("OWNER_CHANGED");
   if (!response.ok) return null;
-  return parseAgentAiSelection(await response.json().catch(() => null));
+  const body = await response.json().catch(() => null);
+  if (!isCurrent()) throw new Error("OWNER_CHANGED");
+  return parseAgentAiSelection(body);
 }
 
 /** Readiness for one provider plus the agent's current selection, when it has one. */
@@ -169,12 +178,14 @@ export async function loadAgentAiState(provider: AiSelectionProvider): Promise<{
   readiness: AgentAiReadiness;
   selection: AgentAiSelection | null;
 }> {
+  const isCurrent = captureAiOwner();
   const status = await readAgentStatus();
+  if (!isCurrent()) return { readiness: { kind: "unknown" }, selection: null };
   const readiness = agentAiReadiness(status, provider);
   if (advertisedAiProviders(status) === null)
     return { readiness, selection: null };
-  const selection = await readAgentAiSelection().catch(() => null);
-  return { readiness, selection };
+  const selection = await readAgentAiSelection(isCurrent).catch(() => null);
+  return isCurrent() ? { readiness, selection } : { readiness: { kind: "unknown" }, selection: null };
 }
 
 function refusalFromResponse(
@@ -211,7 +222,9 @@ function refusalFromError(error: unknown): AiSelectionRefusalCode {
 /** PUT the selection; the agent's live provider check is the validation. */
 export async function sendAiSelectionToAgent(
   selection: AiSelectionPlaintext,
+  isCurrent = captureAiOwner(),
 ): Promise<AiSelectionOutcome> {
+  if (!isCurrent()) return { ok: false, code: "AGENT_UNREACHABLE" };
   let response: Response;
   try {
     response = await ApiService.ownerPodRequest("ai-selection", {
@@ -219,7 +232,7 @@ export async function sendAiSelectionToAgent(
       headers: { "Content-Type": "application/json" },
       // pod-app-access seals this body to the agent's hub-signed key before dispatch.
       body: JSON.stringify(selection),
-    });
+    }, false, undefined, undefined, isCurrent);
   } catch (error) {
     return { ok: false, code: refusalFromError(error) };
   }
@@ -227,6 +240,7 @@ export async function sendAiSelectionToAgent(
     string,
     unknown
   > | null;
+  if (!isCurrent()) return { ok: false, code: "AGENT_UNREACHABLE" };
   if (response.ok && body?.status === "active") {
     return {
       ok: true,
@@ -241,16 +255,18 @@ export async function sendAiSelectionToAgent(
 export async function clearAgentAiSelection(
   verifyDefault = false,
   expectedProvider?: string,
+  isCurrent = captureAiOwner(),
 ): Promise<boolean> {
+  if (!isCurrent()) return false;
   try {
     const response = await ApiService.ownerPodRequest("ai-selection", {
       method: verifyDefault ? "PATCH" : "DELETE",
-    });
-    if (!response.ok) return false;
+    }, false, undefined, undefined, isCurrent);
+    if (!isCurrent() || !response.ok) return false;
     if (!verifyDefault) return true;
     const body = await response.json().catch(() => null);
     return (
-      body?.status === "cleared" &&
+      isCurrent() && body?.status === "cleared" &&
       typeof body.defaultModel === "string" &&
       body.defaultModel.trim().length > 0 &&
       typeof body.checkedAtMs === "number" &&
@@ -274,8 +290,9 @@ export async function verifyAgentCloudAi(): Promise<AiSelectionOutcome> {
     return { ok: false, code: "PROVIDER_UNSUPPORTED" };
   const expectedProvider = status?.deploymentTarget === "user_azure" ? "azure_openai" : "gemini";
   try {
-    const response = await ApiService.ownerPodRequest("ai-selection", { method: "PATCH" });
+    const response = await ApiService.ownerPodRequest("ai-selection", { method: "PATCH" }, false, undefined, undefined, () => isValidatedAuthSessionOwnerCurrent(owner));
     const body = await response.json().catch(() => null);
+    if (!isValidatedAuthSessionOwnerCurrent(owner)) return { ok: false, code: "AGENT_UNREACHABLE" };
     if (!response.ok) return { ok: false, code: refusalFromResponse(response.status, body) };
     const model = textOrNull(body?.defaultModel);
     const checkedAtMs = finiteOrNull(body?.checkedAtMs);
@@ -333,7 +350,10 @@ export async function shareGeminiSelectionWithAgent(
     vertexLocation: string | null;
   },
 ): Promise<string | null> {
+  const isCurrent = captureAiOwner(input.userId);
+  if (!isCurrent()) return "Your account changed. Try again.";
   const status = await readAgentStatus();
+  if (!isCurrent()) return "Your account changed. Try again.";
   if (!advertisedAiProviders(status)?.includes("gemini")) return null;
   const outcome = await sendAiSelectionToAgent({
     provider: "gemini",
@@ -344,9 +364,10 @@ export async function shareGeminiSelectionWithAgent(
       input.transport === "vertex_api_key" ? input.vertexProject : null,
     vertexLocation:
       input.transport === "vertex_api_key" ? input.vertexLocation : null,
-  });
+  }, isCurrent);
+  if (!isCurrent()) return "Your account changed. Try again.";
   if (!outcome.ok) return aiSelectionRefusalMessage(outcome.code, "Gemini");
-  await recordSelectedAiProvider(input, "gemini").catch(() => undefined);
+  await recordSelectedAiProvider(input, "gemini", null, isCurrent).catch(() => undefined);
   return null;
 }
 
@@ -358,12 +379,15 @@ export async function clearAgentAiSelectionFor(
   onlyProvider: AiSelectionProvider | null,
   verifyDefault = false,
 ): Promise<"cleared" | "not_needed" | "failed"> {
+  const isCurrent = captureAiOwner();
+  if (!isCurrent()) return "failed";
   const status = await readAgentStatus();
+  if (!isCurrent()) return "failed";
   if (advertisedAiProviders(status) === null)
     return verifyDefault ? "failed" : "not_needed";
   if (onlyProvider) {
-    const current = await readAgentAiSelection().catch(() => undefined);
-    if (current === undefined) return "failed";
+    const current = await readAgentAiSelection(isCurrent).catch(() => undefined);
+    if (!isCurrent() || current === undefined) return "failed";
     if (!current?.configured || current.provider !== onlyProvider)
       return "not_needed";
   }
@@ -371,7 +395,7 @@ export async function clearAgentAiSelectionFor(
     return "failed";
   const expectedProvider =
     status?.deploymentTarget === "user_azure" ? "azure_openai" : "gemini";
-  return (await clearAgentAiSelection(verifyDefault, expectedProvider))
+  return (await clearAgentAiSelection(verifyDefault, expectedProvider, isCurrent))
     ? "cleared"
     : "failed";
 }

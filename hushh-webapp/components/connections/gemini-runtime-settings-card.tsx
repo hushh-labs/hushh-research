@@ -1,7 +1,9 @@
 "use client";
 
 import { RadioGroup as RadioPrimitive } from "radix-ui";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo } from "react";
+import { useOwnerPresentationState } from "@/hooks/use-owner-presentation-state";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -46,7 +48,7 @@ import {
 import type { OneRuntimeSetupChoice } from "@/lib/services/pre-vault-user-state-service";
 import detailStyles from "@/components/profile/profile-preference-details.module.css";
 
-type GeminiRuntimeSettingsCardProps = {
+export type GeminiRuntimeSettingsCardProps = {
   userId?: string | null;
   vaultKey?: string | null;
   vaultOwnerToken?: string | null;
@@ -71,32 +73,33 @@ type GeminiRuntimeSettingsCardProps = {
   onPreVaultDraftCleared?: () => void;
 };
 
-
 const CREDENTIAL_VALIDATION_TTL_MS = 60_000;
+const EMPTY_PENDING_AI_PROVIDERS: Record<string, boolean> = Object.freeze({});
+const IDLE_VALIDATION: CredentialValidationState = { status: "idle" };
 
-function assertRuntimeSecretStored(result: {
-  success: boolean;
-  conflict?: boolean;
-}) {
+class RuntimeSettingsVisit {
+  live = false; read = 0; draftEdited = false; validationGeneration = 0;
+  readonly credential = { current: 0 };
+  readonly selection = { current: 0 };
+  readonly pending = { current: false };
+  readonly validating = { current: false };
+  readonly authGeneration = snapshotValidatedAuthSessionOwner()?.generation;
+  credentialCurrent() { return this.current() && snapshotValidatedAuthSessionOwner()?.generation === this.authGeneration; }
+  savedConfiguration: { transport: GeminiRuntimeTransport; project: string; location: string } = { transport: "developer_api", project: "", location: "global" };
+  // Credential changes select a new visit, without retaining another replica.
+  constructor(readonly owner: string | null | undefined, readonly enabled: boolean, readonly epoch: number, ..._credentials: unknown[]) {}
+  start() { this.live = this.enabled; }
+  retire() { this.live = false; this.read += 1; }
+  current() { return this.live && !!this.owner && this.epoch === snapshotVaultSessionEpoch() && snapshotValidatedAuthSessionOwner()?.userId === this.owner; }
+}
+
+function assertRuntimeSecretStored(result: { success: boolean; conflict?: boolean }) {
   if (!result.success) {
     throw new Error(result.conflict ? "PKM_CONFLICT" : "PKM_WRITE_FAILED");
   }
 }
 
-export function GeminiRuntimeSettingsCard(
-  props: GeminiRuntimeSettingsCardProps,
-) {
-  // Credentials and owner-specific results must not survive an account switch.
-  const owner = snapshotValidatedAuthSessionOwner();
-  return (
-    <OwnerRuntimeSettingsCard
-      key={`${props.userId ?? "signed-out"}:${owner?.generation ?? "unresolved"}`}
-      {...props}
-    />
-  );
-}
-
-function OwnerRuntimeSettingsCard({
+export function useGeminiRuntimeSettingsModel({
   userId,
   vaultKey,
   vaultOwnerToken,
@@ -111,77 +114,53 @@ function OwnerRuntimeSettingsCard({
   onCanContinueChange,
   onPreVaultDraftStaged,
   onPreVaultDraftCleared,
-}: GeminiRuntimeSettingsCardProps) {
-  const router = useRouter();
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
+  enabled = true,
+}: GeminiRuntimeSettingsCardProps & { enabled?: boolean }) {
+  const epoch = snapshotVaultSessionEpoch();
+  const authGeneration = snapshotValidatedAuthSessionOwner()?.generation;
+  const visit = useMemo(() => new RuntimeSettingsVisit(userId, enabled, epoch, vaultKey, vaultOwnerToken), [userId, vaultKey, vaultOwnerToken, enabled, epoch, authGeneration]);
+  useLayoutEffect(() => { visit.start(); return () => visit.retire(); }, [visit]);
+  const current = useCallback(() => visit.current(), [visit]);
   const captureOwnerGuard = useCallback(() => {
     const owner = snapshotValidatedAuthSessionOwner();
-    return () =>
-      Boolean(
-        mountedRef.current &&
-        owner &&
-        owner.userId === userId &&
-        isValidatedAuthSessionOwnerCurrent(owner),
-      );
-  }, [userId]);
-  const [mode, setMode] = useState<RuntimeCredentialMode>(
-    "hushh_managed_vertex",
-  );
-  const [cloudAiVerified, setCloudAiVerified] = useState(false);
-  const { placement } = useAiPlacement(captureOwnerGuard, setCloudAiVerified);
-  const [showAiAlternatives, setShowAiAlternatives] = useState(false);
-  const [pendingAiProviders, setPendingAiProviders] = useState<
-    Record<string, boolean>
-  >({});
-  const externalAiPending = Object.values(pendingAiProviders).some(Boolean);
-  const onProviderPendingChange = useCallback(
-    (pending: boolean, provider: string) => {
-      setPendingAiProviders((current) => ({ ...current, [provider]: pending }));
-    },
-    [],
-  );
+    return () => current() && !!owner && owner.userId === userId && isValidatedAuthSessionOwnerCurrent(owner);
+  }, [current, userId]);
+  const router = useRouter();
   const pathname = usePathname();
-
+  const [cloudAiVerified, setCloudAiVerified] = useOwnerPresentationState(visit, false);
+  const { placement } = useAiPlacement(captureOwnerGuard, setCloudAiVerified);
   const privateCloud = placement === "gcp" || placement === "azure";
-  const defaultLabel =
-    privateCloud
-      ? "Use existing cloud"
-        : "Use Hussh's Gemini";
-  const [hasSavedKey, setHasSavedKey] = useState<boolean | null>(null);
-  const [hasSavedProviderKey, setHasSavedProviderKey] = useState(false);
-  const [otherProvider, setOtherProvider] = useState<string | null>(null); // e.g. OpenAI is the own key in use
-  const [draftKey, setDraftKey] = useState("");
-  const [transport, setTransport] =
-    useState<GeminiRuntimeTransport>("developer_api");
-  const [vertexProject, setVertexProject] = useState("");
-  const [vertexLocation, setVertexLocation] = useState("global");
-  const [isSaving, setIsSaving] = useState(false);
-  const [isRemoving, setIsRemoving] = useState(false);
-  const managedChoiceDisabled =
-    isSaving || isRemoving || externalAiPending || (!privateCloud && placement !== "shared");
-  const [agentOutcome, setAgentOutcome] = useState("");
-  const [cloudAiFailure, setCloudAiFailure] = useState<string | null>(null);
+  const defaultLabel = privateCloud ? "Use existing cloud" : "Use Hussh's Gemini";
+  const [showAiAlternatives, setShowAiAlternatives] = useOwnerPresentationState(visit, false);
+  const [pendingAiProviders, setPendingAiProviders] = useOwnerPresentationState<Record<string, boolean>>(visit, EMPTY_PENDING_AI_PROVIDERS);
+  const externalAiPending = Object.values(pendingAiProviders).some(Boolean);
+  const onProviderPendingChange = useCallback((pending: boolean, provider: string) => {
+    if (current()) setPendingAiProviders(value => value[provider] === pending ? value : ({ ...value, [provider]: pending }));
+  }, [current, setPendingAiProviders]);
+  const [hasSavedProviderKey, setHasSavedProviderKey] = useOwnerPresentationState(visit, false);
+  const [otherProvider, setOtherProvider] = useOwnerPresentationState<string | null>(visit, null);
+  const [agentOutcome, setAgentOutcome] = useOwnerPresentationState(visit, "");
+  const [cloudAiFailure, setCloudAiFailure] = useOwnerPresentationState<string | null>(visit, null);
+
+  const [mode, setMode] = useOwnerPresentationState<RuntimeCredentialMode>(visit, "hushh_managed_vertex");
+  const [hasSavedKey, setHasSavedKey] = useOwnerPresentationState<boolean | null>(visit, null);
+  const [draftKey, setDraftKey] = useOwnerPresentationState(visit, "");
+  const [transport, setTransport] = useOwnerPresentationState<GeminiRuntimeTransport>(visit, "developer_api");
+  const [vertexProject, setVertexProject] = useOwnerPresentationState(visit, "");
+  const [vertexLocation, setVertexLocation] = useOwnerPresentationState(visit, "global");
+  const [isSaving, setIsSaving] = useOwnerPresentationState(visit, false);
+  const [isRemoving, setIsRemoving] = useOwnerPresentationState(visit, false);
   const [credentialValidation, setCredentialValidation] =
-    useState<CredentialValidationState>({ status: "idle" });
-  const credentialRevisionRef = useRef(0);
-  const selectionRevisionRef = useRef(0);
-  const selectionPendingRef = useRef(false);
-  const [hasExplicitSelection, setHasExplicitSelection] = useState(
+    useOwnerPresentationState<CredentialValidationState>(visit, IDLE_VALIDATION);
+  const credentialRevisionRef = visit.credential;
+  const selectionRevisionRef = visit.selection;
+  const selectionPendingRef = visit.pending;
+  const validationPendingRef = visit.validating;
+  const [loadFailed, setLoadFailed] = useOwnerPresentationState(visit, false);
+  const [hasExplicitSelection, setHasExplicitSelection] = useOwnerPresentationState(visit,
     !requiresExplicitSelection || initiallyConfigured,
   );
-  const [selectedOption, setSelectedOption] = useState<string>(
-    initiallyConfigured
-      ? initialSetupChoice === "byok_pending_vault"
-        ? "byok"
-        : "hushh_managed_vertex"
-      : "",
-  );
+  const [selectedOption, setSelectedOption] = useOwnerPresentationState<string>(visit, initiallyConfigured ? (initialSetupChoice === "byok_pending_vault" ? "byok" : "hushh_managed_vertex") : "");
   const vaultReady = Boolean(userId && vaultKey && vaultOwnerToken);
   // An already unlocked owner may save BYOK directly to the encrypted vault.
   // Trust that choice only after refresh has read both the saved mode and key;
@@ -193,60 +172,48 @@ function OwnerRuntimeSettingsCard({
     (otherProvider ? hasSavedProviderKey : hasSavedKey === true);
   const configuredChoiceReady = initiallyConfigured || savedByokReady;
 
-  useEffect(() => {
-    setAgentOutcome("");
-    setCloudAiFailure(null);
-  }, [userId]);
-
   const invalidateCredentialValidation = useCallback(() => {
+    if (!current()) return;
     credentialRevisionRef.current += 1;
-    setCredentialValidation({ status: "idle" });
+    visit.validationGeneration += 1; visit.validating.current = false;
+    setCredentialValidation(IDLE_VALIDATION);
     if (requiresExplicitSelection) setHasExplicitSelection(false);
-  }, [requiresExplicitSelection]);
+  }, [current, visit, credentialRevisionRef, setCredentialValidation, setHasExplicitSelection, requiresExplicitSelection]);
 
   useEffect(() => {
-    onCanContinueChange?.(hasExplicitSelection && !isSaving && !isRemoving);
-  }, [hasExplicitSelection, isSaving, isRemoving, onCanContinueChange]);
+    if (current()) onCanContinueChange?.(hasExplicitSelection && !isSaving && !isRemoving);
+  }, [current, hasExplicitSelection, isSaving, isRemoving, onCanContinueChange]);
 
   useEffect(() => {
-    setHasExplicitSelection(!requiresExplicitSelection || configuredChoiceReady);
-  }, [configuredChoiceReady, requiresExplicitSelection]);
+    setHasExplicitSelection(
+      !requiresExplicitSelection || configuredChoiceReady,
+    );
+  }, [configuredChoiceReady, requiresExplicitSelection, setHasExplicitSelection]);
 
   useEffect(() => {
     if (!requiresExplicitSelection) return;
-    setSelectedOption(
-      configuredChoiceReady
-        ? initialSetupChoice === "byok_pending_vault"
-          ? "byok"
-          : "hushh_managed_vertex"
-        : "",
-    );
+    setSelectedOption(configuredChoiceReady ? (initialSetupChoice === "byok_pending_vault" ? "byok" : "hushh_managed_vertex") : "");
     setMode(
       initialSetupChoice === "byok_pending_vault"
         ? "byok"
         : "hushh_managed_vertex",
     );
-  }, [initialSetupChoice, configuredChoiceReady, requiresExplicitSelection]);
+  }, [initialSetupChoice, configuredChoiceReady, requiresExplicitSelection, setSelectedOption, setMode]);
 
   const refresh = useCallback(async () => {
     const ownerIsCurrent = captureOwnerGuard();
     if (!ownerIsCurrent()) return;
+    const request = ++visit.read;
+    setLoadFailed(false);
     if (!vaultReady || !userId || !vaultKey || !vaultOwnerToken) {
       if (!requiresExplicitSelection) setMode("hushh_managed_vertex");
       setHasSavedKey(null);
-      setHasSavedProviderKey(false);
       return;
     }
     const selectionRevision = selectionRevisionRef.current;
+    const credentialRevision = credentialRevisionRef.current;
     try {
-      const [
-        savedMode,
-        savedKey,
-        savedTransport,
-        savedProject,
-        savedLocation,
-        savedProvider,
-      ] = await Promise.all([
+      const [savedMode, savedKey, savedTransport, savedProject, savedLocation, savedProvider] = await Promise.all([
         PersonalKnowledgeModelService.loadRuntimeSecret({
           userId,
           vaultKey,
@@ -279,72 +246,53 @@ function OwnerRuntimeSettingsCard({
         }),
         loadSelectedAiProvider({ userId, vaultKey, vaultOwnerToken }, { requireReadable: true }),
       ]);
+      if (!ownerIsCurrent()) return;
       const providerKeySaved = savedProvider && savedProvider !== "gemini"
         ? await hasStoredAiKey(userId, vaultKey, vaultOwnerToken, savedProvider) : false;
-      if (
-        !ownerIsCurrent() ||
-        selectionRevisionRef.current !== selectionRevision
-      )
-        return;
-      setHasSavedProviderKey(providerKeySaved);
-      const restoredMode =
-        savedMode === "byok" ? "byok" : "hushh_managed_vertex";
+      if (!ownerIsCurrent() || visit.read !== request || selectionRevisionRef.current !== selectionRevision ||
+          credentialRevisionRef.current !== credentialRevision || selectionPendingRef.current || validationPendingRef.current) return;
+      const restoredMode = savedMode === "byok" ? "byok" : "hushh_managed_vertex";
       setMode(restoredMode);
-      setOtherProvider(
-        restoredMode === "byok" && savedProvider && savedProvider !== "gemini"
-          ? savedProvider
-          : null,
-      );
+      setHasSavedProviderKey(providerKeySaved);
+      setOtherProvider(restoredMode === "byok" && savedProvider && savedProvider !== "gemini" ? savedProvider : null);
       if (requiresExplicitSelection) {
-        setSelectedOption((current) => (current ? restoredMode : ""));
-        if (
-          restoredMode === "byok" &&
-          !(savedProvider && savedProvider !== "gemini" ? providerKeySaved : savedKey)
-        )
-          setHasExplicitSelection(false);
+        setSelectedOption((current) => current ? restoredMode : "");
+        if (restoredMode === "byok" && !(savedProvider && savedProvider !== "gemini" ? providerKeySaved : savedKey)) setHasExplicitSelection(false);
       }
       setHasSavedKey(Boolean(savedKey));
-      setTransport(
-        savedTransport === "vertex_api_key"
-          ? "vertex_api_key"
-          : "developer_api",
-      );
-      setVertexProject(savedProject || "");
-      setVertexLocation(savedLocation || "global");
+      visit.savedConfiguration = { transport: savedTransport === "vertex_api_key" ? "vertex_api_key" : "developer_api", project: savedProject || "", location: savedLocation || "global" };
+      if (!visit.draftEdited) {
+        credentialRevisionRef.current += 1;
+        setCredentialValidation(IDLE_VALIDATION);
+        setTransport(savedTransport === "vertex_api_key" ? "vertex_api_key" : "developer_api");
+        setVertexProject(savedProject || "");
+        setVertexLocation(savedLocation || "global");
+      }
     } catch {
-      if (
-        !ownerIsCurrent() ||
-        selectionRevisionRef.current !== selectionRevision
-      )
-        return;
+      if (!ownerIsCurrent() || visit.read !== request || selectionRevisionRef.current !== selectionRevision ||
+          credentialRevisionRef.current !== credentialRevision || selectionPendingRef.current || validationPendingRef.current) return;
+      setLoadFailed(true);
       if (requiresExplicitSelection) setHasExplicitSelection(false);
       else setMode("hushh_managed_vertex");
       setHasSavedKey(false);
       setHasSavedProviderKey(false);
-      setTransport("developer_api");
-      setVertexProject("");
-      setVertexLocation("global");
+      if (!visit.draftEdited) { setTransport("developer_api"); setVertexProject(""); setVertexLocation("global"); }
     }
-  }, [
-    captureOwnerGuard,
-    userId,
-    vaultKey,
-    vaultOwnerToken,
-    vaultReady,
-    requiresExplicitSelection,
-  ]);
+  }, [captureOwnerGuard, setHasSavedProviderKey, setOtherProvider, current, visit, credentialRevisionRef, selectionRevisionRef, selectionPendingRef, validationPendingRef, setCredentialValidation, setLoadFailed, setMode, setHasSavedKey, setTransport, setVertexProject, setVertexLocation, setSelectedOption, setHasExplicitSelection, userId, vaultKey, vaultOwnerToken, vaultReady, requiresExplicitSelection]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   const requestVault = () => {
+    if (!current()) return;
     if (needsVaultCreation) onRequestVaultCreation();
     else onRequestVaultUnlock();
   };
 
   const persistMode = async (nextMode: RuntimeCredentialMode) => {
-    if (!vaultReady || !userId || !vaultKey || !vaultOwnerToken) {
+    const ownerIsCurrent = captureOwnerGuard();
+    if (!ownerIsCurrent() || !vaultReady || !userId || !vaultKey || !vaultOwnerToken) {
       throw new Error("VAULT_NOT_READY");
     }
     const result = await PersonalKnowledgeModelService.storeRuntimeSecret({
@@ -356,16 +304,17 @@ function OwnerRuntimeSettingsCard({
       confirmation: {
         confirmedByUser: true,
         surface: "web",
-        source: "profile_gemini_runtime_mode",
+          source: "profile_gemini_runtime_mode",
       },
     });
+    if (!ownerIsCurrent()) throw new Error("RUNTIME_VISIT_RETIRED");
     assertRuntimeSecretStored(result);
   };
 
-  const selectManaged = async () => {
+  const selectManaged = async (): Promise<boolean> => {
     const ownerIsCurrent = captureOwnerGuard();
-    if (!ownerIsCurrent()) return;
-    if (selectionPendingRef.current) return;
+    if (!ownerIsCurrent()) return false;
+    if (selectionPendingRef.current || validationPendingRef.current || externalAiPending) return false;
     setAgentOutcome("");
     selectionPendingRef.current = true;
     selectionRevisionRef.current += 1;
@@ -389,7 +338,7 @@ function OwnerRuntimeSettingsCard({
       let selection;
       if (privateCloud) {
         const outcome = await verifyAgentCloudAi();
-        if (!ownerIsCurrent()) return;
+        if (!ownerIsCurrent()) return false;
         if (!outcome.ok) {
           setCloudAiFailure(outcome.code);
           throw new Error(outcome.code);
@@ -398,19 +347,20 @@ function OwnerRuntimeSettingsCard({
         selection = { agentScheduled: false, agentReason: "host already connected" };
       } else selection = await ApiService.selectManagedGeminiRuntime();
       if (!selection) throw new Error("AGENT_UNREACHABLE");
-      if (!ownerIsCurrent()) return;
+      if (!ownerIsCurrent()) return false;
       if (!privateCloud && (await clearAgentAiSelectionFor(null)) === "failed")
         throw new Error("AGENT_UNREACHABLE");
+      if (!ownerIsCurrent()) return false;
       setCloudAiVerified(privateCloud);
       setShowAiAlternatives(false);
       if (requiresExplicitSelection) {
         await onSelectionReadyChange?.("hushh_managed_vertex");
-        if (!ownerIsCurrent()) return;
+        if (!ownerIsCurrent()) return false;
         onPreVaultDraftCleared?.();
       } else {
         await persistMode("hushh_managed_vertex");
       }
-      if (!ownerIsCurrent()) return;
+      if (!ownerIsCurrent()) return false;
       setMode("hushh_managed_vertex");
       setOtherProvider(null);
       setHasExplicitSelection(true);
@@ -436,8 +386,9 @@ function OwnerRuntimeSettingsCard({
       toast.success(
         privateCloud ? "Using your cloud’s AI." : "Using Hussh’s Gemini.",
       );
+      return true;
     } catch (error) {
-      if (!ownerIsCurrent()) return;
+      if (!ownerIsCurrent()) return false;
       setMode(previousMode);
       setHasExplicitSelection(previousSelection);
       setSelectedOption(previousOption);
@@ -449,12 +400,12 @@ function OwnerRuntimeSettingsCard({
           "We can’t find your cloud project. Reconnect your cloud to continue.",
         );
         router.push(ROUTES.ONE_SETUP_CLOUD);
-        return;
+        return false;
       }
       if (error instanceof Error && error.message === "CLOUD_GRANT_REVOKED") {
         toast.error("Re-authorize Hushh’s access to your project to continue.");
         router.push(ROUTES.ONE_SETUP_CLOUD);
-        return;
+        return false;
       }
       toast.error(
         error instanceof Error && privateCloud && ["QUOTA_EXCEEDED", "MODEL_UNAVAILABLE", "KEY_REFUSED", "AI_DEFAULT_UNAVAILABLE"].includes(error.message)
@@ -470,6 +421,7 @@ function OwnerRuntimeSettingsCard({
                 ? "We couldn’t save this setup choice. Try again."
                 : "Open your private vault again, then try this setting.",
       );
+      return false;
     } finally {
       // The lock belongs to this keyed instance, never a subsequent owner.
       selectionPendingRef.current = false;
@@ -479,7 +431,7 @@ function OwnerRuntimeSettingsCard({
 
   const selectByok = async () => {
     if (!privateCloud && placement !== "shared") return;
-    if (selectionPendingRef.current) return;
+    if (!current() || selectionPendingRef.current || validationPendingRef.current) return;
     if (requiresExplicitSelection) {
       selectionRevisionRef.current += 1;
       setSelectedOption("byok");
@@ -498,95 +450,72 @@ function OwnerRuntimeSettingsCard({
     setOtherProvider(null);
   };
 
-  const validateByok = async () => {
+  const validateByok = async (): Promise<boolean> => {
     const ownerIsCurrent = captureOwnerGuard();
-    if (!ownerIsCurrent()) return;
+    if (!visit.credentialCurrent() || !ownerIsCurrent() || selectionPendingRef.current || validationPendingRef.current) return false;
     if (!privateCloud && placement !== "shared") {
-      setCredentialValidation({
-        status: "error",
-        message: "Confirm your hosting before choosing AI.",
-      });
-      return;
+      setCredentialValidation({ status: "error", message: "Confirm your hosting before choosing AI." });
+      return false;
     }
+    if (privateCloud) return saveByok();
     const credential = draftKey.trim();
     if (!credential) {
-      setCredentialValidation({
-        status: "error",
-        message: "Enter your Gemini API key.",
-      });
-      return;
+      setCredentialValidation({ status: "error", message: "Enter your Gemini API key." });
+      return false;
     }
-    if (
-      transport === "vertex_api_key" &&
-      (!vertexProject.trim() || !vertexLocation.trim())
-    ) {
-      setCredentialValidation({
-        status: "error",
-        message: "Enter the Google Cloud project ID and Vertex location.",
-      });
-      return;
+    if (transport === "vertex_api_key" && (!vertexProject.trim() || !vertexLocation.trim())) {
+      setCredentialValidation({ status: "error", message: "Enter the Google Cloud project ID and Vertex location." });
+      return false;
     }
-    if (
-      !requiresExplicitSelection &&
-      (!vaultReady || !userId || !vaultKey || !vaultOwnerToken)
-    ) {
+    if (!requiresExplicitSelection && (!vaultReady || !userId || !vaultKey || !vaultOwnerToken)) {
       requestVault();
-      return;
-    }
-    if (privateCloud) {
-      await saveByok();
-      return;
+      return false;
     }
     const revision = credentialRevisionRef.current;
+    const validationRun = ++visit.validationGeneration;
+    selectionRevisionRef.current += 1;
+    validationPendingRef.current = true;
     setCredentialValidation({ status: "checking" });
     try {
       await ApiService.validateGeminiRuntimeCredential({
         credential,
         transport,
-        vertexProject:
-          transport === "vertex_api_key" ? vertexProject.trim() : null,
-        vertexLocation:
-          transport === "vertex_api_key" ? vertexLocation.trim() : null,
+        vertexProject: transport === "vertex_api_key" ? vertexProject.trim() : null,
+        vertexLocation: transport === "vertex_api_key" ? vertexLocation.trim() : null,
       });
-      if (!ownerIsCurrent() || credentialRevisionRef.current !== revision)
-        return;
-      setCredentialValidation({
-        status: "ready",
-        revision,
-        validatedAt: Date.now(),
-      });
+      if (!ownerIsCurrent() || credentialRevisionRef.current !== revision) return false;
+      setCredentialValidation({ status: "ready", revision, validatedAt: Date.now() });
+      return true;
     } catch (error) {
-      if (!ownerIsCurrent() || credentialRevisionRef.current !== revision)
-        return;
+      if (!ownerIsCurrent() || credentialRevisionRef.current !== revision) return false;
       const message =
         error instanceof Error
           ? error.message
           : "Gemini could not be reached to validate this key.";
       setCredentialValidation({ status: "error", message });
+      return false;
+    } finally {
+      if (visit.validationGeneration === validationRun) validationPendingRef.current = false;
     }
   };
 
-  const saveByok = async () => {
+  const saveByok = async (): Promise<boolean> => {
     const ownerIsCurrent = captureOwnerGuard();
-    if (!ownerIsCurrent()) return;
-    if (selectionPendingRef.current) return;
-    if (!privateCloud && placement !== "shared") return;
+    if (!visit.credentialCurrent() || !ownerIsCurrent() || selectionPendingRef.current || validationPendingRef.current) return false;
+    if (!privateCloud && placement !== "shared") return false;
     const credential = draftKey.trim();
+    if (!credential || (transport === "vertex_api_key" && (!vertexProject.trim() || !vertexLocation.trim()))) {
+      setCredentialValidation({ status: "error", message: "Enter a Gemini key and any required Vertex project and location." });
+      return false;
+    }
+    if (privateCloud && !vaultReady) { requestVault(); return false; }
     const validationIsFresh =
       credentialValidation.status === "ready" &&
       credentialValidation.revision === credentialRevisionRef.current &&
-      Date.now() - credentialValidation.validatedAt <=
-        CREDENTIAL_VALIDATION_TTL_MS;
+      Date.now() - credentialValidation.validatedAt <= CREDENTIAL_VALIDATION_TTL_MS;
     if (!privateCloud && !validationIsFresh) {
-      setCredentialValidation({
-        status: "error",
-        message: "Validate this Gemini key before confirming it.",
-      });
-      return;
-    }
-    if (privateCloud && !vaultReady) {
-      requestVault();
-      return;
+      setCredentialValidation({ status: "error", message: "Validate this Gemini key before confirming it." });
+      return false;
     }
     if (requiresExplicitSelection && !vaultReady && userId) {
       if (!onPreVaultDraftStaged) {
@@ -595,92 +524,72 @@ function OwnerRuntimeSettingsCard({
         // error rather than accidentally persisting a non-secret selection
         // whose credential has been discarded.
         toast.error("Gemini access could not be staged. Try again.");
-        return;
+        return false;
       }
       setIsSaving(true);
       selectionPendingRef.current = true;
+      selectionRevisionRef.current += 1;
       try {
         onPreVaultDraftStaged({
           transport,
           credential,
-          vertexProject:
-            transport === "vertex_api_key"
-              ? vertexProject.trim() || null
-              : null,
-          vertexLocation:
-            transport === "vertex_api_key"
-              ? vertexLocation.trim() || null
-              : null,
+          vertexProject: transport === "vertex_api_key" ? vertexProject.trim() || null : null,
+          vertexLocation: transport === "vertex_api_key" ? vertexLocation.trim() || null : null,
         });
         await onSelectionReadyChange?.("byok_pending_vault");
-        if (!ownerIsCurrent()) return;
+        if (!ownerIsCurrent()) return false;
         setDraftKey("");
         invalidateCredentialValidation();
         setMode("byok");
         setHasExplicitSelection(true);
-        toast.success(
-          "Gemini access is ready to protect when you finish setup.",
-        );
+        toast.success("Gemini access is ready to protect when you finish setup.");
+        return true;
       } catch {
-        if (!ownerIsCurrent()) return;
+        if (!ownerIsCurrent()) return false;
+        onPreVaultDraftCleared?.();
         toast.error("Gemini access could not be staged. Try again.");
+        return false;
       } finally {
         selectionPendingRef.current = false;
-        if (ownerIsCurrent()) {
-          setIsSaving(false);
-        }
+        setIsSaving(false);
       }
-      return;
     }
     if (!vaultReady || !userId || !vaultKey || !vaultOwnerToken) {
       requestVault();
-      return;
+      return false;
     }
     setIsSaving(true);
     selectionPendingRef.current = true;
+    selectionRevisionRef.current += 1;
     let agentAccepted = false;
     try {
       if (privateCloud) {
-        const outcome = await sendAiSelectionToAgent({
-          provider: "gemini",
-          model: null,
-          apiKey: credential,
-          transport,
-          vertexProject:
-            transport === "vertex_api_key" ? vertexProject.trim() : null,
-          vertexLocation:
-            transport === "vertex_api_key" ? vertexLocation.trim() : null,
-        });
-        if (!ownerIsCurrent()) return;
+        const outcome = await sendAiSelectionToAgent({ provider: "gemini", model: null, apiKey: credential, transport,
+          vertexProject: transport === "vertex_api_key" ? vertexProject.trim() : null,
+          vertexLocation: transport === "vertex_api_key" ? vertexLocation.trim() : null });
+        if (!ownerIsCurrent()) return false;
         if (!outcome.ok) {
-          setCredentialValidation({
-            status: "error",
-            message:
-              aiSelectionRefusalMessage(outcome.code, "Gemini") ??
-              "Your private agent could not check this connection.",
-          });
-          return;
+          setCredentialValidation({ status: "error", message: aiSelectionRefusalMessage(outcome.code, "Gemini") ?? "Your private agent could not check this connection." });
+          return false;
         }
         agentAccepted = true;
         setCloudAiVerified(false);
       }
-      const credentialResult =
-        await PersonalKnowledgeModelService.storeRuntimeSecret({
-          userId,
-          vaultKey,
-          vaultOwnerToken,
-          credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
-          secret: credential,
-          confirmation: {
-            confirmedByUser: true,
-            surface: "web",
-            source: "profile_gemini_api_key",
-          },
-        });
-      if (!ownerIsCurrent()) return;
+      const credentialResult = await PersonalKnowledgeModelService.storeRuntimeSecret({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+        credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
+        secret: credential,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "profile_gemini_api_key",
+        },
+      });
+      if (!ownerIsCurrent()) return false;
       assertRuntimeSecretStored(credentialResult);
-      const transportResult =
-        await PersonalKnowledgeModelService.storeRuntimeSecret({
+      const transportResult = await PersonalKnowledgeModelService.storeRuntimeSecret({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -692,146 +601,98 @@ function OwnerRuntimeSettingsCard({
             source: "profile_gemini_transport",
           },
         });
-      if (!ownerIsCurrent()) return;
+      if (!ownerIsCurrent()) return false;
       assertRuntimeSecretStored(transportResult);
       if (transport === "vertex_api_key") {
         const [projectResult, locationResult] = await Promise.all([
           PersonalKnowledgeModelService.storeRuntimeSecret({
-            userId,
-            vaultKey,
-            vaultOwnerToken,
-            credentialRef: GEMINI_VERTEX_PROJECT_REF,
+            userId, vaultKey, vaultOwnerToken, credentialRef: GEMINI_VERTEX_PROJECT_REF,
             secret: vertexProject.trim(),
-            confirmation: {
-              confirmedByUser: true,
-              surface: "web",
-              source: "profile_gemini_vertex_project",
-            },
+            confirmation: { confirmedByUser: true, surface: "web", source: "profile_gemini_vertex_project" },
           }),
           PersonalKnowledgeModelService.storeRuntimeSecret({
-            userId,
-            vaultKey,
-            vaultOwnerToken,
-            credentialRef: GEMINI_VERTEX_LOCATION_REF,
+            userId, vaultKey, vaultOwnerToken, credentialRef: GEMINI_VERTEX_LOCATION_REF,
             secret: vertexLocation.trim(),
-            confirmation: {
-              confirmedByUser: true,
-              surface: "web",
-              source: "profile_gemini_vertex_location",
-            },
+            confirmation: { confirmedByUser: true, surface: "web", source: "profile_gemini_vertex_location" },
           }),
         ]);
-        if (!ownerIsCurrent()) return;
+        if (!ownerIsCurrent()) return false;
         assertRuntimeSecretStored(projectResult);
-        if (!ownerIsCurrent()) return;
         assertRuntimeSecretStored(locationResult);
       } else {
         const [projectResult, locationResult] = await Promise.all([
           PersonalKnowledgeModelService.removeRuntimeSecret({
-            userId,
-            vaultKey,
-            vaultOwnerToken,
-            credentialRef: GEMINI_VERTEX_PROJECT_REF,
-            confirmation: {
-              confirmedByUser: true,
-              surface: "web",
-              source: "profile_gemini_vertex_project_clear",
-            },
+            userId, vaultKey, vaultOwnerToken, credentialRef: GEMINI_VERTEX_PROJECT_REF,
+            confirmation: { confirmedByUser: true, surface: "web", source: "profile_gemini_vertex_project_clear" },
           }),
           PersonalKnowledgeModelService.removeRuntimeSecret({
-            userId,
-            vaultKey,
-            vaultOwnerToken,
-            credentialRef: GEMINI_VERTEX_LOCATION_REF,
-            confirmation: {
-              confirmedByUser: true,
-              surface: "web",
-              source: "profile_gemini_vertex_location_clear",
-            },
+            userId, vaultKey, vaultOwnerToken, credentialRef: GEMINI_VERTEX_LOCATION_REF,
+            confirmation: { confirmedByUser: true, surface: "web", source: "profile_gemini_vertex_location_clear" },
           }),
         ]);
-        if (!ownerIsCurrent()) return;
+        if (!ownerIsCurrent()) return false;
         assertRuntimeSecretStored(projectResult);
-        if (!ownerIsCurrent()) return;
         assertRuntimeSecretStored(locationResult);
       }
       await persistMode("byok");
-      if (!ownerIsCurrent()) return;
-      if (privateCloud)
-        await recordSelectedAiProvider(
-          { userId, vaultKey, vaultOwnerToken },
-          "gemini",
-        );
-      const agentRefusal = privateCloud
-        ? null
-        : await shareGeminiSelectionWithAgent({
-            userId,
-            vaultKey,
-            vaultOwnerToken,
-            credential,
-            transport,
-            vertexProject: vertexProject.trim() || null,
-            vertexLocation: vertexLocation.trim() || null,
-          });
-      if (!ownerIsCurrent()) return;
-      if (agentRefusal)
-        toast.error(agentRefusal); // the agent keeps its previous selection
-      else setOtherProvider(null);
+      if (!ownerIsCurrent()) return false;
+      if (privateCloud) await recordSelectedAiProvider({ userId, vaultKey, vaultOwnerToken }, "gemini", null, ownerIsCurrent);
+      if (!ownerIsCurrent()) return false;
+      const agentRefusal = privateCloud ? null : await shareGeminiSelectionWithAgent({ userId, vaultKey, vaultOwnerToken, credential, transport,
+        vertexProject: vertexProject.trim() || null, vertexLocation: vertexLocation.trim() || null });
+      if (!ownerIsCurrent()) return false;
+      if (agentRefusal) toast.error(agentRefusal); else setOtherProvider(null);
       setDraftKey("");
       invalidateCredentialValidation();
       setMode("byok");
       setHasSavedKey(true);
       if (requiresExplicitSelection) {
         await onSelectionReadyChange?.("byok_pending_vault");
+        if (!ownerIsCurrent()) return false;
       }
-      if (!ownerIsCurrent()) return;
       setHasExplicitSelection(true);
+      visit.draftEdited = false;
+      visit.savedConfiguration = { transport, project: transport === "vertex_api_key" ? vertexProject.trim() : "", location: transport === "vertex_api_key" ? vertexLocation.trim() : "global" };
       notifyGeminiRuntimeConfigurationChanged();
-      toast.success(
-        "Your Gemini configuration is saved in your encrypted vault.",
-      );
+      toast.success("Your Gemini configuration is saved in your encrypted vault.");
+      return true;
     } catch {
-      if (!ownerIsCurrent()) return;
-      toast.error(
-        agentAccepted
-          ? "Your agent accepted the key, but its vault backup could not be saved. Retry saving."
-          : "Gemini key could not be saved.",
-      );
+      if (!ownerIsCurrent()) return false;
+      toast.error(agentAccepted ? "Your agent accepted the key, but its vault backup could not be saved. Retry saving." : "Gemini key could not be saved.");
+      return false;
     } finally {
       selectionPendingRef.current = false;
-      if (ownerIsCurrent()) {
-        setIsSaving(false);
-      }
+      setIsSaving(false);
     }
   };
 
-  const removeByok = async () => {
+  const removeByok = async (): Promise<boolean> => {
     const ownerIsCurrent = captureOwnerGuard();
-    if (!ownerIsCurrent()) return;
+    if (!ownerIsCurrent() || selectionPendingRef.current || validationPendingRef.current) return false;
     if (!vaultReady || !userId || !vaultKey || !vaultOwnerToken) {
       requestVault();
-      return;
+      return false;
     }
+    selectionPendingRef.current = true;
+    selectionRevisionRef.current += 1;
     setIsRemoving(true);
     try {
-      if ((await clearAgentAiSelectionFor("gemini")) === "failed")
-        throw new Error("AGENT_UNREACHABLE");
-      const credentialResult =
-        await PersonalKnowledgeModelService.removeRuntimeSecret({
-          userId,
-          vaultKey,
-          vaultOwnerToken,
-          credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
-          confirmation: {
-            confirmedByUser: true,
-            surface: "web",
-            source: "profile_gemini_api_key_remove",
-          },
-        });
-      if (!ownerIsCurrent()) return;
+      if ((await clearAgentAiSelectionFor("gemini")) === "failed") throw new Error("AGENT_UNREACHABLE");
+      if (!ownerIsCurrent()) return false;
+      const credentialResult = await PersonalKnowledgeModelService.removeRuntimeSecret({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+        credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "profile_gemini_api_key_remove",
+        },
+      });
+      if (!ownerIsCurrent()) return false;
       assertRuntimeSecretStored(credentialResult);
-      const transportResult =
-        await PersonalKnowledgeModelService.removeRuntimeSecret({
+      const transportResult = await PersonalKnowledgeModelService.removeRuntimeSecret({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -842,10 +703,9 @@ function OwnerRuntimeSettingsCard({
             source: "profile_gemini_transport_remove",
           },
         });
-      if (!ownerIsCurrent()) return;
+      if (!ownerIsCurrent()) return false;
       assertRuntimeSecretStored(transportResult);
-      const projectResult =
-        await PersonalKnowledgeModelService.removeRuntimeSecret({
+      const projectResult = await PersonalKnowledgeModelService.removeRuntimeSecret({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -856,10 +716,9 @@ function OwnerRuntimeSettingsCard({
             source: "profile_gemini_vertex_project_remove",
           },
         });
-      if (!ownerIsCurrent()) return;
+      if (!ownerIsCurrent()) return false;
       assertRuntimeSecretStored(projectResult);
-      const locationResult =
-        await PersonalKnowledgeModelService.removeRuntimeSecret({
+      const locationResult = await PersonalKnowledgeModelService.removeRuntimeSecret({
           userId,
           vaultKey,
           vaultOwnerToken,
@@ -870,21 +729,25 @@ function OwnerRuntimeSettingsCard({
             source: "profile_gemini_vertex_location_remove",
           },
         });
-      if (!ownerIsCurrent()) return;
+      if (!ownerIsCurrent()) return false;
       assertRuntimeSecretStored(locationResult);
       await persistMode("hushh_managed_vertex");
-      if (!ownerIsCurrent()) return;
+      if (!ownerIsCurrent()) return false;
       selectionRevisionRef.current += 1;
       setMode("hushh_managed_vertex");
       setSelectedOption("hushh_managed_vertex");
       setHasSavedKey(false);
+      visit.savedConfiguration = { transport: "developer_api", project: "", location: "global" };
       notifyGeminiRuntimeConfigurationChanged();
       toast.success("Your saved Gemini key was removed.");
+      return true;
     } catch {
-      if (!ownerIsCurrent()) return;
+      if (!ownerIsCurrent()) return false;
       toast.error("Your Gemini key could not be removed.");
+      return false;
     } finally {
-      if (ownerIsCurrent()) setIsRemoving(false);
+      selectionPendingRef.current = false;
+      setIsRemoving(false);
     }
   };
 
@@ -901,11 +764,65 @@ function OwnerRuntimeSettingsCard({
     }
     return true;
   });
+  const editable = () => visit.credentialCurrent() && !selectionPendingRef.current;
+  return { userId, vaultKey, vaultOwnerToken, placement, privateCloud, defaultLabel, cloudAiVerified, cloudAiFailure,
+    showAiAlternatives, setShowAiAlternatives, setCloudAiVerified, setCloudAiFailure, onProviderPendingChange,
+    otherProvider, agentOutcome, compactDefault, managedChoiceDisabled: isSaving || isRemoving || externalAiPending || (!privateCloud && placement !== "shared"),
+    onRequestVaultUnlock, onRequestVaultCreation,
+    providerChanged: async () => {
+      const ownerIsCurrent = captureOwnerGuard(); if (!ownerIsCurrent()) return;
+      setShowAiAlternatives(false);
+      if (requiresExplicitSelection) await onSelectionReadyChange?.("byok_pending_vault");
+      if (!ownerIsCurrent()) return;
+      setHasExplicitSelection(true); setMode("byok"); setSelectedOption("byok"); await refresh();
+    },
+    mode, hasSavedKey, draftKey, transport, vertexProject, vertexLocation, isSaving, isRemoving, credentialValidation, loadFailed,
+    hasExplicitSelection, selectedOption,
+    setDraftKey: (value: string) => { if (editable()) { visit.draftEdited = true; setDraftKey(value); invalidateCredentialValidation(); } },
+    setTransport: (value: GeminiRuntimeTransport) => { if (editable()) { visit.draftEdited = true; setTransport(value); invalidateCredentialValidation(); } },
+    setVertexProject: (value: string) => { if (editable()) { visit.draftEdited = true; setVertexProject(value); invalidateCredentialValidation(); } },
+    setVertexLocation: (value: string) => { if (editable()) { visit.draftEdited = true; setVertexLocation(value); invalidateCredentialValidation(); } },
+    invalidateCredentialValidation, selectManaged, selectByok, validateByok, saveByok, removeByok, refresh,
+    needsVaultCreation, needsUnlock, requiresExplicitSelection, current,
+    inputRevision: () => credentialRevisionRef.current,
+    cancelEdit: () => {
+      if (!editable()) return;
+      setDraftKey(""); setTransport(visit.savedConfiguration.transport); setVertexProject(visit.savedConfiguration.project); setVertexLocation(visit.savedConfiguration.location);
+      visit.draftEdited = false; invalidateCredentialValidation();
+    },
+    reconcileFinalDraft: (draft: { credential: string; transport: GeminiRuntimeTransport; project: string; location: string }, expectedRevision: number) => {
+      if (!editable() || validationPendingRef.current || credentialRevisionRef.current !== expectedRevision) return false;
+      if (draft.credential === draftKey && draft.transport === transport && draft.project === vertexProject && draft.location === vertexLocation) return true;
+      visit.draftEdited = true; setDraftKey(draft.credential); setTransport(draft.transport); setVertexProject(draft.project); setVertexLocation(draft.location);
+      invalidateCredentialValidation(); return true;
+    },
+    operationPending: () => selectionPendingRef.current || validationPendingRef.current,
+    mutationPending: () => selectionPendingRef.current };
+}
+
+export type GeminiRuntimeSettingsModel = ReturnType<typeof useGeminiRuntimeSettingsModel>;
+
+export function GeminiRuntimeSettingsCard(props: GeminiRuntimeSettingsCardProps) {
+  const model = useGeminiRuntimeSettingsModel(props);
+  return <GeminiRuntimeSettingsView model={model} />;
+}
+
+/** Both renderers receive this controller; neither creates another key store. */
+export function GeminiRuntimeSettingsView({ model }: { model: GeminiRuntimeSettingsModel }) {
+  const { userId, vaultKey, vaultOwnerToken, mode, hasSavedKey, draftKey, transport, vertexProject, vertexLocation, isSaving, isRemoving, credentialValidation,
+    hasExplicitSelection, selectedOption, setDraftKey, setTransport, setVertexProject, setVertexLocation, invalidateCredentialValidation,
+    selectManaged, selectByok, needsVaultCreation, needsUnlock, requiresExplicitSelection,
+    placement, privateCloud, defaultLabel, otherProvider, cloudAiVerified, cloudAiFailure, agentOutcome, compactDefault, managedChoiceDisabled,
+    setShowAiAlternatives, setCloudAiVerified, setCloudAiFailure, onProviderPendingChange,
+    onRequestVaultUnlock, onRequestVaultCreation } = model;
+  const saveByok = async () => { await model.saveByok(); };
+  const validateByok = async () => { await model.validateByok(); };
+  const removeByok = async () => { await model.removeByok(); };
   const geminiKeyChoice = <GeminiKeyChoice isSaving={isSaving} isRemoving={isRemoving} privateCloud={privateCloud} placement={placement} requiresExplicitSelection={requiresExplicitSelection} selectedOption={selectedOption} mode={mode} hasExplicitSelection={hasExplicitSelection} otherProvider={Boolean(otherProvider)} hasSavedKey={Boolean(hasSavedKey)} needsVaultCreation={needsVaultCreation} needsUnlock={needsUnlock} transport={transport} vertexProject={vertexProject} vertexLocation={vertexLocation} draftKey={draftKey} credentialValidation={credentialValidation} selectByok={selectByok} setTransport={setTransport} setVertexProject={setVertexProject} setVertexLocation={setVertexLocation} setDraftKey={setDraftKey} invalidateCredentialValidation={invalidateCredentialValidation} saveByok={saveByok} validateByok={validateByok} removeByok={removeByok} />;
   const otherProviderChoices = (
     <BringYourOwnAiProviders
       ungrouped
-      onAccepted={() => { setCloudAiVerified(false); setCloudAiFailure(null); }}
+      onAccepted={() => { if (model.current()) { setCloudAiVerified(false); setCloudAiFailure(null); } }}
       onPendingChange={onProviderPendingChange}
       showUnavailable={!requiresExplicitSelection}
       userId={userId}
@@ -915,15 +832,7 @@ function OwnerRuntimeSettingsCard({
       needsUnlock={needsUnlock}
       onRequestVaultUnlock={onRequestVaultUnlock}
       onRequestVaultCreation={onRequestVaultCreation}
-      onChanged={async () => {
-        setShowAiAlternatives(false);
-        if (requiresExplicitSelection)
-          await onSelectionReadyChange?.("byok_pending_vault");
-        setHasExplicitSelection(true);
-        setMode("byok");
-        setSelectedOption("byok");
-        await refresh();
-      }}
+      onChanged={model.providerChanged}
     />
   );
   return (

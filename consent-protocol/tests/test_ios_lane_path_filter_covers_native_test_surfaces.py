@@ -383,6 +383,21 @@ def test_ios_filter_matches_direct_native_helpers_only() -> None:
     assert not spec.match_file("hushh-webapp/components/app-ui/nested/native-thing.tsx")
 
 
+@pytest.mark.parametrize(
+    "path",
+    (
+        "hushh-webapp/hooks/use-owner-presentation-state.ts",
+        "hushh-webapp/components/connections/gemini-runtime-settings-card.tsx",
+        "hushh-webapp/components/profile/world-model-provider.tsx",
+    ),
+)
+def test_ios_filter_covers_shared_profile_inputs_in_the_render_path(path: str) -> None:
+    # Shared controller-only changes must not skip the native export/build lane.
+    # Check the actual import closure, not an invented native-only entrypoint.
+    assert path in _ci_run_xcuitest_render_closure(), f"No longer a rendered input: {path}"
+    assert _ios_spec().match_file(path), f"The ios: filter skips a rendered shared input: {path}"
+
+
 def test_ios_filter_schedules_setup_screens_rendered_by_xcuitest() -> None:
     closure = _ci_run_xcuitest_render_closure()
     assert "hushh-webapp/components/onboarding/AuthStep.tsx" in closure

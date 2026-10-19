@@ -4637,7 +4637,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.profile.preferences.device",
-        "purpose": "Help the person understand and use the device screen through its generated controls.",
+        "purpose": "Compatibility entry for Preferences. The retired device detail has no separate body; use the current Preferences controls.",
         "screen": "profile_preferences",
         "entry_cue": "",
         "proactivity": "ambient",

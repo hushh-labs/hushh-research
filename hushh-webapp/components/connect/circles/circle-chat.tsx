@@ -25,7 +25,7 @@ import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadat
 import { AgentDockPortal } from "@/components/agent/agent-dock";
 import laneStyles from "./circle-chat-lane.module.css";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
-import { CircleMembershipEventPill } from "./circle-chat-system-event";
+import { CircleMembershipEventPill, groupCircleMembershipEvents } from "./circle-chat-system-event";
 import { requestAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
 import { ROUTES } from "@/lib/navigation/routes";
 
@@ -384,9 +384,14 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
   }, [session, applyStates, decrypt, append, cacheTargets]);
   const mergeMembershipEvents = useCallback((incoming: CircleMembershipEvent[] | undefined) => {
     if (!incoming?.length) return;
-    setMembershipEvents((previous) => [...new Map([...previous, ...incoming].map((event) => [event.id, event])).values()]
-      .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.id.localeCompare(right.id))
-      .slice(-200));
+    setMembershipEvents((previous) => {
+      const sorted = [...new Map([...previous, ...incoming].map((event) => [event.id, event])).values()]
+        .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.id.localeCompare(right.id));
+      let start = Math.max(0, sorted.length - 200);
+      const firstBatch = sorted[start]?.batchId;
+      while (start > 0 && firstBatch && sorted[start - 1]?.batchId === firstBatch) start--;
+      return sorted.slice(start);
+    });
   }, []);
 
   useEffect(() => {
@@ -642,9 +647,9 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       <div role="log" aria-label="Circle message history" aria-live={atBottom && visible ? "polite" : "off"} aria-relevant="additions" aria-busy={loading || loadingOlder}><ol ref={messageList}>{[
         ...messages.map((message, index) => ({ kind: "message" as const, id: `${message.senderUserId}:${message.clientMessageId ?? message.id}`, createdAt: message.createdAt, message, previous: messages[index - 1] })),
         ...(outgoing ? [{ kind: "message" as const, id: `${outgoing.senderUserId}:${outgoing.clientMessageId}`, createdAt: outgoing.createdAt, message: outgoing, previous: messages.at(-1) }] : []),
-        ...membershipEvents.map((event) => ({ kind: "event" as const, id: event.id, createdAt: event.createdAt, event })),
+        ...groupCircleMembershipEvents(membershipEvents).map((events) => ({ kind: "event" as const, id: events[0]!.id, createdAt: events.at(-1)!.createdAt, events })),
       ].sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id))
-        .map((item) => item.kind === "event" ? <CircleMembershipEventPill key={`event:${item.id}`} event={item.event} /> : <CircleChatMessage key={`message:${item.id}`}
+        .map((item) => item.kind === "event" ? <CircleMembershipEventPill key={`event:${item.id}`} events={item.events} /> : <CircleChatMessage key={`message:${item.id}`}
           message={item.message} previous={item.previous} session={session} visible={visible} layoutBlocked={readingBlocked} scrollRoot={transcript}
           onReply={(message) => { if (!pending && !sending) { setReply(message); composerEditor.current?.focus(); } }}
           replyDisabled={Boolean(pending) || sending}
@@ -688,7 +693,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       busy={sending} locked={Boolean(pending)} sendLabel={pending ? "Retry message" : "Send message"}
       sendDisabled={loading || jumping || (!pending && Boolean(file) && validFile !== file) || (!text.trim() && !file && !pending)}
       showSend={!chatLane || Boolean(text.trim() || file || pending || sending)}
-      trailingAction={chatLane ? <DirectMessageEmojiPicker disabled={sending || Boolean(pending)} dismissSignal={pickerDismissSignal} onEmojiSelect={(emoji) => {
+      trailingAction={chatLane ? <DirectMessageEmojiPicker restoreTriggerFocusOnSelect={false} disabled={sending || Boolean(pending)} dismissSignal={pickerDismissSignal} onEmojiSelect={(emoji) => {
         const editor = composerEditor.current;
         const start = editor?.selectionStart ?? text.length;
         const end = editor?.selectionEnd ?? start;

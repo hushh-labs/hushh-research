@@ -488,4 +488,17 @@ describe("ApiService.revokeTrustedDeviceEverywhere", () => {
     expect(ownerPodMocks.revokeAtPod).not.toHaveBeenCalled();
     if (boundary === "unpinned") expect(result.pod).toEqual({ delivered: false, pending: null, unpinned: true });
   });
+  it("keeps a committed hub revocation pending when the owner retires before pod delivery", async () => {
+    let current = true;
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
+    mockFetch.mockImplementation(async () => {
+      current = false;
+      return json({ success: true, device_id: "tdv_mac_1", podBindingVersion: 7 });
+    });
+    const result = await ApiService.revokeTrustedDeviceEverywhere("tdv_mac_1", "uid-owner", () => current);
+    expect(result.hub.ok).toBe(true);
+    expect(result.pod).toEqual({ delivered: false, pending: null });
+    expect(ownerPodMocks.revokeAtPod).not.toHaveBeenCalled();
+  });
+
 });

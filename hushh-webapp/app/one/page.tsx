@@ -9,10 +9,12 @@ import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useCapabilitySetupStates } from "@/lib/onboarding/use-capability-setup-states";
+import { useDirectMessagesUnreadCount } from "@/lib/direct-messages/use-direct-messages-unread-count";
 
 export default function OneHomePage() {
   const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, loading, sessionVerificationRequired } = useAuth();
+  const messagesUnreadCount = useDirectMessagesUnreadCount(loading || sessionVerificationRequired ? null : user);
   // Dashboard stays coarse (no vault/oauth enrichment) to stay cheap, but opts
   // into `enrichRia` — a single cached getOnboardingStatus call — so the
   // "N of 6 ready" count matches the /one/setup hub. Without it, an onboarded
@@ -48,6 +50,7 @@ export default function OneHomePage() {
       <OneDashboardPage
         capabilityStatusById={byId}
         userId={user.uid}
+        messagesUnreadCount={messagesUnreadCount}
       />
     </>
   );

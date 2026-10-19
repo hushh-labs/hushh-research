@@ -14,10 +14,12 @@ export function OneDashboardPage({
   capabilityStatusById = {},
   displayName,
   userId,
+  messagesUnreadCount,
 }: {
   displayName?: string | null;
   capabilityStatusById?: Record<string, CapabilityStatus>;
   userId?: string | null;
+  messagesUnreadCount?: number | null;
 }) {
   // Warm the lightweight artwork while the user chooses an agent.
   preload(WALLET_HERO_SRC, { as: "image", fetchPriority: "high" });
@@ -42,6 +44,7 @@ export function OneDashboardPage({
           capabilityStatusById={capabilityStatusById}
           displayName={displayName}
           userId={userId}
+          messagesUnreadCount={messagesUnreadCount}
         />
         {userId && <ScheduledTasksPanel key={userId} ownerId={userId} />}
       </AppPageContentRegion>

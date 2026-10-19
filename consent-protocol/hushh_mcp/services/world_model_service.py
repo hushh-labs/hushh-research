@@ -169,9 +169,6 @@ async def offer(
             "primary_endpoint": config["primary_endpoint"],
             "primary_deployment": config["primary_deployment"],
             "primary_token_supplier": token_provider,
-            "phi_endpoint": config["phi_endpoint"],
-            "phi_deployment": config["phi_deployment"],
-            "phi_token_supplier": token_provider,
         }
     result = await runner(
         identity=identity,

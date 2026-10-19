@@ -21,6 +21,7 @@ import {
   type LivingSourceInventory,
 } from "@/lib/pkm/living-source-records";
 import { CacheService } from "@/lib/services/cache-service";
+import { buildTodo } from "@/lib/services/todo-list-pkm-service";
 
 const mocks = vi.hoisted(() => ({
   uid: "viewer",
@@ -39,6 +40,7 @@ const mocks = vi.hoisted(() => ({
   close: vi.fn(),
   peekLiveMirror: vi.fn(),
   getIdToken: vi.fn().mockResolvedValue("viewer-token"),
+  loadTasks: vi.fn(),
 }));
 vi.mock("@/lib/capacitor/native-drawers", () => ({ nativeDrawersPlatformEligible: () => mocks.native }));
 vi.mock("@/components/app-ui/native-feature-page", () => ({
@@ -66,7 +68,7 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   }),
 }));
 vi.mock("@/lib/pkm/use-pkm-domain-change-revision", () => ({ usePkmDomainChangeRevision: () => mocks.revision }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }), usePathname: () => "/one" }));
 vi.mock("@/lib/services/feed-service", () => ({
   FeedService: { list: mocks.list, markRead: mocks.markRead },
 }));
@@ -74,26 +76,17 @@ vi.mock("@/lib/connected-systems/crm-product-availability", () => ({
   isLocalCrmBuildEnabled: () => false,
 }));
 
-vi.mock("@/lib/services/todo-list-pkm-service", () => ({
-  TodoListPkmService: {
-    load: vi.fn().mockResolvedValue({
-      tasks: [
-        { id: "task-anytime", title: "Anytime task", date: null, status: "pending", type: "manual" },
-        { id: "task-dated", title: "Tomorrow task", date: "2099-01-01", status: "pending", type: "manual" },
-      ],
-    }),
-    setStatus: vi.fn().mockResolvedValue({ success: true }),
-    remove: vi.fn().mockResolvedValue({ success: true }),
-  },
-  openTodoItems: (tasks: any[]) => tasks.filter((t: any) => t.status !== "done"),
-  completedTodoItems: (tasks: any[]) => tasks.filter((t: any) => t.status === "done"),
-  TODO_SOURCE_LABELS: { calendar: "Calendar", gmail: "Mail", manual: "Personal" },
-}));
+vi.mock("@/lib/services/todo-list-pkm-service", async original => {
+  const actual = await original();
+  return { ...actual, TodoListPkmService: { ...actual.TodoListPkmService, load: mocks.loadTasks,
+    setStatus: vi.fn().mockResolvedValue({ success: true }), remove: vi.fn().mockResolvedValue({ success: true }) } };
+});
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: () => ({
     status: { connected: true, google_email: "test@example.com" },
   }),
 }));
+vi.mock("@/lib/services/private-text-approval-service", () => ({ PrivateTextApprovalService: { get: async () => null } }));
 
 const item = (id: string, event_type: string) => ({
   id,
@@ -200,6 +193,10 @@ describe("One agent profile feed preview", () => {
     useChatOnboardingSession.getState().reset(null);
     window.localStorage.clear();
     CacheService.getInstance().clear();
+    mocks.loadTasks.mockResolvedValue({ tasks: [
+      buildTodo({ id: "task-anytime", title: "Anytime task" }),
+      buildTodo({ id: "task-dated", title: "Tomorrow task", date: "2099-01-01" }),
+    ] });
     mocks.list.mockResolvedValue({
       items: [
         item("1", "calendar_connected"),
@@ -371,6 +368,7 @@ describe("One agent profile feed preview", () => {
     const binding = pane.dataset.context;
     expect(screen.getByRole("heading", { name: "Love" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Feed" })).toBeInTheDocument();
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "To-do", "Profile"]);
     await screen.findByText("Mail connected");
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Profile" }), { button: 0, ctrlKey: false });
     expect(await screen.findByRole("link", { name: "Open Memory" })).toHaveAttribute("href", "/one/pkm");
@@ -580,28 +578,33 @@ describe("One agent profile feed preview", () => {
     expect(screen.queryByTestId("live-mirror-fix-at-source")).toBeNull();
     expect(document.body.textContent).not.toMatch(/PERSON_REF_[XY]/);
   });
-  it("renders the To-do tab between Feed and Profile and shows tasks preview", async () => {
-    render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
-
-    const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent?.trim())).toEqual([
-      "Feed",
-      "To-do",
-      "Profile",
-    ]);
-
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "To-do" }), {
-      button: 0,
-      ctrlKey: false,
-    });
-
-    await screen.findByText("To-do list");
-    expect(screen.getByText("Anytime task")).toBeInTheDocument();
+  it("loads the shared To-do preview only when selected without a duplicate workspace link", async () => {
+    const view = render(<OneAgentProfileSheet open={false} onOpenChange={mocks.close} />);
+    expect(mocks.loadTasks).not.toHaveBeenCalled();
+    view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+    expect(mocks.loadTasks).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "To-do", "Profile"]);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "To-do" }), { button: 0, ctrlKey: false });
+    expect(await screen.findByText("Anytime task")).toBeInTheDocument();
     expect(screen.getByText("Tomorrow task")).toBeInTheDocument();
-
-    expect(screen.queryByRole("button", { name: /Open To-do List/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Open To-do List/i })).not.toBeInTheDocument();
+    expect(mocks.loadTasks).toHaveBeenCalledWith({ userId: "viewer", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token" });
+    expect(screen.queryByRole("button", { name: /Open To-do List/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Open To-do List/i })).toBeNull();
     expect(mocks.close).not.toHaveBeenCalled();
     expect(mocks.push).not.toHaveBeenCalled();
   });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 });

@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { PageSubtitle } from "@/components/app-ui/typography";
 import { OneVoicePreferencesSection } from "@/components/profile/one-voice-preferences-section";
@@ -14,15 +12,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  readVoicePreferences,
-  subscribeVoicePreferences,
-  updateVoicePreferences,
-  type OneVoicePreferencesState,
-} from "@/lib/agent/voice-preferences";
-import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationSosVoiceDefaultAction } from "@/lib/one-location/types";
-import { ConnectionsService } from "@/lib/services/connections-service";
+import { useVoiceLocationDefaults, useVoiceConnectDefaults } from "./use-voice-preferences-model";
+import { useVoiceCommandPreferences } from "./use-voice-policy-preferences";
 import detailStyles from "./profile-preference-details.module.css";
 
 function VoiceHeader() {
@@ -44,70 +36,14 @@ function VoiceHeader() {
   );
 }
 
-type LocationAgentDefaults = {
-  autoApproveRequests: boolean;
-  nearbyCheckInVisible: boolean;
-  nearbyCheckInAllowConnectionRequests: boolean;
-  sosDefaultAction: OneLocationSosVoiceDefaultAction;
-};
-
 function LocationAgentDefaultsGroup({
-  vaultOwnerToken,
+  userId, vaultOwnerToken,
 }: {
+  userId: string | null;
   vaultOwnerToken: string | null;
 }) {
-  const [defaults, setDefaults] = useState<LocationAgentDefaults | null>(null);
-
-  useEffect(() => {
-    if (!vaultOwnerToken) return;
-    let cancelled = false;
-    OneLocationService.getState(vaultOwnerToken)
-      .then((state) => {
-        if (cancelled) return;
-        setDefaults({
-          autoApproveRequests: Boolean(state.autoApprovePreference?.enabled),
-          nearbyCheckInVisible: state.nearbyCheckInPreferences?.visible ?? true,
-          nearbyCheckInAllowConnectionRequests:
-            state.nearbyCheckInPreferences?.allowConnectionRequests ?? false,
-          sosDefaultAction: state.sosVoicePreference?.defaultAction ?? "open",
-        });
-      })
-      .catch(() => {
-        // Settings row disappears rather than showing a stale or wrong
-        // default; the person can reopen the page to retry.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [vaultOwnerToken]);
-
+  const { defaults, pending, setNearby, setSos, setAutoApprove } = useVoiceLocationDefaults(userId, vaultOwnerToken);
   if (!vaultOwnerToken || !defaults) return null;
-
-  const setNearbyCheckIn = (
-    updater: (current: LocationAgentDefaults) => LocationAgentDefaults,
-  ) => {
-    setDefaults((current) => {
-      if (!current) return current;
-      const next = updater(current);
-      OneLocationService.updateNearbyCheckInPreferences({
-        vaultOwnerToken,
-        visible: next.nearbyCheckInVisible,
-        allowConnectionRequests: next.nearbyCheckInAllowConnectionRequests,
-      }).catch(() => setDefaults(current));
-      return next;
-    });
-  };
-
-  const setSosDefault = (defaultAction: OneLocationSosVoiceDefaultAction) => {
-    setDefaults((current) => {
-      if (!current) return current;
-      OneLocationService.updateSosVoicePreference({
-        vaultOwnerToken,
-        defaultAction,
-      }).catch(() => setDefaults(current));
-      return { ...current, sosDefaultAction: defaultAction };
-    });
-  };
 
   return (
     <SettingsGroup
@@ -120,24 +56,8 @@ function LocationAgentDefaultsGroup({
         trailing={
           <Switch
             checked={defaults.autoApproveRequests}
-            onCheckedChange={(checked) => {
-              setDefaults((current) =>
-                current
-                  ? { ...current, autoApproveRequests: checked }
-                  : current,
-              );
-              OneLocationService.updateAutoApprovePreference({
-                vaultOwnerToken,
-                enabled: checked,
-                scope: checked ? { kind: "all_contacts" } : undefined,
-              }).catch(() =>
-                setDefaults((current) =>
-                  current
-                    ? { ...current, autoApproveRequests: !checked }
-                    : current,
-                ),
-              );
-            }}
+            disabled={pending.has("autoApprove")}
+            onCheckedChange={checked => { void setAutoApprove(checked); }}
             aria-label="Auto-approve requests"
           />
         }
@@ -148,12 +68,8 @@ function LocationAgentDefaultsGroup({
         trailing={
           <Switch
             checked={defaults.nearbyCheckInVisible}
-            onCheckedChange={(checked) =>
-              setNearbyCheckIn((current) => ({
-                ...current,
-                nearbyCheckInVisible: checked,
-              }))
-            }
+            disabled={pending.has("nearby")}
+            onCheckedChange={checked => { void setNearby({ nearbyCheckInVisible: checked }); }}
             aria-label="Visible in Nearby Check-In"
           />
         }
@@ -164,12 +80,8 @@ function LocationAgentDefaultsGroup({
         trailing={
           <Switch
             checked={defaults.nearbyCheckInAllowConnectionRequests}
-            onCheckedChange={(checked) =>
-              setNearbyCheckIn((current) => ({
-                ...current,
-                nearbyCheckInAllowConnectionRequests: checked,
-              }))
-            }
+            disabled={pending.has("nearby")}
+            onCheckedChange={checked => { void setNearby({ nearbyCheckInAllowConnectionRequests: checked }); }}
             aria-label="Allow connection requests"
           />
         }
@@ -180,9 +92,8 @@ function LocationAgentDefaultsGroup({
         trailing={
           <Select
             value={defaults.sosDefaultAction}
-            onValueChange={(value) =>
-              setSosDefault(value as OneLocationSosVoiceDefaultAction)
-            }
+            disabled={pending.has("sos")}
+            onValueChange={value => { void setSos(value as OneLocationSosVoiceDefaultAction); }}
           >
             <SelectTrigger
               className="w-full sm:w-56 min-w-[11rem]"
@@ -203,29 +114,12 @@ function LocationAgentDefaultsGroup({
 }
 
 function ConnectAgentDefaultsGroup({
-  getIdToken,
+  userId, getIdToken,
 }: {
+  userId: string | null;
   getIdToken: (() => Promise<string>) | null;
 }) {
-  const [shareScopes, setShareScopes] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    if (!getIdToken) return;
-    let cancelled = false;
-    getIdToken()
-      .then((idToken) => ConnectionsService.getVoicePreferences({ idToken }))
-      .then((preferences) => {
-        if (!cancelled) setShareScopes(preferences.shareScopesFromLastRequest);
-      })
-      .catch(() => {
-        // Settings row disappears rather than showing a stale or wrong
-        // default; the person can reopen the page to retry.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [getIdToken]);
-
+  const { shareScopes, pending, setShareScopes } = useVoiceConnectDefaults(userId, getIdToken);
   if (!getIdToken || shareScopes === null) return null;
 
   return (
@@ -255,17 +149,8 @@ function ConnectAgentDefaultsGroup({
         trailing={
           <Switch
             checked={shareScopes}
-            onCheckedChange={(checked) => {
-              setShareScopes(checked);
-              getIdToken()
-                .then((idToken) =>
-                  ConnectionsService.updateVoicePreferences({
-                    idToken,
-                    shareScopesFromLastRequest: checked,
-                  }),
-                )
-                .catch(() => setShareScopes(!checked));
-            }}
+            disabled={pending}
+            onCheckedChange={checked => { void setShareScopes(checked); }}
             aria-label="Reuse access from last time"
           />
         }
@@ -283,21 +168,7 @@ export function VoicePreferencesPanel({
   vaultOwnerToken?: string | null;
   getIdToken?: (() => Promise<string>) | null;
 }) {
-  const [state, setState] = useState<OneVoicePreferencesState>(() =>
-    readVoicePreferences(userId),
-  );
-
-  useEffect(() => {
-    setState(readVoicePreferences(userId));
-    if (!userId) return;
-    return subscribeVoicePreferences(userId, setState);
-  }, [userId]);
-
-  const set = (
-    updater: (current: OneVoicePreferencesState) => OneVoicePreferencesState,
-  ) => {
-    updateVoicePreferences(userId, updater);
-  };
+  const { state, change: set } = useVoiceCommandPreferences(userId);
 
   return (
     <div className={`${detailStyles.voiceRoot} space-y-4`}>
@@ -330,8 +201,8 @@ export function VoicePreferencesPanel({
           description="Location commands show a card when an action requires your approval. Tap Confirm to continue."
         />
       </SettingsGroup>
-      <LocationAgentDefaultsGroup vaultOwnerToken={vaultOwnerToken} />
-      <ConnectAgentDefaultsGroup getIdToken={getIdToken} />
+      <LocationAgentDefaultsGroup userId={userId} vaultOwnerToken={vaultOwnerToken} />
+      <ConnectAgentDefaultsGroup userId={userId} getIdToken={getIdToken} />
       <VoiceControlDomainsGroup
         enabled={state.voiceEnabled}
         disabledDomains={state.disabledDomains}

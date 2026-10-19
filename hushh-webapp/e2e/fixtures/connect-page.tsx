@@ -50,10 +50,14 @@ function Shell() {
       <div
         data-fixture-top-bar=""
         aria-hidden="true"
-        className="fixed inset-x-0 top-0 z-30 flex items-end justify-center bg-background pb-2 text-[17px] font-semibold text-foreground"
+        className="fixed inset-x-0 top-0 z-30 flex items-end justify-center bg-background pb-2 text-foreground"
         style={{ height: "calc(var(--top-inset, 0px) + var(--top-systembar-row-gap) + var(--top-bar-h))" }}
       >
-        Connect
+        {/* The same hooks the shared bar's breadcrumb trail carries, so the
+            page's Profile type scale reaches this title exactly as it does there. */}
+        <nav data-testid="top-app-bar-breadcrumb-trail" className="ui-text-navigation-title flex items-center">
+          <span className="font-semibold">Connect</span>
+        </nav>
       </div>
       {document.documentElement.dataset.bottomChrome === "1" ? (
         <div

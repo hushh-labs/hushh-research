@@ -3,9 +3,11 @@
 import hashlib
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
+from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic_core import PydanticCustomError
 
 from hushh_mcp.services import drive_packet_intelligence
 from hushh_mcp.services.drive_citation_references import page_references
@@ -37,7 +39,7 @@ def test_facts_policy_changes_with_extraction_profile(monkeypatch):
 # bumps in one release, and name the bump and its re-queued count in the PR.
 FACTS_POLICY_INPUTS = {
     "hushh_mcp/agents/documents/agent.yaml": (
-        "0b8937dfb338907a13e56a796ad0cad3305a5bc1e0405ed6f571489de4fe70fc"
+        "56bec20a52b0cd04e958e6aba0959260d8a34a92b6bebf92cea8a2e8941e3055"
     ),
     "hushh_mcp/services/drive_packet_contract.py": (
         "ef981abc2f54055e79ba52b8560b404b6624295183c164085ca4cdcbb84491b8"
@@ -1628,3 +1630,251 @@ async def test_real_drive_regressions_reach_independent_authored_checker(case):
     sent = json.loads(checker.await_args.kwargs["prompt"])
     assert sent["proposed_packet"] == built.model_dump()
     assert sent["document_facts"] == [compact_evidence(item) for item in documents]
+
+
+def _request_planner_response():
+    return {
+        "subject_scope": "specific_records",
+        "subject_complete": True,
+        "semantic_intent": "other",
+        "discovery_clues": ["Alpine Subject"],
+        "required_entities": ["Alpine Subject"],
+        "expected_document_anatomy": "Substantive source discussion of the requested subject.",
+        "semantic_query": {
+            "version": 1,
+            "status": "ready",
+            "metadata_listing": False,
+            "date_basis": "title_created_modified",
+            "clarification": None,
+            "clauses": [
+                {
+                    "predicates": [
+                        {
+                            "id": "subject",
+                            "kind": "entity",
+                            "value": "Alpine Subject",
+                            "match": "phrase",
+                            "negated": False,
+                            "discovery_terms": [],
+                        }
+                    ]
+                }
+            ],
+        },
+    }
+
+
+def test_request_validation_feedback_never_exposes_values_prose_or_extra_field_names():
+    from hushh_mcp.services.drive_request_model_feedback import validation_feedback
+
+    class Row(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        amount: int
+
+    class Response(BaseModel):
+        records: list[Row]
+
+    private = "PRIVATE_SOURCE_AND_PROVIDER_PROSE"
+    with pytest.raises(ValidationError) as caught:
+        Response.model_validate({"records": [{"amount": private, private: private}] * 12})
+    result = validation_feedback(caught.value, schema=Response)
+    assert len(result["issues"]) == 8
+    assert result["issues"][0] == {
+        "location": ["records", 0, "amount"],
+        "type": "int_parsing",
+    }
+    assert result["issues"][1] == {"location": ["records", 0], "type": "extra_forbidden"}
+    assert private not in json.dumps(result)
+    hostile = ValidationError.from_exception_data(
+        "Synthetic",
+        [
+            {
+                "type": PydanticCustomError(private, private, {"private": private}),
+                "loc": ("records", 1000000, private),
+                "input": private,
+            }
+        ],
+    )
+    assert validation_feedback(hostile, schema=Response)["issues"] == [
+        {"location": ["records"], "type": "validation_error"}
+    ]
+    assert validation_feedback(ValueError(private), schema=Response) == {
+        "code": "invalid_model_output",
+        "issues": [],
+    }
+
+
+def test_semantic_planner_feedback_identifies_safe_cross_field_rule_without_values():
+    from hushh_mcp.services.drive_request_model_feedback import validation_feedback
+    from hushh_mcp.services.drive_suggestion_service import SemanticLiveSearchModelPlan
+
+    private = "PRIVATE_UNSEEN_PERSON"
+    invalid = _request_planner_response()
+    invalid["terms"] = [private]
+    invalid["term_groups"] = [["Different Subject"]]
+    with pytest.raises(ValidationError) as caught:
+        SemanticLiveSearchModelPlan.model_validate(invalid)
+    feedback = validation_feedback(caught.value, schema=SemanticLiveSearchModelPlan)
+    assert feedback["issues"] == [{"location": [], "type": "drive_term_group_canonical_mismatch"}]
+    assert private not in json.dumps(feedback)
+
+    invalid = _request_planner_response()
+    invalid["subject_scope"] = "metadata_listing"
+    with pytest.raises(ValidationError) as caught:
+        SemanticLiveSearchModelPlan.model_validate(invalid)
+    assert validation_feedback(caught.value, schema=SemanticLiveSearchModelPlan)["issues"] == [
+        {"location": [], "type": "drive_semantic_scope_mismatch"}
+    ]
+
+
+async def test_request_planner_asks_valid_output_once_and_corrects_only_schema_failures():
+    from hushh_mcp.services.drive_suggestion_service import plan_semantic_live_search
+
+    original = '{"document_request":{"purpose":"Alpine Subject agreements excluding drafts"}}'
+    response = _request_planner_response()
+    valid = AsyncMock(return_value=response)
+    result = await plan_semantic_live_search(valid, prompt=original, user_id="synthetic")
+    assert result.semantic_query.clauses[0].predicates[0].value == "Alpine Subject"
+    valid.assert_awaited_once_with(prompt=original, user_id="synthetic")
+    invalid = json.loads(json.dumps(response))
+    private = "PRIVATE_MODEL_VALUE_AND_EXTRA_FIELD"
+    invalid["semantic_query"]["clauses"][0]["predicates"][0]["negated"] = private
+    invalid[private] = private
+    planner = AsyncMock(side_effect=[invalid, response])
+    await plan_semantic_live_search(planner, prompt=original, user_id="synthetic")
+    first, second = planner.await_args_list
+    assert first.kwargs["prompt"] == original
+    request, feedback = second.kwargs["prompt"].split("\n\nplanner_validation_feedback: ")
+    assert request == original
+    parsed = json.loads(feedback)
+    assert parsed["issues"][0] == {
+        "location": ["semantic_query", "clauses", 0, "predicates", 0, "negated"],
+        "type": "bool_type",
+    }
+    assert private not in feedback
+
+
+@pytest.mark.parametrize(
+    "status", [429, 500, 503, 401, 403, 400, "timeout", "config", "value_error"]
+)
+async def test_request_planner_transport_retry_keeps_original_prompt_and_auth_fails_closed(
+    monkeypatch, status
+):
+    from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
+    from hushh_mcp.services import drive_suggestion_service as suggestions
+
+    fault = TimeoutError() if status == "timeout" else RuntimeError("PRIVATE_PROVIDER_PROSE")
+    if isinstance(status, int):
+        fault.code = status
+    transport = SpecialistAdkTurnError(None)
+    transport.__cause__ = fault
+    if status == "value_error":
+        transport = ValueError("PRIVATE_CONFIG_PROSE")
+    original = '{"document_request":{"purpose":"Alpine Subject agreements excluding drafts"}}'
+    planner = AsyncMock(side_effect=[transport, _request_planner_response()])
+    sleep = AsyncMock()
+    monkeypatch.setattr(suggestions.asyncio, "sleep", sleep)
+    if status in {429, 500, 503, "timeout"}:
+        await suggestions.plan_semantic_live_search(planner, prompt=original, user_id="synthetic")
+        assert planner.await_count == 2
+        assert [call.kwargs["prompt"] for call in planner.await_args_list] == [original, original]
+    else:
+        with pytest.raises(ValueError if status == "value_error" else SpecialistAdkTurnError):
+            await suggestions.plan_semantic_live_search(
+                planner, prompt=original, user_id="synthetic"
+            )
+        planner.assert_awaited_once_with(prompt=original, user_id="synthetic")
+    if status in {429, 500, 503}:
+        sleep.assert_awaited_once_with(1.0)
+    else:
+        sleep.assert_not_awaited()
+
+
+async def test_only_semantic_planner_reuses_explicit_model_across_correction(monkeypatch):
+    from hushh_mcp.services import drive_suggestion_service as service
+
+    bound = object()
+    request_guard = AsyncMock()
+    binder = AsyncMock(return_value=bound)
+    monkeypatch.setattr(service, "private_semantic_request_model", binder)
+    build = Mock(return_value=object())
+    monkeypatch.setattr(service, "build_single_turn_agent", build)
+    good = _request_planner_response()
+    run = AsyncMock(side_effect=[{"semantic_query": {}}, good, {}])
+    monkeypatch.setattr(service, "run_single_turn", run)
+    result = await service.plan_semantic_live_search(
+        service.interpret_semantic_live_search,
+        prompt="synthetic request",
+        user_id="owner",
+        require_current=request_guard,
+    )
+    assert result.semantic_query.status == "ready"
+    binder.assert_awaited_once_with(
+        user_id="owner",
+        require_current=request_guard,
+        model_binding=service.validate_semantic_model_binding(None),
+    )
+    assert len(build.call_args_list) == 2
+    assert all(call.kwargs["model"] is bound for call in build.call_args_list)
+    assert all(call.args[0].id == "agent_documents_request_search" for call in build.call_args_list)
+    await service.interpret_live_search(prompt="legacy request", user_id="owner")
+    assert "model" not in build.call_args.kwargs
+    assert build.call_args.args[0].id == "agent_documents_live_search"
+    assert binder.await_count == 1
+
+
+async def test_only_request_assessor_reuses_explicit_model_across_correction(monkeypatch):
+    from hushh_mcp.services import drive_request_package_assessment as service
+
+    bound = object()
+    request_guard = AsyncMock()
+    binder = AsyncMock(return_value=bound)
+    monkeypatch.setattr(service, "private_semantic_request_model", binder)
+    build = Mock(return_value=object())
+    monkeypatch.setattr(service, "build_single_turn_agent", build)
+    retrieved = {
+        "untrusted_external_content": [
+            {
+                "document_ref": "p1",
+                "source_ref": "p1:content",
+                "source_version": "7",
+                "text": "The observed original document text.",
+            }
+        ]
+    }
+    good = {
+        "documents": [
+            {
+                "document_ref": "p1",
+                "decision": "include",
+                "confidence": 90,
+                "reason": "Substantive actual evidence.",
+                "covered_periods": [],
+                "citations": [{"source_ref": "p1:content", "quote": "original document text"}],
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        service, "run_single_turn", AsyncMock(side_effect=[{"documents": []}, good, {}])
+    )
+    result = await service.assess_request_document_batch(
+        request={"purpose": "synthetic request"},
+        retrieved=retrieved,
+        user_id="owner",
+        require_current=request_guard,
+    )
+    assert result.documents[0].source_version == "7"
+    binder.assert_awaited_once_with(
+        user_id="owner",
+        require_current=request_guard,
+        model_binding=service.validate_semantic_model_binding(None),
+    )
+    assert len(build.call_args_list) == 2
+    assert all(call.kwargs["model"] is bound for call in build.call_args_list)
+    assert all(
+        call.args[0].id == "agent_documents_request_assessment" for call in build.call_args_list
+    )
+    await service.interpret_document_batch(prompt="legacy request", user_id="owner")
+    assert "model" not in build.call_args.kwargs
+    assert build.call_args.args[0].id == "agent_documents_suggestions"
+    assert binder.await_count == 1

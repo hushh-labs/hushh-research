@@ -45,6 +45,139 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testRouteBodyRetainsItsOwnerAndEditorWhileRejectingRetiredOrRepeatedActions() throws {
+        func projection(sequence: Int = 1, ack: Int = 0, name: String = "Synthetic Circle") throws -> NativeWorkspaceProjection {
+            let object: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": "referrals",
+                "updateSequence": sequence, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111",
+                "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
+                "page": "circle-create", "title": "Create a Circle", "enabled": true, "backEnabled": true, "sections": [],
+                "circleEditor": ["destinationId": "public-circle-visit", "draft": ["name": name, "kind": "friends"], "draftRevision": sequence - 1, "acknowledgedEditRevision": ack, "canSave": true, "busy": false, "error": NSNull()]]
+            XCTAssertTrue(NativeWorkspaceProjection.closed(object))
+            let value = try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object))
+            XCTAssertTrue(value.valid); return value
+        }
+        let state = try projection()
+        var session = NativeDrawerSessionFence()
+        XCTAssertTrue(session.admitOwner(documentId: state.documentId, ownerEpoch: state.ownerEpoch, ownerGeneration: state.ownerGeneration))
+        let profile = NativeDrawerIdentity(documentId: state.documentId, ownerEpoch: state.ownerEpoch, ownerGeneration: state.ownerGeneration, revision: 2, family: "profile")
+        XCTAssertTrue(session.contains(profile), "Preparing same-owner Profile must not retire the route body")
+        XCTAssertTrue(session.admit(profile))
+        var retired = NativeWorkspaceRetirementFence()
+        retired.retire(state.identity) // Cancellation reaches native before apply.
+        XCTAssertTrue(retired.retired(state.identity))
+        let replacement = NativeWorkspaceIdentity(documentId: state.documentId, ownerEpoch: state.ownerEpoch, ownerGeneration: 1, revision: 2, workspace: "referrals")
+        XCTAssertFalse(retired.retired(replacement))
+        XCTAssertTrue(retired.retired(state.identity), "Readback of the departed visit remains terminal")
+        let model = NativeWorkspaceModel(state)
+        var eligible = true
+        model.canInteract = { eligible }
+        model.emit = { _ in }; model.emitEdit = { _, _ in }
+        let editor = try XCTUnwrap(model.editor)
+        let field = UITextField(); field.text = state.circleEditor!.draft.name; editor.register(field, name: "name")
+        editor.change { $0.name = "Synthetic updated Circle" }
+        editor.action("save")
+        XCTAssertNil(model.pending, "Unacknowledged text cannot submit")
+        XCTAssertTrue(model.update(try projection(sequence: 2, ack: 1, name: "Synthetic updated Circle")))
+        XCTAssertTrue(model.editor === editor, "A compatible update retains the real editor")
+        editor.action("save")
+        let intent = try XCTUnwrap(model.pending)
+        XCTAssertTrue(model.confirm(intent)); XCTAssertFalse(model.confirm(intent))
+        XCTAssertTrue(model.settle(intent))
+        editor.action("save")
+        let blocked = try XCTUnwrap(model.pending)
+        eligible = false
+        XCTAssertFalse(model.confirm(blocked), "Coverage revocation wins over a pending action")
+        model.clear()
+        XCTAssertEqual(field.text, "")
+        XCTAssertTrue(model.state.sections.isEmpty); XCTAssertNil(model.state.circleEditor)
+        XCTAssertFalse(model.confirm(blocked))
+    }
+
+    func testNativeContentScrollMatchesDirectionalCommitAndIgnoresProgrammaticMovement() throws {
+        var state = HushhNativeContentScrollState()
+        XCTAssertEqual(state.apply(y: 0, fromPerson: false), 0)
+        // The top-of-content rule explicitly pins chrome visible; only
+        // displacement beyond that area enters the directional threshold.
+        for y in stride(from: 2, through: 10, by: 2) { XCTAssertEqual(state.apply(y: CGFloat(y), fromPerson: true), 0) }
+        for y in [12, 14] { XCTAssertNil(state.apply(y: CGFloat(y), fromPerson: true)) }
+        XCTAssertNotNil(state.apply(y: 30, fromPerson: true))
+        let progress = state.progress
+        XCTAssertGreaterThan(progress, 0)
+        XCTAssertNil(state.apply(y: 300, fromPerson: false))
+        XCTAssertEqual(state.progress, progress, "A content update cannot slide the navigation away")
+        XCTAssertNil(state.apply(y: 294, fromPerson: true))
+        XCTAssertNil(state.apply(y: 288, fromPerson: true))
+        XCTAssertLessThan(try XCTUnwrap(state.apply(y: 282, fromPerson: true)), progress)
+        XCTAssertEqual(state.apply(y: 0, fromPerson: false), 0)
+    }
+    func testLegalReaderRejectsExecutableFieldsAndAdmitsOnlyCurrentDocumentLinks() throws {
+        let object: [String: Any] = ["type": "privacy", "version": "1", "effectiveDate": "October 17, 2026", "summary": "Synthetic public document",
+            "sections": [["id": "first", "title": "Section", "blocks": [
+                ["kind": "h", "text": "Heading"], ["kind": "p", "text": [["text": "Contact", "actionId": "public-contact"]]],
+                ["kind": "list", "items": [[["text": "List item"]]]],
+            ]]], "related": ["label": "Terms", "actionId": "public-terms"]]
+        XCTAssertTrue(NativeLegalDocument.hasClosedShape(object))
+        let document = try JSONDecoder().decode(NativeLegalDocument.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertTrue(document.valid)
+        var state = privateDrawerState(backEnabled: true)
+        state.surfaceOpen = true; state.profileDestinationId = "public-legal-visit"
+        state.profileStack = [NativeProfilePage(id: "legal", title: "Legal", sections: []),
+            NativeProfilePage(id: "privacy", title: "Privacy", sections: [], legalDocument: document)]
+        XCTAssertTrue(state.valid)
+        XCTAssertTrue(state.allows(action: "row", row: "public-contact"))
+        var direct = state; direct.profileStack?.removeFirst()
+        XCTAssertTrue(direct.valid, "A document opened from Profile must not invent an intermediate Legal visit")
+        XCTAssertFalse(state.allows(action: "row", row: "https://example.com"))
+        XCTAssertFalse(state.allows(action: "row", row: "public-contact", text: "arbitrary"))
+        state.profileStack?.removeLast()
+        XCTAssertFalse(state.allows(action: "row", row: "public-contact"))
+        var malformed = object; malformed["url"] = "https://example.com"
+        XCTAssertFalse(NativeLegalDocument.hasClosedShape(malformed))
+        malformed = object; malformed["related"] = ["label": "Terms", "actionId": "public-contact"]
+        XCTAssertFalse(try JSONDecoder().decode(NativeLegalDocument.self, from: JSONSerialization.data(withJSONObject: malformed)).valid)
+    }
+
+    @MainActor
+    func testSupportRequiresCommittedAcknowledgedTextAndScrubsOnRetirement() throws {
+        func projection(update: Int = 1, ack: Int = 0, message: String = "Synthetic report only", sent: Bool = false) -> NativeSupportProjection {
+            NativeSupportProjection(documentId: "public-support-document", ownerEpoch: "public-support-owner", family: "profile", scene: "support",
+                destinationId: "public-support-visit", ownerGeneration: 1, revision: 1, updateSequence: update, privacyGeneration: 0,
+                draftRevision: update, acknowledgedEditRevision: ack, draft: NativeSupportDraft(kind: "bug_report", message: message),
+                canSave: !sent, busy: false, sent: sent, error: nil, replyLine: "Replies go to your verified account",
+                placeholder: "What happened?", submitLabel: "Send report", successTitle: "Report sent", successDescription: "Thanks",
+                appearance: "light", accentHex: "#007aff", foregroundHex: "#111111")
+        }
+        let model = NativeSupportModel(projection())
+        let editor = UITextView(); model.editor = editor
+        var choice: NativeProfileNameAction?
+        model.edit = { _, _, _ in true }; model.choose = { choice = $0; return true }
+        model.change(message: "Synthetic newer message", composing: true)
+        XCTAssertTrue(model.update(projection(update: 2, ack: 1, message: "Synthetic newer message")))
+        model.action("save")
+        XCTAssertNil(choice, "Acknowledging text does not commit unfinished IME composition")
+        model.change(composing: false)
+        model.action("save")
+        XCTAssertNil(choice, "Send must wait for the final committed edit's acknowledgement")
+        XCTAssertTrue(model.update(projection(update: 3, ack: 2, message: "Synthetic newer message")))
+        model.action("save")
+        let intent = try XCTUnwrap(choice)
+        XCTAssertTrue(model.confirm(intent))
+        XCTAssertFalse(model.confirm(intent), "One Send cannot authorize two deliveries")
+        XCTAssertTrue(model.settle(intent))
+        XCTAssertTrue(model.update(projection(update: 4, ack: 2, message: "", sent: true)))
+        XCTAssertFalse(model.canSend, "Provider acceptance cannot leave another Send active")
+        XCTAssertTrue(model.canDismiss)
+        editor.text = "Synthetic private replica"
+        model.clear()
+        XCTAssertEqual(editor.text, "")
+        XCTAssertEqual(model.draft.message, "")
+        XCTAssertEqual(model.projection.draft.message, "")
+        XCTAssertEqual(model.projection.replyLine, "")
+        XCTAssertFalse(model.canSend)
+        XCTAssertFalse(model.update(projection(update: 5, ack: 2)))
+    }
+
+    @MainActor
     func testInstalledProfileBackCapabilityMatchesItsAdmittedFamily() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let host = try XCTUnwrap(scene.windows.compactMap { $0.rootViewController as? CAPBridgeViewController }.first)
@@ -216,6 +349,173 @@ final class NativeSupportTests: XCTestCase {
             error: "Public validation sample", appearance: appearance, accentHex: "#007aff", foregroundHex: "#808080")
     }
     @MainActor
+    func testNativeVaultPasswordWaitsForTheFinalPairAndScrubsBeforeRetirement() {
+        func state(_ update: Int, _ edit: Int, _ draft: String, _ canSave: Bool) -> NativePasswordProjection {
+            NativePasswordProjection(documentId: "synthetic-vault-document", ownerEpoch: "synthetic-owner", ownerGeneration: 1,
+                revision: 1, family: "profile", scene: "vault-passphrase", destinationId: "synthetic-visit", updateSequence: update,
+                privacyGeneration: 0, acknowledgedEditRevision: edit, password: draft, confirmation: draft,
+                canSave: canSave, busy: false, appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111")
+        }
+        let initial = state(1, 0, "", false)
+        XCTAssertTrue(initial.valid)
+        let model = NativePasswordModel(initial)
+        let password = UITextField(), confirmation = UITextField()
+        model.passwordField = password; model.confirmationField = confirmation
+        model.edit = { _, _, _, _ in true }
+        var chosen: NativeProfileNameAction?
+        model.choose = { chosen = $0; return true }
+        password.text = "Synthetic new password"; confirmation.text = "Synthetic new password"
+        model.capture()
+        model.action("save")
+        XCTAssertNil(chosen, "Native edits cannot submit before React acknowledges its final pair")
+        XCTAssertTrue(model.update(state(2, 1, "Synthetic new password", true)))
+        model.action("save")
+        XCTAssertNotNil(chosen)
+        if let chosen { XCTAssertTrue(model.confirm(chosen)); XCTAssertFalse(model.confirm(chosen)) }
+        model.clear()
+        XCTAssertEqual(password.text, ""); XCTAssertEqual(confirmation.text, "")
+        XCTAssertEqual(model.password, ""); XCTAssertEqual(model.confirmation, "")
+        XCTAssertEqual(model.projection.password, ""); XCTAssertEqual(model.projection.confirmation, "")
+        XCTAssertFalse(model.canEdit); XCTAssertNil(model.pending)
+        XCTAssertEqual(NativeProfilePricingDecimal.canonical("0,50", separator: ","), "0.50")
+        XCTAssertEqual(NativeProfilePricingDecimal.canonical("1.23,45", separator: ","), "1.23,45",
+            "A keyboard adapter must not reinterpret mixed/thousands notation as a valid price")
+    }
+
+    @MainActor
+    func testWorldModelFormRetainsTheEditorAndScrubsBeforeDismissal() {
+        func state(_ update: Int, _ ack: Int, destination: String = "public-world-model-visit") -> NativeWorldModelProjection {
+            NativeWorldModelProjection(documentId: "public-world-model-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
+                family: "profile", scene: "world-model-fact-edit", destinationId: destination, updateSequence: update, privacyGeneration: 0,
+                draftRevision: update, acknowledgedEditRevision: ack, draft: NativeWorldModelDraft(text: ack == 0 ? "Public example" : "Public corrected example"),
+                canSave: true, busy: false, error: "Public validation example", appearance: update == 1 ? "light" : "dark", accentHex: "#007AFF", foregroundHex: "#111111")
+        }
+        let model = NativeWorldModelFormModel(state(1, 0)), editor = UITextView()
+        model.register(editor); model.edit = { _, _, _ in true }; model.choose = { _ in true }
+        editor.text = "Public corrected example"; model.capture(editor, field: "text")
+        XCTAssertFalse(model.canSave, "No Save until the final edit is acknowledged")
+        XCTAssertFalse(model.update(state(2, 1, destination: "another-visit")))
+        XCTAssertTrue(model.update(state(2, 1)))
+        XCTAssertTrue(model.canSave)
+        model.action("save")
+        let action = model.pending!
+        XCTAssertTrue(model.confirm(action)); XCTAssertFalse(model.confirm(action))
+        model.clear()
+        XCTAssertEqual(editor.text, ""); XCTAssertNil(model.draft.text); XCTAssertNil(model.projection.draft.text)
+        XCTAssertNil(model.projection.error); XCTAssertNil(model.pending); XCTAssertNil(model.edit); XCTAssertNil(model.choose)
+        XCTAssertFalse(model.update(state(3, 1)))
+    }
+
+    @MainActor
+    func testProviderFormRetainsFinalInputAndScrubsItsPrivateReplica() {
+        func state(_ update: Int, _ ack: Int, destination: String = "public-runtime-visit") -> NativeRuntimeProjection {
+            NativeRuntimeProjection(documentId: "public-runtime-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
+                family: "profile", scene: "runtime-provider", destinationId: destination, updateSequence: update, privacyGeneration: 0,
+                acknowledgedEditRevision: ack, draftRevision: ack, draft: NativeRuntimeDraft(credential: ack == 0 ? "" : "synthetic-provider-key", transport: "developer_api", project: "", location: "global"),
+                canSave: true, busy: false, checking: false, primary: "validate", error: "Public validation example", appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111")
+        }
+        let model = NativeRuntimeModel(state(1, 0)), field = UITextField()
+        field.isSecureTextEntry = true; model.register(field, name: "credential")
+        model.edit = { _, _, _ in true }; model.choose = { _ in true }
+        field.text = "synthetic-provider-key"; model.capture()
+        XCTAssertFalse(model.canSave)
+        XCTAssertFalse(model.update(state(2, 1, destination: "retired-runtime-visit")))
+        XCTAssertTrue(model.update(state(2, 1)))
+        XCTAssertTrue(model.canSave)
+        model.action("save"); let action = model.pending!
+        XCTAssertTrue(model.confirm(action)); XCTAssertFalse(model.confirm(action))
+        XCTAssertTrue(model.settle(action)); XCTAssertEqual(field.text, "synthetic-provider-key")
+        var finalInput: NativeRuntimeDraft?
+        model.finalEdit = { value, _ in finalInput = value }
+        field.text = "synthetic-final-provider-key"
+        model.clear()
+        XCTAssertEqual(finalInput?.credential, "synthetic-final-provider-key", "Final committed text is reconciled before replica scrubbing")
+        XCTAssertEqual(field.text, ""); XCTAssertEqual(model.draft, .empty); XCTAssertEqual(model.projection.draft, .empty)
+        XCTAssertNil(model.projection.error); XCTAssertNil(model.pending); XCTAssertNil(model.edit); XCTAssertNil(model.choose); XCTAssertNil(model.finalEdit)
+        XCTAssertFalse(model.update(state(3, 1)))
+    }
+
+    @MainActor
+    func testConnectorEditorClearsConditionalSecretsAndRetainsFinalInputBeforeRetirement() throws {
+        let initial = NativeConnectorProjection(documentId: "public-connector-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
+            family: "profile", scene: "connector-custom-server", destinationId: "public-connector-visit", updateSequence: 1, privacyGeneration: 0,
+            acknowledgedEditRevision: 0, draftRevision: 0,
+            draft: NativeConnectorDraft(name: "Synthetic", endpoint: "https://example.com/mcp", credential: "", oauthIssuer: "https://accounts.example.com",
+                                        oauthClientId: "synthetic-client", oauthClientSecret: "synthetic-client-secret", oauthAuthMethod: "client_secret_post"),
+            canSave: true, busy: false, error: "Public setup example", appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111")
+        let model = NativeConnectorModel(initial), secret = UITextField(), endpoint = UITextField()
+        secret.isSecureTextEntry = true; secret.text = initial.draft.oauthClientSecret; endpoint.text = initial.draft.endpoint
+        model.register(secret, name: "oauthClientSecret"); model.register(endpoint, name: "endpoint"); model.edit = { _, _, _ in true }
+        model.change { $0.oauthAuthMethod = "none"; $0.oauthClientSecret = "" }
+        XCTAssertEqual(secret.text, ""); XCTAssertEqual(model.draft.oauthClientSecret, ""); XCTAssertFalse(model.canSave)
+        let acknowledged = NativeConnectorProjection(documentId: initial.documentId, ownerEpoch: initial.ownerEpoch, ownerGeneration: 1, revision: 1,
+            family: "profile", scene: initial.scene, destinationId: initial.destinationId, updateSequence: 2, privacyGeneration: 0,
+            acknowledgedEditRevision: 1, draftRevision: 1, draft: model.draft, canSave: true, busy: false, error: nil,
+            appearance: "dark", accentHex: "#CCA25C", foregroundHex: "#FFFFFF")
+        XCTAssertTrue(model.update(acknowledged)); XCTAssertTrue(model.canSave)
+        var final: NativeConnectorDraft?
+        model.finalEdit = { value, _ in final = value }
+        endpoint.text = "https://example.com/final-input"
+        model.clear()
+        XCTAssertEqual(final?.endpoint, "https://example.com/final-input"); XCTAssertEqual(final?.oauthClientSecret, "")
+        XCTAssertEqual(secret.text, ""); XCTAssertEqual(endpoint.text, ""); XCTAssertEqual(model.draft, .empty); XCTAssertEqual(model.projection.draft, .empty)
+        XCTAssertNil(model.finalEdit); XCTAssertNil(model.edit); XCTAssertNil(model.choose); XCTAssertNil(model.projection.error)
+        XCTAssertFalse(model.update(acknowledged))
+        // A bridge dispatch is not an edit acknowledgement. Rejected delivery
+        // and accepted-but-unacknowledged delivery must both offer final input
+        // without restoring a save/choice callback.
+        for delivered in [false, true] {
+            let pending = NativeConnectorModel(initial), field = UITextField()
+            field.text = "synthetic-unacknowledged-input"; pending.register(field, name: "credential")
+            var finalDraft: NativeConnectorDraft?
+            pending.finalEdit = { value, _ in finalDraft = value }; pending.edit = { _, _, _ in delivered }
+            pending.capture()
+            if delivered { pending.clear() }
+            XCTAssertEqual(finalDraft?.credential, "synthetic-unacknowledged-input")
+            XCTAssertTrue(pending.retired); XCTAssertNil(pending.choose); XCTAssertEqual(field.text, "")
+        }
+        for (scene, data, fieldName, lastInput) in [
+            ("connector-profile-link", #"{"network":"instagram","link":"https://www.instagram.com/example/"}"#, "link", "https://www.instagram.com/final-example/"),
+            ("connector-packet-price", #"{"price":"12.34"}"#, "price", "19.95")
+        ] {
+            let draft = try JSONDecoder().decode(NativeConnectorDraft.self, from: Data(data.utf8))
+            let projection = NativeConnectorProjection(documentId: initial.documentId, ownerEpoch: initial.ownerEpoch, ownerGeneration: 1, revision: 2,
+                family: "profile", scene: scene, destinationId: "public-sibling-editor", updateSequence: 1, privacyGeneration: 0,
+                acknowledgedEditRevision: 0, draftRevision: 0, draft: draft, canSave: true, busy: false, error: nil,
+                appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111")
+            XCTAssertTrue(projection.valid)
+            XCTAssertEqual(NativeConnectorProjection.draftKeys(scene), Set(draft.event.keys))
+            let sibling = NativeConnectorModel(projection), field = UITextField()
+            field.text = lastInput; sibling.register(field, name: fieldName)
+            var final: NativeConnectorDraft?
+            sibling.edit = { _, _, _ in true }; sibling.finalEdit = { value, _ in final = value }
+            sibling.capture(); sibling.clear()
+            XCTAssertEqual(final?[fieldName], lastInput)
+            XCTAssertEqual(field.text, ""); XCTAssertEqual(sibling.draft, .empty); XCTAssertEqual(sibling.projection.draft, .empty)
+            XCTAssertNil(sibling.finalEdit); XCTAssertNil(sibling.choose)
+        }
+    }
+
+    @MainActor
+    func testMemoryMultilineEditorReconcilesFinalInputAndScrubsItsReplica() throws {
+        let state = NativeMemoryProjection(documentId: "public-memory-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
+            family: "profile", scene: "memory-financial-context", destinationId: "public-memory-visit", updateSequence: 1, privacyGeneration: 0,
+            acknowledgedEditRevision: 0, draftRevision: 0, draft: .init(category: "risk", text: "Synthetic"), canSave: true, busy: false, error: nil,
+            appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111")
+        XCTAssertTrue(state.valid)
+        let model = NativeMemoryEditorModel(state), editor = UITextView()
+        editor.text = "Synthetic multiline\n漢字 😀"; model.register(editor, name: "text")
+        var final: NativeMemoryDraft?
+        model.edit = { _, _, _ in true }; model.finalEdit = { value, _ in final = value }
+        model.capture(); XCTAssertFalse(model.canSave)
+        model.clear()
+        XCTAssertEqual(final?.text, "Synthetic multiline\n漢字 😀")
+        XCTAssertEqual(editor.text, ""); XCTAssertEqual(model.draft, .empty); XCTAssertEqual(model.projection.draft, .empty)
+        XCTAssertNil(model.finalEdit); XCTAssertNil(model.choose); XCTAssertTrue(model.retired)
+        XCTAssertFalse(model.update(state))
+    }
+
+    @MainActor
     func testOrdinaryNameSceneRequiresAnAcknowledgedEditAndOneConfirmedSave() throws {
         let model = NativeProfileNameModel(publicNameScene())
         let field = UITextField()
@@ -300,14 +600,20 @@ final class NativeSupportTests: XCTestCase {
     func testNativeProfileUsesTheBundledWebArtworkAndRejectsUnknownIds() throws {
         XCTAssertFalse(NativeProfileArtwork.ids.isEmpty)
         XCTAssertEqual(Set(NativeProfileArtwork.ids).count, NativeProfileArtwork.ids.count)
+        let originalArtwork: Set<String> = ["gemini", "connector-gmail", "connector-google-drive",
+            "connector-calendar", "connector-hubspot", "connector-instagram", "connector-linkedin"]
+        let accentedArtwork: Set<String> = ["payouts", "request-pricing", "my-data", "world-model", "accent",
+            "payout-receipt", "payout-warning", "payout-progress", "payout-review"]
         for id in NativeProfileArtwork.ids {
             let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")
-            XCTAssertEqual(artwork.base.size, CGSize(width: 28, height: 28))
-            XCTAssertEqual(artwork.base.renderingMode, .alwaysTemplate)
-            XCTAssertEqual(artwork.accent != nil, ["request-pricing", "world-model"].contains(id))
+            let glyphSize: CGFloat = id == "gemini" ? 32 : 28
+            XCTAssertEqual(artwork.base.size, CGSize(width: glyphSize, height: glyphSize))
+            XCTAssertEqual(artwork.base.renderingMode, originalArtwork.contains(id) ? .alwaysOriginal : .alwaysTemplate, id)
+            XCTAssertEqual(artwork.accent != nil, accentedArtwork.contains(id), id)
         }
         XCTAssertEqual(NativeProfileArtwork.resolve("account")?.colorHex, "#2563EB")
-        XCTAssertEqual(NativeProfileArtwork.resolve("payouts")?.colorHex, "#10B981")
+        XCTAssertEqual(NativeProfileArtwork.resolve("vault-methods")?.colorHex, "#10B981")
+        XCTAssertNotNil(NativeProfileArtwork.resolve("gemini"))
         XCTAssertNil(NativeProfileArtwork.resolve("privacy")?.colorHex, "Semantic foreground stays theme-aware")
         XCTAssertNil(NativeProfileArtwork.resolve("../../private"))
         XCTAssertNil(NativeProfileArtwork.resolve("unknown"))
@@ -355,10 +661,10 @@ final class NativeSupportTests: XCTestCase {
     private func privateDrawerState(family: String = "profile", open: Bool = true,
                                    owner: String = "opaque-owner", revision: Int = 1, update: Int = 1,
                                    appearance: String = "light", privacy: Int = 0, enabled: Bool = true,
-                                   sampleRow: NativeDrawerRow? = nil, backEnabled: Bool = false) -> NativeDrawerProjection {
+                                   sampleRow: NativeDrawerRow? = nil, backEnabled: Bool = false, title: String = "Public sample") -> NativeDrawerProjection {
         NativeDrawerProjection(documentId: "public-document", ownerEpoch: owner, ownerGeneration: revision, revision: revision, family: family,
             updateSequence: update, privacyGeneration: privacy, appearance: appearance, accentHex: "#007aff", foregroundHex: "#000000",
-            title: "Public sample", sections: [NativeDrawerSection(id: "settings", title: "Settings",
+            title: title, sections: [NativeDrawerSection(id: "settings", title: "Settings",
                 rows: [sampleRow ?? NativeDrawerRow(id: "row-handle", label: "Appearance", detail: nil, symbol: "circle.lefthalf.filled",
                     enabled: true, destructive: nil, selected: nil, pending: nil)])],
             open: open, enabled: enabled, backEnabled: backEnabled)
@@ -445,6 +751,14 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(lease.settle(identity: state.identity, privacy: 0, sequence: cancelled, success: false))
         XCTAssertFalse(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: cancelled, interaction: 1,
             action: "row", row: "rename", allowed: true, text: "Public draft"))
+        let close = try XCTUnwrap(lease.emit(action: "close", row: nil, state: state))
+        XCTAssertTrue(lease.isCloseSettlement(sequence: close))
+        XCTAssertFalse(lease.settle(identity: state.identity, privacy: 0, sequence: close, success: true))
+        XCTAssertFalse(lease.settle(identity: state.identity, privacy: 1, sequence: close, success: false))
+        XCTAssertTrue(lease.settle(identity: state.identity, privacy: 0, sequence: close, success: false))
+        XCTAssertFalse(lease.settle(identity: state.identity, privacy: 0, sequence: close, success: false))
+        XCTAssertFalse(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: close, interaction: 1,
+            action: "close", row: nil, allowed: true))
         _ = lease.retire(state.identity)
         XCTAssertFalse(lease.acceptsSettlement(identity: state.identity, privacy: 0, sequence: sequence))
     }
@@ -539,6 +853,42 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(cancelledPreparation.retire(state.identity))
         XCTAssertFalse(cancelledPreparation.apply(state), "A lost apply cannot resurrect a cancelled private body")
         XCTAssertTrue(cancelledPreparation.retire(state.identity), "Exact absence proof is idempotent")
+
+        func navigation(_ update: Int, boundary: String? = nil) -> NativeDrawerProjection {
+            var next = privateDrawerState(open: boundary != "close", update: update,
+                appearance: update == 1 ? "light" : "dark", privacy: boundary == "privacy" ? 1 : 0,
+                enabled: boundary != "disabled", backEnabled: true)
+            next.surfaceOpen = true
+            next.profileDestinationId = boundary == "visit" ? "memory-reopened" : "memory-first"
+            next.navigationLocked = boundary == "lock"
+            next.profileStack = [NativeProfilePage(id: "memory", title: "Memory", sections: []),
+                                 NativeProfilePage(id: "memory-live", title: "Live memory", sections: [])]
+            return next
+        }
+        let initial = navigation(1)
+        var pop = NativeDrawerLease()
+        XCTAssertTrue(pop.apply(initial))
+        let back = pop.emit(action: "back", row: nil, state: initial)!
+        XCTAssertTrue(pop.apply(navigation(2)))
+        XCTAssertTrue(pop.confirm(identity: initial.identity, update: 1, privacy: 0, sequence: back,
+            interaction: 1, action: "back", row: nil, allowed: true), "A compatible content refresh must not reverse UIKit's completed Back")
+        var returned = navigation(3)
+        returned.profileStack?.removeLast(); returned.profileDestinationId = "memory-returned"
+        XCTAssertTrue(pop.apply(returned))
+        XCTAssertTrue(pop.settle(identity: initial.identity, privacy: 0, sequence: back, success: true),
+            "The committed destination change must not invalidate its confirmed settlement")
+        XCTAssertFalse(pop.settle(identity: initial.identity, privacy: 0, sequence: back, success: true))
+        XCTAssertFalse(pop.confirm(identity: initial.identity, update: 1, privacy: 0, sequence: back,
+            interaction: 1, action: "back", row: nil, allowed: true))
+        for boundary in ["visit", "lock", "close", "disabled", "privacy"] {
+            var stale = NativeDrawerLease()
+            XCTAssertTrue(stale.apply(initial))
+            let emitted = stale.emit(action: "back", row: nil, state: initial)!
+            XCTAssertTrue(stale.apply(navigation(2, boundary: boundary)))
+            XCTAssertTrue(stale.apply(navigation(3)))
+            XCTAssertFalse(stale.confirm(identity: initial.identity, update: 1, privacy: 0, sequence: emitted,
+                interaction: 1, action: "back", row: nil, allowed: true), "Returning from \(boundary) cannot revive the old Back")
+        }
     }
 
     @MainActor
@@ -820,17 +1170,18 @@ final class NativeSupportTests: XCTestCase {
         let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controller.model.interactionEnabled }, object: nil)
         await fulfillment(of: [admitted], timeout: 3)
         let host = try XCTUnwrap(controller.host)
-        let emitted = expectation(description: "Close emitted")
+        var emitted = expectation(description: "Close emitted")
         var token: Int?, interaction = 0
         controller.model.choose = { action, row, text in
             token = lease.emit(action: action, row: row, state: controller.model.projection, text: text)
             interaction = lease.interactionGeneration
+            if let token, action == "close" { controller.recordCloseIntent(sequence: token) }
             if token != nil { emitted.fulfill() }
             return token != nil
         }
         controller.settle(open: false, userIntent: true)
         await fulfillment(of: [emitted], timeout: 3)
-        let sequence = try XCTUnwrap(token)
+        var sequence = try XCTUnwrap(token)
         let refresh = privateDrawerState(family: "history", update: 2, appearance: "dark")
         XCTAssertTrue(lease.apply(refresh))
         controller.update(refresh)
@@ -840,6 +1191,26 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(web.accessibilityElementsHidden)
         XCTAssertTrue(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: sequence,
             interaction: interaction, action: "close", row: nil, allowed: controller.allowsInteraction("close", row: nil)))
+        XCTAssertTrue(lease.settle(identity: state.identity, privacy: 0, sequence: sequence, success: false))
+        controller.settleClose(sequence: sequence, success: false)
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            controller.model.interactionEnabled && controller.motion.committedOpen
+        }, object: nil)
+        await fulfillment(of: [restored], timeout: 3)
+        XCTAssertTrue(controller.host === host)
+        XCTAssertFalse(web.isUserInteractionEnabled, "Known rejection restores the authored drawer without uncovering Chat")
+        XCTAssertFalse(lease.settle(identity: state.identity, privacy: 0, sequence: sequence, success: false))
+        controller.settleClose(sequence: sequence, success: false)
+        XCTAssertTrue(controller.model.interactionEnabled, "A duplicate cannot interrupt a restored visit")
+        emitted = expectation(description: "New deliberate Close emitted")
+        controller.settle(open: false, userIntent: true)
+        await fulfillment(of: [emitted], timeout: 3)
+        sequence = try XCTUnwrap(token)
+        XCTAssertTrue(lease.confirm(identity: state.identity, update: 2, privacy: 0, sequence: sequence,
+            interaction: interaction, action: "close", row: nil, allowed: controller.allowsInteraction("close", row: nil)))
+        XCTAssertTrue(lease.settle(identity: state.identity, privacy: 0, sequence: sequence, success: true))
+        controller.settleClose(sequence: sequence, success: true)
+        XCTAssertFalse(web.isUserInteractionEnabled, "Acceptance alone does not manufacture a closed projection")
         let closed = privateDrawerState(family: "history", open: false, update: 3, appearance: "dark")
         XCTAssertTrue(lease.apply(closed))
         controller.update(closed)
@@ -898,7 +1269,123 @@ final class NativeSupportTests: XCTestCase {
             ]),
         ])]
         XCTAssertTrue(account.valid)
+        var payout = account
+        payout.profileStack = ["payouts", "payout-activity", "payout-receipt-1", "payout-receipt-2"].map {
+            NativeProfilePage(id: $0, title: "Synthetic payout navigation", sections: [])
+        }
+        XCTAssertTrue(payout.valid)
+        XCTAssertTrue(payout.allows(action: "ancestor", row: "payouts"))
+        XCTAssertFalse(payout.allows(action: "ancestor", row: "account"))
+        let payoutNavigation = NativeDrawerModel(payout)
+        payoutNavigation.interactionEnabled = true
+        var payoutAncestor: String?
+        payoutNavigation.choose = { action, row, _ in payoutAncestor = row; return action == "ancestor" }
+        payoutNavigation.requestPath(["payouts"], from: payout)
+        XCTAssertEqual(payoutAncestor, "payouts")
+        XCTAssertEqual(payoutNavigation.navigationPath, ["payouts"])
+        payout.profileStack![1] = NativeProfilePage(id: "account-delete", title: "Wrong parent", sections: [])
+        XCTAssertFalse(payout.valid, "Financial pages cannot admit unrelated account operations")
+        XCTAssertFalse(NativeDrawerProjection.validPayoutPath(["payouts", "payout-receipt-2"]))
+        var memory = account
+        memory.profileStack = ["memory", "memory-domain", "memory-section", "memory-entity", "memory-confirm"].map {
+            NativeProfilePage(id: $0, title: "Synthetic Memory navigation", sections: [])
+        }
+        XCTAssertTrue(memory.valid)
+        XCTAssertTrue(memory.allows(action: "ancestor", row: "memory-section"))
+        XCTAssertFalse(memory.allows(action: "ancestor", row: "account"))
+        XCTAssertFalse(NativeDrawerProjection.validMemoryPath(["memory", "memory-confirm"]))
+        XCTAssertFalse(NativeDrawerProjection.validMemoryPath(["memory", "account-delete"]))
+        XCTAssertTrue(NativeDrawerProjection.validMemoryPath(["memory", "memory-shared", "memory-shared-person"]))
+        XCTAssertTrue(NativeDrawerProjection.validMemoryPath(["memory", "memory-received", "memory-received-files"]))
+        XCTAssertFalse(NativeDrawerProjection.validMemoryPath(["memory", "memory-shared", "memory-confirm"]))
+        XCTAssertTrue(NativeDrawerProjection.validMemoryPath(["memory", "memory-secrets", "memory-secret", "memory-secret-remove"]))
+        XCTAssertTrue(NativeDrawerProjection.validMemoryPath(["memory", "memory-secrets", "memory-identity"]))
+        XCTAssertFalse(NativeDrawerProjection.validMemoryPath(["memory", "memory-secret-remove"]))
+        var worldModel = account
+        worldModel.profileStack = ["world-model", "world-model-sources", "world-model-review", "world-model-review-fact"].map {
+            NativeProfilePage(id: $0, title: "Synthetic World Model navigation", sections: [])
+        }
+        XCTAssertTrue(worldModel.valid)
+        XCTAssertTrue(worldModel.allows(action: "ancestor", row: "world-model-sources"))
+        let worldModelNavigation = NativeDrawerModel(worldModel)
+        worldModelNavigation.interactionEnabled = true
+        var worldModelAncestor: String?
+        worldModelNavigation.choose = { action, row, _ in worldModelAncestor = row; return action == "ancestor" }
+        worldModelNavigation.requestPath(["world-model"], from: worldModel)
+        XCTAssertEqual(worldModelAncestor, "world-model")
+        XCTAssertEqual(worldModelNavigation.navigationPath, ["world-model"])
+        XCTAssertFalse(NativeDrawerProjection.validWorldModelPath(["world-model", "world-model-remove"]))
+        XCTAssertFalse(NativeDrawerProjection.validWorldModelPath(["world-model", "account-delete"]))
+        worldModel.navigationLocked = true
+        worldModel.profileStack![3] = NativeProfilePage(id: "world-model-review-fact", title: "Recovery", sections: [NativeDrawerSection(id: "recovery", title: nil, rows: [
+            NativeDrawerRow(id: "retry-save", label: "Retry save", detail: nil, symbol: nil, enabled: true, destructive: nil, selected: nil, pending: nil)
+        ])])
+        XCTAssertTrue(worldModel.valid)
+        XCTAssertFalse(worldModel.allows(action: "close", row: nil))
+        XCTAssertFalse(worldModel.allows(action: "back", row: nil))
+        XCTAssertFalse(worldModel.allows(action: "ancestor", row: "world-model"))
+        XCTAssertTrue(worldModel.allows(action: "row", row: "retry-save"), "Recovery remains interactive while navigation is fenced")
+        var finance = account
+        finance.profileStack = ["preferences", "finance-preferences", "finance-anchor"].map {
+            NativeProfilePage(id: $0, title: "Synthetic Finance preference navigation", sections: [])
+        }
+        XCTAssertTrue(finance.valid)
+        XCTAssertTrue(finance.allows(action: "ancestor", row: "preferences"))
+        XCTAssertFalse(finance.allows(action: "ancestor", row: "account"))
+        let financeNavigation = NativeDrawerModel(finance)
+        financeNavigation.interactionEnabled = true
+        var financeAncestor: String?
+        financeNavigation.choose = { action, row, _ in financeAncestor = row; return action == "ancestor" }
+        financeNavigation.requestPath(["preferences"], from: finance)
+        XCTAssertEqual(financeAncestor, "preferences")
+        XCTAssertEqual(financeNavigation.navigationPath, ["preferences"])
+        XCTAssertFalse(NativeDrawerProjection.validFinancePath(["preferences", "finance-anchor"]))
+        finance.profileStack![0] = NativeProfilePage(id: "security", title: "Wrong parent", sections: [])
+        XCTAssertFalse(finance.valid)
+        for kind in ["account-reset", "account-delete"] {
+            var confirmation = account
+            confirmation.profileStack = account.profileStack! + [NativeProfilePage(id: kind, title: "Confirm account action", sections: [])]
+            XCTAssertTrue(confirmation.valid)
+            confirmation.profileStack![0] = NativeProfilePage(id: "preferences", title: "Preferences", sections: [])
+            XCTAssertFalse(confirmation.valid, "An account confirmation requires its actual Account parent")
+        }
         XCTAssertTrue(account.allows(action: "row", row: "edit-name"))
+        var deviceConfirmation = account
+        deviceConfirmation.profileStack = ["security", "devices", "device-unlink"].map {
+            NativeProfilePage(id: $0, title: "Synthetic device navigation", sections: [])
+        }
+        XCTAssertTrue(deviceConfirmation.valid)
+        XCTAssertTrue(deviceConfirmation.allows(action: "ancestor", row: "security"))
+        XCTAssertFalse(deviceConfirmation.allows(action: "ancestor", row: "account"))
+        let deviceNavigation = NativeDrawerModel(deviceConfirmation)
+        deviceNavigation.interactionEnabled = true
+        var ancestorAction: String?
+        deviceNavigation.choose = { action, row, _ in ancestorAction = action; return row == "security" }
+        deviceNavigation.requestPath(["security"], from: deviceConfirmation)
+        XCTAssertEqual(ancestorAction, "ancestor")
+        XCTAssertEqual(deviceNavigation.navigationPath, ["security"])
+        var directDeviceEntry = deviceConfirmation
+        directDeviceEntry.profileStack = Array(deviceConfirmation.profileStack!.dropFirst())
+        XCTAssertTrue(directDeviceEntry.valid, "Direct Devices entry must not invent Security ancestry")
+        deviceConfirmation.profileStack![1] = NativeProfilePage(id: "session", title: "Session", sections: [])
+        XCTAssertFalse(deviceConfirmation.valid, "Unlink confirmation requires its actual Devices parent")
+        var vaultDetails = account
+        vaultDetails.profileStack = ["security", "vault", "vault-method"].map {
+            NativeProfilePage(id: $0, title: "Synthetic unlock navigation", sections: [])
+        }
+        XCTAssertTrue(vaultDetails.valid)
+        XCTAssertTrue(vaultDetails.allows(action: "ancestor", row: "security"))
+        vaultDetails.profileStack![2] = NativeProfilePage(id: "vault-remove", title: "Remove passkey", sections: [])
+        XCTAssertTrue(vaultDetails.valid)
+        vaultDetails.profileStack!.removeFirst()
+        XCTAssertTrue(vaultDetails.valid, "Direct Vault entry retains its actual ancestry")
+        XCTAssertFalse(vaultDetails.allows(action: "ancestor", row: "security"))
+        vaultDetails.profileStack![0] = NativeProfilePage(id: "account", title: "Account", sections: [])
+        XCTAssertFalse(vaultDetails.valid, "Method operations cannot be attached to an unrelated parent")
+        var unrelatedThirdPage = account
+        unrelatedThirdPage.profileStack! += [NativeProfilePage(id: "account-reset", title: "Reset", sections: []),
+            NativeProfilePage(id: "account-delete", title: "Delete", sections: [])]
+        XCTAssertFalse(unrelatedThirdPage.valid, "The bounded device depth must not broaden other feature paths")
         XCTAssertFalse(account.allows(action: "row", row: "row-handle"))
         XCTAssertFalse(account.allows(action: "row", row: "read-only-mail"))
         var closedRoot = privateDrawerState(open: false, backEnabled: true)
@@ -913,6 +1400,7 @@ final class NativeSupportTests: XCTestCase {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
+        window.backgroundColor = .systemGroupedBackground; window.isOpaque = true
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer {
@@ -945,20 +1433,111 @@ final class NativeSupportTests: XCTestCase {
             }, object: nil)], timeout: 3)
         }
         await requireRow("row-handle")
+        let envelopeNavigation = try XCTUnwrap(controller.model.profileNavigationController)
+        let rootController = try XCTUnwrap(envelopeNavigation.viewControllers.first)
+        let rootNavigationItem = rootController.navigationItem
+        XCTAssertEqual(rootNavigationItem.backButtonDisplayMode, .minimal,
+            "Profile keeps a compact native Back indicator rather than a morphing title pill")
+        var repeatedBackTitleWrites = 0, repeatedTitleWrites = 0, repeatedBarTintWrites = 0
+        var repeatedTintWrites = 0, repeatedStyleWrites = 0
+        let backTitleObservation = rootNavigationItem.observe(\.backButtonTitle, options: [.new]) { _, _ in repeatedBackTitleWrites += 1 }
+        let titleObservation = rootController.observe(\.title, options: [.new]) { _, _ in repeatedTitleWrites += 1 }
+        let barTintObservation = envelopeNavigation.navigationBar.observe(\.tintColor, options: [.new]) { _, _ in repeatedBarTintWrites += 1 }
+        let tintObservation = controller.host.view.observe(\.tintColor, options: [.new]) { _, _ in repeatedTintWrites += 1 }
+        let styleObservation = controller.host.observe(\.overrideUserInterfaceStyle, options: [.new]) { _, _ in repeatedStyleWrites += 1 }
+        defer {
+            backTitleObservation.invalidate(); titleObservation.invalidate(); barTintObservation.invalidate()
+            tintObservation.invalidate(); styleObservation.invalidate()
+        }
+        func capturePublicHeader(_ phase: String) {
+            guard ProcessInfo.processInfo.environment["HUSHH_PROFILE_SYNTHETIC_VISUALS"] == "1" else { return }
+            // This owned window contains only the synthetic fixture. Its opaque
+            // canvas prevents a material backdrop from sampling another window.
+            let bar = envelopeNavigation.navigationBar
+            let frame = bar.convert(bar.bounds, to: window).integral
+            guard !frame.isEmpty, window.bounds.contains(frame) else { XCTFail("Public navigation header must be inside its owned window"); return }
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                _ = window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
+            }
+            guard let crop = image.cgImage?.cropping(to: frame.applying(CGAffineTransform(scaleX: image.scale, y: image.scale))) else {
+                XCTFail("Public navigation header capture failed"); return
+            }
+            let attachment = XCTAttachment(image: UIImage(cgImage: crop))
+            attachment.name = "synthetic-profile-\(phase)"; attachment.lifetime = .keepAlways; add(attachment)
+        }
         let host = controller.host
         let requestBack = { controller.model.requestPath([], from: controller.model.projection) }
         controller.model.choose = { [weak controller] _, _, _ in controller?.model.pendingSequence = 10; return true }
         XCTAssertTrue(controller.model.choice("row", row: "row-handle"))
         controller.update(account)
+        envelopeNavigation.reconcile()
+        capturePublicHeader("first-push")
+        var duringFirstPush = privateDrawerState(update: 3, backEnabled: true)
+        duringFirstPush.surfaceOpen = true; duringFirstPush.profileStack = account.profileStack
+        duringFirstPush.profileDestinationId = account.profileDestinationId
+        try await Task.sleep(for: .milliseconds(34))
+        controller.update(duringFirstPush); envelopeNavigation.reconcile()
+        capturePublicHeader("first-push-refresh")
+        if ProcessInfo.processInfo.environment["HUSHH_PROFILE_SYNTHETIC_VISUALS"] == "1" {
+            for frame in 0..<6 {
+                try await Task.sleep(for: .milliseconds(34))
+                capturePublicHeader("push-frame-\(frame)")
+            }
+        }
         controller.model.settle(sequence: 10, success: true)
         await requireClose("Account")
         await requireRow("edit-name")
+        try await Task.sleep(for: .milliseconds(34))
+        capturePublicHeader("first-settled")
+        print("PUBLIC_PROFILE_TRANSITION back_writes=\(repeatedBackTitleWrites) title_writes=\(repeatedTitleWrites) bar_tint_writes=\(repeatedBarTintWrites) ancestor_tint_writes=\(repeatedTintWrites) style_writes=\(repeatedStyleWrites)")
+        let accountController = try XCTUnwrap(envelopeNavigation.visibleViewController)
+        let accountChildren = accountController.children
+        XCTAssertEqual(accountController.navigationItem.backButtonDisplayMode, .minimal,
+            "Nested pages must keep the same Back geometry for their own children")
+        repeatedBackTitleWrites = 0; repeatedTitleWrites = 0; repeatedBarTintWrites = 0
+        repeatedTintWrites = 0; repeatedStyleWrites = 0
+        for sequence in 4...6 {
+            var content = privateDrawerState(update: sequence, backEnabled: true)
+            content.surfaceOpen = true; content.profileStack = account.profileStack
+            content.profileDestinationId = account.profileDestinationId
+            controller.update(content); envelopeNavigation.reconcile()
+            // Yield so deferred representable reconciliation/layout is included.
+            try await Task.sleep(for: .milliseconds(34))
+            controller.view.layoutIfNeeded()
+            capturePublicHeader("refresh-\(sequence)")
+            XCTAssertTrue(controller.model.profileNavigationController === envelopeNavigation)
+            XCTAssertTrue(envelopeNavigation.viewControllers.first === rootController)
+            XCTAssertTrue(envelopeNavigation.visibleViewController === accountController)
+            XCTAssertEqual(accountController.children.count, accountChildren.count)
+            XCTAssertTrue(zip(accountController.children, accountChildren).allSatisfy { $0.0 === $0.1 })
+        }
+        XCTAssertEqual(repeatedBackTitleWrites, 0, "Compatible content refreshes must not rebuild the native Back label")
+        XCTAssertEqual(repeatedTitleWrites, 0, "Compatible refreshes must not reset its owning page title")
+        XCTAssertEqual(repeatedBarTintWrites, 0, "Compatible refreshes must not reapply navigation tint")
+        XCTAssertEqual(repeatedTintWrites, 0, "Compatible content refreshes must not reapply the ancestor material tint")
+        XCTAssertEqual(repeatedStyleWrites, 0, "Compatible content refreshes must not reapply the ancestor appearance")
+        let originalBackTitle = rootNavigationItem.backButtonTitle
+        repeatedBackTitleWrites = 0
+        rootNavigationItem.backButtonTitle = originalBackTitle
+        XCTAssertEqual(repeatedBackTitleWrites, 1, "Negative control must observe UIKit's redundant Back-label assignment")
+        repeatedTintWrites = 0
+        let originalTint = controller.host.view.tintColor
+        controller.host.view.tintColor = originalTint
+        XCTAssertEqual(repeatedTintWrites, 1, "Negative control must observe a redundant ancestor tint assignment")
+        capturePublicHeader("negative-redundant-writes")
+        backTitleObservation.invalidate(); titleObservation.invalidate(); barTintObservation.invalidate()
+        tintObservation.invalidate(); styleObservation.invalidate()
+        let navigationFrame = envelopeNavigation.view.convert(envelopeNavigation.view.bounds, to: window)
+        let panelFrame = controller.host.view.convert(controller.host.view.bounds, to: window)
+        XCTAssertEqual(navigationFrame.minY, panelFrame.minY, accuracy: 1, "Profile navigation must cover the panel's top safe area")
+        XCTAssertEqual(navigationFrame.maxY, panelFrame.maxY, accuracy: 1,
+            "Profile navigation must cover the panel's bottom safe area; keyboard inset=\(window.keyboardLayoutGuide.layoutFrame.height)")
         XCTAssertTrue(controller.host === host)
         XCTAssertEqual(controller.motion.progress, 1, "An inner push must not move Profile offscreen")
         XCTAssertEqual(controller.model.navigationPath, ["account"])
         var backs = 0
         controller.model.choose = { [weak controller] action, _, _ in
-            if action == "back" { backs += 1; controller?.model.pendingSequence = backs }
+            if action == "back" || action == "root" { backs += 1; controller?.model.pendingSequence = backs }
             return true
         }
         requestBack()
@@ -968,14 +1547,14 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(controller.model.navigationPath, [], "SwiftUI's Back binding must synchronously reflect the presented pop")
         XCTAssertEqual(controller.model.projection.profileStack?.map(\.id), ["account"], "Presentation does not commit the authored route")
         XCTAssertFalse(controller.model.choice("row", row: "edit-name"), "Pending Back quarantines competing operations")
-        var refreshed = privateDrawerState(update: 3, backEnabled: true)
+        var refreshed = privateDrawerState(update: 7, backEnabled: true)
         refreshed.surfaceOpen = true; refreshed.profileStack = account.profileStack; refreshed.profileDestinationId = account.profileDestinationId
         controller.update(refreshed)
         controller.model.requestPath([], from: refreshed)
         XCTAssertEqual(backs, 1, "A compatible refresh must not release pending Back")
         XCTAssertEqual(controller.model.navigationPath, [], "A compatible old projection must not replay the pending pop")
         XCTAssertFalse(controller.model.allowsPageInteraction)
-        var returned = privateDrawerState(update: 4, backEnabled: true)
+        var returned = privateDrawerState(update: 8, backEnabled: true)
         returned.surfaceOpen = true; returned.profileStack = []
         controller.update(returned)
         await requireClose("Returned Profile root")
@@ -983,7 +1562,7 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(controller.model.allowsPageInteraction)
         XCTAssertTrue(controller.host === host)
         XCTAssertEqual(controller.motion.progress, 1)
-        account = privateDrawerState(update: 5, backEnabled: true)
+        account = privateDrawerState(update: 9, backEnabled: true)
         account.surfaceOpen = true; account.profileDestinationId = "account-returned"
         account.profileStack = [controller.model.page("account")!]
         controller.update(account)
@@ -1014,42 +1593,194 @@ final class NativeSupportTests: XCTestCase {
         let navigation = try XCTUnwrap(controller.model.profileNavigationController)
         navigation.popViewController(animated: true)
         XCTAssertEqual(backs, 2, "A native pop cannot commit React Back before UIKit completes")
-        var replacement = privateDrawerState(update: 6, backEnabled: true)
+        var replacement = privateDrawerState(update: 10, backEnabled: true, title: "Updated Profile")
         replacement.surfaceOpen = true; replacement.profileDestinationId = "account-replacement"
         replacement.profileStack = account.profileStack
+        let transitioningBackTitle = rootNavigationItem.backButtonTitle
         controller.update(replacement)
+        navigation.reconcile()
+        XCTAssertEqual(rootNavigationItem.backButtonTitle, transitioningBackTitle, "A refresh must not replace Back text during UIKit's active pop")
         await requireRow("edit-name")
+        XCTAssertEqual(rootNavigationItem.backButtonTitle, replacement.title, "The latest title applies when navigation settles")
         XCTAssertEqual(backs, 2, "The old pop cannot commit Back against a newer Account incarnation")
         navigation.popViewController(animated: true)
         XCTAssertEqual(backs, 2)
         await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in backs == 3 }, object: nil)], timeout: 3)
         XCTAssertEqual(controller.model.navigationPath, [])
         XCTAssertEqual(controller.model.projection.profileStack?.map(\.id), ["account"])
+        var preferences = privateDrawerState(update: 11, backEnabled: true)
+        preferences.surfaceOpen = true; preferences.profileDestinationId = "preferences-first"
+        preferences.profileStack = [NativeProfilePage(id: "preferences", title: "Appearance & preferences", sections: [
+            NativeDrawerSection(id: "appearance-settings", title: nil, rows: [
+                NativeDrawerRow(id: "theme-selector", label: "Appearance", detail: nil, symbol: "sun.max", enabled: true,
+                    destructive: nil, selected: nil, pending: nil, options: [
+                        NativeDrawerOption(id: "theme-light", label: "Light", selected: true),
+                        NativeDrawerOption(id: "theme-dark", label: "Dark", selected: false),
+                    ]),
+            ]),
+        ])]
+        XCTAssertTrue(preferences.valid)
+        XCTAssertTrue(preferences.allows(action: "row", row: "theme-dark"))
+        XCTAssertFalse(preferences.allows(action: "root", row: nil), "A single page only admits its immediate Back")
+        XCTAssertFalse(preferences.allows(action: "row", row: "theme-light"), "Reselecting does not perform another write")
+        XCTAssertFalse(preferences.allows(action: "row", row: "theme-selector"), "The trigger is not operation authority")
+        var voice = preferences
+        voice.profileStack = preferences.profileStack! + [NativeProfilePage(id: "voice", title: "Voice", sections: [])]
+        XCTAssertTrue(voice.valid)
+        voice.profileStack![0] = NativeProfilePage(id: "security", title: "Security", sections: [])
+        XCTAssertFalse(voice.valid, "An unrelated panel cannot become the Voice parent")
+        voice.profileStack = Array(voice.profileStack!.suffix(1))
+        XCTAssertTrue(voice.valid, "A direct owned Voice entry must not invent a Preferences parent")
+        controller.update(preferences)
+        await requireRow("theme-selector")
+        let preferencesPage = try XCTUnwrap(navigation.topViewController)
+        XCTAssertEqual(preferencesPage.view.backgroundColor, UIColor.systemGroupedBackground,
+            "The first push frame must not expose the underlying web route while SwiftUI draws")
+        XCTAssertEqual(navigation.view.backgroundColor, UIColor.systemGroupedBackground)
+        XCTAssertTrue(controller.host === host)
+        XCTAssertEqual(controller.motion.progress, 1)
+        var nested = privateDrawerState(update: 12, backEnabled: true)
+        nested.surfaceOpen = true; nested.profileDestinationId = "security-session"
+        nested.profileStack = [NativeProfilePage(id: "security", title: "Security", sections: []),
+            NativeProfilePage(id: "session", title: "Account access", sections: [])]
+        XCTAssertTrue(nested.valid)
+        XCTAssertTrue(nested.allows(action: "root", row: nil))
+        controller.update(nested)
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !controller.model.navigationTransitioning && navigation.viewControllers.count == 3
+        }, object: nil)], timeout: 3)
+        navigation.popViewController(animated: true)
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in backs == 4 }, object: nil)], timeout: 3)
+        XCTAssertEqual(controller.model.navigationPath, ["security"], "A committed native Back pops one level, not the whole drawer")
+        var parent = privateDrawerState(update: 13, backEnabled: true)
+        parent.surfaceOpen = true; parent.profileDestinationId = "security-parent"
+        parent.profileStack = [nested.profileStack![0]]
+        controller.update(parent)
+        nested = privateDrawerState(update: 14, backEnabled: true)
+        nested.surfaceOpen = true; nested.profileDestinationId = "security-session-reopened"
+        nested.profileStack = parent.profileStack! + [NativeProfilePage(id: "session", title: "Account access", sections: [])]
+        controller.update(nested)
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !controller.model.navigationTransitioning && navigation.viewControllers.count == 3
+        }, object: nil)], timeout: 3)
+        navigation.popToRootViewController(animated: true)
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in backs == 5 }, object: nil)], timeout: 3)
+        XCTAssertEqual(controller.model.navigationPath, [], "Back history can return to Profile through one bounded root intent")
+        var revisited = privateDrawerState(update: 15, backEnabled: true)
+        revisited.surfaceOpen = true; revisited.profileDestinationId = "preferences-returned"
+        revisited.profileStack = preferences.profileStack
+        controller.update(revisited)
+        await requireRow("theme-selector")
+        XCTAssertTrue(navigation.topViewController === preferencesPage, "Reopening a sibling page retains its hosting controller")
+        XCTAssertNil(navigation.popToViewController(preferencesPage, animated: true))
+        XCTAssertTrue(navigation.hasCompletedProjectedDestination, "A no-op pop must not strand transition quarantine")
+        XCTAssertTrue(controller.host === host)
+        func choiceMenu(in view: UIView) -> NativeDrawerMenuControl? {
+            if let menu = view as? NativeDrawerMenuControl,
+               menu.accessibilityIdentifier == "native-profile-row-theme-selector" { return menu }
+            return view.subviews.lazy.compactMap { choiceMenu(in: $0) }.first
+        }
+        let themeMenu = try XCTUnwrap(choiceMenu(in: preferencesPage.view))
+        // Force a real representable update while UIKit quarantines its page.
+        // didShow must restore touch without another settings projection.
+        navigation.navigationController(navigation, willShow: preferencesPage, animated: true)
+        var duringTransition = privateDrawerState(update: 16, backEnabled: true)
+        duringTransition.surfaceOpen = true
+        duringTransition.profileDestinationId = revisited.profileDestinationId
+        var updatedRow = revisited.profileStack![0].sections[0].rows[0]
+        updatedRow.options = [NativeDrawerOption(id: "theme-light", label: "Light", selected: false),
+                              NativeDrawerOption(id: "theme-dark", label: "Dark", selected: true)]
+        duringTransition.profileStack = [NativeProfilePage(id: "preferences", title: "Appearance & preferences", sections: [
+            NativeDrawerSection(id: "appearance-settings", title: nil, rows: [updatedRow]),
+        ])]
+        controller.update(duringTransition)
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            themeMenu.accessibilityValue == "Dark"
+        }, object: nil)], timeout: 3)
+        XCTAssertFalse(preferencesPage.view.isUserInteractionEnabled)
+        navigation.navigationController(navigation, didShow: preferencesPage, animated: true)
+        XCTAssertTrue(preferencesPage.view.isUserInteractionEnabled)
+        XCTAssertTrue(themeMenu.isUserInteractionEnabled, "A transition-time render must not strand the retained menu")
+        XCTAssertFalse(themeMenu.accessibilityElementsHidden, "UIKit completion must restore menu accessibility too")
+
+        navigation.popViewController(animated: true)
+        XCTAssertEqual(backs, 5, "A compatible refresh cannot commit Back before UIKit finishes")
+        func compatibleState(_ update: Int, privacy: Int = 0) -> NativeDrawerProjection {
+            var next = privateDrawerState(update: update, appearance: "dark", privacy: privacy, backEnabled: true)
+            next.surfaceOpen = true
+            next.profileDestinationId = duringTransition.profileDestinationId
+            next.profileStack = duringTransition.profileStack
+            return next
+        }
+        let compatible = compatibleState(17)
+        controller.update(compatible)
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in backs == 6 }, object: nil)], timeout: 3)
+        XCTAssertEqual(controller.model.navigationPath, [])
+        XCTAssertEqual(navigation.viewControllers.count, 1, "A compatible update must not push the popped page back")
+        controller.update(compatibleState(18))
+        navigation.reconcile()
+        XCTAssertEqual(backs, 6, "Refresh while awaiting React Back cannot replay the operation")
+        XCTAssertEqual(navigation.viewControllers.count, 1)
+        returned = privateDrawerState(update: 19, backEnabled: true)
+        returned.surfaceOpen = true; returned.profileStack = []
+        controller.update(returned)
+        await requireRow("row-handle")
+        XCTAssertTrue(controller.model.allowsPageInteraction)
+
+        controller.update(compatibleState(20))
+        await requireRow("theme-selector")
+        navigation.popViewController(animated: true)
+        controller.update(compatibleState(21, privacy: 1))
+        await requireRow("theme-selector")
+        XCTAssertEqual(backs, 6, "A privacy change is not a compatible pop binding")
+        var sibling = privateDrawerState(update: 22, privacy: 1, backEnabled: true)
+        sibling.surfaceOpen = true; sibling.profileDestinationId = "account-after-preferences"
+        sibling.profileStack = account.profileStack
+        controller.model.update(sibling)
+        XCTAssertEqual(navigation.viewControllers.count, 2)
+        XCTAssertFalse(navigation.hasCompletedProjectedDestination,
+            "An equal-depth Account projection is not proof that the visible Preferences controller changed")
+        controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
+        XCTAssertFalse(controller.presentationSettled)
+        controller.update(sibling)
+        await requireRow("edit-name")
+        XCTAssertTrue(navigation.hasCompletedProjectedDestination)
         controller.retire()
         navigation.navigationController(navigation, didShow: navigation.viewControllers[0], animated: true)
         requestBack()
-        XCTAssertEqual(backs, 3, "A retained retired callback cannot invoke a route operation")
+        XCTAssertEqual(backs, 6, "A retained retired callback cannot invoke a route operation")
     }
 
     @MainActor
-    func testProfileContentHandoffDoesNotReplayTheOuterDrawerSlide() {
+    func testProfileContentHandoffDoesNotReplayTheOuterDrawerSlide() async throws {
         var detail = privateDrawerState(open: false)
         detail.surfaceOpen = true
         let controller = NativeDrawerPresentationController(detail)
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         controller.activateInitialPresentation()
+        XCTAssertFalse(controller.presentationSettled, "An offscreen host cannot acknowledge visible presentation")
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previousKeyWindow?.makeKeyAndVisible() }
         let host = controller.host
+        var completed = [Int]()
+        controller.presentationDidSettle = { completed.append($0.updateSequence) }
         var menu = privateDrawerState(update: 2)
         menu.surfaceOpen = true
         controller.update(menu)
         XCTAssertTrue(controller.motion.committedOpen, "Returning to menu content must not start another outer opening animation")
         XCTAssertEqual(controller.motion.progress, 1)
         XCTAssertTrue(controller.host === host)
+        XCTAssertTrue(controller.presentationSettled)
+        XCTAssertEqual(completed, [2])
         detail = privateDrawerState(open: false, update: 3)
         detail.surfaceOpen = true
         controller.update(detail)
         XCTAssertFalse(controller.motion.committedOpen)
         XCTAssertEqual(controller.motion.progress, 0)
+        XCTAssertEqual(completed, [2, 3])
         XCTAssertFalse(controller.allowsInteraction("row", row: "row-handle"))
         controller.retire()
 
@@ -1059,14 +1790,23 @@ final class NativeSupportTests: XCTestCase {
         closed.surfaceOpen = false
         let opening = NativeDrawerPresentationController(closed)
         opening.view.frame = controller.view.frame
+        window.rootViewController = opening
         opening.activateInitialPresentation()
+        var openingCompletions = 0
+        opening.presentationDidSettle = { _ in openingCompletions += 1 }
         opening.update(menu)
         XCTAssertFalse(opening.motion.committedOpen)
+        XCTAssertFalse(opening.presentationSettled)
+        XCTAssertEqual(openingCompletions, 0, "Projection acceptance is not completed presentation")
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in opening.presentationSettled }, object: nil)], timeout: 2)
+        XCTAssertEqual(openingCompletions, 1)
         opening.retire()
+        XCTAssertFalse(opening.presentationSettled)
 
         // A changed privacy generation cannot take the content-only path.
         let changedPrivacy = NativeDrawerPresentationController(detail)
         changedPrivacy.view.frame = controller.view.frame
+        window.rootViewController = changedPrivacy
         changedPrivacy.activateInitialPresentation()
         var next = privateDrawerState(update: 4, privacy: 1)
         next.surfaceOpen = true
@@ -1077,47 +1817,67 @@ final class NativeSupportTests: XCTestCase {
 
     @MainActor
     func testUnacknowledgedDrawerCloseRequestsFreshPresentationWithoutReplayingClose() {
-        let controller = NativeDrawerPresentationController(privateDrawerState())
-        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
-        controller.activateInitialPresentation()
-        let host = controller.host
-        var choices = 0, invalidations = 0
-        controller.model.choose = { action, _, _ in
-            XCTAssertEqual(action, "close")
-            choices += 1
-            return true // Deliberately do not acknowledge the authored Close.
+        for outcome in ["refreshed", "retired", "stalled"] {
+            let controller = NativeDrawerPresentationController(privateDrawerState())
+            controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            controller.activateInitialPresentation()
+            let host = controller.host
+            var choices = 0, invalidations = 0
+            controller.model.choose = { action, _, _ in
+                XCTAssertEqual(action, "close")
+                choices += 1
+                return true // Deliberately do not acknowledge the authored Close.
+            }
+            controller.invalidateInteractions = { invalidations += 1 }
+            let refresh = expectation(description: "Timed-out presentation requests readmission")
+            let recovery = expectation(description: "Only stalled readmission escalates native recovery")
+            recovery.isInverted = outcome != "stalled"
+            controller.requestRecovery = {
+                XCTAssertFalse(controller.model.interactionEnabled)
+                XCTAssertEqual(choices, 1)
+                recovery.fulfill()
+            }
+            controller.requestReadmission = {
+                XCTAssertFalse(controller.model.interactionEnabled)
+                XCTAssertGreaterThanOrEqual(invalidations, 2, "Timeout must invalidate the original action token")
+                // Let the recovery deadline arm first. A fresh projection or
+                // retirement must then cancel it, not merely avoid arming it.
+                if outcome != "stalled" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        if outcome == "retired" { controller.retire() }
+                        else { controller.update(self.privateDrawerState(update: 2)) }
+                    }
+                }
+                refresh.fulfill()
+            }
+            controller.settle(open: false, userIntent: true)
+            wait(for: [refresh], timeout: 7)
+            wait(for: [recovery], timeout: 3)
+            XCTAssertEqual(choices, 1, "A presentation refresh must not replay Close")
+            if outcome != "retired" {
+                if outcome == "stalled" { controller.update(privateDrawerState(update: 2)) }
+                let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    controller.model.interactionEnabled && controller.allowsInteraction("close", row: nil)
+                }, object: controller)
+                XCTAssertEqual(XCTWaiter.wait(for: [admitted], timeout: 2), .completed,
+                    "Fresh owner presentation must restore interaction after settlement")
+            }
+            XCTAssertTrue(controller.host === host)
+            XCTAssertEqual(choices, 1)
+            controller.retire()
+            XCTAssertNil(controller.requestReadmission)
+            XCTAssertNil(controller.requestRecovery)
         }
-        controller.invalidateInteractions = { invalidations += 1 }
-        let refresh = expectation(description: "Timed-out presentation requests readmission")
-        controller.requestReadmission = {
-            XCTAssertFalse(controller.model.interactionEnabled)
-            XCTAssertGreaterThanOrEqual(invalidations, 2, "Timeout must invalidate the original action token")
-            refresh.fulfill()
-        }
-        controller.settle(open: false, userIntent: true)
-        wait(for: [refresh], timeout: 7)
-        XCTAssertEqual(choices, 1, "A presentation refresh must not replay Close")
-        controller.update(privateDrawerState(update: 2))
-        let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            controller.model.interactionEnabled && controller.allowsInteraction("close", row: nil)
-        }, object: controller)
-        XCTAssertEqual(XCTWaiter.wait(for: [admitted], timeout: 2), .completed,
-            "Fresh owner presentation must restore interaction after settlement")
-        XCTAssertTrue(controller.host === host)
-        XCTAssertEqual(choices, 1)
-        controller.retire()
-        XCTAssertNil(controller.requestReadmission)
     }
 
     #if DEBUG
-    func testNativeHistoryQualificationNeverReactivatesExperimentalProductControls() {
+    func testNativeHistoryQualificationRequiresExplicitSupportedPhoneAdmission() {
         XCTAssertTrue(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: true, supported: true))
         for arguments in [[], ["-UITestMode"], ["--hushh-native-compositor", "--hushh-native-drawer-clip"]] {
             XCTAssertFalse(NativeHistoryQualification.admits(arguments: arguments, phone: true, supported: true))
         }
         XCTAssertFalse(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: false, supported: true))
         XCTAssertFalse(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: true, supported: false))
-        XCTAssertFalse(HushhNativePresentationPolicy.customControlsEnabled)
     }
 
     func testNativeHistoryQualificationCancellationAndRegrabRejectOldSettlement() {
@@ -2636,6 +3396,96 @@ final class NativeSupportTests: XCTestCase {
                 appIsActive: true
             )
         )
+        state.protectForPresentationRecovery()
+        XCTAssertTrue(state.shielded)
+        XCTAssertEqual(state.generation, currentGeneration + 1)
+        state.protectForPresentationRecovery()
+        XCTAssertEqual(state.generation, currentGeneration + 1, "Recovery is idempotent while already covered")
+        XCTAssertFalse(state.completeSessionValidation(generation: currentGeneration, appIsActive: true))
+        let recovering = state.generation
+        XCTAssertTrue(state.completeSessionValidation(generation: recovering, appIsActive: true))
+        state.protectForAppInactive()
+        XCTAssertEqual(state.generation, recovering + 1, "The next real inactive cycle must have its own authority")
+    }
+
+    @MainActor func testNativePhoneSceneRequiresAcknowledgedStageEditsAndScrubsBeforeRetirement() {
+        func state(_ sequence: Int, _ acknowledged: Int, _ step: String = "phone", _ code: String = "") -> NativePhoneProjection {
+            NativePhoneProjection(documentId: "public-phone-document", ownerEpoch: "public-phone-owner", family: "profile", scene: "phone",
+                destinationId: "public-phone-first", ownerGeneration: 1, revision: 1, updateSequence: sequence, privacyGeneration: 0,
+                draftRevision: sequence, acknowledgedEditRevision: acknowledged,
+                draft: NativePhoneDraft(country: "US", number: "6505550101", code: code), step: step, mode: "replace",
+                countries: [NativePhoneCountry(value: "US", label: "United States", dialCode: "+1")], maskedDestination: "••••••0101",
+                error: nil, canSave: true, busy: false, appearance: "light", accentHex: "#007aff", foregroundHex: "#808080")
+        }
+        let model = NativePhoneModel(state(1, 0))
+        var actions = [NativePhoneAction]()
+        model.edit = { _, _, _, _ in true }
+        model.choose = { actions.append($0); return true }
+        model.change(field: "number", value: "6505550102")
+        model.action("send")
+        XCTAssertTrue(actions.isEmpty, "A final edit must be acknowledged before sending")
+        XCTAssertTrue(model.update(state(2, 1)))
+        model.action("send")
+        XCTAssertEqual(actions.count, 1)
+        let send = actions[0]
+        XCTAssertTrue(model.confirm(send))
+        XCTAssertFalse(model.confirm(send), "An uncertain confirmation cannot replay an operation")
+        XCTAssertTrue(model.settle(send))
+        XCTAssertTrue(model.update(state(3, 1, "code")))
+        model.action("send")
+        XCTAssertEqual(actions.count, 1, "Phone entry actions cannot act on the replacement OTP stage")
+        model.change(field: "code", value: "123456")
+        XCTAssertTrue(model.update(state(4, 2, "code", "123456")))
+        model.action("verify")
+        XCTAssertEqual(actions.count, 2)
+        XCTAssertTrue(model.confirm(actions[1]))
+        let editor = UITextField(); editor.text = "123456"; model.register(editor)
+        model.clear()
+        XCTAssertEqual(editor.text, "")
+        XCTAssertEqual(model.draft.code, "")
+        XCTAssertEqual(model.projection.draft.number, "")
+        XCTAssertNil(model.choose)
+        XCTAssertFalse(model.confirm(actions[1]))
+    }
+
+    @MainActor
+    func testPrivacyReleasePublishesTheCurrentStateToAllConsumers() {
+        let shield = HushhSessionPrivacyShield.shared
+        let document = "public-privacy-release-\(UUID().uuidString)"
+        shield.observeDocument(document)
+        let previous = shield.onStateChanged
+        var releasedStates: [HushhSessionPrivacyShield.Snapshot] = []
+        shield.onStateChanged = { state, action in
+            previous?(state, action)
+            if !state.shielded { releasedStates.append(state) }
+        }
+        var nativeReleases = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: HushhSessionPrivacyShield.presentationDidChange, object: shield, queue: .main
+        ) { _ in if !shield.snapshot().shielded { nativeReleases += 1 } }
+        defer {
+            shield.onStateChanged = previous
+            NotificationCenter.default.removeObserver(observer)
+        }
+        shield.protectForAppInactive()
+        shield.markAppActive()
+        let generation = shield.snapshot().generation
+        let retirement = shield.beginPresentationRetirement()
+        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: true))
+        shield.completePresentationRetirement(retirement)
+        XCTAssertFalse(shield.completeSessionValidation(generation: generation - 1, documentId: document, appIsActive: true))
+        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: false))
+        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: "unobserved-document", appIsActive: true))
+        XCTAssertTrue(releasedStates.isEmpty)
+        XCTAssertEqual(nativeReleases, 0)
+        XCTAssertTrue(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: true))
+        XCTAssertEqual(releasedStates.count, 1, "A Promise receipt alone does not release subscribed presentation consumers")
+        XCTAssertEqual(nativeReleases, 1)
+        XCTAssertEqual(releasedStates.first?.generation, generation)
+        XCTAssertEqual(releasedStates.first?.appIsActive, true)
+        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: true))
+        XCTAssertEqual(releasedStates.count, 1, "Repeated acknowledgements must not publish another release")
+        XCTAssertEqual(nativeReleases, 1)
     }
 
     func testPrivacyCannotUncoverBeforeEveryOwnedPresenterRetires() {

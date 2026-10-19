@@ -26,6 +26,7 @@ import {
   formatLiveMirrorDateTime,
   LIVE_MIRROR_HISTORY_FOOTER,
   liveMirrorClaimText,
+  liveMirrorConflictKey,
   liveMirrorCount,
   liveMirrorFactStateLabel,
   liveMirrorFixRoutes,
@@ -86,10 +87,6 @@ function HistoryRow({ entry, facts }: { entry: LiveMirrorHistoryEntry; facts: re
 }
 
 /** A disagreement's identity: its predicate and where each claim came from, so it holds while values change. */
-function conflictKey(conflict: LiveMirrorConflict): string {
-  return JSON.stringify([conflict.predicate, conflict.claims.map(claim => [claim.source, claim.label])]);
-}
-
 /**
  * Corrections happen at the source, never in the mirror or its Markdown. Each
  * link is titled by where it goes ("Edit profile") and closes the sheet first.
@@ -154,7 +151,7 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
   const conflicts = (view.conflicts ?? []).filter(conflict => !HIDDEN_PREDICATES.has(conflict.predicate));
   const selectedRecord = selection?.type === "record" ? records.find(record => record.key === selection.key) ?? null : null;
   const selectedConflict = selection?.type === "conflict"
-    ? conflicts.find(conflict => conflictKey(conflict) === selection.key) ?? null
+    ? conflicts.find(conflict => liveMirrorConflictKey(conflict) === selection.key) ?? null
     : null;
   const closeDetails = () => setSelection(null);
   const groups = LIVE_MIRROR_KINDS
@@ -195,7 +192,7 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
             // hidden. The heading names the state once, so rows carry no badge.
             <SettingsGroup title="Sources disagree" embedded separatorInset headingClassName="mt-0">
               {conflicts.map((conflict, index) => {
-                const key = conflictKey(conflict);
+                const key = liveMirrorConflictKey(conflict);
                 return (
                   <SettingsRow key={`${key}:${index}`} title={conflict.label}
                     description={<LiveMirrorClaimLines conflict={conflict} now={view.evaluatedAt} />}

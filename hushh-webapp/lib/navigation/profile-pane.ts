@@ -247,15 +247,30 @@ export function stripProfilePaneTransientParams(
   return query;
 }
 
-type ProfilePaneHistoryState = {
+export type ProfilePaneHistoryState = {
   depth?: number;
-  /** A first entry opened elsewhere returns there, rather than to its unvisited static parent. */
+  /** Public visited panel only, never record/connector IDs or another stack.
+   * null means the actual preceding entry was the Profile root. */
+  parentPanel?: ProfilePanel | null;
+  /** Presentation of the existing Legal Back owner, not another route stack.
+   * A document opened from Profile returns there; a visited Legal section is
+   * retained as its parent. No document content or private route IDs are kept. */
+  legalParent?: boolean;
+  /**
+   * The pane was opened straight onto this location from a screen elsewhere
+   * in the app (Puppy One's "Trusted devices" link, say). Back from that first
+   * entry returns to the screen the person came from, not to the location's
+   * static parent: they never saw the parent, so landing on it is a detour.
+   */
   returnsToOrigin?: boolean;
 };
 
 function currentPaneHistoryState(): ProfilePaneHistoryState {
   if (typeof window === "undefined") return {};
-  const state = window.history.state;
+  return parsePaneHistoryState(window.history.state);
+}
+
+function parsePaneHistoryState(state: unknown): ProfilePaneHistoryState {
   if (!state || typeof state !== "object") return {};
   const paneState = (state as Record<string, unknown>)[PROFILE_PANE_HISTORY_KEY];
   if (!paneState || typeof paneState !== "object") return {};
@@ -263,9 +278,45 @@ function currentPaneHistoryState(): ProfilePaneHistoryState {
   if (!(typeof depth === "number" && Number.isFinite(depth) && depth > 0)) {
     return {};
   }
-  return (paneState as Record<string, unknown>).returnsToOrigin === true
+  const origin = (paneState as Record<string, unknown>).returnsToOrigin === true
     ? { depth, returnsToOrigin: true }
     : { depth };
+  const legalParent = (paneState as Record<string, unknown>).legalParent;
+  const result: ProfilePaneHistoryState = typeof legalParent === "boolean" ? { ...origin, legalParent } : origin;
+  const parentPanel = (paneState as Record<string, unknown>).parentPanel;
+  if (parentPanel === null || typeof parentPanel === "string" && normalizeProfilePanel(parentPanel) === parentPanel) {
+    result.parentPanel = parentPanel as ProfilePanel | null;
+  }
+  return result;
+}
+
+/** Renderer projection only. Actual Back remains popProfilePaneLocation.
+ * An older owned entry without this metadata is ambiguous: retain the web
+ * reader instead of inventing native ancestry. Direct/resumed entries use the
+ * same authored parent rule as Back below. */
+export function profileLegalParentForPresentation(history?: ProfilePaneHistoryState): boolean | null {
+  return profilePanelParentForPresentation("legal", history);
+}
+
+/** Shared native presentation ancestry. An unrelated visited panel or older
+ * ambiguous entry keeps the established renderer; actual Back is unchanged. */
+export function profilePanelParentForPresentation(panel: ProfilePanel, history?: ProfilePaneHistoryState): boolean | null {
+  if (!history && typeof window === "undefined") return null;
+  const pane = history ?? currentPaneHistoryState();
+  if ((pane.depth ?? 0) <= 1) return pane.returnsToOrigin !== true;
+  if (pane.parentPanel === panel) return true;
+  if (pane.parentPanel === null) return false;
+  if (pane.parentPanel !== undefined) return null;
+  return panel === "legal" ? pane.legalParent ?? null : null;
+}
+
+/** Read-only presentation snapshot of one browser entry. Next's concurrent
+ * route render may still describe the previous entry after popstate. Never
+ * combine that route with this entry's visited-parent metadata. No additional
+ * navigation state is stored: the existing History owner remains authoritative. */
+export function profilePanePresentationSnapshot(): string {
+  if (typeof window === "undefined") return "";
+  return JSON.stringify([window.location.pathname, window.location.search, currentPaneHistoryState()]);
 }
 
 /** Browser Back must preserve this owner-authored stack beneath a modal. */
@@ -324,6 +375,14 @@ export function pushProfilePaneLocation(
   state[PROFILE_PANE_HISTORY_KEY] = (
     options.returnsToOrigin && depth === 1 ? { depth, returnsToOrigin: true } : { depth }
   ) satisfies ProfilePaneHistoryState;
+  const previous = resolveProfilePaneUrlState(window.location.search);
+  if (previous.open && previous.location.detail === null) {
+    (state[PROFILE_PANE_HISTORY_KEY] as ProfilePaneHistoryState).parentPanel = previous.location.panel;
+  }
+  if (location.panel === "legal" && (location.detail === "privacy" || location.detail === "terms")) {
+    const entry = state[PROFILE_PANE_HISTORY_KEY] as ProfilePaneHistoryState;
+    entry.legalParent = previous.open && previous.location.panel === "legal" && previous.location.detail === null;
+  }
   window.history.pushState(
     state,
     "",

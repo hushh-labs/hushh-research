@@ -5254,7 +5254,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.profile.preferences.device",
-      "purpose": "Help the person understand and use the device screen through its generated controls.",
+      "purpose": "Compatibility entry for Preferences. The retired device detail has no separate body; use the current Preferences controls.",
       "screen": "profile_preferences",
       "entryCue": "",
       "proactivity": "ambient",
@@ -5279,7 +5279,7 @@
         {
           "href": "/one/profile/preferences/device",
           "expected": {
-            "href": "/one/profile/preferences",
+            "href": "/one/profile",
             "mode": "push",
             "transitionMode": "full"
           }

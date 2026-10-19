@@ -7079,16 +7079,11 @@ describe("OneLocationAgentPage", () => {
     expect(advisorAction.querySelector("button")).toBeNull();
     const advisorRow = advisorAction.closest('[role="listitem"]');
     expect(advisorRow).toBeTruthy();
-    expect(
-      within(advisorRow as HTMLElement).getByLabelText(
-        "Connected from your contacts",
-      ),
-    ).toHaveClass(
-      "col-start-2",
-      "row-start-2",
-      "sm:col-start-3",
-      "sm:row-start-1",
+    const contactIcon = within(advisorRow as HTMLElement).getByLabelText(
+      "Connected from your contacts",
     );
+    expect(contactIcon.previousElementSibling).toHaveTextContent("Advisor C");
+    expect(contactIcon.querySelector("svg")).toBeTruthy();
     expect(within(list).queryByText("Trusted B")).toBeNull();
     expect(
       screen.getByTestId("one-location-ask-waiting-summary"),

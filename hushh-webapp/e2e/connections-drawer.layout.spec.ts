@@ -19,7 +19,7 @@ test.beforeAll(async () => {
   const profileTriggerClass = workspace.match(/data-agent-chat-one-profile-trigger[\s\S]*?className="([^"]+)"/)?.[1];
   if (!profileTriggerClass) throw new Error("Missing production One profile trigger");
   const identityClass = workspace.match(/data-agent-chat-header-region="identity"\s+className="([^"]+)"/)?.[1];
-  const nameClass = workspace.match(/<div className="(truncate text-base[^"]+)">\s*\{isPuppySurface/)?.[1];
+  const nameClass = workspace.match(/<div[^>]*className="(truncate text-base[^"]+)"[^>]*>\s*\{isPuppySurface/)?.[1];
   if (!identityClass || !nameClass) throw new Error("Missing production One header identity");
   const { build } = await import("vite");
   const { Scanner } = await import("@tailwindcss/oxide");
@@ -83,11 +83,13 @@ test.beforeAll(async () => {
         ...[
           "@/hooks/use-auth",
           "@/lib/services/auth-service",
+          "@/lib/firebase/config",
           "@/lib/vault/vault-context",
           "@/lib/services/api-service",
           "./api-service",
           "./auth-service",
           "./agent-chat-client",
+          "@/lib/services/todo-list-pkm-service",
           "@/lib/cache/cache-sync-service",
           "@/lib/capacitor",
           "@/lib/profile/gmail-connector-store",
@@ -285,10 +287,12 @@ test.beforeEach(async ({ page }) => {
   try {
     await expect(page.getByRole("button", { name: "Open drawer", exact: true })).toBeVisible();
   } catch (error) {
+    // Distinguish a synthetic startup failure from product geometry failures.
     expect(fixtureErrors, "Connections fixture initialization errors").toEqual([]);
     throw error;
   }
   expect(fixtureErrors, "Connections fixture initialized").toEqual([]);
+  await expect(page.getByRole("button", { name: "Open drawer", exact: true })).toBeVisible();
   await awaitProductFont(page);
 });
 
@@ -350,7 +354,8 @@ async function profileFrame(page: import("@playwright/test").Page, safeSidePane 
     document.body.append(reference);
     const bounds = reference.getBoundingClientRect();
     const style = getComputedStyle(reference);
-    const result = { canvas: getComputedStyle(canvas).backgroundColor, x: bounds.x, y: bounds.y,
+    const result = { canvas: getComputedStyle(canvas).backgroundColor,
+      x: bounds.x, y: bounds.y,
       width: bounds.width, height: bounds.height,
       radius: style.borderTopLeftRadius,
       card: { background: getComputedStyle(card).backgroundColor,
@@ -511,6 +516,17 @@ for (const width of [320, 390, 1440]) for (const dark of [false, true])
     await actions.click();
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible();
+    await page.waitForFunction(() => document.querySelector('[role="menu"]')?.getAnimations().every(animation => animation.playState !== "running"));
+    const menuBounds = (await menu.boundingBox())!;
+    expect(menuBounds.width).toBeLessThan(180);
+    expect(menuBounds.x).toBeGreaterThanOrEqual(12);
+    expect(menuBounds.x + menuBounds.width).toBeLessThanOrEqual(width - 12);
+    for (const item of await menu.getByRole("menuitem").all()) {
+      expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    }
+    if (width === 390 && !dark) {
+      await page.screenshot({ path: testInfo.outputPath("chats-compact-menu.png"), animations: "disabled" });
+    }
     expect(await menu.evaluate(element => {
       const style = getComputedStyle(element);
       return { background: style.backgroundColor, radius: style.borderTopLeftRadius, shadow: style.boxShadow };
@@ -2498,9 +2514,9 @@ test.describe("One profile artwork and animated presence", () => {
       for (let i = 0; i < 3; i += 1) {
         if (i === 2) await page.evaluate(() => document.documentElement.classList.add("dark"));
         await panel.getByRole("tab", { name: "Profile", exact: true }).click();
-        const memory = panel.getByRole("link", { name: "Open memory.md in Memory", exact: true });
-        await expect(memory).toBeVisible();
-        await expect(memory).toHaveAttribute("href", "/one/pkm");
+        // This read-only fixture has a locked vault. Live Mirror replaces the
+        // former static card and must not expose an unlocked Memory link.
+        await expect(panel.getByTestId("live-mirror-status")).toContainText("Memory locked");
         expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
         await panel.getByRole("tab", { name: "Feed", exact: true }).click();
         await expect(panel.getByTestId("feed-row").first()).toBeVisible();

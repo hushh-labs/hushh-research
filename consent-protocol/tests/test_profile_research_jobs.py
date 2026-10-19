@@ -666,11 +666,16 @@ async def test_pwm_identity_edit_preserves_durable_search_and_model_charges(monk
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operation", ["start", "status"])
+@pytest.mark.parametrize("operation", ["start", "status", "pending_status"])
 async def test_revoked_owner_during_final_checkpoint_read_is_denied(monkeypatch, operation):
+    from hushh_mcp.services import world_model_service as pwm
+
     instance = pwm_manager(monkeypatch)
     await instance.start("owner", "token")
     await settle(instance)
+    if operation == "pending_status":
+        instance.store.rows["owner"]["status"] = "pending"
+        instance.store.rows["owner"]["result"] = {"status": "pending", "pkm_written": False}
     original = instance.store.get
     reads = 0
 
@@ -678,13 +683,16 @@ async def test_revoked_owner_during_final_checkpoint_read_is_denied(monkeypatch,
         nonlocal reads
         reads += 1
         result = await original(owner)
-        if reads == 2:
+        if reads == (3 if operation == "pending_status" else 2):
             jobs.validate_first_party_owner_token.return_value = None
+            pwm.validate_first_party_owner_token.return_value = None
         return result
 
     instance.store.get = read
     with pytest.raises(PermissionError):
-        await getattr(instance, operation)("owner", "token")
+        await getattr(instance, "status" if operation == "pending_status" else operation)(
+            "owner", "token"
+        )
 
 
 @pytest.mark.asyncio

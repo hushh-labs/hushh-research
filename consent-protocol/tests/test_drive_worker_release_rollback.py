@@ -95,13 +95,16 @@ elif args[:3] == ["run", "revisions", "describe"]:
                  "containers": [
             {"name": "drive-worker", "image": os.environ["IMAGE_REFERENCE"],
              "env": [{"name": "DRIVE_WORK_DRAIN_ENABLED",
-                      "value": state.get("deployed_drain_enabled", "true")}]},
+                      "value": state.get("deployed_drain_enabled", "true")},
+                     {"name": "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER",
+                      "value": state["deployed_semantic_model_provider"]}]},
             {"name": "clamav", "image": os.environ["MOCK_CLAMAV_IMAGE"]},
         ]},
         "status": {"conditions": [{"type": "Ready", "status": "True"}]},
     }))
 elif args[:2] == ["run", "deploy"]:
     state["deployed_drain_enabled"] = flag("--set-env-vars").split("DRIVE_WORK_DRAIN_ENABLED=", 1)[1].split("|", 1)[0]
+    state["deployed_semantic_model_provider"] = flag("--set-env-vars").split("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=", 1)[1].split("|", 1)[0]
     state["deployed_scaling"] = {
         name: flag(name)
         for name in ("--concurrency", "--max-instances", "--min-instances", "--max", "--min")

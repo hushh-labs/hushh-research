@@ -367,7 +367,9 @@ The gate also validates literal `data-voice-control-id` values against authored 
 ### Messages workspace layout
 
 The `/one/messages` workspace hides the shared top profile header and retains
-persistent bottom navigation with no route-specific footer styling. The inbox
+persistent bottom navigation with no route-specific footer styling. Its One
+tab stays selected in both People and Circles, matching other One subagents;
+the root `/` conversation retains Chat. The inbox
 provides a Home link; its Chat title matches the conversation contact title.
 Outgoing bubbles use light Apple Blue (`#EAF4FF`), incoming bubbles `#F2F2F7`,
 and both use dark text. Apple Blue (`#0071E3`) identifies actions, read states and

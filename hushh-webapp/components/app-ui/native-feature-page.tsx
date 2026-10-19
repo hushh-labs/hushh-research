@@ -14,13 +14,13 @@ type ContentEvents = Pick<ComponentProps<typeof DialogContent>, "onOpenAutoFocus
 /** Reuse the v2 bounded Back lease (its profile-back ID is a compatibility
  * identifier). The feature supplies the layer and callback; native never
  * derives an operation or route from the title, body or rendered DOM. */
-export function NativeFeatureBack({ owner, context, layer, label = "Back to Chat", onBack, onReady, contentPane, eligible = true }: {
+export function NativeFeatureBack({ owner, context, layer, label = "Back to Chat", onBack, onReady, contentPane, eligible = true, nativeEligible = true }: {
   owner: string | null; context: string; layer: NativeFeatureLayer; label?: string;
   onBack: () => void; onReady?: () => void;
-  contentPane?: NativeContentPaneIdentity; eligible?: boolean;
+  contentPane?: NativeContentPaneIdentity; eligible?: boolean; nativeEligible?: boolean;
 }) {
   const back = useRef<HTMLButtonElement>(null);
-  return <NativeChatChrome kind="profile-back" label={label} owner={owner} context={context} eligible={eligible} contentPane={contentPane}
+  return <NativeChatChrome kind="profile-back" label={label} owner={owner} context={context} eligible={eligible && nativeEligible} contentPane={contentPane}
     interactionLayer={layer} focusRef={back} onActivate={onBack} onPresentationReady={onReady}
     className="flex size-11 shrink-0 items-center justify-center">
     <ShellActionSurface ref={back} aria-label={label} disabled={!eligible} onClick={onBack}><ArrowLeftIcon className="size-5" /></ShellActionSurface>
@@ -29,9 +29,12 @@ export function NativeFeatureBack({ owner, context, layer, label = "Back to Chat
 
 /** App-owned content layer in the existing WebView. The feature owns Back and
  * dismissal; no URL/operation is derived from the rendered DOM. */
-export function NativeFeaturePage({ open, title, owner, context, onBack, onReady, children, layer = "profile-pane", authoredHeader = false,
+export function NativeFeaturePage({ open, title, owner, context, admissionKey, onBack, onReady, children, layer = "profile-pane", authoredHeader = false,
   bodyClassName, pane = false, side = "right", contentInset, onClose, backLabel, backEnabled = true, closeLabel = "Close Profile", onOpenAutoFocus, onCloseAutoFocus, onEscapeKeyDown, onKeyDown, ...attributes }: {
   open: boolean; title: string; owner: string | null; context: string; onBack: () => void; onReady?: () => void; children: ReactNode;
+  /** Fresh authored visits can reuse a painted pane, but need a current Back
+   * binding acknowledgement before an owned nested modal is admitted. */
+  admissionKey?: string;
   layer?: NativeFeatureLayer;
   /** Rich editors keep their existing Title/Cancel/Done row, not a second header. */
   authoredHeader?: boolean;
@@ -55,7 +58,8 @@ export function NativeFeaturePage({ open, title, owner, context, onBack, onReady
   const [node, setNode] = useState<HTMLDivElement | null>(null);
   const paneState = useNativeContentPane(node, owner, pane, layer);
   const [readyControls, setReadyControls] = useState({ back: "", close: "" });
-  const readinessContext = JSON.stringify([context, paneState.identity]);
+  const bindingContext = admissionKey ? JSON.stringify([context, admissionKey]) : context;
+  const readinessContext = JSON.stringify([bindingContext, paneState.identity]);
   const lifetime = JSON.stringify([owner, paneState.identity]);
   const bindingReady = !pane || paneState.phase === "web" || paneState.phase === "native" &&
     readyControls.back === readinessContext && (!onClose || readyControls.close === lifetime);
@@ -96,8 +100,9 @@ export function NativeFeaturePage({ open, title, owner, context, onBack, onReady
       onKeyDown={onKeyDown}
       onPointerDownOutside={event => event.preventDefault()}>
       {!authoredHeader && <header className="native-feature-page-header">
-        <NativeFeatureBack owner={owner} context={context} layer={layer} label={backLabel ?? (layer === "profile-pane" ? "Back in Profile" : "Back to Chat")}
-          contentPane={paneState.identity} eligible={open && backEnabled && (!pane || paneState.phase === "native")}
+        <NativeFeatureBack owner={owner} context={bindingContext} layer={layer} label={backLabel ?? (layer === "profile-pane" ? "Back in Profile" : "Back to Chat")}
+          contentPane={paneState.identity} eligible={open && backEnabled && (!pane || paneState.phase === "native" || paneState.phase === "web")}
+          nativeEligible={!pane || paneState.phase === "native"}
           onBack={onBack} onReady={pane ? () => controlReady("back") : onReady} />
         <DialogTitle ref={heading} tabIndex={-1} className="ui-text-navigation-title min-w-0 flex-1 whitespace-normal break-words">{title}</DialogTitle>
         {onClose ? <NativeChatChrome kind="close" label={closeLabel} owner={owner} context={pane ? lifetime : context} eligible={open && paneState.phase === "native"}

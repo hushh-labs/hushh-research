@@ -696,6 +696,8 @@ export const WorldModelResearchService = {
        * other tabs only read. Without it, every observer drives.
        */
       ownerId?: string;
+      /** Observe existing research without enrolling, starting or resuming it. */
+      readOnly?: boolean;
     },
   ) {
     const session: Session = {
@@ -712,7 +714,7 @@ export const WorldModelResearchService = {
     while (Date.now() < session.deadline) {
       if (input.signal.aborted) throw new DOMException("Aborted", "AbortError");
       // ifAvailable cannot be combined with an abort signal; it never waits.
-      const role = locks
+      const role = input.readOnly ? "follow" : locks
         ? await locks.request(lockName, { ifAvailable: true }, (lock) =>
             lock ? drive(input, session) : Promise.resolve("follow" as const),
           )

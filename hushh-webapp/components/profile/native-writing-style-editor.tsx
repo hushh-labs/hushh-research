@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
-import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
+import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged, hasNativeProfileScene, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "@/lib/capacitor/native-drawer-owner";
 import { NativeProfileScenePresentation, type NativeProfileSceneActions } from "@/lib/capacitor/native-profile-scene-presentation";
 import { NativeProfileStyleFence, STYLE_CHOICE_OPTIONS, validNativeProfileStyleProjection, type NativeProfileStyleIdentity,
@@ -20,8 +20,7 @@ import type { useCommunicationPreferencesEditor } from "./communication-preferen
 type Model = ReturnType<typeof useCommunicationPreferencesEditor>;
 type Plugin = HushhNativeDrawersPlugin & NativeProfileStyleScenePort;
 function supported(plugin: HushhNativeDrawersPlugin): plugin is Plugin {
-  return [plugin.applyProfileStyleScene, plugin.confirmProfileStyleAction, plugin.settleProfileStyleAction,
-    plugin.retireProfileStyleScene].every(method => typeof method === "function");
+  return hasNativeProfileScene(plugin, "writing-style");
 }
 export function NativeWritingStyleEditor({ model, eligible }: { model: Model; eligible: boolean }) {
   const [renderer, setRenderer] = useState<"checking" | "native" | "web">(() => eligible && nativeDrawersPlatformEligible() ? "checking" : "web");
@@ -51,8 +50,8 @@ export function NativeWritingStyleEditor({ model, eligible }: { model: Model; el
   </>;
 }
 
-function NativeStyleSheet({ model, plugin, onClose, onFallback }: {
-  model: Model; plugin: Plugin; onClose: () => void; onFallback: () => void;
+export function NativeStyleSheet({ model, plugin, onClose, onFallback, destinationId }: {
+  model: Model; plugin: Plugin; onClose: () => void; onFallback: () => void; destinationId?: string;
 }) {
   const pathname = usePathname();
   const appearance = useNativeControlAppearance("secondary");
@@ -91,7 +90,7 @@ function NativeStyleSheet({ model, plugin, onClose, onFallback }: {
     if (!model.ready || !model.userId || generation === undefined || shielded || !active) return;
     const base = createNativeDrawerIdentity("profile");
     if (!base) return;
-    const identity: NativeProfileStyleIdentity = { ...base, family: "profile", scene: "writing-style" };
+    const identity: NativeProfileStyleIdentity = { ...base, family: "profile", scene: "writing-style", ...(destinationId ? { destinationId } : {}) };
     const owner = model.userId;
     let current = true;
     const isCurrent = () => current && live.current.model.ready && live.current.model.userId === owner &&
@@ -111,13 +110,13 @@ function NativeStyleSheet({ model, plugin, onClose, onFallback }: {
     setEdit({ identity, revision: 0, composing: false });
     void presentation.listen().then(ready => { if (ready && isCurrent()) publish(); });
     return () => { current = false; if (replica.current === instance) replica.current = null; void presentation.retire(); };
-  }, [model.ready, model.userId, epoch, generation, shielded, active, plugin, publish]);
+  }, [model.ready, model.userId, epoch, generation, shielded, active, plugin, publish, destinationId]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, 100, () => {
     const current = replica.current;
     if (!current || live.current.model.saving) return true;
     void current.presentation.retire().then(retired => { if (retired && replica.current === current && nativeDrawerOwnerIsCurrent(current.identity)) live.current.onClose(); });
     return true;
-  });
+  }, destinationId ? { profile_pane: "1" } : undefined);
   return <div aria-busy={phase === "checking"} data-native-profile-style-state={phase} />;
 }

@@ -2022,8 +2022,12 @@ export class ApiService {
     );
   }
 
-  static async listTrustedDevices(options?: { signal?: AbortSignal }): Promise<Response> {
+  static async listTrustedDevices(options?: { signal?: AbortSignal; isCurrentOwner?: () => boolean } | (() => boolean)): Promise<Response> {
+    const isCurrentOwner = typeof options === "function" ? options : options?.isCurrentOwner;
+    const signal = typeof options === "function" ? undefined : options?.signal;
+    signal?.throwIfAborted();
     const authToken = await this.getFirebaseToken();
+    if (isCurrentOwner && !isCurrentOwner()) return new Response(null, { status: 409 });
     if (!authToken) {
       return new Response(
         JSON.stringify({ error: "Missing Firebase ID token" }),
@@ -2034,14 +2038,16 @@ export class ApiService {
     }
     return apiFetch("/api/account/trusted-devices", {
       method: "GET",
+      isEffectCurrent: isCurrentOwner,
       headers: { Authorization: `Bearer ${authToken}` },
       cache: "no-store",
-      signal: options?.signal,
+      signal,
     });
   }
 
-  static async revokeTrustedDevice(deviceId: string): Promise<Response> {
+  static async revokeTrustedDevice(deviceId: string, isCurrentOwner?: () => boolean): Promise<Response> {
     const authToken = await this.getFirebaseToken();
+    if (isCurrentOwner && !isCurrentOwner()) return new Response(null, { status: 409 });
     if (!authToken) {
       return new Response(
         JSON.stringify({ error: "Missing Firebase ID token" }),
@@ -2054,6 +2060,7 @@ export class ApiService {
       `/api/account/trusted-devices/${encodeURIComponent(deviceId)}`,
       {
         method: "DELETE",
+        isEffectCurrent: isCurrentOwner,
         headers: { Authorization: `Bearer ${authToken}` },
       },
     );
@@ -3977,12 +3984,15 @@ export class ApiService {
     deviceId: string,
     enabled: boolean,
     vaultOwnerToken: string,
+    isCurrentOwner: () => boolean = () => true,
+    expectedOwnerId?: string,
   ): Promise<{ enabled: boolean; revocationPending: boolean }> {
-    const uid = AuthService.getCurrentUser()?.uid;
-    if (!uid || !vaultOwnerToken) throw new Error("PRIVATE_AGENT_UNLOCK_REQUIRED");
+    const uid = expectedOwnerId ?? AuthService.getCurrentUser()?.uid;
+    if (!isCurrentOwner() || !uid || !vaultOwnerToken) throw new Error("PRIVATE_AGENT_UNLOCK_REQUIRED");
     const ownerPod = await import("./owner-pod-endpoint");
     const transport = await ApiService.ownerPodTransport();
     const status = await ApiService.getPersonalAgentStatus();
+    if (!isCurrentOwner()) throw new Error("OWNER_CHANGED");
     if (status.hostingMode !== "byoc" || !status.hushhId) {
       throw new Error("PUPPY_REQUIRES_BYOC_POD");
     }
@@ -3990,10 +4000,12 @@ export class ApiService {
     if (enabled) {
       await ownerPod.refreshEndpointFromHub(uid, transport);
     }
+    if (!isCurrentOwner()) throw new Error("OWNER_CHANGED");
     const response = await ApiService.apiFetch(
       `/api/account/trusted-devices/${encodeURIComponent(deviceId)}/puppy-access`,
       {
         method: "PUT",
+        isEffectCurrent: isCurrentOwner,
         headers: { Authorization: `Bearer ${vaultOwnerToken}`, "Content-Type": "application/json" },
         body: JSON.stringify({ enabled }),
       },
@@ -4005,6 +4017,7 @@ export class ApiService {
       if (!Number.isInteger(atVersion) || atVersion < 1) {
         throw new Error("PUPPY_ACCESS_DISABLED_REVOCATION_RETRY_REQUIRED");
       }
+      if (!isCurrentOwner()) return { enabled, revocationPending: true };
       try {
         const revoked = await ownerPod.revokeAtPod(uid, deviceId, transport, {
           atVersion,
@@ -4053,7 +4066,7 @@ export class ApiService {
     return response.json();
   }
 
-  static async revokeTrustedDeviceEverywhere(deviceId: string): Promise<{
+  static async revokeTrustedDeviceEverywhere(deviceId: string, expectedOwnerId?: string, isCurrentOwner: () => boolean = () => true): Promise<{
     hub: Response;
     pod:
       | { delivered: true; pending: null }
@@ -4061,7 +4074,7 @@ export class ApiService {
       | { delivered: false; pending: null; unpinned: true };
   }> {
     const ownerPod = await import("./owner-pod-endpoint");
-    const uid = AuthService.getCurrentUser()?.uid;
+    const uid = expectedOwnerId ?? AuthService.getCurrentUser()?.uid;
     let pod:
       | { delivered: true; pending: null }
       | { delivered: false; pending: unknown }
@@ -4071,22 +4084,26 @@ export class ApiService {
       unpinned: true,
     };
     // Stop new grants first, then fence every grant already issued at the pod.
-    const hub = await ApiService.revokeTrustedDevice(deviceId);
+    const hub = await ApiService.revokeTrustedDevice(deviceId, isCurrentOwner);
     if (!hub.ok) return { hub, pod };
     const receipt = await hub
       .clone()
       .json()
       .catch(() => ({}));
     const version = receipt.podBindingVersion;
+    if (!isCurrentOwner()) return { hub, pod: { delivered: false, pending: null } };
     if (uid && (await ownerPod.loadPinnedEndpoint(uid).catch(() => null))) {
+      if (!isCurrentOwner()) return { hub, pod: { delivered: false, pending: null } };
       if (!Number.isInteger(version) || version < 0) {
         return { hub, pod: { delivered: false, pending: null } };
       }
       try {
+        const transport = await ApiService.ownerPodTransport();
+        if (!isCurrentOwner()) return { hub, pod: { delivered: false, pending: null } };
         pod = await ownerPod.revokeAtPod(
           uid,
           deviceId,
-          await ApiService.ownerPodTransport(),
+          transport,
           {
             atVersion: Math.max(1, version),
           }

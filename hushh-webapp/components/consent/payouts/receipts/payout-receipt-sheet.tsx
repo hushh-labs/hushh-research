@@ -55,7 +55,7 @@ export type PayoutReceiptSheetProps = {
 type ReceiptState = { key: string; receipt: PayoutReceipt | null; failed: boolean; missing: boolean };
 
 /** Reads one receipt by id, and again on payout changes, keeping the last good copy. */
-function usePayoutReceipt(itemId: string | null) {
+export function usePayoutReceipt(itemId: string | null) {
   const { vaultOwnerToken: token } = useVault();
   const { stream } = usePayoutFreshness();
   const key = itemId && token ? `${token}|${itemId}` : null;
@@ -121,7 +121,7 @@ function usePayoutReceipt(itemId: string | null) {
   };
 }
 
-function receiptHeader(receipt: PayoutReceipt, test: boolean): { title: string; description: string } {
+export function receiptHeader(receipt: PayoutReceipt, test: boolean): { title: string; description: string } {
   switch (receipt.kind) {
     case "earning": {
       const cents = receipt.coins ?? receipt.breakdown?.netCents ?? null;

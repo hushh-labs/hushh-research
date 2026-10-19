@@ -174,6 +174,40 @@ def test_identity_search_cannot_cite_an_unanchored_namesake_source():
         )
 
 
+@pytest.mark.parametrize("observed", [False, True])
+def test_report_cannot_borrow_citation_from_unobserved_coverage(observed):
+    value = report(assessment()["identity"])
+    value["sections"][0]["facts"][0]["sources"] = [{"title": "Other result", "ref": "s2"}]
+    attempts = {
+        "1": {"plan": copy.deepcopy(PLAN), "observed": True, "source_refs": ["s1"]},
+        "2": {
+            "plan": {**copy.deepcopy(PLAN), "purpose": "coverage", "candidate_id": "c1"},
+            "observed": observed,
+            "source_refs": ["s2"],
+        },
+    }
+    model = WorldModelReport.model_validate(value)
+    args = (IdentityAssessment.model_validate(assessment()), attempts, {"s1", "s2"})
+    if observed:
+        assert model.validate_receipts(*args).sections[0].facts[0].sources[0].ref == "s2"
+    else:
+        with pytest.raises(ValueError, match="unreceived source"):
+            model.validate_receipts(*args)
+
+
+@pytest.mark.parametrize("field", ["candidate", "anchor", "source"])
+def test_identity_identifiers_cannot_change_namespaces(field):
+    value = assessment()
+    if field == "candidate":
+        value["candidates"][0]["id"] = "s1"
+    elif field == "anchor":
+        value["anchors"][0]["id"] = "c1"
+    else:
+        value["anchors"][0]["source_refs"] = ["a1"]
+    with pytest.raises(ValueError):
+        IdentityAssessment.model_validate(value)
+
+
 def test_provisional_facts_need_selected_candidate_observed_plan_and_received_citation():
     work = {
         "assessment": assessment(),

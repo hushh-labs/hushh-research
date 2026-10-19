@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   SpinnerGapIcon as Loader2,
   TrashIcon as Trash2,
@@ -30,150 +28,20 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/hooks/use-auth";
-import { useStaleResource } from "@/lib/cache/use-stale-resource";
-import { ApiService } from "@/lib/services/api-service";
-import { TrustedDevicesResourceService, type TrustedDevice } from "@/lib/services/trusted-devices-resource-service";
-import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { deriveSyncDisplay } from "@/lib/trusted-device/sync-display";
-import { puppyAccessError } from "@/lib/trusted-device/puppy-access-error";
-import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
-
+import { UNLINK_WARNING, type TrustedDevicesModel } from "./use-trusted-devices-model";
 
 /** Trusted devices is a recursive Profile-pane detail, not a standalone page. */
 export default function TrustedDevicesPage({
-  panePresentation = false,
+  panePresentation = false, model,
 }: {
   panePresentation?: boolean;
+  model: TrustedDevicesModel;
 }) {
-  const { user } = useAuth();
-  const { vaultOwnerToken } = useVault();
-  const [error, setError] = useState("");
-  const [puppyAccess, setPuppyAccess] = useState<Record<string, boolean>>({});
-  const [changingPuppy, setChangingPuppy] = useState<string | null>(null);
-  const puppyChangePending = useRef(false);
-  const [puppyNotice, setPuppyNotice] = useState("");
-  const [pendingPuppyWithdrawal, setPendingPuppyWithdrawal] = useState<string | null>(null);
-  const [byocReady, setByocReady] = useState(false);
-  const [pendingRevocation, setPendingRevocation] =
-    useState<TrustedDevice | null>(null);
-  const [revoking, setRevoking] = useState(false);
-  const [pendingPodRevocations, setPendingPodRevocations] = useState<string[]>([]);
+  const { devices, confirmation: pendingRevocation, busy: revoking, loading, error: visibleError } = model;
 
-  // Cache-first: a warm cache paints the list immediately and the refresh runs
-  // in the background, so revisiting this screen never shows a blocking spinner
-  // over data we already hold. Revoking force-refreshes through the same
-  // resource so the cache can never serve a device the server just revoked.
-  const devicesResource = useStaleResource<TrustedDevice[]>({
-    cacheKey: CACHE_KEYS.TRUSTED_DEVICES(user?.uid || "anonymous"),
-    enabled: Boolean(user),
-    resourceLabel: "trusted-devices",
-    load: () => TrustedDevicesResourceService.load(user!.uid),
-  });
-
-  const devices = devicesResource.data ?? [];
-  const puppyDeviceIds = devices
-    .filter((device) => device.platform === "macos" && device.status === "active")
-    .map((device) => device.device_id)
-    .join(",");
-  useEffect(() => {
-    if (!vaultOwnerToken) return;
-    let cancelled = false;
-    void ApiService.getPersonalAgentStatus().then((status) => {
-      if (!cancelled) setByocReady(status.hostingMode === "byoc" && status.state === "active");
-    }).catch(() => {
-      if (!cancelled) setByocReady(false);
-    });
-    return () => { cancelled = true; };
-  }, [vaultOwnerToken]);
-  useEffect(() => {
-    if (!vaultOwnerToken || !puppyDeviceIds) return;
-    let cancelled = false;
-    void Promise.all(
-      puppyDeviceIds.split(",").map(async (deviceId) => [
-        deviceId,
-        await ApiService.getPuppyAccess(deviceId, vaultOwnerToken),
-      ] as const),
-    ).then((choices) => {
-      if (!cancelled) setPuppyAccess(Object.fromEntries(choices));
-    }).catch(() => {
-      if (!cancelled) setError("Puppy access status is unavailable.");
-    });
-    return () => { cancelled = true; };
-  }, [vaultOwnerToken, puppyDeviceIds]);
-
-  async function changePuppyAccess(deviceId: string, enabled: boolean) {
-    if (puppyChangePending.current) return;
-    if (!vaultOwnerToken) {
-      morphyToast.error("Unlock your vault to change Puppy access.");
-      return;
-    }
-    puppyChangePending.current = true;
-    setChangingPuppy(deviceId);
-    setError("");
-    setPuppyNotice("");
-    try {
-      const request = ApiService.setPuppyAccess(deviceId, enabled, vaultOwnerToken);
-      await morphyToast.promise(request, {
-        loading: enabled ? "Connecting to your pod…" : "Withdrawing Puppy access…",
-        success: (result) => result.revocationPending
-          ? "New access is disabled. Reconnect your pod to finish withdrawal."
-          : enabled
-            ? "Puppy access enabled. Connect Hermes on your trusted computer."
-            : "Puppy access disabled.",
-        error: (cause: unknown) => puppyAccessError(cause, enabled),
-      }).unwrap();
-      const result = await request;
-      setPuppyAccess((current) => ({ ...current, [deviceId]: result.enabled }));
-      if (result.revocationPending) {
-        setPendingPuppyWithdrawal(deviceId);
-        setPuppyNotice("New Puppy access is disabled. Pod revocation is pending or unverified; retry withdrawal after the pod reconnects.");
-      } else if (pendingPuppyWithdrawal === deviceId) {
-        setPendingPuppyWithdrawal(null);
-      }
-    } catch {
-      // The action toast owns transient failures; do not expose transport errors.
-    } finally {
-      puppyChangePending.current = false;
-      setChangingPuppy(null);
-    }
-  }
-  // Only a cold load with nothing cached may block; a background refresh must
-  // never hide list content that is already on screen.
-  const loading = devicesResource.loading && devicesResource.data === null;
-  const visibleError = error || devicesResource.error || "";
-
-  async function revoke(deviceId: string) {
-    if (!user) return;
-    setRevoking(true);
-    try {
-      const response = await TrustedDevicesResourceService.revoke(user.uid, deviceId);
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        setError(
-          payload?.detail?.message || "The device could not be revoked.",
-        );
-        return;
-      }
-      const receipt = await response.json();
-      setPendingPodRevocations((current) =>
-        receipt.podRevocationPending
-          ? [...new Set([...current, deviceId])]
-          : current.filter((id) => id !== deviceId)
-      );
-      setPendingRevocation(null);
-      setError(
-        receipt.podRevocationPending
-          ? "Device access is removed from your account. Pod access revocation is still pending; reconnect to your pod and try again."
-          : ""
-      );
-      await devicesResource.refresh({ force: true });
-    } finally {
-      setRevoking(false);
-    }
-  }
-
+  const { puppyAccess, byocReady, changingPuppy, puppyNotice, pendingPuppyWithdrawal, pendingPodRevocations } = model;
   const nowMs = Date.now();
 
   const pageContent = (
@@ -207,9 +75,10 @@ export default function TrustedDevicesPage({
                 panePresentation && typographyStyles.status,
               )}
             >
-              {visibleError}
+              {visibleError} <button type="button" disabled={revoking} onClick={() => void model.refresh()}>Refresh</button>
             </p>
           ) : null}
+          {pendingPodRevocations.length > 0 ? <p role="status" className="text-sm text-muted-foreground">Device access is removed from your account. Pod access revocation is still pending; reconnect to your pod and try again.</p> : null}
           {puppyNotice ? (
             <p className="text-sm text-muted-foreground">{puppyNotice}</p>
           ) : null}
@@ -237,15 +106,16 @@ export default function TrustedDevicesPage({
                             <Button
                               size="sm"
                               variant="outline"
-                              disabled={changingPuppy !== null}
-                              onClick={() => void changePuppyAccess(device.device_id, pendingPuppyWithdrawal === device.device_id ? false : !puppyAccess[device.device_id])}
+                              disabled={changingPuppy !== null || revoking || model.uncertain}
+                              onClick={() => void model.changePuppyAccess(device.device_id)}
                             >
-                              {changingPuppy === device.device_id ? "Updating…" : pendingPuppyWithdrawal === device.device_id ? "Retry withdrawal" : puppyAccess[device.device_id] ? "Disable Puppy" : "Enable Puppy"}
+                              {changingPuppy === device.device_id ? "Updating…" : pendingPuppyWithdrawal.includes(device.device_id) ? "Retry withdrawal" : puppyAccess[device.device_id] ? "Disable Puppy" : "Enable Puppy"}
                             </Button>
                           ) : null}
                           <Button
                             aria-label={`${pendingPodRevocations.includes(device.device_id) ? "Retry unlinking" : "Unlink"} ${device.device_name}`}
-                            onClick={() => setPendingRevocation(device)}
+                            onClick={() => model.choose(device.device_id)}
+                            disabled={revoking || changingPuppy !== null || model.uncertain}
                             size="icon"
                             variant="ghost"
                           >
@@ -278,7 +148,7 @@ export default function TrustedDevicesPage({
       <AlertDialog
         open={pendingRevocation !== null}
         onOpenChange={(open) => {
-          if (!open && !revoking) setPendingRevocation(null);
+          if (!open && !revoking) model.cancel();
         }}
       >
         <AlertDialogContent>
@@ -287,19 +157,16 @@ export default function TrustedDevicesPage({
               Unlink {pendingRevocation?.device_name || "this device"}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This device will stop syncing immediately, and its local copy of
-              your vault will be sealed on the device. Reconnecting requires
-              approving it again in your browser and setting up the local vault
-              from scratch.
+              {UNLINK_WARNING}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={revoking}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={revoking || pendingRevocation === null}
+              disabled={revoking || model.uncertain || pendingRevocation === null}
               onClick={(event) => {
                 event.preventDefault();
-                if (pendingRevocation) void revoke(pendingRevocation.device_id);
+                void model.confirm();
               }}
             >
               {revoking ? "Unlinking…" : "Unlink device"}

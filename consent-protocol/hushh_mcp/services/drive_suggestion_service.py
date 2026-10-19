@@ -10,15 +10,18 @@ import json
 import logging
 import re
 from datetime import UTC, date, datetime, time, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
 from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
+from hushh_mcp.runtime_providers.vertex_failover import is_retryable_vertex_error
 from hushh_mcp.services.drive_candidate_selection import (
     interpret_candidate_selection,
     select_matches,
@@ -28,6 +31,13 @@ from hushh_mcp.services.drive_document_retrieval import (
     DriveSuggestionRetrievalStore,
 )
 from hushh_mcp.services.drive_live_reader import DriveLiveReader
+from hushh_mcp.services.drive_packet_contract import EvidenceModel
+from hushh_mcp.services.drive_request_model_feedback import validation_feedback
+from hushh_mcp.services.drive_request_package_assessment import (
+    private_semantic_request_model,
+    validate_semantic_model_binding,
+)
+from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlan
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingError,
     LiveReviewedSource,
@@ -240,6 +250,8 @@ class LiveSearchPlan(BaseModel):
     # Only an explicit transaction request count bounds the final ranked set.
     # Missing counts preserve older frozen plans and exhaustive discovery.
     result_limit: int | None = Field(default=None, ge=1, le=1000)
+    # New request policies retain the full expression; older stored plans omit it.
+    semantic_query: SemanticDrivePlan | None = None
 
     @field_validator("terms")
     @classmethod
@@ -274,16 +286,33 @@ class LiveSearchPlan(BaseModel):
 
     @model_validator(mode="after")
     def require_search_boundary(self):
-        if self.subject_complete is False:
-            raise ValueError("requested search subject is incomplete")
-        if self.subject_scope == "specific_records" and not (self.terms or self.exact_title):
-            raise ValueError("specific records require a search subject")
+        unresolved = (
+            self.semantic_query is not None and self.semantic_query.status == "input_required"
+        )
+        if self.subject_complete is False and not unresolved:
+            raise PydanticCustomError(
+                "drive_subject_incomplete", "requested search subject is incomplete"
+            )
+        if self.subject_scope == "specific_records" and not (
+            self.terms or self.exact_title or self.semantic_query is not None
+        ):
+            raise PydanticCustomError(
+                "drive_specific_subject_missing", "specific records require a search subject"
+            )
         if self.subject_scope == "metadata_listing" and (self.terms or self.exact_title):
-            raise ValueError("metadata listing cannot also name a search subject")
+            raise PydanticCustomError(
+                "drive_metadata_subject_conflict",
+                "metadata listing cannot also name a search subject",
+            )
         if self.term_groups and [group[0] for group in self.term_groups] != self.terms:
-            raise ValueError("search concept canonical terms must match terms in order")
+            raise PydanticCustomError(
+                "drive_term_group_canonical_mismatch",
+                "search concept canonical terms must match terms in order",
+            )
         if self.result_limit is not None and self.sort != "recent":
-            raise ValueError("a bounded file count requires recent ordering")
+            raise PydanticCustomError(
+                "drive_count_requires_recent_sort", "a bounded file count requires recent ordering"
+            )
         dated = self.date_from is not None or self.date_to is not None
         if not (
             self.terms
@@ -293,12 +322,21 @@ class LiveSearchPlan(BaseModel):
             or self.file_kind != "any"
             or self.shared_with_me
             or self.sort == "recent"
+            or self.semantic_query is not None
         ):
-            raise ValueError("search terms, a file type, a date range or a recent listing required")
+            raise PydanticCustomError(
+                "drive_search_boundary_missing",
+                "search terms, a file type, a date range or a recent listing required",
+            )
         if (self.relative_days is not None or dated) and self.time_intent != "file_activity":
-            raise ValueError("a file date range requires explicit file activity intent")
+            raise PydanticCustomError(
+                "drive_date_requires_file_activity",
+                "a file date range requires explicit file activity intent",
+            )
         if self.relative_days is not None and dated:
-            raise ValueError("use either relative days or calendar dates")
+            raise PydanticCustomError(
+                "drive_mixed_date_filters", "use either relative days or calendar dates"
+            )
         if dated:
             # Explicit ranges are checked as written; only an open "since" is bounded later.
             start = date.fromisoformat(self.date_from or self.date_to or "")
@@ -306,7 +344,9 @@ class LiveSearchPlan(BaseModel):
             if self.date_to is not None and (
                 end < start or (end - start).days >= MAX_DATE_RANGE_DAYS
             ):
-                raise ValueError("the calendar date range is invalid")
+                raise PydanticCustomError(
+                    "drive_calendar_range_invalid", "the calendar date range is invalid"
+                )
         return self
 
     def search_term_groups(self) -> list[list[str]]:
@@ -401,7 +441,7 @@ PLANNER_TIMEOUT_SECONDS = 30
 SUGGESTIONS_TIMEOUT_SECONDS = 60
 
 
-class LiveSearchModelPlan(LiveSearchPlan):
+class LiveSearchModelPlan(LiveSearchPlan, EvidenceModel):
     """Require the model's subject audit without invalidating stored plans."""
 
     subject_scope: Literal["specific_records", "metadata_listing"]
@@ -412,22 +452,66 @@ class LiveSearchModelPlan(LiveSearchPlan):
     expected_document_anatomy: str = Field(min_length=1, max_length=500)
 
 
+class SemanticLiveSearchModelPlan(LiveSearchModelPlan):
+    """New request interpretation; legacy hints never replace the full expression."""
+
+    semantic_query: SemanticDrivePlan
+
+    @model_validator(mode="after")
+    def semantic_subject(self):
+        if self.semantic_query.status == "ready":
+            if self.subject_complete is not True:
+                raise PydanticCustomError(
+                    "drive_semantic_subject_incomplete",
+                    "ready semantic plan requires a complete subject audit",
+                )
+            if (self.subject_scope == "metadata_listing") != self.semantic_query.metadata_listing:
+                raise PydanticCustomError(
+                    "drive_semantic_scope_mismatch",
+                    "semantic and compatibility subject scopes disagree",
+                )
+        return self
+
+
+class _SemanticPlannerOutputError(ValueError):
+    """A completed semantic turn returned undecodable output, not a config fault."""
+
+
 async def interpret_live_search(*, prompt, user_id):
+    return await _interpret_live_search(prompt=prompt, user_id=user_id, semantic=False)
+
+
+async def interpret_semantic_live_search(*, prompt, user_id, model=None, model_binding=None):
+    if model is None:
+        model = await private_semantic_request_model(user_id=user_id, model_binding=model_binding)
+    return await _interpret_live_search(prompt=prompt, user_id=user_id, semantic=True, model=model)
+
+
+async def _interpret_live_search(*, prompt, user_id, semantic, model=None):
     manifest = ManifestLoader.load(
         str(Path(__file__).resolve().parents[1] / "agents/documents/agent.yaml")
     )
-    gene = next(child for child in manifest.subagents if child.id == "agent_documents_live_search")
+    gene_id = "agent_documents_request_search" if semantic else "agent_documents_live_search"
+    gene = next(child for child in manifest.subagents if child.id == gene_id)
     agent = build_single_turn_agent(
         gene,
-        output_schema=LiveSearchModelPlan,
+        output_schema=SemanticLiveSearchModelPlan if semantic else LiveSearchModelPlan,
+        **({"model": model} if model is not None else {}),
     )
-    result = await run_single_turn(
-        agent,
-        prompt_parts=prompt,
-        user_id=user_id,
-        consent_token="",
-        timeout_seconds=PLANNER_TIMEOUT_SECONDS,  # nosec B106
-    )
+    try:
+        result = await run_single_turn(
+            agent,
+            prompt_parts=prompt,
+            user_id=user_id,
+            consent_token="",
+            timeout_seconds=PLANNER_TIMEOUT_SECONDS,  # nosec B106
+        )
+    except ValidationError:
+        raise
+    except ValueError as error:
+        if not semantic:
+            raise
+        raise _SemanticPlannerOutputError() from error
     return result.model_dump(mode="json") if hasattr(result, "model_dump") else result
 
 
@@ -455,6 +539,75 @@ async def plan_live_search(planner, *, prompt, user_id) -> LiveSearchPlan:
                 f"{prompt}\n\nplanner_validation_feedback: invalid_plan_or_missing_subject_audit"
             )
     raise AssertionError("unreachable")
+
+
+async def plan_semantic_live_search(
+    planner, *, prompt, user_id, require_current=None, model_binding=None
+) -> SemanticLiveSearchModelPlan:
+    """Validate the entire semantic output; never replace an invalid interpretation."""
+    if planner is interpret_semantic_live_search:
+        selected_binding = validate_semantic_model_binding(model_binding)
+        model = await private_semantic_request_model(
+            user_id=user_id,
+            require_current=require_current,
+            model_binding=selected_binding,
+        )
+        planner = partial(planner, model=model, model_binding=selected_binding)
+    original_prompt = prompt
+    started = asyncio.get_running_loop().time()
+    for attempt in (1, 2):
+        model_returned = False
+        try:
+            raw = await planner(prompt=prompt, user_id=user_id)
+            model_returned = True
+            return SemanticLiveSearchModelPlan.model_validate(raw)
+        except SpecialistAdkTurnError as error:
+            if attempt == 2 or not _retryable_semantic_transport(error):
+                raise
+            # Transport failure supplied no model judgment to correct. Restore
+            # the original request even if the first attempt was a correction.
+            prompt = original_prompt
+            if is_retryable_vertex_error(error):
+                # Spend only unused time from the existing first-call slot;
+                # preserve the two-call budget rather than extending it.
+                spare = PLANNER_TIMEOUT_SECONDS - (asyncio.get_running_loop().time() - started)
+                if spare > 0:
+                    await asyncio.sleep(min(1.0, spare))
+            logger.info("drive_search_plan.retry reason=transport_unavailable")
+        except (ValueError, DriveReadError) as error:
+            if attempt == 2:
+                raise
+            if not model_returned and not isinstance(
+                error, (ValidationError, _SemanticPlannerOutputError, DriveReadError)
+            ):
+                # A builder/configuration ValueError is not invalid model output.
+                raise
+            if isinstance(error, DriveReadError) and error.code != "narrow_selection_required":
+                raise
+            logger.info("drive_search_plan.retry reason=invalid_semantic_plan")
+            feedback = validation_feedback(error, schema=SemanticLiveSearchModelPlan)
+            prompt = (
+                f"{original_prompt}\n\nplanner_validation_feedback: "
+                f"{json.dumps(feedback, separators=(',', ':'))}"
+            )
+    raise AssertionError("unreachable")
+
+
+def _retryable_semantic_transport(error: SpecialistAdkTurnError) -> bool:
+    if is_retryable_vertex_error(error):
+        return True
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, TimeoutError):
+            return True
+        # Unclassified provider/configuration errors, including 401/403, are
+        # not timeout failures and must not spend a second model request.
+        if hasattr(current, "code") or hasattr(current, "status_code"):
+            return False
+        current = current.__cause__ or current.__context__
+    return False
 
 
 async def interpret_suggestions(*, prompt, user_id):

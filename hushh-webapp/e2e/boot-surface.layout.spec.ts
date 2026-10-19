@@ -40,7 +40,7 @@ const LINES: Record<(typeof ALL_STAGES)[number], string> = {
   setup: "Checking your setup",
   workspace: "Getting One ready",
 };
-const TITLE = "Hussh One is getting ready";
+const TITLE = "One is getting ready";
 // The labels the old per-guard loaders painted (fixture LEGACY table).
 const LEGACY_LABELS: Record<(typeof STAGES)[number], string> = {
   session: "Checking session...",

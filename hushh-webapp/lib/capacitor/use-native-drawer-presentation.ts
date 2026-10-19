@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "./native-drawer-owner";
 import { NativeDrawerPresentation, type NativeDrawerActions } from "./native-drawer-presentation";
-import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged, type NativeDrawerFamily, type NativeDrawerSection, type NativeProfilePage } from "./native-drawers";
+import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged, type NativeDrawerFamily, type NativeDrawerSection, type NativeProfilePage, type NativeDrawerProjection } from "./native-drawers";
 import { useNativeControlAppearance } from "./native-control-appearance";
 import { getNativeSessionPrivacyState, nativePrivacyObservation, subscribeNativePrivacyObservation, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "./session-privacy";
 
@@ -12,9 +12,12 @@ export type NativeDrawerPort = {
   family: NativeDrawerFamily; owner: string | null; vaultEpoch: number; ready: boolean;
   open: boolean; title: string; searchable?: boolean; loading?: boolean;
   profileMenuRows?: boolean;
+  enabled?: boolean;
   surfaceOpen?: boolean;
-  onPresented?: () => void;
-  project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; profileStack?: readonly NativeProfilePage[]; profileDestinationId?: string; actions: NativeDrawerActions };
+  onPresented?: (state: NativeDrawerProjection) => void;
+  onHidden?: (state: NativeDrawerProjection) => void;
+  onAbsenceConfirmed?: (privacyGeneration: number) => void;
+  project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; navigationLocked?: boolean; profileStack?: readonly NativeProfilePage[]; profileDestinationId?: string; profileSupportDestinationId?: string; actions: NativeDrawerActions };
 };
 
 /** Both drawer families share one owner/privacy admission path. Only authored
@@ -29,6 +32,13 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
   const contentHandoffSupported = useRef(false);
   const current = useRef({ port, theme }); current.current = { port, theme };
   const privacyRef = useRef(privacy); privacyRef.current = privacy;
+  const absentLease = useRef<{ isCurrent: () => boolean; privacy: number; delivered: boolean } | null>(null);
+  const reportAbsence = () => {
+    const known = absentLease.current;
+    if (!known || known.delivered || current.current.port.open || !known.isCurrent()) return;
+    known.delivered = true;
+    current.current.port.onAbsenceConfirmed?.(known.privacy);
+  };
   const replica = useRef<{ presentation: NativeDrawerPresentation; update: number; privacy: number;
     owner: string; epoch: number; handles: Map<string, string>; fingerprint: string | null } | null>(null);
   useLayoutEffect(() => {
@@ -45,10 +55,12 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       snapshotValidatedAuthSessionOwner()?.userId !== live.owner) return false;
     const next = nextPort.project(live.handles);
     const state = { ...live.presentation.identity, ...current.current.theme, privacyGeneration: live.privacy,
-      title: nextPort.title, open: nextPort.open, enabled: true, backEnabled: !!next.actions.back,
+      title: nextPort.title, open: nextPort.open, enabled: nextPort.enabled !== false, backEnabled: !!next.actions.back,
       ...(contentHandoffSupported.current && nextPort.family === "profile" && nextPort.surfaceOpen !== undefined ? { surfaceOpen: nextPort.surfaceOpen } : {}),
       searchable: nextPort.searchable, loading: nextPort.loading, sections: next.sections,
-      ...(next.profileStack ? { profileStack: next.profileStack, profileDestinationId: next.profileDestinationId } : {}) };
+      ...(next.navigationLocked === undefined ? {} : { navigationLocked: next.navigationLocked }),
+      ...(next.profileStack ? { profileStack: next.profileStack, profileDestinationId: next.profileDestinationId,
+        profileSupportDestinationId: next.profileSupportDestinationId } : {}) };
     const fingerprint = JSON.stringify(state); // Private in-memory comparison only.
     if (!force && fingerprint === live.fingerprint) { live.presentation.refreshActions(next.actions); return true; }
     if (!live.presentation.publish({ ...state, updateSequence: ++live.update }, next.actions)) return false;
@@ -93,6 +105,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       privacy?.generation === undefined || privacy.shielded || !privacy.appIsActive) return;
     const identity = createNativeDrawerIdentity(port.family);
     if (!identity) return;
+    absentLease.current = null;
     const owner = port.owner, epoch = port.vaultEpoch, generation = privacy.generation;
     let active = true;
     const isCurrent = () => active && current.current.port.ready && current.current.port.owner === owner &&
@@ -101,14 +114,29 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       nativeDrawerOwnerIsCurrent(identity);
     const presentation = new NativeDrawerPresentation(identity, nativeDrawers(), isCurrent, next => {
       if (active) setPhase(next === "active" ? "native" : next === "retired" ? "web" : next === "quarantined" ? "blocked" : "preparing");
-    }, state => { if (isCurrent() && state.open) current.current.port.onPresented?.(); },
+      // Only the existing retirement owner emits `retired`, after confirmed
+      // disappearance. Quarantine/timeout must never release a modal handoff.
+      if (next === "retired" && isCurrent()) {
+        absentLease.current = { isCurrent, privacy: generation, delivered: false };
+        reportAbsence();
+      }
+    }, state => {
+      if (!isCurrent() || state.open !== current.current.port.open) return;
+      if (state.open) current.current.port.onPresented?.(state);
+      else current.current.port.onHidden?.(state);
+    },
     () => isCurrent() && publish(true));
     const instance = { presentation, update: 0, privacy: generation, owner, epoch, handles: new Map<string, string>(), fingerprint: null as string | null };
     replica.current = instance; setPhase("preparing");
     void (async () => { if (await presentation.listen() && isCurrent()) publish(); })()
       .catch(() => { if (active) { setPhase("blocked"); void presentation.retire(); } });
-    return () => { active = false; if (replica.current === instance) replica.current = null; void presentation.retire(); };
+    return () => {
+      active = false;
+      if (absentLease.current?.isCurrent === isCurrent) absentLease.current = null;
+      if (replica.current === instance) replica.current = null;
+      void presentation.retire();
+    };
   }, [supported, port.family, port.ready, port.owner, port.vaultEpoch, privacy?.generation, privacy?.shielded, privacy?.appIsActive, admission]);
-  useLayoutEffect(() => { publish(); });
+  useLayoutEffect(() => { publish(); reportAbsence(); });
   return supported === false ? "web" : phase;
 }

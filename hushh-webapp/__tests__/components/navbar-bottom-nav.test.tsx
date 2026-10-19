@@ -161,11 +161,15 @@ describe("Navbar bottom utilities", () => {
   it.each([
     [ROUTES.HOME, "Chat"],
     [ROUTES.ONE_HOME, "One"],
-    [ROUTES.ONE_MESSAGES, "Chat"],
+    [ROUTES.ONE_MESSAGES, "One"],
+    [`${ROUTES.ONE_MESSAGES}/`, "One"],
+    [`${ROUTES.ONE_MESSAGES}?conversation=synthetic-thread`, "One"],
+    [`${ROUTES.ONE_MESSAGES}?tab=circles&circle=synthetic-circle`, "One"],
   ])("selects %s under the %s primary tab", (pathname, activeLabel) => {
     navigationMock.pathname = pathname;
     render(<Navbar />);
     expect(screen.getByRole("radio", { name: activeLabel })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: activeLabel === "One" ? "Chat" : "One" })).toHaveAttribute("aria-checked", "false");
   });
 
   it("opens the root Chat workspace from the One dashboard", () => {

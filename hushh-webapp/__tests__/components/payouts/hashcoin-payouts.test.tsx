@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PayoutActivityItem, PayoutReceipt } from "@/lib/services/payout-activity-service";
 
 // vi.hoisted and vi.mock are file-scoped, so each payouts test file repeats this setup.
 const state = vi.hoisted(() => ({
@@ -21,6 +22,14 @@ const state = vi.hoisted(() => ({
   popup: { closed: false, opener: null, location: { replace: vi.fn() }, close: vi.fn() },
   epoch: 1,
   native: false,
+  activityItems: [] as PayoutActivityItem[],
+  receipt: null as PayoutReceipt | null,
+  privacy: { generation: 0, shielded: false, appIsActive: true },
+  privacyListeners: new Set<() => void>(),
+}));
+vi.mock("@/lib/capacitor/session-privacy", () => ({
+  nativePrivacyObservation: () => ({ state: state.privacy }),
+  subscribeNativePrivacyObservation: (listener: () => void) => { state.privacyListeners.add(listener); return () => state.privacyListeners.delete(listener); },
 }));
 
 vi.mock("@/lib/services/scope-commerce-browser", () => ({
@@ -66,15 +75,22 @@ vi.mock("@/components/consent/payouts/activity-sheet", () => ({
     : null,
 }));
 vi.mock("@/components/consent/payouts/receipts/payout-receipt-sheet", () => ({
+  usePayoutReceipt: (id: string | null) => ({ receipt: state.receipt?.id === id ? state.receipt : null, failed: false, missing: false, loading: false, retry: () => undefined }),
+  receiptHeader: () => ({ title: "Synthetic receipt", description: "Pending" }),
   PayoutReceiptSheet: ({ itemId, onOpenChange }: { itemId: string | null; onOpenChange: (open: boolean) => void }) => itemId
     ? <div role="dialog" aria-label={`Receipt ${itemId}`}><button type="button" onClick={() => onOpenChange(false)}>Close receipt</button></div>
     : null,
+}));
+vi.mock("@/components/consent/payouts/use-payout-activity", () => ({
+  usePayoutActivity: () => ({ items: state.activityItems, initialized: true, loading: false, failed: false, error: null,
+    hasMore: false, loadingMore: false, moreFailed: false, loadMore: () => undefined, retry: () => undefined }),
 }));
 vi.mock("@/components/consent/payouts/payout-freshness", () => ({
   PayoutFreshness: () => <span>Payouts freshness</span>,
 }));
 
 import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
+import { useNativePayouts } from "@/components/profile/use-native-payouts";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import {
   dispatchPayoutStateChanged, subscribePayoutStateChanged, type PayoutStateChangedDetail,
@@ -85,9 +101,58 @@ import { liveWallet, readyAccount, settle, resetPayoutState, noBalance, pausedFo
 describe("document payout account", () => {
   beforeEach(() => {
     resetPayoutState(state);
+    state.activityItems = []; state.receipt = null;
+    state.privacy = { generation: 0, shielded: false, appIsActive: true }; state.privacyListeners.clear();
     vi.spyOn(window, "open").mockReturnValue(null);
   });
   afterEach(() => { vi.restoreAllMocks(); });
+
+  it("keeps native reads dormant until admission, opens activity without moving money and rejects a retired redemption callback", async () => {
+    const view = renderHook(({ active }) => useNativePayouts(active), { initialProps: { active: false } });
+    await settle();
+    expect(state.hashcoins).not.toHaveBeenCalled(); expect(state.account).not.toHaveBeenCalled();
+    view.rerender({ active: true });
+    await waitFor(() => expect(view.result.current.rows.has("payout-redeem")).toBe(true));
+    state.activityItems = Array.from({ length: 2500 }, (_, index) => ({ id: `earning:${index}`, kind: "earning", status: "credited", occurredAt: "2026-10-17T00:00:00Z",
+      updatedAt: "2026-10-17T00:00:00Z", coinsDelta: 100, amountCents: 100, balanceAfterCoins: 100, request: null, review: null, test: false }));
+    const retiredRedeem = view.result.current.rows.get("payout-redeem")!;
+    act(() => { view.result.current.rows.get("payout-coins")!(); });
+    expect(view.result.current.pages.map(page => page.id)).toEqual(["payouts", "payout-activity"]);
+    expect(view.result.current.pages[1].sections.find(section => section.id === "payout-activity-items")!.rows.length).toBeLessThanOrEqual(22);
+    act(() => { view.result.current.rows.get("payout-next")!(); });
+    expect(view.result.current.rows.has("payout-previous")).toBe(true);
+    expect(state.redeemTest).not.toHaveBeenCalled(); expect(state.redeemLive).not.toHaveBeenCalled();
+    act(() => { expect(view.result.current.back()).toBe(true); });
+    expect(view.result.current.pages.map(page => page.id)).toEqual(["payouts"]);
+    view.rerender({ active: false });
+    await act(async () => retiredRedeem());
+    expect(state.redeemTest).not.toHaveBeenCalled(); expect(state.redeemLive).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("cancels a receipt's queued bank step when privacy changes before native return completes", async () => {
+    const last = { id: "22222222-2222-4222-8222-222222222222", amountCoins: 100, status: "succeeded", stripeMode: "live" };
+    state.hashcoins.mockResolvedValue({ ...liveWallet, latestRedemption: last });
+    state.receipt = { id: `redemption:${last.id}`, kind: "redemption", mode: "live", status: "succeeded", coins: 100, amountCents: 100,
+      reference: null, request: null, earning: null, transfer: { status: "sent", requestedAt: null, sentAt: null, completedAt: null },
+      reversal: null, funds: null, bankDeposit: null, review: { reason: "under_review", nextStep: "update_bank" } };
+    const view = renderHook(() => useNativePayouts(true));
+    await waitFor(() => expect(view.result.current.rows.has("payout-last")).toBe(true));
+    act(() => { view.result.current.rows.get("payout-last")!(); });
+    const step = view.result.current.pages.at(-1)!.sections.flatMap(section => section.rows).find(row => row.label === "Update your bank")!;
+    expect(step).toBeDefined();
+    act(() => { view.result.current.rows.get(step.id)!(); });
+    expect(state.onboard).not.toHaveBeenCalled(); expect(state.manage).not.toHaveBeenCalled();
+    act(() => {
+      state.privacy = { generation: 1, shielded: true, appIsActive: false };
+      state.privacyListeners.forEach(listener => listener());
+      state.privacy = { generation: 2, shielded: false, appIsActive: true };
+      state.privacyListeners.forEach(listener => listener());
+      view.result.current.onPresented();
+    });
+    expect(state.onboard).not.toHaveBeenCalled(); expect(state.manage).not.toHaveBeenCalled();
+    view.unmount();
+  });
 
   it("shows real Hussh Coins above a distinct sandbox and never calls a test transfer a real deposit", async () => {
     const redeemed = { id: "11111111-1111-4111-8111-111111111111", amountCoins: 911, status: "succeeded", stripeMode: "test" };

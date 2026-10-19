@@ -2,6 +2,7 @@ import {
   act,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
 } from "@testing-library/react";
@@ -22,9 +23,10 @@ const mock = vi.hoisted(() => ({
   seen: [] as string[],
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => mock.pathname }));
-vi.mock("@/lib/testing/native-test", () => ({
-  shouldSkipReviewerBackgroundWritesForAutomation: () => mock.skipBackgroundWrites,
-}));
+vi.mock("@/lib/testing/native-test", async original => {
+  const actual = await original<typeof import("@/lib/testing/native-test")>();
+  return { ...actual, shouldSkipReviewerBackgroundWritesForAutomation: () => mock.skipBackgroundWrites || actual.shouldSkipReviewerBackgroundWritesForAutomation() };
+});
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
     user: mock.user,
@@ -81,6 +83,9 @@ import {
   useWorldModelResearch,
 } from "@/components/profile/world-model-provider";
 import { WorldModelSources } from "@/components/profile/world-model-sources";
+import { worldModelResearchStore } from "@/lib/world-model/research-store";
+import { useWorldModelOwnerState } from "@/components/profile/world-model-owner-state";
+import { nativeSearchSuggestions } from "@/components/profile/world-model-search-suggestions";
 function Probe() {
   const {
     refresh,
@@ -183,6 +188,62 @@ describe("PWM owner and request isolation", () => {
     unmount();
   });
 
+  it.each([
+    ["read_only", true], ["preparation_only", true],
+    ["bounded_mutation", true], ["mutation_authorized", false],
+  ] as const)("keeps %s background research read-only without swallowing explicit refresh", async (policy, readOnly) => {
+    const previous = window.__HUSHH_NATIVE_TEST__;
+    window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: policy };
+    const view = render(<WorldModelProvider><Probe /></WorldModelProvider>);
+    try {
+      if (readOnly) {
+        await waitFor(() => expect(mock.preferences).toHaveBeenCalled());
+        expect(mock.observe).not.toHaveBeenCalled();
+      } else await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(1));
+      fireEvent.click(screen.getByText("Refresh"));
+      await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(readOnly ? 1 : 2));
+      expect(mock.observe.mock.calls.at(-1)?.[0]).toMatchObject({ readOnly: false, refresh: true });
+    } finally {
+      view.unmount();
+      window.__HUSHH_NATIVE_TEST__ = previous;
+    }
+  });
+
+  it("preserves no-op state updates so repeated query synchronization cannot render-loop", () => {
+    const owner = { live: true };
+    let renders = 0;
+    const view = renderHook(() => { renders += 1; return useWorldModelOwnerState<string | null>(owner, null); });
+    const before = renders;
+    act(() => view.result.current[1](null));
+    expect(renders).toBe(before);
+    act(() => view.result.current[1]("public-sample"));
+    expect(view.result.current[0]).toBe("public-sample");
+    view.unmount();
+  });
+  it("keeps provider attribution inert and never maps executable or credential-bearing links", () => {
+    const result = nativeSearchSuggestions('<style>secret-css</style><script>secret-script</script><p>Google related searches</p><a href="https://www.google.com/search?q=public">Public search</a><a href="javascript:alert(1)">Blocked</a><a href="https://user:pass@example.test/">Blocked credentials</a>');
+    expect(result.text).toContain("Google related searches");
+    expect(result.text).not.toMatch(/secret-css|secret-script/);
+    expect(result.links).toEqual([{ title: "Public search", url: "https://www.google.com/search?q=public" }]);
+  });
+  it("rejects a sibling's old snapshot before the provider can update its owner or token", () => {
+    const writer = worldModelResearchStore.attach({ reload: vi.fn(), refresh: vi.fn() });
+    const owner = { owner: "owner-a", key: "key-a", token: "token-a" };
+    writer.setAuthority(owner);
+    writer.setSnapshot(() => ({ ...owner, result: pending, preferences: { enabled: true, email_enabled: true,
+      consent_version: "pwm-native-v1", research_provider: "vertex_google_search" },
+      failed: false, retrying: false, progress: null, validatedFacts: [], live: false, lastActivityAt: null, retryAt: null }));
+    const view = render(<Probe />);
+    try {
+      expect(screen.getByText("enrolled")).toBeInTheDocument();
+      mock.token = "renewed-token-a";
+      view.rerender(<Probe />);
+      expect(screen.getByText("no preferences")).toBeInTheDocument();
+      mock.user = { uid: "owner-b" }; mock.key = "key-b"; mock.token = "token-b";
+      view.rerender(<Probe />);
+      expect(screen.getByText("no preferences")).toBeInTheDocument();
+    } finally { writer.detach(); }
+  });
   it("consumes refresh before another account or vault token takes over", async () => {
     const { rerender } = render(
       <WorldModelProvider>

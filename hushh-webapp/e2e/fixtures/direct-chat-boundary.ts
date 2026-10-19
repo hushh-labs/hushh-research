@@ -6,6 +6,7 @@ import type { DirectMessage, DirectMessageConversation } from "../../lib/service
 export const DIRECT_MESSAGE_MAX_LENGTH = 2000;
 export class DirectMessagesServiceRequestError extends Error { status = 503; }
 const rows = new Map<string, DirectMessage[]>();
+const overflowingInbox = new URLSearchParams(location.search).has("overflowInbox");
 const attachments = new Map<string, Blob>();
 const pendingPhotos = new Map<string, { wait: Promise<void>; release: () => void; started: boolean }>();
 const deliveries: { conversationId: string; messageIds: string[] }[] = [];
@@ -19,6 +20,21 @@ for (const conversationId of ["maya", "arjun"]) rows.set(conversationId, Array.f
   content: index === 79 ? "Let’s meet tomorrow. I’ll share the details here 😊" : index === 78 ? "https://example.com/" + "long-path".repeat(50) : `Message ${index + 1} — a friendly conversation.`,
   createdAt: new Date(Date.UTC(2026, 9, 9, 9, index)).toISOString(), readAt: index % 3 === 1 ? "2026-10-09T12:00:00Z" : null,
 })));
+if (new URLSearchParams(window.location.search).has("preview")) {
+  const conversation = [
+    [false, "Hey! Are we still meeting tomorrow?"],
+    [true, "Yes, absolutely. Does 10:30 work for you?"],
+    [false, "Perfect. Let's meet at the cafe near the office."],
+    [true, "Sounds good! I'll bring the notes from our last discussion."],
+    [false, "Great, thank you. We can go through the next steps together."],
+    [true, "See you tomorrow 😊"],
+  ] as const;
+  rows.set("maya", conversation.map(([senderIsViewer, content], index) => ({
+    id: `preview-${index}`, conversationId: "maya", senderIsViewer, content,
+    createdAt: new Date(Date.UTC(2026, 9, 19, 9, 30 + index)).toISOString(),
+    readAt: senderIsViewer ? "2026-10-19T10:00:00Z" : null,
+  })));
+}
 function conversation(id: string): DirectMessageConversation {
   return { id, peerPersonRef: id === "maya" ? "person-maya" : id, peerDisplayName: id === "maya" ? "Maya Rao" : id === "leah" ? "Leah Roy" : "Arjun Mehta with a very long display name",
     peerPhotoUrl: id === "maya" ? "/fixture-person-0.webp" : "/fixture-person-1.webp", createdAt: rows.get(id)![0]!.createdAt,
@@ -123,7 +139,11 @@ export class DirectMessagesService {
 
   static async listConversations() {
     if (delayInbox) await new Promise<void>((resolve) => { settleInbox = resolve; });
-    return { items: [conversation("maya"), conversation("arjun")], unreadCount: conversation("maya").unreadCount + conversation("arjun").unreadCount };
+    const items = [conversation("maya"), conversation("arjun")];
+    if (overflowingInbox) {
+      items.push(...Array.from({ length: 30 }, (_, index) => ({ ...conversation("arjun"), id: `extra-${index}`, peerDisplayName: `Connection ${index + 1}` })));
+    }
+    return { items, unreadCount: conversation("maya").unreadCount + conversation("arjun").unreadCount };
   }
   static async getConversationMessages(input: { conversationId: string; before?: string; limit?: number }) {
     const items = rows.get(input.conversationId)!;

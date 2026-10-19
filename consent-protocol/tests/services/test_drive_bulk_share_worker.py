@@ -458,6 +458,37 @@ async def test_package_grant_checks_evaluated_version_before_any_permission_writ
 
 
 @pytest.mark.asyncio
+async def test_semantic_content_grant_checks_assessed_version_without_package(shared_hub_owner):
+    from hushh_mcp.services.drive_request_candidate_assessment import assess_request_candidates
+    from tests.services.test_drive_request_candidate_assessment import candidate, setup
+
+    item = candidate()
+    work = setup(items=[item])
+    work["connection_generation"] = 7
+    (evidence,) = await assess_request_candidates(**work)
+    worker, store, adapter = _worker()
+    job = _job()
+    job["file"] = {**item["metadata"], "contentVerified": True, "requestEvidence": evidence}
+    adapter.inspect_shareable.side_effect = DrivePermissionError("source_changed")
+    await worker._grant(job)
+    assert adapter.inspect_shareable.await_args.kwargs["expected_version"] == "7"
+    assert adapter.inspect_shareable.await_args.kwargs["metadata_only"] is False
+    adapter.create_reader.assert_not_awaited()
+    assert store.release.await_args.kwargs["error"] == "source_changed"
+
+
+@pytest.mark.asyncio
+async def test_unbound_semantic_evidence_never_reaches_google_permissions(shared_hub_owner):
+    worker, _, adapter = _worker()
+    job = _job()
+    job["file"].update(contentVerified=True, sourceVersion="7", requestEvidence={})
+    await worker._grant(job)
+    adapter.inspect_shareable.assert_not_awaited()
+    adapter.list_permissions.assert_not_awaited()
+    adapter.create_reader.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_bulk_worker_passes_frozen_expiry_and_records_it_for_early_stop(shared_hub_owner):
     worker, store, adapter = _worker()
     expires = (datetime.now(UTC) + timedelta(days=7)).isoformat()

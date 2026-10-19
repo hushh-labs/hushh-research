@@ -185,6 +185,45 @@ def rest_query(query: str) -> str:
     return f"({translated}) and trashed = false"
 
 
+def _provider_search_evidence(item: dict[str, Any]) -> dict[str, Any]:
+    """Bounded provider facts needed to bind request-local content observations."""
+    result = {}
+    version = item.get("version")
+    if version is not None:
+        if not isinstance(version, str) or not re.fullmatch(r"[0-9]{1,32}", version):
+            raise DriveReadError("provider_response_invalid")
+        result["version"] = version
+
+    def person(value):
+        if not isinstance(value, dict):
+            raise DriveReadError("provider_response_invalid")
+        projected = {}
+        for key, limit in (("displayName", 256), ("emailAddress", 254)):
+            field = value.get(key)
+            if field is None:
+                continue
+            if (
+                not isinstance(field, str)
+                or len(field) > limit
+                or any(ord(char) < 32 or ord(char) == 127 for char in field)
+            ):
+                raise DriveReadError("provider_response_invalid")
+            if field:
+                projected[key] = field
+        return projected
+
+    owners = item.get("owners")
+    if owners is not None:
+        if not isinstance(owners, list) or len(owners) > 20:
+            raise DriveReadError("provider_response_invalid")
+        result["owners"] = [person(owner) for owner in owners]
+    if item.get("sharingUser") is not None:
+        sharing_user = person(item["sharingUser"])
+        if sharing_user:
+            result["sharingUser"] = sharing_user
+    return result
+
+
 def _as_mcp_file(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": item.get("id"),
@@ -195,6 +234,7 @@ def _as_mcp_file(item: dict[str, Any]) -> dict[str, Any]:
         **{key: item[key] for key in ("driveId", "resourceKey") if item.get(key) is not None},
         "viewUrl": item.get("webViewLink"),
         "shortcutDetails": item.get("shortcutDetails"),
+        **_provider_search_evidence(item),
     }
 
 
@@ -784,6 +824,7 @@ def _project_page(page: dict[str, Any], files: list[Any]) -> dict:
     # scalar fields. This REST-only sharing search also needs the owner-specific
     # canShare fact; validate and reattach exactly that fact after filtering.
     for item, destination in zip(files, projected["files"], strict=True):
+        destination.update(_provider_search_evidence(item))
         capabilities = item.get("capabilities")
         if capabilities is not None:
             if not isinstance(capabilities, dict) or (

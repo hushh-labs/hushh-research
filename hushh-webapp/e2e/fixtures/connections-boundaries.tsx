@@ -84,6 +84,20 @@ export const HushhAuth = {
 export async function streamAgentChat() {
   throw new Error("Private chat is not admitted in the layout fixture");
 }
+export const app = null;
+export const auth = null;
+export const prepareRecaptchaVerifier = () => {
+  throw new Error("Authentication is outside the Connections layout fixture");
+};
+export const getRecaptchaVerifier = prepareRecaptchaVerifier;
+export const resetRecaptcha = () => {};
+// Pure task models and rows stay real. This public fixture does not admit
+// encrypted task reads or writes through the private service port.
+export const TodoListPkmService = {
+  load: async () => { throw new Error("No task reads in the public layout fixture"); },
+  setStatus: async () => { throw new Error("No task writes in the public layout fixture"); },
+  remove: async () => { throw new Error("No task writes in the public layout fixture"); },
+};
 // Profile settings import these cold native service paths into the bundle.
 // This browser fixture admits no native calls; fail if one is actually used.
 function unavailableNativeBridge(name: string) {

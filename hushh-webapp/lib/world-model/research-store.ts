@@ -135,6 +135,10 @@ export const worldModelResearchStore = {
     };
   },
   getSnapshot: (): WorldModelResearchState => published,
+  /** A sibling can render before the provider's layout effect updates its
+   * authority. Never admit the previous owner's snapshot into that frame. */
+  getSnapshotFor: (expected: WorldModelResearchAuthority | null): WorldModelResearchState =>
+    sameAuthority(expected, authority) ? published : UNMOUNTED,
   getServerSnapshot: (): WorldModelResearchState => UNMOUNTED,
 
   /**

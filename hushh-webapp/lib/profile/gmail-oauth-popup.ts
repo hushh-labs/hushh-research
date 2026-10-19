@@ -137,10 +137,24 @@ export function readGmailOAuthPopupAttempt(): GmailOAuthPopupAttempt | null {
 
 export function clearGmailOAuthPopupAttempt(
   target?: Window | null,
+  expectedAttemptId?: string,
 ): void {
   const resolvedTarget = target ?? (typeof window === "undefined" ? null : window);
-  getStorage(resolvedTarget)?.removeItem(STORAGE_KEY);
-  getFallbackStorage(resolvedTarget)?.removeItem(FALLBACK_ATTEMPT_KEY);
+  const clear = (storage: Storage | null, key: string) => {
+    if (!storage) return;
+    if (expectedAttemptId !== undefined) {
+      try {
+        const raw = storage.getItem(key);
+        const value = raw ? JSON.parse(raw) : null;
+        if (value?.attemptId !== expectedAttemptId) return;
+      } catch { return; }
+    }
+    storage.removeItem(key);
+  };
+  // Session and fallback storage can belong to different overlapping attempts.
+  // An old popup may clear only its own correlation, not the newer attempt.
+  clear(getStorage(resolvedTarget), STORAGE_KEY);
+  clear(getFallbackStorage(resolvedTarget), FALLBACK_ATTEMPT_KEY);
 }
 
 /**

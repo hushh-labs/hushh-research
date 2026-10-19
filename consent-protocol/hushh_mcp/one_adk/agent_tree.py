@@ -2559,6 +2559,7 @@ def build_google_search_agent(*, model: Any | None = None) -> LlmAgent:
 def _one_roster_tools(
     *,
     specialist_model: Any | None = None,
+    google_search_model: Any | None = None,
     tool_mode: str = "full",
     allow_workspace_tools: bool = False,
     allow_private_mcp: bool = False,
@@ -2594,7 +2595,10 @@ def _one_roster_tools(
     tools = [
         *memory_tools,
         # Empty for a head that cannot ground on Google Search (web_search.py).
-        *web_search_tools(text_model, manifest=_ONE_MANIFEST),
+        *web_search_tools(
+            google_search_model if google_search_model is not None else text_model,
+            manifest=_ONE_MANIFEST,
+        ),
         open_screen,
         resolve_onboarding_goal,
         run_app_action,
@@ -2775,6 +2779,7 @@ def _one_consent_before_model(callback_context: Any, llm_request: Any) -> None:
 def build_one_text_agent(
     *,
     model: Any | None = None,
+    google_search_model: Any | None = None,
     vertex_project: str | None = None,
     allow_workspace_tools: bool = False,
     allow_private_mcp: bool = False,
@@ -2787,6 +2792,8 @@ def build_one_text_agent(
     The Live native-audio model rejects text-only run_async turns, so text
     surfaces run the specialist-generation model with the identical
     instruction and roster - ONE decision-maker, two transport heads.
+    A provider-specific composition may supply a separate Google Search model
+    for its native tool; other specialists continue to inherit the text model.
     """
     # Route modules construct both ADK apps during import so FastAPI can
     # register the canonical endpoint. The shared resolver keeps that import
@@ -2803,9 +2810,13 @@ def build_one_text_agent(
         name="one",
         model=text_model,
         description=_ONE_MANIFEST.description,
-        instruction=instruction_for_head(text_model, _one_runtime_instruction),
+        instruction=instruction_for_head(
+            google_search_model if google_search_model is not None else text_model,
+            _one_runtime_instruction,
+        ),
         tools=_one_roster_tools(
             specialist_model=text_model,
+            google_search_model=google_search_model,
             allow_workspace_tools=allow_workspace_tools,
             allow_private_mcp=allow_private_mcp,
             allow_receipt_tools=True,

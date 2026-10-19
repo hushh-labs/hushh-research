@@ -29,7 +29,11 @@ Hub content execution is available only in Shared. Private owners require a qual
 
 ## User experience
 
-Research is on by default. Setup discloses it, and once the owner's setup is resolved the first `ensure` call creates the missing preference row as enabled with readiness email enabled. An existing disabled row is the owner's explicit opt-out and is never turned back on; no migration rewrites existing rows. The owner keeps an off switch for research and for the readiness email.
+The Vertex lane enables research by default after setup disclosure. Once setup
+is resolved, `ensure` can create a missing preference row with readiness email
+enabled. Azure UAT instead requires the separate Azure/Bing opt-in described
+below. An existing disabled row is never turned back on; no migration rewrites
+existing rows. The owner keeps an off switch for research and readiness email.
 
 There is no Build button, research settings screen or manual URL in the main journey. After vault unlock on any non-setup route, the app-wide world-model provider calls `ensure`: a new owner's research starts in the background, an existing owner without a model starts preparation, and interrupted work resumes. Research only progresses while an authenticated client keeps calling `ensure` or `/jobs`; the server keeps the derived chat key for at most 300 seconds. Drafts are purged after 24 hours, and a finished model may be prepared again seven days after its latest preparation started; purged unfinished work may resume sooner. Automatic messages remain outside chat.
 
@@ -61,14 +65,39 @@ The specialist's `gemini-default` currently resolves to **Gemini `gemini-3.8-fla
 
 All managed text/chat, PWM, Live Voice, and embedding clients read [managed-ai-runtime.json](../../../consent-protocol/config/managed-ai-runtime.json).
 
+UAT's PWM override selects **Azure GPT-5 mini** (`pwm-gpt-5-mini-eval`) for
+planning, native Bing discovery and strict-schema report compilation. It shares
+the same authored specialist instruction. Only fresh authenticated owner fields
+are admitted: name plus verified email and canonical verified phone when present,
+with at least one verified contact required. A name alone cannot start research.
+Existing `ensure`, `/research`, jobs and SSE routes are retained. Azure additionally
+requires a fresh `pwm-azure-bing-v1` owner opt-in; default Vertex enrollment and an
+invitation claim do not grant Azure consent. Research never automatically writes
+approved memory.
+
+The planner can pivot through received public source titles/URLs and candidate
+anchors. Separate candidate, anchor and source ID namespaces prevent accidental
+cross-reference. Failed coverage searches cannot donate citations to findings.
+Public self-reports stay attributed; a degree listing, selected-work repository
+or merged PR metadata does not establish graduation, creation or who merged it.
+Shorter names and unlinked institutional/company/aggregator records remain
+uncertain. Raw citations are not independent verification of their contents, so
+Azure candidates remain for owner review. No minimum finding count is forced.
+
 | Environment | Vertex project | Text/PWM | Live | Embeddings |
 | --- | --- | --- | --- | --- |
 | Local | `hushh-pda-uat` | `gemini-3.8-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
-| Dev / UAT / Production | `hushh-gemini-bridge` | same | same | same |
+| Dev / Production | `hushh-gemini-bridge` | same | same | same |
+| UAT | `hushh-gemini-bridge` | same text; PWM uses Azure GPT-5 mini | same | same |
 
 The hosted profiles share the managed Vertex project while retaining separate workload identities and infrastructure projects. This table describes the release configuration; serving state requires revision and runtime-probe evidence.
 
-The release configuration disables automatic world-model research with `ONE_PROFILE_RESEARCH_ENABLED=false`; UAT deployments default the corresponding repository variable to false. This stops new research and resumes without deleting encrypted drafts or changing ordinary chat. The notification scheduler alone does not stop generation. Drive background processing is separately paused with `DRIVE_WORK_DRAIN_UAT_ENABLED=false`: both API and worker drains remain disabled and the three retained Drive jobs remain paused during release; stored files and queued work are preserved.
+`ONE_PROFILE_RESEARCH_ENABLED` controls the research kill switch. UAT deployment
+reads `ONE_PROFILE_RESEARCH_ENABLED_UAT` (default false); enabling it still requires
+each owner's separate Azure/Bing opt-in. Disabling it stops new research and
+resumes without deleting encrypted drafts or changing ordinary chat. The
+notification scheduler alone does not stop generation. Drive background
+processing has its separate `DRIVE_WORK_DRAIN_UAT_ENABLED` switch.
 
 The default 3.8 text model uses the verified `global` endpoint; Live remains regional `us-central1`. Cloud Run, SQL, Firebase, and application-secret infrastructure projects are separate from the managed Vertex project. BYOK remains a separate explicitly selected runtime.
 

@@ -51,6 +51,7 @@ export type ActionMenuItem = {
   id: string;
   label: ReactNode;
   icon?: LucideIcon;
+  iconClassName?: string;
   onSelect: () => void;
   disabled?: boolean;
   /** Marks the row busy without unmounting it, so a repeat tap is refused
@@ -174,7 +175,7 @@ export function ActionMenu({
                   >
                     {Icon ? (
                       <Icon
-                        className="h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)]"
+                        className={cn("h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)]", item.iconClassName)}
                         aria-hidden="true"
                       />
                     ) : null}
@@ -236,7 +237,7 @@ export function ActionMenu({
             >
               {Icon ? (
                 <Icon
-                  className="h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)]"
+                  className={cn("h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)]", item.iconClassName)}
                   aria-hidden="true"
                 />
               ) : null}

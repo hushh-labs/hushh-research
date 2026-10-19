@@ -43,6 +43,84 @@ def transport(*, current=None, adapter=None, monkeypatch=None, enabled=True):
     return rest.GoogleDriveRestTransport(oauth=oauth, adapter=adapter or SimpleNamespace())
 
 
+async def test_real_rest_page_keeps_version_and_bounded_provider_relationship_facts(monkeypatch):
+    source = {
+        "id": FILE_ID,
+        "name": "A generic title",
+        "mimeType": "application/vnd.google-apps.document",
+        "version": "741",
+        "capabilities": {"canShare": True},
+        "owners": [
+            {
+                "displayName": "Synthetic Owner",
+                "emailAddress": "owner@example.invalid",
+                "photoLink": "discard",
+            }
+        ],
+        "sharingUser": {
+            "displayName": "Synthetic Sharer",
+            "emailAddress": "sharer@example.invalid",
+            "permissionId": "discard",
+        },
+        "description": "private source text must not be projected",
+    }
+    adapter = SimpleNamespace(list_files=AsyncMock(return_value={"files": [source]}))
+    drive = transport(adapter=adapter, monkeypatch=monkeypatch)
+    result = await drive.read_owner_search_page(
+        user_id="owner", tool_name="search_files", arguments={"query": "fullText contains 'topic'"}
+    )
+    observed = result.payload["files"][0]
+    assert observed["version"] == "741"
+    assert observed["owners"] == [
+        {"displayName": "Synthetic Owner", "emailAddress": "owner@example.invalid"}
+    ]
+    assert observed["sharingUser"] == {
+        "displayName": "Synthetic Sharer",
+        "emailAddress": "sharer@example.invalid",
+    }
+    assert observed["capabilities"] == {"canShare": True}
+    assert "description" not in observed
+    assert "photoLink" not in observed["owners"][0]
+    assert "permissionId" not in observed["sharingUser"]
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        {"version": True},
+        {"version": ""},
+        {"version": "7\n41"},
+        {"version": "1" * 33},
+        {"owners": {}},
+        {"owners": [{}] * 21},
+        {"owners": ["person"]},
+        {"owners": [{"displayName": "x" * 257}]},
+        {"sharingUser": {"emailAddress": "email\nheader"}},
+        {"sharingUser": {"emailAddress": "x" * 255}},
+    ],
+)
+def test_provider_relationship_projection_rejects_unbounded_or_malformed_facts(evidence):
+    source = {"id": FILE_ID, "name": "Plan.pdf", "mimeType": "application/pdf", **evidence}
+    with pytest.raises(DriveReadError, match="provider_response_invalid"):
+        rest._project_page({"files": [source]}, [source])
+
+
+def test_provider_relationship_projection_ignores_blank_optional_identity_fields():
+    # Drive can return sharingUser.displayName as an empty string on a valid
+    # files.list page. One such row must not fail the whole owner's search.
+    source = {
+        "id": FILE_ID,
+        "name": "Plan.pdf",
+        "mimeType": "application/pdf",
+        "version": "42",
+        "owners": [{"displayName": "", "emailAddress": "owner@example.invalid"}],
+        "sharingUser": {"displayName": ""},
+    }
+    projected = rest._project_page({"files": [source]}, [source])["files"][0]
+    assert projected["owners"] == [{"emailAddress": "owner@example.invalid"}]
+    assert "sharingUser" not in projected
+
+
 def test_the_mcp_query_dialect_becomes_drive_rest_q():
     assert rest.rest_query("(title contains 'bank' or fullText contains 'bank')") == (
         "((name contains 'bank' or fullText contains 'bank')) and trashed = false"

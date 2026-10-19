@@ -3328,7 +3328,7 @@
         "legacyAlias": true
       },
       "shell": {
-        "app_page_shell": true,
+        "app_page_shell": false,
         "page_header": false,
         "settings_ui": false,
         "shared_loader": true,
@@ -6616,7 +6616,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.profile.preferences.device",
-          "purpose": "Help the person understand and use the device screen through its generated controls.",
+          "purpose": "Compatibility entry for Preferences. The retired device detail has no separate body; use the current Preferences controls.",
           "screen": "profile_preferences",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -10890,5 +10890,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "cbd9dd5397623a92729f5f5b2f469fd1840053119370ea65a4b375414d693efb"
+  "content_sha256": "5774cc39f14953b23ee2fec9eb60ed8645254a1a100e7fc8efeb8685a4f9349f"
 }

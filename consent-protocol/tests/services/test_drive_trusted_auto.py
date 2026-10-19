@@ -617,8 +617,9 @@ async def test_removed_trust_stops_search_and_grant_authority(request_bulk, shar
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("authority", ["owner_allowed", "trusted"])
+@pytest.mark.parametrize("revocation", ["authority", "request_stop"])
 async def test_auto_rechecks_need_the_owner_allow_or_current_trust(
-    request_bulk, sharing, authority
+    request_bulk, sharing, authority, revocation
 ):
     # A connected Allowed peer can pass rechecks without Trusted membership.
     if authority == "trusted":
@@ -653,7 +654,17 @@ async def test_auto_rechecks_need_the_owner_allow_or_current_trust(
     assert grant is not None
     await request_bulk.require_current(grant)
 
-    if authority == "owner_allowed":
+    if revocation == "request_stop":
+        # Stop leaves the pending request, revision and broad background
+        # preference intact. It still withdraws this request's read authority.
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text("""UPDATE drive_share_requests
+                  SET access_stop_requested_at=clock_timestamp()
+                  WHERE request_id=:request"""),
+                {"request": request_id},
+            )
+    elif authority == "owner_allowed":
         _connection(sharing, "removed")  # An Allow never outlives the connection.
     else:
         _membership(sharing, "removed")  # Still connected, no longer Trusted.

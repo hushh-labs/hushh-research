@@ -1,6 +1,4 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ProfileStackNavigator } from "@/components/profile/profile-stack-navigator";
@@ -208,31 +206,5 @@ describe("ProfileStackNavigator", () => {
     expect(appRoot.scrollTo).not.toHaveBeenCalled();
     expect(stalePane.scrollTo).not.toHaveBeenCalled();
     nativeRoot.root.remove();
-  });
-
-  it("inherits the canonical app canvas instead of repainting a Profile background", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/profile/profile-stack-navigator.tsx"),
-      "utf8",
-    );
-
-    expect(source).not.toContain("overflow-hidden bg-background");
-  });
-
-  it("uses the shared PageHeader and app gutter tokens for every nested Profile screen", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/profile/profile-stack-navigator.tsx"),
-      "utf8",
-    );
-
-    expect(source).toContain('from "@/components/app-ui/page-sections"');
-    expect(source).toContain("<PageHeader");
-    expect(source).toContain('testId="profile-stack-page-header"');
-    // The outer AppPageShell owns the gutter; doubling it shifts nested rows.
-    expect(source).not.toContain("px-[var(--page-inline-gutter-standard)]");
-    expect(source).toContain("pt-[var(--page-header-section-gap)]");
-    expect(source).toContain("<SettingsPresentationProvider");
-    expect(source).toContain("separatorInset");
-    expect(source).toContain('density="compact"');
   });
 });

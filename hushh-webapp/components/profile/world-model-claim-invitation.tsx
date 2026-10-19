@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useWorldModelOwnerState } from "./world-model-owner-state";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SettingsGroup } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
@@ -18,39 +19,34 @@ import {
 } from "@/lib/world-model/invitation-handoff";
 
 /** Recipient side of an invitation: claim or decline a handoff addressed to their verified contact. */
-export function WorldModelClaimInvitation({
+type ClaimProps = { ownerId: string; vaultKey: string; vaultOwnerToken: string; enabled?: boolean; onClaimed?: () => void; onCompleted?: () => void };
+export function useWorldModelClaimInvitation({
   ownerId,
   vaultKey,
   vaultOwnerToken,
   onClaimed,
-}: {
-  ownerId: string;
-  vaultKey: string;
-  vaultOwnerToken: string;
-  onClaimed?: () => void;
-}) {
+  onCompleted,
+  enabled = true,
+}: ClaimProps) {
   const router = useRouter();
   const query = useSearchParams();
-  const [claimToken, setClaimToken] = useState<string | null>(null);
-  const [accountSwitchHandoff, setAccountSwitchHandoff] = useState<string | null>(null);
-  const [receivedPreview, setReceivedPreview] = useState<
+  const { busy, message, setMessage, guard, run, ownerSession } = useWorldModelOwnerAction({ ownerId, vaultKey, vaultOwnerToken, enabled });
+  const [claimToken, setClaimToken] = useWorldModelOwnerState<string | null>(ownerSession, null);
+  const [accountSwitchHandoff, setAccountSwitchHandoff] = useWorldModelOwnerState<string | null>(ownerSession, null);
+  const [receivedPreview, setReceivedPreview] = useWorldModelOwnerState<
     Awaited<ReturnType<typeof WorldModelInvitationsService.preview>> | null
-  >(null);
-  const [researchConsent, setResearchConsent] = useState(false);
-  const { reload: reloadResearch, preferences } = useWorldModelResearch();
+  >(ownerSession, null);
+  const [researchConsent, setResearchConsent] = useWorldModelOwnerState(ownerSession, false);
+  const { reload: reloadResearch, preferences } = useWorldModelResearch(enabled);
   // The invitation checkbox belongs only to the existing Google research
   // choice. Azure/Bing needs its own disclosure in Personal World Model settings.
   const offerResearch = preferences?.enabled === false &&
     preferences.research_provider === "vertex_google_search";
   const azureResearchOff = preferences?.enabled === false &&
     preferences.research_provider === "azure_openai_web_search";
-  const { busy, message, setMessage, guard, run, lifetime } = useWorldModelOwnerAction({
-    ownerId,
-    vaultKey,
-    vaultOwnerToken,
-  });
   const session = { vaultKey, vaultOwnerToken };
   useEffect(() => {
+    if (!enabled) return;
     const syncToken = () => {
       const handoff = query.get("handoff");
       const recovered = handoff
@@ -69,11 +65,11 @@ export function WorldModelClaimInvitation({
     syncToken();
     window.addEventListener("hashchange", syncToken);
     return () => window.removeEventListener("hashchange", syncToken);
-  }, [ownerId, query]);
+  }, [ownerId, query, enabled, setAccountSwitchHandoff, setClaimToken]);
   useEffect(() => {
     let active = true;
     setReceivedPreview(null);
-    if (claimToken)
+    if (enabled && claimToken)
       void WorldModelInvitationsService.preview(claimToken)
         .then((row) => {
           if (active) setReceivedPreview(row);
@@ -82,7 +78,41 @@ export function WorldModelClaimInvitation({
     return () => {
       active = false;
     };
-  }, [claimToken]);
+  }, [claimToken, enabled, setReceivedPreview]);
+  const complete = () => {
+    if (onCompleted) onCompleted();
+    else { router.replace(ROUTES.PROFILE_WORLD_MODEL); router.refresh(); }
+  };
+  const claim = () => run(async () => {
+    if (!claimToken) return;
+    const capture = guard();
+    const claimed = await WorldModelInvitationsService.claim({ ...session, isCurrent: capture.isCurrent, signal: ownerSession.controller.signal }, claimToken, offerResearch && researchConsent);
+    await capture.assertCurrent();
+    clearWorldModelInvitationHandoffsForToken(claimToken);
+    setMessage(claimed.research_started || claimed.draft_id
+      ? "Claimed. Your model is preparing or ready to review. Nothing was shared back."
+      : azureResearchOff
+        ? "Claimed. Azure public research remains off. Open Research and email in your model to review Bing search use and turn it on. Nothing was shared back."
+        : offerResearch && !researchConsent
+          ? "Claimed. Public research remains off. You can turn it on in your model. Nothing was shared back."
+          : "Claimed. Open your model to check its research status. Nothing was shared back.");
+    setClaimToken(null); reloadResearch(); onClaimed?.(); complete();
+  });
+  const decline = () => run(async () => {
+    if (!claimToken) return;
+    const capture = guard(); await WorldModelInvitationsService.reject({ ...session, isCurrent: capture.isCurrent, signal: ownerSession.controller.signal }, claimToken); await capture.assertCurrent();
+    clearWorldModelInvitationHandoffsForToken(claimToken); setClaimToken(null); setReceivedPreview(null);
+    setMessage("Invitation declined."); complete();
+  });
+  return { claimToken, accountSwitchHandoff, receivedPreview, researchConsent, setResearchConsent, offerResearch, azureResearchOff,
+    busy, message, claim, decline, reviewOtherAccount: () => {
+      if (accountSwitchHandoff) router.replace(worldModelInvitationHandoffRoute(accountSwitchHandoff));
+    } };
+}
+
+export function WorldModelClaimInvitation(props: ClaimProps) {
+  const { claimToken, accountSwitchHandoff, receivedPreview, researchConsent, setResearchConsent, offerResearch, azureResearchOff,
+    busy, message, claim, decline, reviewOtherAccount } = useWorldModelClaimInvitation(props);
   if (!accountSwitchHandoff && !claimToken && !message) return null;
   return (
     <SettingsGroup title="Invitation">
@@ -92,9 +122,7 @@ export function WorldModelClaimInvitation({
             <RowDescription>This invitation was opened with another account.</RowDescription>
             <Button
               size="compact"
-              onClick={() =>
-                router.replace(worldModelInvitationHandoffRoute(accountSwitchHandoff))
-              }
+              onClick={reviewOtherAccount}
             >
               Review invitation with this account
             </Button>
@@ -159,38 +187,7 @@ export function WorldModelClaimInvitation({
                 data-voice-control-id="pwm_claim"
                 size="compact"
                 disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    const capture = guard();
-                    const actionSession = {
-                      ...session,
-                      isCurrent: capture.isCurrent,
-                      signal: lifetime.current.signal,
-                    };
-                    const claimed = await WorldModelInvitationsService.claim(
-                      actionSession,
-                      claimToken,
-                      // Only a shown, checked box is a research request.
-                      offerResearch && researchConsent,
-                    );
-                    await capture.assertCurrent();
-                    clearWorldModelInvitationHandoffsForToken(claimToken);
-                    setMessage(
-                      claimed.research_started || claimed.draft_id
-                        ? "Claimed. Your model is preparing or ready to review. Nothing was shared back."
-                        : azureResearchOff
-                          ? "Claimed. Azure public research remains off. Open Research and email in your model to review Bing search use and turn it on. Nothing was shared back."
-                        : offerResearch && !researchConsent
-                          ? "Claimed. Public research remains off. You can turn it on in your model. Nothing was shared back."
-                          : "Claimed. Open your model to check its research status. Nothing was shared back.",
-                    );
-                    setClaimToken(null);
-                    reloadResearch();
-                    onClaimed?.();
-                    router.replace(ROUTES.PROFILE_WORLD_MODEL);
-                    router.refresh();
-                  })
-                }
+                onClick={() => void claim()}
               >
                 Claim my model
               </Button>
@@ -199,26 +196,7 @@ export function WorldModelClaimInvitation({
                 variant="none"
                 disabled={busy}
                 data-voice-control-id="pwm_reject"
-                onClick={() =>
-                  void run(async () => {
-                    const capture = guard();
-                    const actionSession = {
-                      ...session,
-                      isCurrent: capture.isCurrent,
-                      signal: lifetime.current.signal,
-                    };
-                    await WorldModelInvitationsService.reject(
-                      actionSession,
-                      claimToken,
-                    );
-                    await capture.assertCurrent();
-                    clearWorldModelInvitationHandoffsForToken(claimToken);
-                    setClaimToken(null);
-                    setReceivedPreview(null);
-                    router.replace(ROUTES.PROFILE_WORLD_MODEL);
-                    setMessage("Invitation declined.");
-                  })
-                }
+                onClick={() => void decline()}
               >
                 Decline
               </Button>

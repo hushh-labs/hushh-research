@@ -9,6 +9,13 @@ another reviewer store or a privileged app-unlock route.
 
 1. Record candidate source SHA, built-product identity and selected physical
    destination. A successful compile/install does not prove UI automation.
+   Bind the app **and** runner/test executable to that source. An attach-only
+   definition using `UseDestinationArtifacts` runs the installed test bundle;
+   rebuilding a runner on the Mac does not update it on the phone. Install its
+   matching signed runner separately, without reinstalling One merely for a
+   harness change. Keep executable digests and install receipts with the run,
+   and require the requested case's observed markers before interpreting its
+   result. A stale installed runner is not evidence against the new feature.
 2. Inspect `xcrun devicectl list devices` and
    `xcrun devicectl device info lockState --device <udid>`. Pairing does not prove
    unlocked transport; a connection reset is not a vault rejection. Recheck once

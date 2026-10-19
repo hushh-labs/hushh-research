@@ -81,7 +81,7 @@ type Phase =
   "loading" | "draft" | "preparing" | "saving" | "saved" | "failed" | "skipped";
 
 /** Explicitly started profile review; never mounted by the chat surface. */
-export function ProfileResearchCard({
+export function useProfileResearchModel({
   worldModel = false,
   sourceReview = false,
   initialResult,
@@ -93,7 +93,6 @@ export function ProfileResearchCard({
   enabled: requestedEnabled,
   pathname,
   backQuery,
-  renderMessage,
   embedded = false,
   present = true,
   onAvailabilityChange,
@@ -107,7 +106,9 @@ export function ProfileResearchCard({
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState(false);
   const [review, setReview] = useState<ReviewedProfile | null>(null);
-  const [saveStarted, setSaveStarted] = useState(false);
+  const [saveStarted, setSaveStartedState] = useState(false);
+  const recoveringSave = useRef(false);
+  const setSaveStarted = useCallback((value: boolean) => { recoveringSave.current = value; setSaveStartedState(value); }, []);
   const [sharingOpen, setSharingOpen] = useState(false);
   const [visibleOwner, setVisibleOwner] = useState<{
     ownerId: string;
@@ -166,10 +167,16 @@ export function ProfileResearchCard({
       activeOperations.forEach((controller) => controller.abort());
       activeOperations.clear();
     };
-  }, [ownerId, vaultKey, vaultOwnerToken, enabled]);
+  }, [ownerId, vaultKey, vaultOwnerToken, enabled, setSaveStarted]);
 
   useEffect(() => {
     if (!enabled || !ownerId || !vaultKey || !vaultOwnerToken) return;
+    // Source preparation is explicitly started by its existing form. An empty
+    // source review must never dispatch ambient account research instead.
+    if (sourceReview && !initialResult) return;
+    // An arriving source refresh cannot discard the exact prepared cards,
+    // idempotency scopes or committed set of a pending/uncertain save.
+    if (operations.current.size || recoveringSave.current) return;
     // Cleanup cancels only this reader. A resumed effect must reconnect; the
     // encrypted server lease, not a component ref, owns dispatch coalescing.
     const controller = new AbortController();
@@ -184,7 +191,7 @@ export function ProfileResearchCard({
     });
     // Defer dispatch one tick: StrictMode's trial mount cleans up before a paid request starts.
     const timer = setTimeout(() => {
-      if (!guard.isCurrent()) return;
+      if (!guard.isCurrent() || operations.current.size || recoveringSave.current) return;
       setResult(null);
       setPhase("loading");
       setVisibleOwner({ ownerId, vaultKey, vaultOwnerToken });
@@ -200,7 +207,7 @@ export function ProfileResearchCard({
             })
       )
         .then((next) => {
-          if (!guard.isCurrent()) return;
+          if (!guard.isCurrent() || operations.current.size || recoveringSave.current) return;
           setResult(next);
           if (next.status === "saved") setPhase("saved");
           setPhase(
@@ -244,7 +251,7 @@ export function ProfileResearchCard({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [enabled, ownerId, vaultKey, vaultOwnerToken, worldModel, initialResult]);
+  }, [enabled, ownerId, vaultKey, vaultOwnerToken, worldModel, sourceReview, initialResult]);
 
   const withSession = async (
     operation: (
@@ -376,6 +383,27 @@ export function ProfileResearchCard({
   useEffect(() => {
     onBusinessAvailabilityChange?.(businessAvailable);
   }, [onBusinessAvailabilityChange, businessAvailable]);
+  const dismiss = () =>
+    void withSession(async (session) => {
+      if (busy || saveStarted) return;
+      try {
+        if (worldModel || sourceReview) await ProfileResearchService.discard(session);
+        await session.assertCurrent();
+        setPhase("skipped"); setResult(null); setReview(null); onDiscarded?.();
+      } catch { if (session.isCurrent()) morphyToast.error("Couldn’t discard. Try again."); }
+    });
+  return { result, phase, selected, setSelected, edits, setEdits, editing, setEditing, review, setReview,
+    saveStarted, sharingOpen, setSharingOpen, busy, partiallySaved, hasOffer, visible, save, dismiss, availability,
+    cancelReview, operationPending: () => operations.current.size > 0 || recoveringSave.current };
+}
+export type ProfileResearchModel = ReturnType<typeof useProfileResearchModel>;
+
+/** React and native share this exact encrypted prepare/save owner. */
+export function ProfileResearchCard(props: Props) {
+  const model = useProfileResearchModel(props);
+  const { worldModel = false, embedded = false, present = true, renderMessage } = props;
+  const { result, phase, selected, setSelected, edits, setEdits, editing, setEditing, setReview,
+    saveStarted, sharingOpen, setSharingOpen, busy, partiallySaved, hasOffer, visible, save, dismiss } = model;
   if (
     !present ||
     !visible ||
@@ -386,22 +414,6 @@ export function ProfileResearchCard({
   )
     return renderMessage ? renderMessage(null, null) : null;
   const report = result?.status === "offered" ? result.report : null;
-  const dismiss = () =>
-    void withSession(async (session) => {
-      if (busy || saveStarted) return;
-      try {
-        if (worldModel || sourceReview)
-          await ProfileResearchService.discard(session);
-        await session.assertCurrent();
-        setPhase("skipped");
-        setResult(null);
-        setReview(null);
-        onDiscarded?.();
-      } catch {
-        if (session.isCurrent())
-          morphyToast.error("Couldn’t discard. Try again.");
-      }
-    });
   const renderSection = (section: ProfileReport["sections"][number]) => (
     <AccordionItem key={section.kind} value={section.kind}>
       <AccordionTrigger className="py-2.5 text-[13px]">

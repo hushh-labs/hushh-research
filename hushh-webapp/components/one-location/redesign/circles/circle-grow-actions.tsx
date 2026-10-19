@@ -357,8 +357,9 @@ export function CircleInvitePeopleSheet({
                             />
                           }
                           title={
-                            <span className="block min-w-0 truncate">
-                              {connection.displayName}
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span className="min-w-0 truncate">{connection.displayName}</span>
+                              {connection.connectedFromContacts ? <ContactSourceBadge /> : null}
                             </span>
                           }
                           description="Connected on One"
@@ -367,9 +368,6 @@ export function CircleInvitePeopleSheet({
                           disabled={!selected && atCapacity}
                           trailing={
                             <span className="flex shrink-0 items-center gap-3">
-                              {connection.connectedFromContacts ? (
-                                <ContactSourceBadge />
-                              ) : null}
                               <span
                                 className={cn(
                                   "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",

@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createRef, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NativeChromeLease, chromeOwnerEpoch, canResumeNativeChrome, suspendOwnedNativeChrome, getNativeChromeCapabilities, peekNativeChromeCapabilities, hasOutstandingNativeChrome, retireNativeChrome, retireOwnedNativeChrome, syncNativeCanvasAppearance, type ChromeAcknowledgement, type ChromeProjection, type ChromeUpdateAcknowledgement } from "@/lib/capacitor/native-chrome";
 import { NativeShellBack } from "@/components/app-ui/native-shell-back";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
+import { projectNativeLegalDocument } from "@/lib/capacitor/native-profile-legal";
+import { projectNativeProfileLegal } from "@/components/profile/profile-native-legal";
 import { NativeChatChrome, NativeHistoryClose, NativeHistoryOpener, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
 import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
@@ -11,9 +13,10 @@ import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppr
 import { writeAccent } from "@/lib/theme/accent";
 import { isCurrentNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { DockEventFence, nativeDockRestingFrame, type DockEvent, type DockState } from "@/lib/capacitor/native-dock";
-import { NativeDrawerChoiceFence, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type NativeDrawerReadmission, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
+import { NativeDrawerChoiceFence, validNativeConnectorPath, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type NativeDrawerReadmission, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
 import { NativeDrawerPresentation } from "@/lib/capacitor/native-drawer-presentation";
-import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
+import type { NativeDrawerPresentationState } from "@/lib/capacitor/native-drawers";
+import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible, nativeDrawers } from "@/lib/capacitor/native-drawers";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "@/lib/capacitor/native-drawer-owner";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -29,9 +32,92 @@ import { NativeProfilePresentation, projectNativeProfileMenu } from "@/component
 import { profileMenuGroups, type ProfileMenuActions } from "@/components/profile/profile-menu-model";
 import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-presentation";
 import { NativeProfileNameFence, validNativeProfileNameProjection, type NativeProfileNameProjection } from "@/lib/capacitor/native-profile-name-scene";
+import { NativeWorldModelFence, validNativeWorldModelProjection, type NativeWorldModelProjection, type WorldModelForm } from "@/lib/capacitor/native-profile-world-model-scene";
+import { NativeRuntimeFence, validNativeRuntimeProjection, validNativeRuntimeFinalEdit, type NativeRuntimeProjection } from "@/lib/capacitor/native-profile-runtime-scene";
+import { NativeConnectorFence, validNativeConnectorProjection, validNativeConnectorFinalEdit, type NativeConnectorProjection } from "@/lib/capacitor/native-profile-connector-scene";
+import { NativeMemoryFence, validNativeMemoryProjection, validNativeMemoryFinalEdit, type NativeMemoryProjection } from "@/lib/capacitor/native-profile-memory-scene";
+import { NativePasswordFence, validNativePasswordProjection, type NativePasswordProjection } from "@/lib/capacitor/native-profile-password-scene";
 import { NativeProfileNamePresentation } from "@/lib/capacitor/native-profile-name-presentation";
 import { NativeProfileStyleFence, STYLE_CHOICE_OPTIONS, validNativeProfileStyleProjection, type NativeProfileStyleProjection } from "@/lib/capacitor/native-profile-style-scene";
 import { NativeProfileScenePresentation } from "@/lib/capacitor/native-profile-scene-presentation";
+import { NativePhoneFence, validNativePhoneProjection, type NativePhoneProjection } from "@/lib/capacitor/native-profile-phone-scene";
+import { NativePhoneVerificationFlow } from "@/components/profile/native-phone-verification-flow";
+import { NativeRequestPricingEditor } from "@/components/profile/native-request-pricing";
+import { NativeVaultPasswordEditor } from "@/components/profile/native-vault-password-editor";
+import { registerBackLayer } from "@/lib/navigation/back-layers";
+import { backProfilePane } from "@/lib/navigation/profile-pane-back";
+import { validNativeWorkspace, workspaceAcknowledged, type NativeWorkspaceProjection } from "@/lib/capacitor/native-workspace";
+import { useNativeWorkspace } from "@/lib/capacitor/use-native-workspace";
+
+describe("private route-body presentation boundary", () => {
+  it("rejects a delayed confirmation after content changes and consumes the new choice once", async () => {
+    publishValidatedAuthSessionOwner("synthetic-workspace-owner");
+    bridge.documentId = crypto.randomUUID();
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
+    const seat = document.createElement("div"); seat.dataset.nativeWorkspaceSeat = "true"; document.body.append(seat);
+    vi.spyOn(seat, "getBoundingClientRect").mockReturnValue({ x: 0, y: 100, width: window.innerWidth, height: 400 } as DOMRect);
+    const originalObserver = globalThis.ResizeObserver;
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true, routeWorkspaces: ["referrals"], ...nativeDrawerIsolation() });
+    drawerBridge.applyWorkspace.mockImplementation(async state => ({ ...state, layoutRevision: state.frame.layoutRevision, phase: "active", settled: true }));
+    drawerBridge.retireWorkspace.mockImplementation(async state => ({ ...state, updateSequence: 0, privacyGeneration: 0, layoutRevision: 0, phase: "retired", settled: true }));
+    let confirm!: (value: { valid: boolean }) => void;
+    drawerBridge.confirmWorkspaceChoice.mockImplementation(() => new Promise(resolve => { confirm = resolve; }));
+    drawerBridge.settleWorkspaceChoice.mockResolvedValue({ valid: true });
+    const action = vi.fn();
+    function Workspace() {
+      const [value, setValue] = useState("old");
+      const phase = useNativeWorkspace({ owner: "synthetic-workspace-owner", current: () => true, back: () => {},
+        content: { workspace: "referrals", page: "overview", title: "Synthetic workspace", enabled: true, backEnabled: false,
+          sections: [{ id: "public-section", rows: [{ id: "public-action", label: value, enabled: true }] }] },
+        actions: new Map([["public-action", () => action(value)]]) });
+      return <><output>{phase}</output><button onClick={() => setValue("new")}>Change content</button></>;
+    }
+    const view = render(<Workspace />);
+    const emit = (state: NativeWorkspaceProjection, sequence: number) => act(() => {
+      const { documentId, ownerEpoch, ownerGeneration, revision, workspace, updateSequence, privacyGeneration } = state;
+      drawerBridge.listeners.get("workspaceChoice")?.forEach(callback => callback({ documentId, ownerEpoch, ownerGeneration, revision, workspace, updateSequence, privacyGeneration, sequence, action: "row", rowId: "public-action" }));
+    });
+    try {
+      await waitFor(() => expect(view.getByText("native")).toBeInTheDocument());
+      const before = drawerBridge.applyWorkspace.mock.calls.at(-1)![0];
+      emit(before, 1);
+      await waitFor(() => expect(drawerBridge.confirmWorkspaceChoice).toHaveBeenCalledOnce());
+      fireEvent.click(view.getByRole("button", { name: "Change content" }));
+      await waitFor(() => expect(drawerBridge.applyWorkspace.mock.calls.at(-1)![0].updateSequence).toBeGreaterThan(before.updateSequence));
+      await act(async () => { confirm({ valid: true }); });
+      await waitFor(() => expect(drawerBridge.settleWorkspaceChoice).toHaveBeenCalledOnce());
+      expect(action).not.toHaveBeenCalled();
+      drawerBridge.confirmWorkspaceChoice.mockResolvedValue({ valid: true });
+      const after = drawerBridge.applyWorkspace.mock.calls.at(-1)![0];
+      emit(after, 2);
+      await waitFor(() => expect(action).toHaveBeenCalledExactlyOnceWith("new"));
+      emit(after, 2);
+      expect(action).toHaveBeenCalledOnce();
+    } finally { view.unmount(); seat.remove(); vi.stubGlobal("ResizeObserver", originalObserver); }
+  });
+  it("keeps workspace values out of executable/public fields and requires exact completed geometry", () => {
+    const state: NativeWorkspaceProjection = { documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1, workspace: "referrals",
+      appearance: "light", accentHex: "#007aff", foregroundHex: "#111111", updateSequence: 1, privacyGeneration: 0, isolationGeneration: 0,
+      frame: { x: 0, y: 100, width: 390, height: 500, viewportWidth: 390, viewportHeight: 844, layoutRevision: 1 },
+      page: "circle-create", title: "Create a Circle", enabled: true, backEnabled: true, sections: [],
+      circleEditor: { destinationId: "public-circle-visit", draft: { name: "Synthetic Circle", kind: "friends" }, draftRevision: 0, acknowledgedEditRevision: 0, canSave: true, busy: false, error: null } };
+    expect(validNativeWorkspace(state)).toBe(true);
+    expect(validNativeWorkspace({ ...state, vaultOwnerToken: "forbidden" } as never)).toBe(false);
+    expect(validNativeWorkspace({ ...state, circleEditor: { ...state.circleEditor!, draft: { ...state.circleEditor!.draft, credential: "forbidden" } } } as never)).toBe(false);
+    expect(validNativeWorkspace({ ...state, frame: { ...state.frame, height: 900 } })).toBe(false);
+    expect(validNativeWorkspace({ ...state, frame: { ...state.frame, contentInset: 24 } })).toBe(true);
+    expect(validNativeWorkspace({ ...state, frame: { ...state.frame, contentInset: -1 } })).toBe(false);
+    expect(validNativeWorkspace({ ...state, frame: { ...state.frame, contentInset: 200 } })).toBe(false);
+    expect(validNativeWorkspace({ ...state, sections: [{ id: "choices", rows: [{ id: "choice", label: "Unsafe", enabled: true, href: "https://example.com" }] }] } as never)).toBe(false);
+    const receipt = { ...state, layoutRevision: 1, phase: "active" as const, settled: true };
+    expect(workspaceAcknowledged(receipt, state, "active")).toBe(true);
+    expect(workspaceAcknowledged({ ...receipt, settled: false }, state, "active")).toBe(false);
+    expect(workspaceAcknowledged({ ...receipt, revision: 2 }, state, "active")).toBe(false);
+    expect(workspaceAcknowledged({ ...receipt, layoutRevision: 2 }, state, "active")).toBe(false);
+  });
+});
 
 function publicNameScene(): NativeProfileNameProjection {
   return { documentId: "public-form-document", ownerEpoch: "public-form-owner", ownerGeneration: 1,
@@ -41,8 +127,213 @@ function publicNameScene(): NativeProfileNameProjection {
 }
 
 describe("ordinary private Profile form contract", () => {
+  it("keeps custom-server credentials in their closed scene and rejects stale final input or repeated saves", async () => {
+    const state: NativeConnectorProjection = { ...publicNameScene(), scene: "connector-custom-server", destinationId: "custom-server-visit",
+      draft: { name: "Synthetic server", endpoint: "https://example.com/mcp", credential: "synthetic-private-input", oauthIssuer: "", oauthClientId: "", oauthClientSecret: "", oauthAuthMethod: "none" } };
+    expect(validNativeConnectorProjection(state)).toBe(true);
+    expect(validNativeConnectorProjection({ ...state, draft: { ...state.draft, vaultKey: "forbidden" } } as never)).toBe(false);
+    expect(validNativeConnectorProjection({ ...state, draft: { ...state.draft, oauthClientSecret: "hidden-secret" } })).toBe(false);
+    expect(validNativeConnectorProjection({ ...state, scene: "runtime-provider" } as never)).toBe(false);
+    const link: NativeConnectorProjection = { ...state, scene: "connector-profile-link", draft: { network: "instagram", link: "https://www.instagram.com/example/" } };
+    const price: NativeConnectorProjection = { ...state, scene: "connector-packet-price", draft: { price: "12.34" } };
+    expect(validNativeConnectorProjection(link)).toBe(true);
+    expect(validNativeConnectorProjection(price)).toBe(true);
+    expect(validNativeConnectorProjection({ ...link, draft: state.draft })).toBe(false);
+    expect(validNativeConnectorProjection({ ...price, draft: { ...price.draft, credential: "forbidden" } } as never)).toBe(false);
+    const pages = (ids: readonly string[]) => ids.map(id => ({ id, title: "Public page", sections: [] })) as never;
+    expect(validNativeConnectorPath(pages(["connectors", "connector-custom"]))).toBe(true);
+    expect(validNativeConnectorPath(pages(["connectors", "connector-detail", "connector-confirm"]))).toBe(true);
+    expect(validNativeConnectorPath(pages(["connectors", "account-delete"]))).toBe(false);
+    expect(validNativeConnectorPath(pages(["connectors", "connector-custom", "connector-confirm"]))).toBe(false);
+    expect(validNativeConnectorPath(pages(["connectors", "connector-detail", "connector-trust", "connector-trust-rule", "connector-trust-confirm"]))).toBe(true);
+    expect(validNativeConnectorPath(pages(["connectors", "connector-detail", "connector-packets", "connector-trust-confirm"]))).toBe(false);
+    const { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId } = state;
+    const edit = { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId, draft: state.draft,
+      updateSequence: 1, privacyGeneration: 0, editRevision: 1, composing: false };
+    const final = { ...edit, baseDraftRevision: 0, acknowledgedEditRevision: 0 };
+    expect(validNativeConnectorFinalEdit(final, state)).toBe(true);
+    expect(validNativeConnectorFinalEdit({ ...final, destinationId: "retired-visit" }, state)).toBe(false);
+    expect(validNativeConnectorFinalEdit({ ...final, composing: true }, state)).toBe(false);
+    expect(validNativeConnectorFinalEdit({ ...final, scene: "connector-packet-price", draft: price.draft }, state)).toBe(false);
+    const fence = new NativeConnectorFence(state);
+    expect(fence.update(state)).toBe(true);
+    expect(fence.consumeEdit(edit)).toBe(true);
+    const action = { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId, updateSequence: 1,
+      privacyGeneration: 0, editRevision: 1, sequence: 1, action: "save" as const };
+    expect(fence.allows(action)).toBe(false);
+    expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1 })).toBe(true);
+    expect(await fence.consumeAction({ ...action, updateSequence: 2 }, async () => ({ valid: true }), () => true)).toBe(true);
+    expect(await fence.consumeAction({ ...action, updateSequence: 2 }, async () => ({ valid: true }), () => true)).toBe(false);
+    fence.retire();
+    expect(fence.consumeEdit({ ...edit, editRevision: 2 })).toBe(false);
+  });
+  it("fences private Memory text by its destination, committed edit and single save", async () => {
+    const state: NativeMemoryProjection = { documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
+      family: "profile", scene: "memory-financial-context", destinationId: "public-memory-visit", updateSequence: 1, privacyGeneration: 0,
+      acknowledgedEditRevision: 0, draftRevision: 0, appearance: "light", accentHex: "#007aff", foregroundHex: "#111111", error: null,
+      draft: { category: "risk", text: "Synthetic multiline\n漢字 😀" }, canSave: true, busy: false };
+    expect(validNativeMemoryProjection(state)).toBe(true);
+    expect(validNativeMemoryProjection({ ...state, draft: { ...state.draft, recordId: "forbidden-authority" } } as never)).toBe(false);
+    expect(validNativeMemoryProjection({ ...state, draft: { ...state.draft, category: "unknown" } } as never)).toBe(false);
+    const { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId } = state;
+    const identity = { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId };
+    const edit = { ...identity, draft: state.draft, updateSequence: 1, privacyGeneration: 0, editRevision: 1, composing: false };
+    const final = { ...edit, baseDraftRevision: 0, acknowledgedEditRevision: 0 };
+    expect(validNativeMemoryFinalEdit(final, state)).toBe(true);
+    expect(validNativeMemoryFinalEdit({ ...final, destinationId: "reopened-visit" }, state)).toBe(false);
+    expect(validNativeMemoryFinalEdit({ ...final, composing: true }, state)).toBe(false);
+    const fence = new NativeMemoryFence(state);
+    expect(fence.update(state)).toBe(true);
+    expect(fence.consumeEdit({ ...edit, ownerEpoch: "retired-owner" })).toBe(false);
+    expect(fence.consumeEdit(edit)).toBe(true);
+    const action = { ...identity, updateSequence: 1, privacyGeneration: 0, editRevision: 1, sequence: 1, action: "save" as const };
+    expect(fence.allows(action)).toBe(false);
+    expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1 })).toBe(true);
+    expect(await fence.consumeAction({ ...action, updateSequence: 2 }, async () => ({ valid: true }), () => true)).toBe(true);
+    expect(await fence.consumeAction({ ...action, updateSequence: 2 }, async () => ({ valid: true }), () => true)).toBe(false);
+    fence.retire();
+    expect(fence.consumeEdit({ ...edit, editRevision: 2 })).toBe(false);
+  });
+  it("fences the private provider form by destination, final edit and one-shot confirmation", async () => {
+    const state: NativeRuntimeProjection = { documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
+      family: "profile", scene: "runtime-provider", destinationId: "public-runtime-visit", updateSequence: 1, privacyGeneration: 0,
+      acknowledgedEditRevision: 0, draftRevision: 0, appearance: "light", accentHex: "#007aff", foregroundHex: "#111111", primary: "validate", error: null,
+      draft: { credential: "synthetic-provider-key", transport: "developer_api", project: "", location: "global" }, canSave: true, busy: false, checking: false };
+    expect(validNativeRuntimeProjection(state)).toBe(true);
+    expect(validNativeRuntimeProjection({ ...state, draft: { ...state.draft, vaultKey: "forbidden" } } as never)).toBe(false);
+    const fence = new NativeRuntimeFence(state);
+    expect(fence.update(state)).toBe(true);
+    const { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId } = state;
+    const identity = { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId };
+    const edit = { ...identity, draft: state.draft, updateSequence: 1, privacyGeneration: 0, editRevision: 1, composing: false };
+    const finalEdit = { ...edit, baseDraftRevision: 0, acknowledgedEditRevision: 0 };
+    expect(validNativeRuntimeFinalEdit(finalEdit, state)).toBe(true);
+    expect(validNativeRuntimeFinalEdit({ ...finalEdit, destinationId: "retired-visit" }, state)).toBe(false);
+    expect(validNativeRuntimeFinalEdit({ ...finalEdit, composing: true }, state)).toBe(false);
+    expect(fence.consumeEdit({ ...edit, destinationId: "retired-runtime-visit" })).toBe(false);
+    expect(fence.consumeEdit(edit)).toBe(true);
+    const action = { ...identity, updateSequence: 1, privacyGeneration: 0, editRevision: 1, sequence: 1, action: "save" as const };
+    expect(fence.allows(action)).toBe(false);
+    expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1 })).toBe(true);
+    const final = { ...action, updateSequence: 2 };
+    expect(await fence.consumeAction(final, async () => ({ valid: true }), () => true)).toBe(true);
+    expect(await fence.consumeAction(final, async () => ({ valid: true }), () => true)).toBe(false);
+    fence.retire();
+    expect(fence.consumeEdit({ ...edit, editRevision: 2 })).toBe(false);
+  });
+  it.each<WorldModelForm>([
+    { scene: "world-model-fact-edit", draft: { text: "Public corrected statement" } },
+    { scene: "world-model-sources", draft: { urls: "https://public.example/profile", permitted: true } },
+    { scene: "world-model-invitation", draft: { name: "Public Example", email: "public@example.com", phone: "" } },
+  ])("fences the private $scene form by visit and consumes only its final acknowledged edit", async form => {
+    const state: NativeWorldModelProjection = { ...publicNameScene(), ...form, destinationId: "world-model-first-visit" };
+    expect(validNativeWorldModelProjection(state)).toBe(true);
+    expect(validNativeWorldModelProjection({ ...state, draft: { ...state.draft, vaultKey: "forbidden" } } as never)).toBe(false);
+    const fence = new NativeWorldModelFence(state);
+    expect(fence.update(state)).toBe(true);
+    const { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId } = state;
+    const identity = { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId };
+    const edit = { ...identity, ...form, updateSequence: 1, privacyGeneration: 0, editRevision: 1, composing: false };
+    expect(fence.consumeEdit({ ...edit, destinationId: "retired-visit" })).toBe(false);
+    expect(fence.consumeEdit(edit)).toBe(true);
+    const action = { ...identity, updateSequence: 1, privacyGeneration: 0, editRevision: 1, sequence: 1, action: "save" as const };
+    expect(fence.allows(action)).toBe(false);
+    expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1 })).toBe(true);
+    const final = { ...action, updateSequence: 2 };
+    expect(await fence.consumeAction(final, async () => ({ valid: true }), () => true)).toBe(true);
+    expect(await fence.consumeAction(final, async () => ({ valid: true }), () => true)).toBe(false);
+    fence.retire();
+    expect(fence.consumeEdit({ ...edit, editRevision: 2 })).toBe(false);
+  });
+  it.each(["pricing", "password"])("keeps Profile-scoped Back in its mounted %s editor while admission is unavailable", kind => {
+    const previous = privacy.state;
+    privacy.state = { ...previous, shielded: true, appIsActive: false };
+    const parent = vi.fn(() => true);
+    const remove = registerBackLayer({ pathname: profile.pathname, depth: 1, query: { profile_pane: "1" }, back: parent });
+    const props = { userId: "synthetic-owner", destinationId: "synthetic-visit", onFallback: vi.fn() };
+    const view = kind === "pricing" ? render(<NativeRequestPricingEditor {...props} model={{ saving: true } as never} onClose={vi.fn()} />) :
+      render(<NativeVaultPasswordEditor {...props} model={{ busy: true } as never} />);
+    try {
+      act(() => backProfilePane(profile.pathname, new URLSearchParams("profile_pane=1")));
+      expect(parent).not.toHaveBeenCalled();
+      view.unmount();
+      act(() => backProfilePane(profile.pathname, new URLSearchParams("profile_pane=1")));
+      expect(parent).toHaveBeenCalledOnce();
+    } finally { view.unmount(); remove(); privacy.state = previous; }
+  });
+
+  it("preserves unfinished Phone text through confirmed fallback without sending older digits", async () => {
+    bridge.platform = "ios"; publishValidatedAuthSessionOwner("phone-fallback-owner");
+    document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    drawerBridge.getCapabilities.mockResolvedValue({ generation: 0, isolated: false });
+    drawerBridge.applyProfilePhoneScene.mockImplementation(async state => {
+      if (state.acknowledgedEditRevision === 1) throw new Error("synthetic-native-failure");
+      return { ...state, phase: "active" };
+    });
+    drawerBridge.retireProfilePhoneScene.mockImplementation(async identity => ({ ...identity, phase: "retired",
+      updateSequence: drawerBridge.applyProfilePhoneScene.mock.calls.at(-1)![0].updateSequence, privacyGeneration: 0 }));
+    const start = vi.fn().mockResolvedValue({ autoVerified: false }), confirm = vi.fn();
+    function Phone() {
+      const [host, setHost] = useState<HTMLDivElement | null>(null), [native, setNative] = useState(true);
+      return <><div ref={setHost} /><NativePhoneVerificationFlow native={native} destinationId="phone-fallback-first" webHost={host}
+        ownerKey="phone-fallback-visit" isCurrent={() => true} mode="replace" currentPhoneNumber="+16505550101"
+        startVerification={start} confirmVerification={confirm} onCompleted={vi.fn()} onFallback={() => setNative(false)} /></>;
+    }
+    const view = render(<Phone />);
+    await waitFor(() => expect(drawerBridge.applyProfilePhoneScene.mock.calls.at(-1)?.[0].draft.number).toBe("6505550101"));
+    const state = drawerBridge.applyProfilePhoneScene.mock.calls.at(-1)![0];
+    const edit = { ...fenceIdentity(state), scene: "phone", destinationId: state.destinationId, updateSequence: state.updateSequence,
+      privacyGeneration: 0, editRevision: 1, composing: true, step: "phone", draft: { ...state.draft, number: "6505550101あ" } };
+    act(() => drawerBridge.listeners.get("profilePhoneEdit")?.forEach(listener => listener(edit)));
+    const input = await screen.findByRole("textbox", { name: "Phone number" });
+    expect(input).toHaveValue("6505550101あ");
+    expect(drawerBridge.retireProfilePhoneScene).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Send verification code" })).toBeDisabled();
+    fireEvent.submit(input.closest("form")!);
+    expect(start).not.toHaveBeenCalled(); expect(confirm).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "650555010199" } });
+    expect(input).toHaveValue("650555010199");
+    expect(screen.getByRole("button", { name: "Send verification code" })).toBeDisabled();
+    fireEvent.submit(input.closest("form")!);
+    expect(start).not.toHaveBeenCalled();
+    (input as HTMLInputElement).setSelectionRange(0, 12);
+    fireEvent.paste(input, { clipboardData: { getData: () => "+916505550102" } });
+    expect(input).toHaveValue("6505550102");
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() => expect(start).toHaveBeenCalledWith("+916505550102", { resendCode: false }));
+    view.unmount();
+  });
+  it("keeps Phone edits on their current stage and acknowledges a one-shot verification before dispatch", async () => {
+    const state: NativePhoneProjection = { ...publicNameScene(), destinationId: "phone-first", scene: "phone", mode: "replace", step: "phone",
+      draft: { country: "US", number: "6505550101", code: "" }, countries: [{ value: "US", label: "United States", dialCode: "+1" }], maskedDestination: "••••••0101" };
+    expect(validNativePhoneProjection(state)).toBe(true);
+    expect(validNativePhoneProjection({ ...state, draft: { ...state.draft, verificationId: "not-a-challenge" } } as never)).toBe(false);
+    expect(validNativePhoneProjection({ ...state, ownerToken: "not-a-token" } as never)).toBe(false);
+    const fence = new NativePhoneFence(state);
+    expect(fence.update(state)).toBe(true);
+    const identity = { ...fenceIdentity(state), scene: "phone" as const, destinationId: state.destinationId };
+    const edit = { ...identity, updateSequence: 1, privacyGeneration: 0, editRevision: 1, step: "phone" as const, composing: false, draft: state.draft };
+    expect(fence.consumeEdit({ ...edit, step: "code" })).toBe(false);
+    expect(fence.consumeEdit(edit)).toBe(true);
+    const send = { ...identity, updateSequence: 2, privacyGeneration: 0, editRevision: 1, sequence: 1, action: "change" as const, intent: "send" as const };
+    expect(fence.allows(send)).toBe(false);
+    expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1 })).toBe(true);
+    expect(fence.allows({ ...send, destinationId: "phone-reopened" })).toBe(false);
+    const confirm = vi.fn(async () => ({ valid: true }));
+    expect(await fence.consumeAction(send, confirm, () => true)).toBe(true);
+    expect(await fence.consumeAction(send, confirm, () => true)).toBe(false);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(fence.update({ ...state, updateSequence: 3, acknowledgedEditRevision: 1, step: "code" })).toBe(true);
+    expect(fence.consumeEdit({ ...edit, updateSequence: 2, editRevision: 2 })).toBe(false);
+    expect(fence.allows({ ...send, updateSequence: 3, sequence: 2 })).toBe(false);
+    expect(fence.allows({ ...send, intent: "resend", updateSequence: 3, sequence: 2 })).toBe(true);
+    fence.retire();
+    expect(fence.allows({ ...send, intent: "verify", updateSequence: 3, sequence: 3 })).toBe(false);
+  });
+
   it("admits only closed Writing Style values and consumes a current acknowledged Save once", async () => {
-    const state: NativeProfileStyleProjection = { ...publicNameScene(), scene: "writing-style", draft: { tone: "warm" },
+    const state: NativeProfileStyleProjection = { ...publicNameScene(), destinationId: "preferences-first", scene: "writing-style", draft: { tone: "warm" },
       choices: STYLE_CHOICE_OPTIONS, unavailable: false, suggested: false };
     expect(validNativeProfileStyleProjection(state)).toBe(true);
     expect(validNativeProfileStyleProjection({ ...state, vaultKey: "synthetic-not-a-key" } as never)).toBe(false);
@@ -50,14 +341,16 @@ describe("ordinary private Profile form contract", () => {
     expect(validNativeProfileStyleProjection({ ...state, draft: { credentials: "synthetic" } } as never)).toBe(false);
     const fence = new NativeProfileStyleFence(state);
     expect(fence.update(state)).toBe(true);
-    const event = { ...fenceIdentity(state), scene: "writing-style" as const, updateSequence: 1, privacyGeneration: 0, editRevision: 1,
+    const event = { ...fenceIdentity(state), destinationId: state.destinationId, scene: "writing-style" as const, updateSequence: 1, privacyGeneration: 0, editRevision: 1,
       field: "tone" as const, value: "direct" as const, composing: false };
     expect(fence.consumeEdit({ ...event, value: "invented" } as never)).toBe(false);
     expect(fence.consumeEdit({ ...event, ownerEpoch: "old-owner" })).toBe(false);
+    expect(fence.consumeEdit({ ...event, destinationId: "preferences-reopened" })).toBe(false);
     expect(fence.consumeEdit(event)).toBe(true);
-    const action = { ...fenceIdentity(state), scene: "writing-style" as const, updateSequence: 2, privacyGeneration: 0, editRevision: 1, sequence: 1, action: "save" as const };
+    const action = { ...fenceIdentity(state), destinationId: state.destinationId, scene: "writing-style" as const, updateSequence: 2, privacyGeneration: 0, editRevision: 1, sequence: 1, action: "save" as const };
     expect(fence.allows(action)).toBe(false);
     expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1, draft: { tone: "direct" } })).toBe(true);
+    expect(fence.allows({ ...action, destinationId: "preferences-reopened" })).toBe(false);
     const confirm = vi.fn(async () => ({ valid: true }));
     expect(await fence.consumeAction(action, confirm, () => true)).toBe(true);
     expect(await fence.consumeAction(action, confirm, () => true)).toBe(false);
@@ -148,6 +441,32 @@ describe("ordinary private Profile form contract", () => {
       await Promise.resolve();
       expect(remove).toHaveBeenCalledTimes(1);
     } finally { vi.useRealTimers(); }
+  });
+
+  it("keeps password editing private and requires the latest committed pair before a one-shot change", async () => {
+    const state: NativePasswordProjection = { ...fenceIdentity(publicNameScene()), family: "profile", scene: "vault-passphrase", destinationId: "vault-visit",
+      appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111", updateSequence: 1, privacyGeneration: 0,
+      acknowledgedEditRevision: 0, password: "", confirmation: "", busy: false, canSave: false };
+    expect(validNativePasswordProjection(state)).toBe(true);
+    expect(validNativePasswordProjection({ ...state, vaultKey: "forbidden" } as NativePasswordProjection)).toBe(false);
+    const fence = new NativePasswordFence(state);
+    expect(fence.update(state)).toBe(true);
+    const { appearance: _appearance, accentHex: _accent, foregroundHex: _foreground, password: _password, confirmation: _confirmation,
+      acknowledgedEditRevision: _ack, busy: _busy, canSave: _canSave, ...metadata } = state;
+    const edit = { ...metadata, editRevision: 1, password: "Synthetic new password", confirmation: "Synthetic new password", composing: true };
+    expect(fence.consumeEdit({ ...edit, destinationId: "retired-visit" })).toBe(false);
+    expect(fence.consumeEdit(edit)).toBe(true);
+    const action = { ...metadata, action: "save" as const, sequence: 1, editRevision: 1 };
+    expect(fence.allows(action)).toBe(false);
+    expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1, password: edit.password, confirmation: edit.confirmation, canSave: true })).toBe(true);
+    expect(fence.allows({ ...action, updateSequence: 2 })).toBe(false);
+    expect(fence.consumeEdit({ ...edit, updateSequence: 2, editRevision: 2, composing: false })).toBe(true);
+    expect(fence.update({ ...state, updateSequence: 3, acknowledgedEditRevision: 2, password: edit.password, confirmation: edit.confirmation, canSave: true })).toBe(true);
+    const committed = { ...action, updateSequence: 3, editRevision: 2 };
+    expect(await fence.consumeAction(committed, async () => ({ valid: true }), () => true)).toBe(true);
+    expect(await fence.consumeAction(committed, async () => ({ valid: true }), () => true)).toBe(false);
+    fence.retire();
+    expect(fence.consumeEdit({ ...edit, editRevision: 2 })).toBe(false);
   });
 
   it("admits only a bounded name scene, never credentials or another owner's edit", () => {
@@ -256,7 +575,12 @@ const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "document-a", ca
 const dockBridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: unknown) => void>(),
   subscribe: vi.fn(), getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn(), snapshotDraft: vi.fn() }));
 const drawerBridge = vi.hoisted(() => ({ listeners: new Map<string, Set<(event: unknown) => void>>(),
-  getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn() }));
+  applyWorkspace: vi.fn(), retireWorkspace: vi.fn(), confirmWorkspaceChoice: vi.fn(), settleWorkspaceChoice: vi.fn(), getWorkspaceState: vi.fn(),
+  getCapabilities: vi.fn(), getPresentationState: vi.fn(), apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(),
+  applyProfileNameScene: vi.fn(), confirmProfileNameAction: vi.fn(), settleProfileNameAction: vi.fn(), retireProfileNameScene: vi.fn(),
+  applyProfileStyleScene: vi.fn(), confirmProfileStyleAction: vi.fn(), settleProfileStyleAction: vi.fn(), retireProfileStyleScene: vi.fn(),
+  applyProfileSupportScene: vi.fn(), confirmProfileSupportAction: vi.fn(), settleProfileSupportAction: vi.fn(), retireProfileSupportScene: vi.fn(),
+  applyProfilePhoneScene: vi.fn(), confirmProfilePhoneAction: vi.fn(), settleProfilePhoneAction: vi.fn(), retireProfilePhoneScene: vi.fn() }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
   registerPlugin: (plugin: string) => plugin === "HushhNativeDrawers" ? { ...drawerBridge,
@@ -294,7 +618,8 @@ vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => brid
     return { remove: async () => { privacy.callbacks.delete(callback); } };
   } }));
 const voiceSurface = vi.hoisted(() => ({ current: null as null | { interactionLayer: { blocksUnderlyingActions: boolean } } }));
-vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => voiceSurface.current, getVoiceSurfaceMetadata: () => voiceSurface.current }));
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => voiceSurface.current,
+  getVoiceSurfaceMetadata: () => voiceSurface.current, usePublishVoiceSurfaceMetadata: () => undefined }));
 describe("native drawer resume admission", () => {
   it("readmits after an accepted privacy release without a native event and rejects old choices", async () => {
     const original = Object.getOwnPropertyDescriptor(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
@@ -420,6 +745,26 @@ describe("private native drawer action boundary", () => {
     expect(validNativeDrawerProjection({ ...menu, open: false, surfaceOpen: false })).toBe(true);
   });
 
+  it("admits bounded raster portraits only in authored private Profile headers", () => {
+    const row = { id: "identity", label: "Public sample", enabled: true, portrait: true,
+      portraitData: "data:image/jpeg;base64,/9j/2Q==" };
+    const portrait = { ...state(), family: "profile" as const,
+      sections: [{ id: "identity-section", rows: [row] }] };
+    expect(validNativeDrawerProjection(portrait)).toBe(true);
+    for (const change of [{ portraitData: "https://provider.example.test/photo.jpg" },
+      { portraitData: "data:image/svg+xml;base64,PHN2Zy8+" }, { portraitData: "x".repeat(100_001) },
+      { portraitData: 42 }, { portrait: false }, { options: [] }]) {
+      expect(validNativeDrawerProjection({ ...portrait,
+        sections: [{ id: "identity-section", rows: [{ ...row, ...change }] }] } as never)).toBe(false);
+    }
+    expect(validNativeDrawerProjection({ ...portrait, family: "history" })).toBe(false);
+    expect(validNativeDrawerProjection({ ...portrait, sections: [{ id: "arbitrary", rows: [row] }] })).toBe(false);
+    expect(validNativeDrawerProjection({ ...portrait, sections: [{ id: "account-portrait", rows: [{ ...row, id: "account-photo" }] }] })).toBe(true);
+    const fence = new NativeDrawerChoiceFence(portrait);
+    fence.retire();
+    expect(fence.allows({ ...choice(), family: "profile", rowId: "identity" })).toBe(false);
+  });
+
   it("admits only the active native Profile destination and fences an Account round trip", async () => {
     const root = { ...state(), family: "profile" as const, surfaceOpen: true, backEnabled: true };
     const account: NativeDrawerProjection = { ...root, profileDestinationId: "account-first", profileStack: [
@@ -429,11 +774,36 @@ describe("private native drawer action boundary", () => {
       ] }] },
     ] };
     expect(validNativeDrawerProjection(account)).toBe(true);
+    const payoutPage = (id: import("@/lib/capacitor/native-drawers").NativeProfilePage["id"]) => ({ id, title: "Synthetic payouts", sections: [] });
+    const payout = { ...account, profileStack: [payoutPage("payouts"), payoutPage("payout-activity"), payoutPage("payout-receipt-1"), payoutPage("payout-receipt-2")] };
+    expect(validNativeDrawerProjection(payout)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), family: "profile", action: "ancestor", rowId: "payouts" }, payout)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), family: "profile", action: "ancestor", rowId: "account" }, payout)).toBe(false);
+    expect(validNativeDrawerProjection({ ...payout, profileStack: [payoutPage("payouts"), payoutPage("account-delete")] })).toBe(false);
+    expect(validNativeDrawerProjection({ ...payout, profileStack: [payoutPage("payouts"), payoutPage("payout-receipt-2")] })).toBe(false);
+    expect(validNativeDrawerProjection({ ...account, profileStack: [payoutPage("account"), payoutPage("payout-receipt-1")] })).toBe(false);
+    const memory = { ...account, profileStack: ["memory", "memory-domain", "memory-section", "memory-entity", "memory-confirm"].map(id => ({ id, title: "Synthetic memory", sections: [] })) } as NativeDrawerProjection;
+    expect(validNativeDrawerProjection(memory)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), family: "profile", action: "ancestor", rowId: "memory-section" }, memory)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), family: "profile", action: "ancestor", rowId: "account" }, memory)).toBe(false);
+    expect(validNativeDrawerProjection({ ...memory, profileStack: [payoutPage("memory"), payoutPage("memory-confirm")] })).toBe(false);
+    expect(validNativeDrawerProjection({ ...memory, profileStack: [payoutPage("memory"), payoutPage("account-delete")] })).toBe(false);
+    const memorySearch = { ...memory, profileStack: [{ ...payoutPage("memory"), memorySearch: { id: "private-memory-search", query: "Synthetic" } }] };
+    expect(validNativeDrawerProjection(memorySearch)).toBe(true);
+    expect(validNativeDrawerProjection({ ...memorySearch, profileStack: [{ ...memorySearch.profileStack[0]!, memorySearch: null }] } as never)).toBe(false);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), family: "profile", rowId: "private-memory-search", text: "Category" }, memorySearch)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), family: "profile", rowId: "private-memory-search", text: "a".repeat(257) }, memorySearch)).toBe(false);
+    expect(validNativeDrawerProjection({ ...memorySearch, profileStack: [{ ...memorySearch.profileStack[0]!, id: "account" }] })).toBe(false);
     const event = { ...choice(), family: "profile" as const, rowId: "edit-name" };
     expect(nativeDrawerChoiceAllowed(event, account)).toBe(true);
     expect(nativeDrawerChoiceAllowed({ ...event, rowId: root.sections[0].rows[0].id }, account)).toBe(false);
     expect(nativeDrawerChoiceAllowed({ ...event, rowId: "mail" }, account)).toBe(false);
     expect(validNativeDrawerProjection({ ...account, profileDestinationId: undefined })).toBe(false);
+    const locked = { ...account, navigationLocked: true };
+    expect(validNativeDrawerProjection(locked)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...event, action: "close", rowId: undefined }, locked)).toBe(false);
+    expect(nativeDrawerChoiceAllowed({ ...event, action: "back", rowId: undefined }, locked)).toBe(false);
+    expect(nativeDrawerChoiceAllowed(event, locked)).toBe(true);
     expect(validNativeDrawerProjection({ ...account, profileStack: [{ ...account.profileStack![0], id: "arbitrary-route" }] } as never)).toBe(false);
     const fence = new NativeDrawerChoiceFence(root);
     fence.update(account);
@@ -450,6 +820,24 @@ describe("private native drawer action boundary", () => {
     expect(nameFence.update(name)).toBe(true);
     expect(nameFence.update({ ...name, updateSequence: 2, destinationId: "account-returned" })).toBe(false);
     expect(nameFence.allows({ ...name, sequence: 1, editRevision: 0, action: "save", destinationId: "account-returned" })).toBe(false);
+    const privacy = projectNativeLegalDocument("privacy").document;
+    const terms = projectNativeLegalDocument("terms").document;
+    const legal = (document: typeof privacy, updateSequence: number): NativeDrawerProjection => ({ ...root, updateSequence,
+      profileDestinationId: `visit-${document.type}`, profileStack: [
+        { id: "legal", title: "Legal", sections: [] },
+        { id: document.type, title: "Document", sections: [], legalDocument: document },
+      ] });
+    expect(validNativeDrawerProjection(legal(privacy, 4))).toBe(true);
+    expect(validNativeDrawerProjection({ ...legal(privacy, 4), profileStack: legal(privacy, 4).profileStack!.slice(1) })).toBe(true);
+    const privacyLink = { ...event, updateSequence: 4, sequence: 3, rowId: privacy.related.actionId };
+    expect(nativeDrawerChoiceAllowed(privacyLink, legal(privacy, 4))).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...privacyLink, rowId: "https://example.com" }, legal(privacy, 4))).toBe(false);
+    fence.update(legal(privacy, 4));
+    const linkReply = deferred<{ valid: boolean }>();
+    const oldLink = fence.consume(privacyLink, () => linkReply.promise, () => true);
+    fence.update(legal(terms, 5)); linkReply.resolve({ valid: true });
+    expect(await oldLink).toBe(false);
+    expect(nativeDrawerChoiceAllowed({ ...privacyLink, updateSequence: 5 }, legal(terms, 5))).toBe(false);
   });
 
   it("shares one opaque auth/vault boundary across families and never resets revisions on remount", () => {
@@ -542,6 +930,7 @@ describe("private native drawer action boundary", () => {
     const listeners = new Set<(event: NativeDrawerChoice) => void>();
     const isolationListeners = new Set<(event: NativeDrawerIsolation) => void>();
     const readmissionListeners = new Set<(event: NativeDrawerReadmission) => void>();
+    const completionListeners = new Set<(event: NativeDrawerPresentationState) => void>();
     let isolation = { ...nativeDrawerIsolation() };
     const remove = vi.fn(async () => undefined);
     const apply = vi.fn(async (projection: NativeDrawerProjection) => ({ ...projection, phase: "active" as const }));
@@ -549,48 +938,217 @@ describe("private native drawer action boundary", () => {
     const plugin: HushhNativeDrawersPlugin = {
       getCapabilities: async () => ({ contractVersion: 1, supported: true, wholePresentation: true, ...isolation }),
       apply, retire, confirmChoice: vi.fn(async () => ({ valid: true })),
-      addListener: async (name: "choice" | "isolationChanged" | "readmissionRequested", callback: ((event: NativeDrawerChoice) => void) | ((event: NativeDrawerIsolation) => void) | ((event: NativeDrawerReadmission) => void)) => {
+      addListener: async (name: "choice" | "isolationChanged" | "readmissionRequested" | "presentationSettled", callback: ((event: NativeDrawerChoice) => void) | ((event: NativeDrawerIsolation) => void) | ((event: NativeDrawerReadmission) => void) | ((event: NativeDrawerPresentationState) => void)) => {
         if (name === "choice") listeners.add(callback as (event: NativeDrawerChoice) => void);
         else if (name === "readmissionRequested") readmissionListeners.add(callback as (event: NativeDrawerReadmission) => void);
+        else if (name === "presentationSettled") completionListeners.add(callback as (event: NativeDrawerPresentationState) => void);
         else isolationListeners.add(callback as (event: NativeDrawerIsolation) => void);
         return { remove: async () => { listeners.delete(callback as (event: NativeDrawerChoice) => void);
           readmissionListeners.delete(callback as (event: NativeDrawerReadmission) => void);
+          completionListeners.delete(callback as (event: NativeDrawerPresentationState) => void);
           isolationListeners.delete(callback as (event: NativeDrawerIsolation) => void); await remove(); } };
       },
     };
     return { plugin, apply, retire, remove, emit: (event: NativeDrawerChoice) => listeners.forEach(callback => callback(event)),
       readmit: (event: NativeDrawerReadmission) => readmissionListeners.forEach(callback => callback(event)),
+      complete: (event: NativeDrawerPresentationState) => completionListeners.forEach(callback => callback(event)),
       isolate: (isolated: boolean, notify = true) => {
         isolation = { generation: isolation.generation + 1, isolated };
         if (notify) isolationListeners.forEach(callback => callback(isolation));
       } };
   }
 
-  it.each([false, true])("quarantines an uncertain Back unless its destination was superseded=%s", async superseded => {
+  it("transfers destination coverage only after current native completion, including completion before its apply receipt", async () => {
+    const bridge = presentationBridge();
+    const capability = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capability, presentationCompletion: true });
+    bridge.plugin.getPresentationState = vi.fn(async () => ({ ...state(), phase: "active" as const, valid: true as const, settled: false }));
+    const presented = vi.fn();
+    const projection = state();
+    const presentation = new NativeDrawerPresentation(projection, bridge.plugin, () => true, vi.fn(), presented);
+    const actions = { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn() };
+    await presentation.listen();
+    presentation.publish(projection, actions);
+    await waitFor(() => expect(bridge.plugin.getPresentationState).toHaveBeenCalledOnce());
+    expect(presented).not.toHaveBeenCalled(); // The old admission-only implementation fails here.
+    const completed = { ...projection, phase: "active" as const, settled: true };
+    bridge.complete({ ...completed, ownerEpoch: "retired-owner" });
+    bridge.complete({ ...completed, privacyGeneration: 5 });
+    expect(presented).not.toHaveBeenCalled();
+    bridge.complete(completed); bridge.complete(completed);
+    expect(presented).toHaveBeenCalledTimes(1);
+
+    const next = { ...projection, updateSequence: 2, appearance: "dark" as const };
+    const receipt = deferred<NativeDrawerProjection & { phase: "active" }>();
+    bridge.apply.mockImplementationOnce(() => receipt.promise);
+    bridge.plugin.getPresentationState = vi.fn(async () => ({ ...next, phase: "active" as const, valid: true as const, settled: true }));
+    presentation.publish(next, actions);
+    bridge.complete({ ...next, phase: "active", settled: true });
+    expect(presented).toHaveBeenCalledTimes(1);
+    receipt.resolve({ ...next, phase: "active" });
+    await waitFor(() => expect(presented).toHaveBeenCalledTimes(2));
+    bridge.complete(completed);
+    expect(presented).toHaveBeenLastCalledWith(next);
+    await presentation.retire();
+    bridge.complete({ ...next, phase: "active", settled: true });
+    expect(presented).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])("uses targeted readback after uncertain retirement, releasing fallback only for actual disappearance=%s", async gone => {
+    const bridge = presentationBridge();
+    const capability = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capability, presentationCompletion: true });
+    bridge.plugin.getPresentationState = vi.fn(async () => ({ ...state(), phase: "active" as const, valid: true as const, settled: true }));
+    const phases = vi.fn();
+    const presentation = new NativeDrawerPresentation(state(), bridge.plugin, () => true, phases);
+    await presentation.listen();
+    presentation.publish(state(), { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn() });
+    await waitFor(() => expect(bridge.plugin.getPresentationState).toHaveBeenCalledOnce());
+    bridge.retire.mockRejectedValueOnce(new Error("Synthetic lost receipt"));
+    bridge.plugin.getPresentationState = vi.fn(async () => ({ ...state(),
+      phase: gone ? "retired" as const : "active" as const, valid: true as const, settled: true }));
+    expect(await presentation.retire()).toBe(gone);
+    expect(bridge.retire).toHaveBeenCalledOnce();
+    expect(bridge.plugin.getPresentationState).toHaveBeenCalledOnce();
+    expect(phases).toHaveBeenLastCalledWith(gone ? "retired" : "quarantined");
+    expect(bridge.plugin.confirmChoice).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["account", false], ["account", true], ["support", false], ["support", true],
+  ] as const)("quarantines an uncertain %s choice unless its destination was superseded=%s", async (family, superseded) => {
     const bridge = presentationBridge();
     const capabilities = await bridge.plugin.getCapabilities();
     bridge.plugin.getCapabilities = async () => ({ ...capabilities, profileNavigationStack: true });
     const confirmation = deferred<{ valid: boolean }>();
     vi.mocked(bridge.plugin.confirmChoice).mockImplementationOnce(() => confirmation.promise);
     bridge.plugin.settleChoice = vi.fn(async () => ({ valid: false }));
-    const account: NativeDrawerProjection = { ...state(), family: "profile", surfaceOpen: true, backEnabled: true,
-      profileDestinationId: "account-first", profileStack: [{ id: "account", title: "Your account", sections: [] }] };
+    const account: NativeDrawerProjection = { ...state(), family: "profile", surfaceOpen: true, backEnabled: family === "account",
+      ...(family === "account" ? { profileDestinationId: "account-first", profileStack: [{ id: "account", title: "Your account", sections: [] }] }
+        : { profileStack: [] }) };
     const phases = vi.fn(), back = vi.fn();
     const presentation = new NativeDrawerPresentation(account, bridge.plugin, () => true, phases);
     const actions = { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn(), back };
     await presentation.listen();
     presentation.publish(account, actions);
     await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
-    bridge.emit({ ...choice(), family: "profile", action: "back", rowId: undefined });
+    bridge.emit({ ...choice(), family: "profile", action: family === "account" ? "back" : "row", rowId: family === "account" ? undefined : "row-handle" });
     await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
-    presentation.publish({ ...account, updateSequence: 2, appearance: "dark",
-      profileDestinationId: superseded ? "account-returned" : "account-first" }, actions);
+    presentation.publish({ ...account, updateSequence: 2, appearance: "dark", ...(family === "account"
+      ? { profileDestinationId: superseded ? "account-returned" : "account-first" }
+      : { ...(superseded ? { profileSupportDestinationId: "support-next" } : {}) }) }, actions);
     await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(2));
     confirmation.resolve({ valid: false });
     await waitFor(() => expect(bridge.plugin.settleChoice).toHaveBeenCalledOnce());
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(phases.mock.calls.some(([phase]) => phase === "quarantined")).toBe(!superseded);
     expect(back).not.toHaveBeenCalled();
+    await presentation.retire();
+  });
+
+  it.each(["content", "delivery", "pending-apply", "visit", "lock-cycle"] as const)("fences a committed native Back through a %s update without replaying it", async update => {
+    const bridge = presentationBridge();
+    const capabilities = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capabilities, profileNavigationStack: true, compatibleBackRefreshes: true });
+    bridge.plugin.settleChoice = vi.fn(async () => ({ valid: true }));
+    const confirmation = deferred<{ valid: boolean }>();
+    vi.mocked(bridge.plugin.confirmChoice).mockReturnValueOnce(confirmation.promise);
+    const projection: NativeDrawerProjection = { ...state(), family: "profile", surfaceOpen: true, backEnabled: true,
+      profileDestinationId: "memory-live-first", profileStack: [
+        { id: "memory", title: "Memory", sections: [] }, { id: "memory-live", title: "Live memory", sections: [] },
+      ] };
+    const oldBack = vi.fn(), currentBack = vi.fn(), phases = vi.fn();
+    const actions = { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn(), back: oldBack, root: vi.fn() };
+    const presentation = new NativeDrawerPresentation(projection, bridge.plugin, () => true, phases);
+    await presentation.listen();
+    presentation.publish(projection, actions);
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    const back = { ...choice(), family: "profile" as const, action: "back" as const, rowId: undefined };
+    const applyReceipt = deferred<NativeDrawerProjection & { phase: "active" }>();
+    if (update === "pending-apply") {
+      await act(async () => { await Promise.resolve(); });
+      bridge.apply.mockImplementationOnce(() => applyReceipt.promise);
+      bridge.emit(back);
+    } else if (update !== "delivery") {
+      bridge.emit(back);
+      await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
+    }
+    presentation.publish({ ...projection, updateSequence: 2, appearance: "dark",
+      ...(update === "visit" ? { profileDestinationId: "memory-live-reopened" } : {}),
+      ...(update === "lock-cycle" ? { navigationLocked: true } : {}) }, { ...actions, back: currentBack });
+    await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(2));
+    if (update === "pending-apply") {
+      // A new dispatch can begin after choose captures the previous drain.
+      // Neither rejection nor confirmation is valid before its apply receipt.
+      expect(bridge.plugin.settleChoice).not.toHaveBeenCalled();
+      expect(bridge.plugin.confirmChoice).not.toHaveBeenCalled();
+      applyReceipt.resolve({ ...projection, updateSequence: 2, appearance: "dark", phase: "active" });
+      await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
+    }
+    if (update === "lock-cycle") {
+      presentation.publish({ ...projection, updateSequence: 3 }, { ...actions, back: currentBack });
+      await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(3));
+    }
+    if (update === "delivery") {
+      bridge.emit(back);
+      await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
+    }
+    confirmation.resolve({ valid: true });
+    await waitFor(() => expect(bridge.plugin.settleChoice).toHaveBeenCalledOnce());
+    expect(oldBack).not.toHaveBeenCalled();
+    const expected = update === "visit" || update === "lock-cycle" ? 0 : 1;
+    expect(currentBack).toHaveBeenCalledTimes(expected);
+    bridge.emit(back);
+    await act(async () => { await Promise.resolve(); });
+    expect(currentBack).toHaveBeenCalledTimes(expected);
+    await presentation.retire();
+  });
+
+  it.each(["rejected", "accepted", "locked", "reopened", "legacy", "missing-port"] as const)("honors the Close settlement contract for %s without replay", async outcome => {
+    const bridge = presentationBridge();
+    const capability = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capability, terminalRefreshes: true, closeSettlements: outcome !== "legacy" });
+    bridge.plugin.settleChoice = vi.fn(async () => ({ valid: true }));
+    const settlement = deferred<{ valid: boolean }>();
+    if (outcome === "reopened") vi.mocked(bridge.plugin.settleChoice).mockReturnValueOnce(settlement.promise);
+    if (outcome === "missing-port") bridge.plugin.settleChoice = undefined;
+    const projection: NativeDrawerProjection = { ...state(), family: "profile", surfaceOpen: true, profileStack: [] };
+    const close = vi.fn(() => outcome === "accepted" || outcome === "reopened");
+    const actions = { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close };
+    const phases = vi.fn();
+    const presentation = new NativeDrawerPresentation(projection, bridge.plugin, () => true, phases);
+    if (outcome === "missing-port") {
+      expect(await presentation.listen()).toBe(false);
+      expect(bridge.apply).not.toHaveBeenCalled();
+      expect(phases).toHaveBeenCalledWith("retired");
+      expect(close).not.toHaveBeenCalled();
+      return;
+    }
+    await presentation.listen(); presentation.publish(projection, actions);
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    await act(async () => { await Promise.resolve(); });
+    const event = { ...choice(), family: "profile" as const, action: "close" as const, rowId: undefined };
+    bridge.emit(event);
+    if (outcome === "locked") presentation.publish({ ...projection, updateSequence: 2, navigationLocked: true }, actions);
+    if (outcome === "legacy") {
+      await waitFor(() => expect(close).toHaveBeenCalledOnce());
+      expect(bridge.plugin.settleChoice).not.toHaveBeenCalled();
+    } else {
+      await waitFor(() => expect(bridge.plugin.settleChoice).toHaveBeenCalledWith(expect.objectContaining({ sequence: event.sequence, success: outcome === "accepted" || outcome === "reopened" })));
+      if (outcome === "reopened") {
+        presentation.publish({ ...projection, updateSequence: 2, open: false }, actions);
+        await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(2));
+        presentation.publish({ ...projection, updateSequence: 3 }, actions);
+        await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(3));
+        settlement.resolve({ valid: false });
+        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      }
+      expect(close).toHaveBeenCalledTimes(outcome === "locked" ? 0 : 1);
+      bridge.emit(event);
+      await act(async () => { await Promise.resolve(); });
+      expect(bridge.plugin.settleChoice).toHaveBeenCalledOnce();
+    }
+    expect(phases).not.toHaveBeenCalledWith("quarantined");
     await presentation.retire();
   });
 
@@ -689,6 +1247,29 @@ describe("private native drawer action boundary", () => {
       expect(await consume).toBe(false); // Older wrappers and Row/Back remain strict.
       expect(operation).not.toHaveBeenCalled();
     }
+  });
+
+  it.each(["vault", "payouts"] as const)("rejects busy %s native Back instead of acknowledging a pop the route did not commit", async family => {
+    const bridge = presentationBridge();
+    const capabilities = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capabilities, profileNavigationStack: true });
+    bridge.plugin.settleChoice = vi.fn(async () => ({ valid: true }));
+    const projection: NativeDrawerProjection = { ...state(), family: "profile", backEnabled: true, surfaceOpen: true,
+      profileDestinationId: "busy-native-visit", profileStack: (family === "vault" ? ["security", "vault", "vault-remove"] : ["payouts", "payout-activity", "payout-receipt-1"]).map(id => ({
+        id: id as import("@/lib/capacitor/native-drawers").NativeProfilePage["id"], title: "Synthetic navigation", sections: [],
+      })) };
+    const phases = vi.fn(), back = vi.fn(() => false);
+    const presentation = new NativeDrawerPresentation(projection, bridge.plugin, () => true, phases);
+    await presentation.listen();
+    expect(presentation.publish(projection, { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn(), back, root: vi.fn(), ancestor: vi.fn() })).toBe(true);
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    const event = { ...choice(), family: "profile" as const, action: "back" as const, rowId: undefined };
+    bridge.emit(event);
+    await waitFor(() => expect(bridge.plugin.settleChoice).toHaveBeenCalledWith({ ...presentation.identity, sequence: 1, privacyGeneration: 0, success: false }));
+    bridge.emit(event);
+    expect(back).toHaveBeenCalledOnce();
+    bridge.plugin.retire = async () => ({ ...projection, phase: "retired" });
+    await presentation.retire();
   });
 
   it.each([true, false])("settles a committed row once with explicit success=%s and never repeats the operation", async success => {
@@ -2462,7 +3043,13 @@ describe("native chrome presentation lease", () => {
     await act(async () => discovery.resolve({ contractVersion: 2, families: ["history"], independentControls: true, focusReturn: true }));
     // Use the actual authored Close while it is still settling; do not infer
     // a control from DOM or call restoreFocus directly as the interaction.
-    fireEvent.click(view.getByRole("button", { name: "Close chat history" }));
+    const close = view.getByRole("button", { name: "Close chat history" });
+    view.rerender(<OpenerJourney />);
+    expect(view.getByRole("button", { name: "Close chat history" })).toBe(close);
+    // Close is part of the React-owned drawer, not a separately installed
+    // native button. The opener may acquire its own native lease.
+    expect(bridge.prepare.mock.calls.filter(([state]) => state.kind === "close")).toHaveLength(0);
+    fireEvent.click(close);
     if (detail > 0) {
       await waitFor(() => expect(bridge.restoreFocus).toHaveBeenCalledOnce());
       expect(view.queryByRole("button", { name: "Open chat history" })).toBeNull();
@@ -3049,6 +3636,20 @@ describe("native chrome presentation lease", () => {
     expect(document.activeElement?.closest("[data-native-chrome-slot]")).toBeNull();
     expect(bridge.update.mock.calls.at(-1)?.[0].enabled).toBe(false);
   });
+  it("keeps the established pane Back actionable when owned native panes are unsupported", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
+      coherentPresentation: true, retainedControls: true, inPlaceUpdates: true });
+    const back = vi.fn();
+    const view = render(<NativeFeaturePage pane open title="Preferences" owner="owner-a" context="legacy-pane" onBack={back}>
+      <p>Established preferences</p>
+    </NativeFeaturePage>);
+    await waitFor(() => expect(view.getByRole("button", { name: "Back in Profile" })).toBeEnabled());
+    fireEvent.click(view.getByRole("button", { name: "Back in Profile" }));
+    expect(back).toHaveBeenCalledOnce();
+    expect(bridge.acquireContentPane).not.toHaveBeenCalled();
+    expect(bridge.prepare).not.toHaveBeenCalled();
+    view.unmount();
+  });
   it("reveals a full-height Profile pane only after its plane and both header controls are acknowledged", async () => {
     measureSlot();
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
@@ -3094,24 +3695,53 @@ describe("native chrome presentation lease", () => {
     view.unmount();
     await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalled());
   });
-  it("keeps Account navigation inside one native Profile presentation without a DOM detail handoff", async () => {
+  it("keeps Account and bounded settings navigation inside one native Profile lifetime without a DOM handoff", async () => {
     vi.stubGlobal("__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { contractVersion: 1, enabled: true, coherentShell: true });
     publishValidatedAuthSessionOwner("owner-a");
     privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
     const groups = profileMenuGroups(false);
     const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
     drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
-      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileNameScene: true,
+      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileVoiceSettings: true, profileTrustedDevices: true, profileAccountActions: true, profileLegalReader: true, profileStyleScene: true, profileNameScene: true, profileSupportScene: true, profilePhoneScene: true, presentationCompletion: true,
       generation: 0, isolated: false });
+    drawerBridge.getPresentationState.mockImplementation(async () => ({ ...drawerBridge.apply.mock.calls.at(-1)![0],
+      valid: true, settled: true, phase: "active" }));
     drawerBridge.apply.mockReset().mockImplementation(async state => ({ ...state, phase: "active" }));
+    drawerBridge.confirmChoice.mockReset().mockResolvedValue({ valid: true });
     drawerBridge.retire.mockImplementation(async identity => ({ ...identity, phase: "retired",
       updateSequence: drawerBridge.apply.mock.calls.at(-1)?.[0].updateSequence ?? 0, privacyGeneration: 0 }));
-    const scene = (account: boolean) => <NativeProfilePresentation lifetime="same-owner-vault" detail={account}
+    const confirmAccount = vi.fn(), cancelAccount = vi.fn(), confirmDevice = vi.fn();
+    const scene = (account: boolean, settings?: "preferences" | "voice" | "security" | "session" | "devices" | "device-unlink", support = false, legal?: "privacy" | "terms", confirmation?: "account-reset" | "account-delete", phone = false) => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support || !!legal}
       menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
       page={{ pane: true, title: "Your account", owner: "owner-a", context: account ? "account" : "root", onBack: vi.fn() }}
-      account={{ active: account, page: { id: "account", title: "Your account", sections: [{ id: "account-info", rows: [
+      settings={{ active: !!settings, requiresVoice: settings === "voice", requiresDevices: settings === "devices" || settings === "device-unlink", pages: settings === "devices" || settings === "device-unlink" ? [
+        { id: "security", title: "Security", sections: [] },
+        { id: "devices", title: "Trusted devices", sections: [] },
+        ...(settings === "device-unlink" ? [{ id: "device-unlink" as const, title: "Test computer", sections: [{ id: "device-confirmation", rows: [
+          { id: "device-submit", label: "Unlink device", enabled: true, destructive: true },
+        ] }] }] : []),
+      ] : settings === "preferences" || settings === "voice" ? [{ id: "preferences", title: "Preferences", sections: [{ id: "appearance-choices", rows: [
+        { id: "theme-choice", label: "Appearance", enabled: true, options: [
+          { id: "pick-light", label: "Light", selected: true }, { id: "pick-dark", label: "Dark", selected: false },
+        ] },
+      ] }] }, ...(settings === "voice" ? [{ id: "voice" as const, title: "Voice", sections: [{ id: "voice-controls", rows: [
+        { id: "voice-enabled", label: "Voice control", enabled: true, toggle: true, options: [
+          { id: "voice-on", label: "On", selected: true }, { id: "voice-off", label: "Off", selected: false },
+        ] },
+      ] }] }] : [])] : [{ id: "security", title: "Security", sections: [] }, ...(settings === "session" ? [{ id: "session" as const, title: "Account access", sections: [] }] : [])],
+        rows: new Map([["pick-light", vi.fn()], ["pick-dark", vi.fn()], ["voice-on", vi.fn()], ["voice-off", vi.fn()], ["device-submit", confirmDevice]]), root: vi.fn(), ancestor: vi.fn() }}
+      support={{ active: support, editor: destination => <p data-testid="public-support-sheet">{destination}</p> }}
+      phone={{ active: phone, editor: options => options.native && options.destinationId ? <p data-testid="public-phone-sheet">{options.destinationId}</p> : null }}
+      legal={{ active: !!legal, ...projectNativeProfileLegal(legal ?? null, vi.fn(), vi.fn()), root: vi.fn() }}
+      account={{ active: account, page: { id: "account", title: "Your account", sections: [{ id: "account-portrait", rows: [
+        { id: "account-photo", label: "Public sample", detail: "sample@example.test", enabled: true, portrait: true },
+      ] }, { id: "account-info", rows: [
         { id: "edit-name", label: "Display name", enabled: true },
-      ] }] }, rows: new Map([["edit-name", vi.fn()]]), editor: () => null }}>
+        { id: "account-mail", label: "Mail", detail: "sample@example.test", enabled: true, readOnly: true },
+      ] }] }, ...(confirmation ? { confirmation: { id: confirmation, title: "Confirm account action", sections: [{ id: "account-confirmation", rows: [
+        { id: "account-confirmation-submit", label: "Confirm", enabled: true, destructive: true },
+        { id: "account-confirmation-cancel", label: "Cancel", enabled: true },
+      ] }] }, back: cancelAccount } : {}), rows: new Map([["account-photo", vi.fn()], ["edit-name", vi.fn()], ["account-confirmation-submit", confirmAccount], ["account-confirmation-cancel", cancelAccount]]), editor: () => null }}>
       <p>React account exception</p>
     </NativeProfilePresentation>;
     const view = render(scene(false));
@@ -3121,6 +3751,10 @@ describe("native chrome presentation lease", () => {
       view.rerender(scene(true));
       await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.[0]?.id).toBe("account"));
       const firstVisit = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(firstVisit.profileStack?.[0].sections[0].rows[0]).toEqual({
+        id: "account-photo", label: "Profile photo", enabled: true, artworkId: "account", chevron: true,
+      });
+      expect(firstVisit.profileStack?.[0].sections[1].rows[1].detail).toBe("sample@example.test");
       expect(firstVisit.revision).toBe(identity.revision);
       expect(view.queryByText("React account exception")).toBeNull();
       expect(bridge.acquireContentPane).not.toHaveBeenCalled();
@@ -3130,9 +3764,297 @@ describe("native chrome presentation lease", () => {
       view.rerender(scene(true));
       await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileDestinationId).not.toBe(firstVisit.profileDestinationId));
       expect(drawerBridge.apply.mock.calls.at(-1)![0].revision).toBe(identity.revision);
+      view.rerender(scene(true, undefined, false, undefined, "account-delete"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["account", "account-delete"]));
+      const confirmation = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(validNativeDrawerProjection(confirmation)).toBe(true);
+      const wrongParent = structuredClone(confirmation);
+      wrongParent.profileStack![0].id = "preferences";
+      expect(validNativeDrawerProjection(wrongParent)).toBe(false);
+      const cancelChoice = { ...confirmation, action: "row", rowId: "account-confirmation-cancel", sequence: 1, interactionGeneration: 1 };
+      act(() => drawerBridge.listeners.get("choice")?.forEach(callback => callback(cancelChoice)));
+      await waitFor(() => expect(cancelAccount).toHaveBeenCalledOnce());
+      act(() => drawerBridge.listeners.get("choice")?.forEach(callback => callback(cancelChoice)));
+      expect(cancelAccount).toHaveBeenCalledOnce();
+      view.rerender(scene(true));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["account"]));
+      act(() => drawerBridge.listeners.get("choice")?.forEach(callback => callback({ ...cancelChoice, sequence: 2, rowId: "account-confirmation-submit" })));
+      await act(async () => { await Promise.resolve(); });
+      expect(confirmAccount).not.toHaveBeenCalled();
+      view.rerender(scene(true, undefined, false, undefined, "account-reset"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.at(-1)?.id).toBe("account-reset"));
+      const reset = { ...drawerBridge.apply.mock.calls.at(-1)![0], action: "row", rowId: "account-confirmation-submit", sequence: 3, interactionGeneration: 1 };
+      act(() => drawerBridge.listeners.get("choice")?.forEach(callback => callback(reset)));
+      await waitFor(() => expect(confirmAccount).toHaveBeenCalledOnce());
+      act(() => drawerBridge.listeners.get("choice")?.forEach(callback => callback(reset)));
+      expect(confirmAccount).toHaveBeenCalledOnce();
+      expect(bridge.acquireContentPane).not.toHaveBeenCalled();
+      expect(drawerBridge.retire).not.toHaveBeenCalled();
+      view.rerender(scene(false, "preferences"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.[0]?.id).toBe("preferences"));
+      const preferences = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(preferences.profileDestinationId).not.toBe(firstVisit.profileDestinationId);
+      expect(validNativeDrawerProjection(preferences)).toBe(true);
+      const selection = { ...preferences, action: "row" as const, rowId: "pick-dark", sequence: 1, interactionGeneration: 1 };
+      expect(nativeDrawerChoiceAllowed(selection, preferences)).toBe(true);
+      expect(nativeDrawerChoiceAllowed({ ...selection, rowId: "pick-light" }, preferences)).toBe(false);
+      expect(nativeDrawerChoiceAllowed({ ...selection, action: "root", rowId: undefined }, preferences)).toBe(false);
+      const duplicateChoices = structuredClone(preferences);
+      duplicateChoices.profileStack![0].sections[0].rows[0].options![1].id = "pick-light";
+      expect(validNativeDrawerProjection(duplicateChoices)).toBe(false);
+      view.rerender(scene(false, "voice"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["preferences", "voice"]));
+      const voice = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(validNativeDrawerProjection(voice)).toBe(true);
+      expect(nativeDrawerChoiceAllowed({ ...selection, ...voice, rowId: "voice-off" }, voice)).toBe(true);
+      const unrelatedVoiceParent = structuredClone(voice);
+      unrelatedVoiceParent.profileStack![0].id = "security";
+      expect(validNativeDrawerProjection(unrelatedVoiceParent)).toBe(false);
+      const rootVoice = structuredClone(voice);
+      rootVoice.profileStack = rootVoice.profileStack!.slice(1);
+      expect(validNativeDrawerProjection(rootVoice)).toBe(true);
+      view.rerender(scene(false, "session"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["security", "session"]));
+      const nested = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(nativeDrawerChoiceAllowed({ ...selection, ...nested, action: "root", rowId: undefined }, nested)).toBe(true);
+      view.rerender(scene(false, "device-unlink"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["security", "devices", "device-unlink"]));
+      const unlink = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(validNativeDrawerProjection(unlink)).toBe(true);
+      expect(nativeDrawerChoiceAllowed({ ...selection, ...unlink, action: "ancestor", rowId: "security" }, unlink)).toBe(true);
+      expect(nativeDrawerChoiceAllowed({ ...selection, ...unlink, action: "ancestor", rowId: "account" }, unlink)).toBe(false);
+      const directDeviceEntry = structuredClone(unlink);
+      directDeviceEntry.profileStack = directDeviceEntry.profileStack!.slice(1);
+      expect(validNativeDrawerProjection(directDeviceEntry)).toBe(true);
+      expect(nativeDrawerChoiceAllowed({ ...selection, ...directDeviceEntry, action: "ancestor", rowId: "security" }, directDeviceEntry)).toBe(false);
+      const wrongDeviceParent = structuredClone(unlink);
+      wrongDeviceParent.profileStack![1].id = "session";
+      expect(validNativeDrawerProjection(wrongDeviceParent)).toBe(false);
+      view.rerender(scene(false, "devices"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["security", "devices"]));
+      expect(nativeDrawerChoiceAllowed({ ...selection, ...unlink, rowId: "device-submit" }, drawerBridge.apply.mock.calls.at(-1)![0])).toBe(false);
+      view.rerender(scene(false, "security"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["security"]));
+      view.rerender(scene(false, "preferences"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.[0]?.id).toBe("preferences"));
+      expect(drawerBridge.apply.mock.calls.at(-1)![0].profileDestinationId).not.toBe(preferences.profileDestinationId);
+      expect(drawerBridge.apply.mock.calls.at(-1)![0].revision).toBe(identity.revision);
+      expect(view.queryByText("React account exception")).toBeNull();
+      expect(bridge.acquireContentPane).not.toHaveBeenCalled();
+      expect(drawerBridge.retire).not.toHaveBeenCalled();
+      view.rerender(scene(false, undefined, true));
+      await waitFor(() => expect(view.getByTestId("public-support-sheet")).toBeInTheDocument());
+      const support = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(support.profileStack).toEqual([]); // Keep the meaningful root; never push a blank Support page.
+      expect(support.profileDestinationId).toBeUndefined();
+      expect(support.profileSupportDestinationId).toBeTruthy();
+      expect(validNativeDrawerProjection(support)).toBe(true);
+      expect(validNativeDrawerProjection({ ...support, family: "history" })).toBe(false);
+      expect(support.revision).toBe(identity.revision);
+      expect(bridge.acquireContentPane).not.toHaveBeenCalled();
+      expect(drawerBridge.retire).not.toHaveBeenCalled();
+      view.rerender(scene(false, undefined, false, "privacy"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["legal", "privacy"]));
+      const legalVisit = drawerBridge.apply.mock.calls.at(-1)![0];
+      view.rerender(scene(false, undefined, false, "terms"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["legal", "terms"]));
+      expect(drawerBridge.apply.mock.calls.at(-1)![0].profileDestinationId).not.toBe(legalVisit.profileDestinationId);
+      expect(drawerBridge.apply.mock.calls.at(-1)![0].revision).toBe(identity.revision);
+      expect(view.queryByText("React account exception")).toBeNull();
+      expect(bridge.acquireContentPane).not.toHaveBeenCalled();
+      expect(drawerBridge.retire).not.toHaveBeenCalled();
+      view.rerender(scene(true, undefined, false, undefined, undefined, true));
+      await waitFor(() => expect(view.getByTestId("public-phone-sheet")).toBeInTheDocument());
+      let finishParent!: (state: unknown) => void;
+      const parentReadmission = new Promise(resolve => { finishParent = resolve; });
+      drawerBridge.getPresentationState.mockImplementation(async () => parentReadmission);
+      act(() => {
+        privacy.state = { ...privacy.state, generation: 1 };
+        privacy.observations.forEach(listener => listener());
+      });
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].privacyGeneration).toBe(1));
+      expect(view.queryByTestId("public-phone-sheet")).toBeNull();
+      await act(async () => { finishParent({ ...drawerBridge.apply.mock.calls.at(-1)![0], valid: true, settled: true, phase: "active" }); });
+      await waitFor(() => expect(view.getByTestId("public-phone-sheet")).toBeInTheDocument());
+      drawerBridge.getPresentationState.mockImplementation(async () => ({ ...drawerBridge.apply.mock.calls.at(-1)![0], valid: true, settled: true, phase: "active" }));
+      view.unmount();
+      privacy.state = { ...privacy.state, generation: 0 };
+      await act(async () => { await Promise.resolve(); });
+      for (const target of ["account", "preferences", "support"] as const) {
+        const method = target === "account" ? "settleProfileNameAction" :
+          target === "preferences" ? "retireProfileStyleScene" : "confirmProfileSupportAction";
+        const complete = nativeDrawers()[method];
+        Reflect.deleteProperty(nativeDrawers(), method);
+        drawerBridge.apply.mockClear();
+        const partial = render(scene(target === "account", target === "preferences" ? "preferences" : undefined, target === "support"));
+        try {
+          // A claimed scene without its full handshake keeps the coherent page.
+          // Do not enter a destination whose editor cannot settle or withdraw.
+          await waitFor(() => expect(partial.getByText("React account exception")).toBeVisible());
+          expect(drawerBridge.apply.mock.calls.some(([state]) => target === "support" ? state.profileSupportDestinationId !== undefined :
+            state.profileStack?.some(page => page.id === target))).toBe(false);
+        } finally {
+          partial.unmount();
+          Object.assign(nativeDrawers(), { [method]: complete });
+          await act(async () => { await Promise.resolve(); });
+        }
+      }
+      const capability = await drawerBridge.getCapabilities();
+      drawerBridge.getCapabilities.mockResolvedValue({ ...capability, profilePortrait: true });
+      const supportedPortrait = render(scene(true));
+      try {
+        await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.[0].sections[0].rows[0].portrait).toBe(true));
+        expect(drawerBridge.apply.mock.calls.at(-1)![0].profileStack?.[0].sections[0].rows[0].detail).toBe("sample@example.test");
+      } finally {
+        supportedPortrait.unmount(); drawerBridge.getCapabilities.mockResolvedValue(capability);
+        await act(async () => { await Promise.resolve(); });
+      }
+      drawerBridge.getCapabilities.mockResolvedValue({ ...capability, profileTrustedDevices: false });
+      drawerBridge.apply.mockClear();
+      const legacyDevices = render(scene(false, "devices"));
+      try {
+        await waitFor(() => expect(legacyDevices.getByText("React account exception")).toBeVisible());
+        expect(drawerBridge.apply.mock.calls.some(([state]) => state.profileStack?.some(page => page.id === "devices"))).toBe(false);
+      } finally {
+        legacyDevices.unmount(); drawerBridge.getCapabilities.mockResolvedValue(capability);
+        await act(async () => { await Promise.resolve(); });
+      }
+      drawerBridge.getCapabilities.mockResolvedValue({ ...capability, profileAccountActions: false });
+      drawerBridge.apply.mockClear();
+      const legacyConfirmation = render(scene(true, undefined, false, undefined, "account-delete"));
+      try {
+        await waitFor(() => expect(legacyConfirmation.getByText("React account exception")).toBeVisible());
+        expect(drawerBridge.apply.mock.calls.some(([state]) => state.profileStack?.some(page => page.id === "account-delete"))).toBe(false);
+      } finally {
+        legacyConfirmation.unmount(); drawerBridge.getCapabilities.mockResolvedValue(capability);
+        await act(async () => { await Promise.resolve(); });
+      }
+      drawerBridge.getCapabilities.mockResolvedValue({ ...capability, profileVoiceSettings: false });
+      drawerBridge.apply.mockClear();
+      const legacyVoice = render(scene(false, "voice"));
+      try {
+        await waitFor(() => expect(legacyVoice.getByText("React account exception")).toBeVisible());
+        expect(drawerBridge.apply.mock.calls.some(([state]) => state.profileStack?.some(page => page.id === "voice"))).toBe(false);
+      } finally {
+        legacyVoice.unmount(); drawerBridge.getCapabilities.mockResolvedValue(capability);
+        await act(async () => { await Promise.resolve(); });
+      }
+      drawerBridge.getCapabilities.mockResolvedValue({ ...capability, profileLegalReader: false });
+      drawerBridge.apply.mockClear();
+      const legacyLegal = render(scene(false, undefined, false, "privacy"));
+      try {
+        await waitFor(() => expect(legacyLegal.getByText("React account exception")).toBeVisible());
+        expect(drawerBridge.apply.mock.calls.some(([state]) => state.profileStack?.some(page => page.id === "legal"))).toBe(false);
+      } finally {
+        legacyLegal.unmount(); drawerBridge.getCapabilities.mockResolvedValue(capability);
+        await act(async () => { await Promise.resolve(); });
+      }
     } finally {
       view.unmount(); await act(async () => { await Promise.resolve(); }); publishValidatedAuthSessionOwner(null);
     }
+  });
+
+  it.each(["completed", "retired", "retired-before-parent", "uncertain"] as const)("admits a Profile detail modal only after its parent and %s menu disappearance", async outcome => {
+    measureSlot();
+    vi.stubGlobal("__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { contractVersion: 1, enabled: true, coherentShell: true });
+    publishValidatedAuthSessionOwner("owner-a");
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
+      profileMenuRows: true, profileContentHandoff: true, presentationCompletion: true, generation: 0, isolated: false });
+    let closed: NativeDrawerProjection | undefined;
+    let returning: NativeDrawerProjection | undefined, holdReturn = false, retirementReadback = false;
+    const returnGate = deferred<unknown>();
+    drawerBridge.apply.mockReset().mockImplementation(async state => {
+      if (state.open && holdReturn) { returning = state; return returnGate.promise; }
+      if (state.open && outcome === "retired-before-parent") throw new Error("synthetic-early-retirement");
+      if (!state.open) {
+        closed = state;
+        if (outcome !== "completed") throw new Error("synthetic-hide-uncertainty");
+      }
+      return { ...state, phase: "active" };
+    });
+    drawerBridge.getPresentationState.mockImplementation(async () => {
+      const state = drawerBridge.apply.mock.calls.at(-1)![0];
+      if (!state.open) { closed = state; retirementReadback = true; }
+      return { ...state, phase: "active", valid: true, settled: state.open };
+    });
+    drawerBridge.retire.mockImplementation(async identity => {
+      if (outcome === "uncertain") throw new Error("synthetic-retirement-uncertainty");
+      return { ...identity, phase: "retired", updateSequence: drawerBridge.apply.mock.calls.at(-1)![0].updateSequence, privacyGeneration: 0 };
+    });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
+      coherentPresentation: true, ownedContentPane: true, retainedControls: true, inPlaceUpdates: true });
+    bridge.acquireContentPane.mockImplementation(async identity => ({ ...identity, phase: "active" }));
+    bridge.releaseContentPane.mockImplementation(async identity => ({ ...identity, phase: "retired" }));
+    const activation = deferred<ChromeAcknowledgement>();
+    let back: ChromeProjection | undefined;
+    bridge.activate.mockImplementation(async state => {
+      if (state.controlId === "profile-back" && !back) { back = state; return activation.promise; }
+      return { ...state, phase: "active" };
+    });
+    const groups = profileMenuGroups(false);
+    const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
+    function PhotoModal() {
+      // The real photo sheet blocks native headers. Mounting it before parent
+      // admission reproduced the device deadlock; do not bypass this isolation.
+      useNativeNavigationBlocked(true);
+      return <button>Public photo preview</button>;
+    }
+    const scene = (detail: boolean, lifetime = "owner-a:vault-a") => <NativeProfilePresentation lifetime={lifetime} detail={detail}
+      menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
+      page={{ pane: true, title: "Your account", owner: "owner-a", context: detail ? "account-photo" : "root", onBack: vi.fn(), onClose: vi.fn() }}
+      detailOverlay={<PhotoModal />}><p>Public Account content</p></NativeProfilePresentation>;
+    const view = render(scene(true));
+    await waitFor(() => expect(back).toBeDefined());
+    expect(view.queryByText("Public photo preview")).toBeNull();
+    if (outcome === "retired-before-parent") await waitFor(() => expect(drawerBridge.retire).toHaveBeenCalledOnce());
+    await act(async () => activation.resolve({ ...back!, phase: "active" }));
+    if (outcome === "retired-before-parent") {
+      await waitFor(() => expect(view.getByText("Public photo preview")).toBeVisible());
+      expect(drawerBridge.apply.mock.calls.every(([state]) => state.open)).toBe(true);
+      view.unmount();
+      await act(async () => { await Promise.resolve(); });
+      return;
+    }
+    await waitFor(() => expect(closed).toBeDefined());
+    if (outcome !== "completed") {
+      await waitFor(() => expect(drawerBridge.retire).toHaveBeenCalledOnce());
+      if (outcome === "retired") await waitFor(() => expect(view.getByText("Public photo preview")).toBeVisible());
+      else {
+        await waitFor(() => expect(retirementReadback).toBe(true));
+        expect(view.queryByText("Public photo preview")).toBeNull();
+      }
+      view.unmount();
+      await act(async () => { await Promise.resolve(); });
+      return;
+    }
+    expect(view.queryByText("Public photo preview")).toBeNull();
+    const firstClosed = closed!;
+    const complete = (state: NativeDrawerProjection) => act(() => {
+      drawerBridge.listeners.get("presentationSettled")?.forEach(listener => listener({ ...state, phase: "active", valid: true, settled: true }));
+    });
+    complete(firstClosed);
+    await waitFor(() => expect(view.getByText("Public photo preview")).toBeVisible());
+    holdReturn = true;
+    view.rerender(scene(false));
+    expect(view.queryByText("Public photo preview")).toBeNull();
+    await waitFor(() => expect(returning).toBeDefined());
+    // Re-enter the same context while its old content is still painted and
+    // root return is pending. A fresh callback closure is not fresh admission.
+    view.rerender(scene(true));
+    complete(firstClosed);
+    expect(view.queryByText("Public photo preview")).toBeNull();
+    holdReturn = false;
+    await act(async () => returnGate.resolve({ ...returning!, phase: "active" }));
+    await waitFor(() => expect(closed?.updateSequence).toBeGreaterThan(firstClosed.updateSequence));
+    complete(firstClosed);
+    expect(view.queryByText("Public photo preview")).toBeNull();
+    complete(closed!);
+    await waitFor(() => expect(view.getByText("Public photo preview")).toBeVisible());
+    view.rerender(scene(true, "owner-a:vault-b"));
+    expect(view.queryByText("Public photo preview")).toBeNull();
+    view.unmount();
+    await act(async () => { await Promise.resolve(); });
   });
 
   it.each(["return", "new-detail", "close", "owner"] as const)("retains the outgoing Profile display without stale Back authority during %s handoff", async outcome => {
@@ -3323,19 +4245,6 @@ describe("native chrome presentation lease", () => {
     expect(bridge.prepare.mock.calls.filter(([p]) => ["profile-back", "close"].includes(p.kind))).toHaveLength(0);
   });
 
-  it("keeps History Close React through drawer settlement and reopening", async () => {
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true, inPlaceUpdates: true });
-    const close = vi.fn();
-    const view = render(<NativeHistoryClose owner="owner-a" context="chat-a" onClose={close} />);
-    const button = view.getByRole("button", { name: "Close chat history" });
-    await act(async () => { await Promise.resolve(); });
-    view.rerender(<NativeHistoryClose owner="owner-a" context="chat-b" stationary onClose={close} />);
-    expect(view.getByRole("button", { name: "Close chat history" })).toBe(button);
-    fireEvent.click(button);
-    expect(close).toHaveBeenCalledOnce();
-    expect(bridge.prepare).not.toHaveBeenCalled();
-    expect(bridge.activate).not.toHaveBeenCalled();
-  });
   it("commits DOM isolation before activation and waits for retirement during session checks", async () => {
     measureSlot();
     const onBack = vi.fn();

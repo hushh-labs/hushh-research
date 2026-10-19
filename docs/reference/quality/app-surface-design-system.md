@@ -507,7 +507,7 @@ Rules:
    `/one/kai?tab=analysis`; route inventories normalize those URLs to
    the shared pathname without discarding their tab state.
 6. Use canonical route constants through `lib/navigation/app-bottom-nav.ts` and `lib/navigation/*-route-tabs.ts`; route files must not build their own shell navigation arrays.
-7. The Agent Bar and five-segment bottom navigation share the measured bottom-chrome stack with a 6px resting join. The five navigation segments use the shared frame and remain centered with equal widths on both wide and narrow screens. Do not add component- or route-local offsets.
+7. The Agent Bar and bottom navigation share the measured bottom-chrome stack with a 6px resting join. Navigation segments use the shared frame and remain centered with equal widths. Messages uses a consistent 30% list / 70% conversation split from 768px upward, using `--app-messages-sidebar-width` for both People and Circles. Narrow split panes put the list title and its actions on separate rows with aligned pane headers. Short landscape phone viewports below 1024px wide and 500px high retain one pane at a time. The entire shared column sits inside the conversation pane in split mode; its list fills the viewport height while the conversation reserves the measured dock. Single-pane mode retains the viewport-centered dock. Do not offset individual bars or create route-local fixed chrome.
 8. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
 9. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 10. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.
@@ -668,6 +668,12 @@ skill at `references/foundation-design-system.md`.
 ## Overlay Backdrop Contract
 
 Every floating surface that takes modal focus shares one backdrop language so opening a surface gives the same dimming and blur thump.
+
+App-owned `NativeFeaturePage` content uses the shared feature-page layer below
+sheets and dialogs, even though it reuses Dialog for focus and Back ownership.
+Its page/scrim consume `--z-feature-page`/`--z-feature-page-overlay`; nested
+primitives keep their normal tokens. Do not lift all sheets or create local
+z-index overrides to correct an incorrectly layered parent page.
 
 Rules:
 

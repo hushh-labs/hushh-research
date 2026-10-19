@@ -99,12 +99,14 @@ export async function recordSelectedAiProvider(
   vault: AiSelectionVault,
   provider: "openai" | "gemini" | "azure_openai",
   model: string | null = null,
+  isCurrent: () => boolean = () => true,
 ): Promise<void> {
   const access = {
     userId: vault.userId,
     vaultKey: vault.vaultKey,
     vaultOwnerToken: vault.vaultOwnerToken,
   };
+  if (!isCurrent()) throw new Error("OWNER_CHANGED");
   assertStored(
     await PersonalKnowledgeModelService.storeRuntimeSecret({
       ...access,
@@ -117,6 +119,7 @@ export async function recordSelectedAiProvider(
       },
     }),
   );
+  if (!isCurrent()) throw new Error("OWNER_CHANGED");
   assertStored(
     model
       ? await PersonalKnowledgeModelService.storeRuntimeSecret({
