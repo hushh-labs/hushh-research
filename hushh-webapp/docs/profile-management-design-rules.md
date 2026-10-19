@@ -23,7 +23,11 @@ Profile is a management surface, not a dashboard.
 
 ## Current Application
 
-- `Profile` uses a single mobile-first grouped index with drill-in panels for `My Data`, `Access & sharing`, `Preferences`, `Security`, and support flows.
+- `Profile` uses one grouped index with nested management panels. Memory
+  includes sharing; Account, Payouts, Request pricing, Personal World Model,
+  Preferences, Security, Trusted devices, Connectors, support and Legal keep
+  their authored entry/Back contracts. The exhaustive current inventory is
+  [Profile UI Contract](./ui-contracts/profile.md).
 - PKM and consent panels use management cards and rows, not summary KPI strips.
 
 ## Account presentation guardrail
@@ -39,6 +43,9 @@ helper text and compact controls use `managedContent` from the same owner.
   number do. Do not place a large independent action button inside that row.
 - Keep the existing 13px row title, 12px description/action and 10px section
   label scale. Add no feature-specific typography or card geometry.
+- Use the [typography usage contract](./ui-contracts/typography.md) for home
+  versus detail rows, shared navigation and Feed context; source tokens and
+  semantic components remain authoritative.
 - Give amounts and fees enough context: test earnings remain labelled
   `Test payment`; a Stripe transfer must not be called a bank deposit.
 - Bank details remain masked. Changes open Stripe; users replace their payout
