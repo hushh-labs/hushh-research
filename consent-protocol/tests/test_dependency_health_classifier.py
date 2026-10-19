@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from httpx import ReadTimeout
 
 from hushh_mcp.runtime_providers.dependency_health import (
     APPLICATION_BROKEN,
@@ -115,6 +116,23 @@ def test_provider_status_names_are_outages_even_without_a_code(status_name: str)
 )
 def test_timeouts_and_connection_failures_are_provider_outages(error: BaseException) -> None:
     assert classify_provider_error(error) == PROVIDER_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    ("cause", "expected"),
+    [
+        (ValueError("invalid structured response"), CANDIDATE_MISCONFIGURED),
+        (AttributeError("invalid application state"), APPLICATION_BROKEN),
+        (_ProviderError("bad request", 400), CANDIDATE_MISCONFIGURED),
+        (_ProviderError("upstream deadline", 504), PROVIDER_UNAVAILABLE),
+        (ReadTimeout("transport deadline"), PROVIDER_UNAVAILABLE),
+        (asyncio.CancelledError(), PROVIDER_UNAVAILABLE),
+    ],
+)
+def test_sanitized_timeout_wrapper_preserves_the_actual_failure(cause, expected) -> None:
+    wrapped = TimeoutError("Location transcription is temporarily unavailable.")
+    wrapped.__cause__ = cause
+    assert classify_provider_error(wrapped) == expected
 
 
 @pytest.mark.parametrize("status_code", [400, 401, 404])

@@ -2228,9 +2228,16 @@ final class NativeSupportTests: XCTestCase {
         var fence = HushhNativeNavigationScrollState()
         for (sequence, progress) in [(1, 0.5), (2, 1.0), (3, 0.25)] {
             let offset = try XCTUnwrap(fence.apply(generation: 0, sequence: sequence, progress: progress, travel: 55))
-            container.setBottomChromeScrollOffset(offset)
-            XCTAssertEqual(navigation.transform.ty, offset, accuracy: 0.001)
-            XCTAssertEqual(dock.transform.ty, offset, accuracy: 0.001, "Both native surfaces share one presentation transaction")
+            let navigationOffset = offset + CGFloat(progress) * 34
+            container.setBottomChromeScrollOffset(offset, navigationOffset: navigationOffset)
+            XCTAssertEqual(navigation.transform.ty, navigationOffset, accuracy: 0.001)
+            XCTAssertEqual(dock.transform.ty, offset, accuracy: 0.001, "The dock retains home-indicator clearance")
+            if progress == 1 {
+                XCTAssertGreaterThanOrEqual(navigation.frame.minY, web.bounds.maxY,
+                    "A fully scrolled tab bar must leave the viewport, including its safe area")
+                XCTAssertLessThanOrEqual(dock.frame.maxY, web.bounds.maxY - 34,
+                    "Hiding navigation must not move the dock into the home-indicator area")
+            }
             XCTAssertTrue(header.transform.isIdentity, "Bottom movement cannot move shell header controls")
             XCTAssertEqual(container.restingBottomChromeFrame("bottom-navigation"), navigationFrame)
             XCTAssertEqual(container.restingBottomChromeFrame("agent-dock"), dockFrame,
