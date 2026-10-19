@@ -100,8 +100,9 @@ export class DirectCallSession {
     } finally { this.starting = false; }
   }
 
-  async answer(): Promise<void> {
+  async answer(expectedCallId?: string): Promise<void> {
     const call = this.call;
+    if (expectedCallId && call?.id !== expectedCallId) return;
     const identity = this.service.identity;
     if (this.answering || !call || call.isCaller || call.state !== "ringing" || !identity) return;
     this.answering = true;
@@ -216,8 +217,9 @@ export class DirectCallSession {
     this.after = signal.sequence;
   }
 
-  async end(decline = false): Promise<void> {
+  async end(decline = false, expectedCallId?: string): Promise<void> {
     const call = this.call;
+    if (expectedCallId && call?.id !== expectedCallId) return;
     this.generation += 1;
     const generation = this.generation;
     this.media.stop();
@@ -252,7 +254,10 @@ export class DirectCallSession {
     if (expected === this.generation) this.emit(error instanceof Error ? error.message : "The call could not connect.");
   }
 
-  mute(): void { this.muted = !this.muted; this.media.mute(this.muted); this.emit(); }
+  mute(expectedCallId?: string): void {
+    if (expectedCallId && this.call?.id !== expectedCallId) return;
+    this.muted = !this.muted; this.media.mute(this.muted); this.emit();
+  }
   dispose(): void {
     this.disposed = true;
     if (this.timer) clearTimeout(this.timer);

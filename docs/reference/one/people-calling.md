@@ -102,6 +102,10 @@ First/new-key calls require foreground security-code comparison; a push never
 grants trust. Native WebRTC permits relay candidates only, waits for the actual
 DTLS peer connection, and keeps audio disabled until peer verification and
 CallKit audio activation. Native calls and One Voice share microphone ownership.
+Native UI intents and comparison results bind the exact call identifier; delayed
+actions cannot affect a replacement call. App and system mute actions share the
+CallKit transaction and its UUID-fenced callback. First-conversation changes
+refresh Messages through its existing owner-scoped domain event.
 Navigation/backgrounding preserves native calls; terminal state, owner changes,
 revocation, negotiation timeout and prolonged disconnect stop local media.
 Cold recovery ends an orphaned call only when this installation was its selected

@@ -14,7 +14,7 @@ final class CallingSystem: NSObject, CXProviderDelegate, PKPushRegistryDelegate 
     var token: ((String?) -> Void)?
     var answer: ((UUID, CXAnswerCallAction) -> Void)?
     var end: ((UUID) -> Void)?
-    var mute: ((Bool) -> Void)?
+    var mute: ((UUID, Bool) -> Void)?
     var activate: ((AVAudioSession) -> Void)?
     var deactivate: ((AVAudioSession) -> Void)?
     var prepareAudio: ((UUID) throws -> Void)?
@@ -45,6 +45,9 @@ final class CallingSystem: NSObject, CXProviderDelegate, PKPushRegistryDelegate 
     }
     func requestAnswer(_ id: UUID) async throws {
         try await controller.request(CXTransaction(action: CXAnswerCallAction(call: id)))
+    }
+    func requestMute(_ id: UUID, muted: Bool) async throws {
+        try await controller.request(CXTransaction(action: CXSetMutedCallAction(call: id, muted: muted)))
     }
     func prepareAnswer(_ id: UUID) throws {
         try prepareAudio?(id)
@@ -87,7 +90,7 @@ final class CallingSystem: NSObject, CXProviderDelegate, PKPushRegistryDelegate 
         answer?(action.callUUID, action)
     }
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) { end?(action.callUUID); action.fulfill() }
-    func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) { mute?(action.isMuted); action.fulfill() }
+    func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) { mute?(action.callUUID, action.isMuted); action.fulfill() }
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) { activate?(audioSession) }
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) { deactivate?(audioSession) }
     func pushRegistry(_ registry: PKPushRegistry, didUpdate pushCredentials: PKPushCredentials, for type: PKPushType) {

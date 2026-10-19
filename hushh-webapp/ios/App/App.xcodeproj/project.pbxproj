@@ -195,18 +195,18 @@
         C4A7B9010000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatPreviewKeys.swift; path = App/Plugins/ChatPreviewKeys.swift; sourceTree = SOURCE_ROOT; };
         C4A7B9010000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
         C4A7B9010000000000000006 = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = ChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		C41110000000000000000000 /* CallingWire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallingWire.swift; sourceTree = "<group>"; };
-		C41110000000000000000001 /* CallingIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallingIdentity.swift; sourceTree = "<group>"; };
-		C41110000000000000000002 /* CallingAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallingAPI.swift; sourceTree = "<group>"; };
-		C41110000000000000000003 /* NativeAudioOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAudioOwnership.swift; sourceTree = "<group>"; };
-		C41110000000000000000004 /* CallingMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallingMedia.swift; sourceTree = "<group>"; };
-		C41110000000000000000005 /* CallingSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallingSystem.swift; sourceTree = "<group>"; };
-		C41110000000000000000006 /* CallingCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallingCoordinator.swift; sourceTree = "<group>"; };
-		C41110000000000000000007 /* CallingSignaling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallingSignaling.swift; sourceTree = "<group>"; };
-		C41110000000000000000008 /* HushhCallingPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HushhCallingPlugin.swift; sourceTree = "<group>"; };
-		C41110000000000000000009 /* CallingOwnerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallingOwnerSession.swift; sourceTree = "<group>"; };
+		C41110000000000000000000 /* CallingWire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingWire.swift; path = Plugins/CallingWire.swift; sourceTree = "<group>"; };
+		C41110000000000000000001 /* CallingIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingIdentity.swift; path = Plugins/CallingIdentity.swift; sourceTree = "<group>"; };
+		C41110000000000000000002 /* CallingAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingAPI.swift; path = Plugins/CallingAPI.swift; sourceTree = "<group>"; };
+		C41110000000000000000003 /* NativeAudioOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeAudioOwnership.swift; path = Plugins/NativeAudioOwnership.swift; sourceTree = "<group>"; };
+		C41110000000000000000004 /* CallingMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingMedia.swift; path = Plugins/CallingMedia.swift; sourceTree = "<group>"; };
+		C41110000000000000000005 /* CallingSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingSystem.swift; path = Plugins/CallingSystem.swift; sourceTree = "<group>"; };
+		C41110000000000000000006 /* CallingCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingCoordinator.swift; path = Plugins/CallingCoordinator.swift; sourceTree = "<group>"; };
+		C41110000000000000000007 /* CallingSignaling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingSignaling.swift; path = Plugins/CallingSignaling.swift; sourceTree = "<group>"; };
+		C41110000000000000000008 /* HushhCallingPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HushhCallingPlugin.swift; path = Plugins/HushhCallingPlugin.swift; sourceTree = "<group>"; };
+		C41110000000000000000009 /* CallingOwnerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingOwnerSession.swift; path = Plugins/CallingOwnerSession.swift; sourceTree = "<group>"; };
 		C4111000000000000000000A /* CallingContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallingContractTests.swift; sourceTree = "<group>"; };
-		C4111000000000000000000B /* CallingLogout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallingLogout.swift; sourceTree = "<group>"; };
+		C4111000000000000000000B /* CallingLogout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingLogout.swift; path = Plugins/CallingLogout.swift; sourceTree = "<group>"; };
 		C41140000000000000000001 /* WebRTC-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "WebRTC-LICENSE.txt"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 

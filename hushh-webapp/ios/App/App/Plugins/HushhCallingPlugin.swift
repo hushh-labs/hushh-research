@@ -45,16 +45,28 @@ public final class HushhCallingPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func start(_ call: CAPPluginCall) {
         perform(call) { engine in try await engine.start(conversation: call.getString("conversationId"), person: call.getString("personRef")) }
     }
-    @objc func answer(_ call: CAPPluginCall) {
+    private func performCall(_ call: CAPPluginCall, action: @escaping @MainActor (CallingCoordinator) async throws -> Void) {
+        guard let id = call.getString("callId"), UUID(uuidString: id) != nil else { call.reject("Missing call."); return }
         perform(call) { engine in
+            guard engine.call?["id"] as? String == id else { throw CallingError.cancelled }
+            try await action(engine)
+        }
+    }
+    @objc func answer(_ call: CAPPluginCall) {
+        performCall(call) { engine in
             guard let id = engine.call?["id"] as? String, let uuid = UUID(uuidString: id) else { throw CallingError.invalid }
             try await engine.system.requestAnswer(uuid)
         }
     }
-    @objc func end(_ call: CAPPluginCall) { perform(call) { $0.end(userInitiated: true, decline: call.getBool("decline") ?? false) } }
-    @objc func mute(_ call: CAPPluginCall) { perform(call) { $0.setMuted(!$0.muted) } }
+    @objc func end(_ call: CAPPluginCall) { performCall(call) { $0.end(userInitiated: true, decline: call.getBool("decline") ?? false) } }
+    @objc func mute(_ call: CAPPluginCall) {
+        performCall(call) { engine in
+            guard let id = engine.call?["id"] as? String, let uuid = UUID(uuidString: id) else { throw CallingError.invalid }
+            try await engine.system.requestMute(uuid, muted: !engine.muted)
+        }
+    }
     @objc func verify(_ call: CAPPluginCall) {
-        perform(call) { engine in
+        performCall(call) { engine in
             guard let fingerprint = call.getString("fingerprint"), let accepted = call.getBool("accepted") else { throw CallingError.invalid }
             try engine.confirm(fingerprint: fingerprint, accepted: accepted)
         }

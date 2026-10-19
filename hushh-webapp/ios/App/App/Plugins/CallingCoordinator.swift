@@ -37,7 +37,10 @@ final class CallingCoordinator {
         guard authListener == nil else { return }
         system.activate = { [weak self] in self?.media.audioActivated($0) }
         system.deactivate = { [weak self] in self?.media.audioDeactivated($0) }
-        system.mute = { [weak self] value in self?.setMuted(value) }
+        system.mute = { [weak self] id, value in
+            guard let self, self.call?["id"] as? String == id.uuidString.lowercased(), !self.shuttingDown else { return }
+            self.setMuted(value)
+        }
         system.end = { [weak self] id in
             guard let self else { return }
             guard self.call?["id"] as? String == id.uuidString.lowercased() else {

@@ -35,6 +35,21 @@ function fixture(incoming = false) {
 afterEach(() => { vi.useRealTimers(); });
 
 describe("call session concurrency", () => {
+  it("ignores an old rendered call's Answer, End and Mute intents", async () => {
+    vi.useFakeTimers();
+    const f = fixture(true);
+    await f.session.initialize(); await vi.advanceTimersByTimeAsync(2000);
+    f.media.stop.mockClear();
+    const reads = f.service.read.mock.calls.length;
+    await f.session.answer("old-call");
+    await f.session.end(true, "old-call");
+    f.session.mute("old-call");
+    expect(f.service.read).toHaveBeenCalledTimes(reads);
+    expect(f.service.action).not.toHaveBeenCalled();
+    expect(f.media.stop).not.toHaveBeenCalled();
+    expect(f.publish.mock.lastCall?.[0].muted).toBe(false);
+    f.session.dispose();
+  });
   it("accepts at most once when Answer is activated twice during a deferred read", async () => {
     vi.useFakeTimers();
     const f = fixture(true);

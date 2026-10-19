@@ -29,7 +29,7 @@ export function DirectCallControl(props: Props) {
   const verified = useRef(new Map<string, string>());
   const closeVerification = () => { pending.current?.(false); pending.current = null; setVerification(null); };
   useBackLayer("/one/messages", verification ? 5 : 0, () => { closeVerification(); return true; });
-  useBackLayer("/one/messages", view.call ? 4 : 0, () => { void session.current?.end(); return true; });
+  useBackLayer("/one/messages", view.call ? 4 : 0, () => { void session.current?.end(false, view.call?.id); return true; });
 
   useEffect(() => {
     let current = true;
@@ -101,7 +101,7 @@ export function DirectCallControl(props: Props) {
     <Dialog modal open={Boolean(verification || view.call || view.error)} onOpenChange={open => {
       if (open) return;
       if (verification) closeVerification();
-      else if (view.call) void session.current?.end();
+      else if (view.call) void session.current?.end(false, view.call.id);
       else setView(previous => ({ ...previous, error: null }));
     }}>
       <DialogContent aria-modal="true" onCloseAutoFocus={event => {
@@ -128,10 +128,10 @@ export function DirectCallControl(props: Props) {
           {!view.call?.isCaller && view.call?.state === "ringing" ? <Button disabled={busy} onClick={() => {
             setBusy(true);
             const started = epoch.current;
-            void session.current?.answer().catch(() => undefined).finally(() => { if (started === epoch.current) setBusy(false); });
+            void session.current?.answer(view.call?.id).catch(() => undefined).finally(() => { if (started === epoch.current) setBusy(false); });
           }}>Answer</Button> : null}
-          {view.mediaConnected ? <Button variant="muted" aria-pressed={view.muted} onClick={() => session.current?.mute()}><Mic className="h-4 w-4" />{view.muted ? "Unmute" : "Mute"}</Button> : null}
-          <Button variant="destructive" onClick={() => { void session.current?.end(true); }}><X className="h-4 w-4" />{view.call?.state === "ringing" && !view.call.isCaller ? "Decline" : "End call"}</Button>
+          {view.mediaConnected ? <Button variant="muted" aria-pressed={view.muted} onClick={() => session.current?.mute(view.call?.id)}><Mic className="h-4 w-4" />{view.muted ? "Unmute" : "Mute"}</Button> : null}
+          <Button variant="destructive" onClick={() => { void session.current?.end(true, view.call?.id); }}><X className="h-4 w-4" />{view.call?.state === "ringing" && !view.call.isCaller ? "Decline" : "End call"}</Button>
         </>}
       </DialogContent>
     </Dialog>
