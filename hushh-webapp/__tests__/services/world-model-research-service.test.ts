@@ -515,6 +515,33 @@ describe("PWM research driver never storms the server", () => {
     delete (navigator as { locks?: unknown }).locks;
   });
 
+  it("keeps explicit read-only observation on status reads even when a restart is needed", async () => {
+    const requestLock = vi.fn(async (_name: string, _options: { ifAvailable?: boolean }, callback: (lock: unknown) => Promise<unknown>) => callback({}));
+    Object.defineProperty(navigator, "locks", { configurable: true, value: { request: requestLock } });
+    api.mockImplementation(async (path: string, init: RequestInit) => {
+      record(path, init);
+      return restart;
+    });
+    const controller = new AbortController();
+    const onResult = vi.fn();
+    const run = WorldModelResearchService.observe({
+      ...session, ownerId: "read-only-owner", readOnly: true, refresh: true,
+      signal: controller.signal, onResult,
+    });
+    run.catch(() => undefined);
+    try {
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(posts()).toEqual([]);
+      expect(calls.length).toBeGreaterThan(1);
+      expect(calls.every(call => call.method === "GET" && call.path === "jobs")).toBe(true);
+      expect(onResult).toHaveBeenCalledWith(restart);
+      expect(requestLock).not.toHaveBeenCalled();
+    } finally {
+      controller.abort();
+      await run.catch(() => undefined);
+    }
+  });
+
   it("backs off after 429 on ensure, keeps reading, and never gives up", async () => {
     api.mockImplementation(async (path: string, init: RequestInit) => {
       const call = record(path, init);

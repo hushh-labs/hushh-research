@@ -166,6 +166,25 @@ afterEach(() => {
   delete (document as { hidden?: boolean }).hidden;
 });
 describe("PWM owner and request isolation", () => {
+  it.each([
+    ["read_only", true], ["preparation_only", true],
+    ["bounded_mutation", true], ["mutation_authorized", false],
+  ] as const)("keeps %s background research read-only without swallowing explicit refresh", async (policy, readOnly) => {
+    const previous = window.__HUSHH_NATIVE_TEST__;
+    window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: policy };
+    const view = render(<WorldModelProvider><Probe /></WorldModelProvider>);
+    try {
+      await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(1));
+      expect(mock.observe.mock.calls[0][0].readOnly).toBe(readOnly);
+      fireEvent.click(screen.getByText("Refresh"));
+      await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(2));
+      expect(mock.observe.mock.calls[1][0]).toMatchObject({ readOnly: false, refresh: true });
+    } finally {
+      view.unmount();
+      window.__HUSHH_NATIVE_TEST__ = previous;
+    }
+  });
+
   it("preserves no-op state updates so repeated query synchronization cannot render-loop", () => {
     const owner = { live: true };
     let renders = 0;

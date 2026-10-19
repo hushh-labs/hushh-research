@@ -56,9 +56,12 @@ export function subscribeNativePrivacyObservation(listener: () => void) {
   observationListeners.add(listener);
   return () => { observationListeners.delete(listener); };
 }
+function samePrivacyState(left: NativeSessionPrivacyState | undefined, right: NativeSessionPrivacyState) {
+  return left?.generation === right.generation && left.shielded === right.shielded &&
+    left.appIsActive === right.appIsActive && left.cause === right.cause;
+}
 function observePrivacy(state: NativeSessionPrivacyState) {
-  const changed = !observedPrivacy || observedPrivacy.generation !== state.generation || observedPrivacy.shielded !== state.shielded ||
-    observedPrivacy.appIsActive !== state.appIsActive || observedPrivacy.cause !== state.cause;
+  const changed = !samePrivacyState(observedPrivacy, state);
   observedPrivacy = state;
   if (changed) observationListeners.forEach(listener => listener());
 }
@@ -86,7 +89,10 @@ export async function subscribeNativeSessionPrivacy(
   return HushhSessionPrivacy.addListener("privacyStateChanged", (event) => {
     try {
       const state = checkedState(event);
-      lifecycleEpoch += 1;
+      // Each feature owns a Capacitor listener, but duplicate delivery of the
+      // same lifecycle state is not a new boundary. Otherwise it can invalidate
+      // the only in-flight release receipt and leave consumers covered forever.
+      if (!samePrivacyState(observedPrivacy, state)) lifecycleEpoch += 1;
       observePrivacy(state);
       listener(state);
     } catch { /* getState catch-up owns recovery */ }
@@ -102,7 +108,10 @@ export async function getNativeSessionPrivacyState(): Promise<NativeSessionPriva
   if (!Capacitor.isNativePlatform()) return WEB_STATE;
   const epoch = lifecycleEpoch;
   const state = checkedState(await HushhSessionPrivacy.getState({ documentId: privacyDocumentId() }));
-  if (epoch === lifecycleEpoch) observePrivacy(state);
+  // Fence the returned value too: a consumer must not admit an old active
+  // state after a newer inactive event merely because observation was fenced.
+  if (epoch !== lifecycleEpoch && observedPrivacy) return observedPrivacy;
+  observePrivacy(state);
   return state;
 }
 

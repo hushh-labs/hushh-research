@@ -1140,7 +1140,7 @@ final class AppUITests: XCTestCase {
         }
         guard verifyTouchAndReturn() else { XCTFail("NATIVE_RESUME_BASELINE_TOUCH_FAILED"); return }
         let controlCenterOnly = ProcessInfo.processInfo.environment["HUSHH_CONTROL_CENTER_ONLY"] == "true"
-        for cycle in 0..<(controlCenterOnly ? 0 : 2) {
+        for cycle in 0..<(controlCenterOnly ? 0 : 10) {
             opener.tap()
             guard waitForAdmittedControl(profileClose) else { XCTFail("NATIVE_RESUME_DRAWER_NOT_OPEN"); return }
             XCUIDevice.shared.press(.home)

@@ -16,6 +16,27 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Resume release ordering repair — 2026-10-18
+
+The shared bridge previously counted duplicate lifecycle deliveries as new
+boundaries, which could discard the sole confirmed release observation. A stale
+read also returned obsolete active state despite fencing its cached observation.
+The nearest regressions fail on both old paths. Identical deliveries now preserve
+the epoch; superseded readers receive the current observation. iOS broadcasts
+confirmed release to all privacy consumers, retaining the same native notification
+and exact-document/generation/active-app/retirement checks. No action is replayed
+or interaction force-enabled. Release UAT app `487d02f1ad` (1.4.1/69) passes six
+physical native privacy host contracts, ten warm background/resume cycles and
+an actual Control Center interruption, recovering Profile/Chat touch without
+losing the draft or session. The stress runner is `ae44dd1280`; its resume case
+is unchanged from `487d02f1ad`. Its unrelated field-role experiment was removed
+before release; current tracked source at `2a58e1bb30` is byte-identical to
+`487d02f1ad`. The installed app executable digest remains
+`f0b7e6df2fadd6ebf19b5382349ebb880e6718d5c718275a424b164ea2248469`.
+These checks did not reproduce every intermittent report and are not visual,
+accessibility or frame-pacing acceptance. This bounded ordering fix does not
+close the staged-reconstruction gate below.
+
 ### Current candidate and Memory owner boundary — 2026-10-18
 
 Native Profile now reads its URL, query and sanitized visited-parent metadata
