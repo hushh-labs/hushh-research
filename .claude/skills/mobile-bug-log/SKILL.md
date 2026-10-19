@@ -5,7 +5,8 @@ argument-hint: "[optional: keyword to filter, e.g. 'keyboard' | 'backend' | 'nav
 allowed-tools: Read Grep Glob Bash(git log*) Bash(git show*) Bash(grep*) Bash(xcrun simctl*)
 ---
 
-Read `.codex/skills/mobile-parity-audit/SKILL.md` and follow it.
+<!-- Generated host adapter; edit the canonical .agents source. -->
+Read `.agents/skills/mobile-parity-audit/SKILL.md` and follow it.
 
 Historical evidence: `docs/reference/mobile/mobile-bug-log.md`.
-Release authority: `.codex/skills/repo-operations/references/admin-release-sop.md`.
+Release authority: `.agents/skills/repo-operations/references/admin-release-sop.md`.

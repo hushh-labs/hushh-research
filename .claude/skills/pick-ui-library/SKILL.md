@@ -4,4 +4,4 @@ description: Pick the right library for a given frontend task from a curated, op
 disable-model-invocation: true
 ---
 
-Read `skills/pick-ui-library/SKILL.md` and follow it.
+Read `.agents/skills/pick-ui-library/SKILL.md` and follow it.

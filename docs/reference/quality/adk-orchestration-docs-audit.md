@@ -1,6 +1,6 @@
 # Private-pod readiness: CTO decision memo
 
-## Decision — 2026-10-18 UTC
+## Decision — 2026-10-19 UTC
 
 **Continue dev qualification. Hold application promotion.** Azure owner chat,
 Files and an exact-approved update have live receipts. Puppy has a streamed
@@ -21,7 +21,7 @@ Selected external model providers retain their disclosed processing boundary.
 | Files | Dedicated ADK specialist and explorer. Personal and fresh Shared Move, stable identity, byte-exact download and Undo pass; earlier interrupted 4,195,328-byte transfer and selected analysis pass | Finish the retained synthetic deletion after the guarded correction serves; qualify fresh setup and current-image organization without disturbing owners |
 | Software updates | Personal Azure Dev 25 approved in Settings; same durable operation, recovery, installed digest, unchanged incarnation and exactly one Feed completion verified | Preserve exact tested predecessor compatibility; broader interruption and rollback acceptance stays distinct |
 | Puppy | Existing Hermes identity and grant; signed binding, sealed WSS, streamed Gemma 12B response and idle UI. Previous Stop, withdrawal, refusal and re-enable receipts retained | Keep the default and existing relay. No model sweep. Independent-network and cold-model percentiles are unclaimed; phone testing was waived |
-| Browser Use | Native ADK adapter, responsive preview, mouse/touch control, fenced takeover/handback, private checkpoints and encrypted remembered sessions tested locally | **Disabled on both clouds.** GCP native worker cannot adopt required non-root identity, so Chromium refuses startup. Azure native execution identity/Chromium/transport remain unqualified. No unsandboxed or alternative-executor fallback |
+| Browser Use | GCP ADK model port, responsive preview/control, private checkpoints and encrypted remembered-session boundaries tested locally | **Disabled on both clouds.** Production launcher, review/dispatch/current-export adapters and runtime composition are missing; Azure also needs its native model adapter. GCP Chromium identity and Azure native execution/transport remain unqualified. No fallback |
 | Background / continuity | Files queue delivery and preservation of originals previously demonstrated on both clouds; durable update and command/MCP recovery owners exist | Prove current-image connectors/recorded commands and supported continuation. General goals, Azure due-time delivery and scheduled browser work are not qualified |
 | Erasure / transitions | Earlier Shared erasure verified object/Firebase absence. The retained fixture now receives the intended safe 409 instead of 500 on deployed `28a0fa1091` | Its upload remains unverified; account/vault stay fenced and retained. No direct provider deletion, SQL override or automatic retry. Migration, external revocation and cloud cleanup still need receipts |
 | Security | Runtime/authority negative controls and the critical Capacitor patch have source evidence | Dependency alerts, including companion alerts, remain an independent clearance requirement; green CI does not close them |
@@ -63,20 +63,23 @@ GCP's native sandbox probe ran as root and refused the required UID change
 stale, but native execution and privacy remain unqualified. Both adapters stay
 closed. See [native Browser evidence](../../../consent-protocol/docs/reference/private-browser-runtime.md).
 
-### Pending candidate corrections — 2026-10-18 UTC
+### Local integration candidate — 2026-10-19 UTC
 
-Fresh main `135d3c9d2a87` is integrated in local candidate `32c9342806`.
-Pod stream leases/owner rechecks compose with main's initial and reconnect resync.
-The combined frontend preserves private headers during native streaming and replaces
-a stale authorization value on retry, without duplicate credentials. Local checks:
-229 runtime/route tests, 59 hosting/release tests, 312 focused frontend tests,
-478 Back cases and 10 release-notice tests pass; TypeScript, generated UI validation,
-docs links and docs governance pass. These are local checks, not a full core or
-hosted-CI release receipt. Remote publication is held at the user's request.
+Fresh main `f47a4832dbc` and frozen local ADK `42bb9823005` are integrated
+through `cb2a136cd3` in an isolated checkout. Peer edits and the active ADK tree
+remain intact. Provider-aware AI selection, Puppy controls and exact owner/vault
+authority were preserved across main's extracted UI models. Async AI/key/device
+operations now retain their original owner generation; Wallet reopen assertions
+were restored. No new push or environment deployment has occurred in this slice.
 
-The ADK `0eedb8a366fb` merge preview was stopped without promoting its conflicts.
-Its extracted UI models omit current Puppy, provider-aware AI and consent controls;
-those contracts must be ported before integration. The active worktree is untouched.
+Focused receipts: 350 backend passes (73 environment skips), 77 deployment checks,
+131 final authority/UI checks, 484 Back cases and 38 ADK error cases. TypeScript,
+generated UI contracts and Swift parsing pass. The `.agents` consolidation retains
+45 governed skills, 22 practices, 19 lanes and 40 workflows behind checked host
+adapters. All 209 maintained diagrams rendered before the stale UI snapshots were
+removed; changed maps were visually inspected. These are local source results,
+not installed-cloud acceptance or a full core receipt. The integrated architecture
+baseline is under review; its gate currently refuses inherited/new findings.
 
 Files recovery now persists provider-confirmed cancellation before later checks and
 retains it across failure/restart. Exact-session HTTP 410 is a separate invalidation

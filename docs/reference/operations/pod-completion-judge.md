@@ -49,7 +49,7 @@ uv run python scripts/ops/pod_completion_judge.py --fail-on-unfinished # strict 
 The judge grades two synthetic items before it grades anything real: one that must pass and one
 that must fail. If either misbehaves the run is **void** and it publishes **no verdict at all**.
 
-The canonical [judging contract](../../../.codex/skills/puppy-one-harness/references/judging-contract.md)
+The canonical [judging contract](../../../.agents/skills/puppy-one-harness/references/judging-contract.md)
 also governs this judge. Both use the same negative and positive control boundary.
 
 - A void run publishes no result, *"not a number with a caveat, because a number with a caveat

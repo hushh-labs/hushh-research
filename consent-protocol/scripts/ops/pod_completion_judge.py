@@ -443,7 +443,7 @@ class VoidRun(RuntimeError):
     """The judge's own controls failed, so it publishes no verdict at all.
 
     Borrowed verbatim in spirit from the house judging contract
-    (`.codex/skills/puppy-one-harness/references/judging-contract.md`): a void run
+    (`.agents/skills/puppy-one-harness/references/judging-contract.md`): a void run
     publishes NO result, "not a number with a caveat, because a number with a
     caveat gets quoted without the caveat". The same two controls apply here:
     a negative control that passes means the judge is not reading, and a positive

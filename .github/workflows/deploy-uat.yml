@@ -2128,7 +2128,7 @@ jobs:
           {
             for ((pass = 1; pass <= passes; pass++)); do
               printf 'Reviewer BYOK acceptance pass %s/%s\n' "$pass" "$passes"
-              node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
+              node .agents/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
               echo "passes_completed=$pass" >> "$GITHUB_OUTPUT"
             done
           } 2>&1 | tee /tmp/uat-reviewer-byok.log

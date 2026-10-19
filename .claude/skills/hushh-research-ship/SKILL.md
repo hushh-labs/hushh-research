@@ -8,4 +8,5 @@ description: The exact merge-and-deploy procedure for hushh-labs/hushh-research,
   Follow it instead of rediscovering the block.
 ---
 
-Read `.codex/skills/repo-operations/SKILL.md` and follow it.
+<!-- Generated host adapter; edit the canonical .agents source. -->
+Read `.agents/skills/repo-operations/SKILL.md` and follow it.

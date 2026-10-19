@@ -107,9 +107,19 @@ def record(check: str, ok: bool, detail: str, severity: str = "finding") -> None
     RESULTS.append({"check": check, "ok": ok, "detail": detail, "severity": severity})
 
 
+def load_operating_contract(root: Path) -> str:
+    """Load the one binding contract, refusing a missing or bypassed root pointer."""
+    entry = root / "AGENTS.md"
+    source = root / ".agents/instructions.md"
+    if not entry.is_file() or ".agents/instructions.md" not in entry.read_text(encoding="utf-8"):
+        raise ValueError("Root AGENTS.md must explicitly load .agents/instructions.md")
+    if not source.is_file():
+        raise ValueError("Canonical development operating contract is missing")
+    return source.read_text(encoding="utf-8")
+
+
 def agents_md_sections() -> list[str]:
-    src = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    return re.findall(r"^## (.+)$", src, flags=re.MULTILINE)
+    return re.findall(r"^## (.+)$", load_operating_contract(REPO_ROOT), flags=re.MULTILINE)
 
 
 def c0_enforcement_map() -> list[tuple[str, str, str]]:
@@ -120,10 +130,16 @@ def c0_enforcement_map() -> list[tuple[str, str, str]]:
     return rows
 
 
+SOURCE_INVENTORY = ".agents/skills/agent-orchestration-governance/references/platform-source-inventory.json"
+
+
 def bridge_findings(root: Path) -> list[str]:
-    """Check existing canonical twins on both hosts without authoring another registry."""
+    """Verify canonical discovery, with explicit host-template exceptions."""
     findings = []
-    for canonical in sorted((root / "skills").glob("*/SKILL.md")):
+    path = root / SOURCE_INVENTORY
+    inventory = json.loads(path.read_text()) if path.is_file() else {}
+    adapters = {entry["target"] for entry in inventory.get("host_adapters", {}).values()}
+    for canonical in sorted((root / ".agents/skills").glob("*/SKILL.md")):
         source = canonical.read_text(encoding="utf-8")
         match = re.match(r"\A---\n(.*?)\n---(?:\n|$)", source, re.S)
         if not match:
@@ -134,7 +150,7 @@ def bridge_findings(root: Path) -> list[str]:
             findings.append(f"{canonical.relative_to(root)}: canonical name differs from directory")
         for host in (".claude", ".codex"):
             bridge = root / host / "skills" / canonical.parent.name / "SKILL.md"
-            if not bridge.is_file():
+            if not bridge.is_file() or bridge.relative_to(root).as_posix() in adapters:
                 continue
             text = bridge.read_text(encoding="utf-8")
             front = re.match(r"\A---\n(.*?)\n---(?:\n|$)", text, re.S)
@@ -142,60 +158,66 @@ def bridge_findings(root: Path) -> list[str]:
                 findings.append(f"{bridge.relative_to(root)}: canonical frontmatter differs")
             body = text[front.end():].strip() if front else text
             target = canonical.relative_to(root).as_posix()
-            if target not in body:
-                findings.append(f"{bridge.relative_to(root)}: missing pointer to {target}")
             if body != f"Read `{target}` and follow it.":
-                findings.append(f"{bridge.relative_to(root)}: bridge contains a procedure")
-    for host in (".claude", ".codex"):
-        for bridge in sorted((root / host / "skills").glob("*/SKILL.md")):
-            text = bridge.read_text(encoding="utf-8")
-            for target in re.findall(r"Read `(skills/[^`]+/SKILL\.md)` and follow it\.", text):
-                if not (root / target).is_file():
-                    findings.append(f"{bridge.relative_to(root)}: dangling canonical target {target}")
+                findings.append(f"{bridge.relative_to(root)}: bridge must point only to {target}")
+    generator = root / ".agents/skills/agent-orchestration-governance/scripts/sync_host_adapters.py"
+    if generator.is_file():
+        import runpy
+        findings.extend(runpy.run_path(str(generator))["findings"](root))
+    else:
+        findings.append("Host adapter generator is missing")
     return findings
 
 
-SOURCE_INVENTORY = ".codex/skills/agent-orchestration-governance/references/platform-source-inventory.json"
-
-
 def classification_findings(root: Path) -> list[str]:
-    """Ratchet host-authored behavior without treating legacy imports as approved."""
+    """Explicit classifications prevent missing manifests or imports from becoming trusted skills."""
     manifest = root / SOURCE_INVENTORY
-    inventory = json.loads(manifest.read_text()) if manifest.exists() else {}
+    if not manifest.is_file():
+        return ["Platform source inventory is missing"]
+    inventory = json.loads(manifest.read_text())
     sources = inventory.get("sources", {})
+    practices = inventory.get("practice_sources", {})
     findings = []
-    seen = set()
     allowed = {"owner_alias", "host_adapter", "imported_dependency_pending_review",
                "legacy_adapter_pending_migration", "legacy_behavior_pending_review"}
+    for key, entry in sources.items():
+        path = root / key
+        if not path.is_file():
+            findings.append(f"{key}: stale platform classification")
+        elif entry.get("classification") not in allowed:
+            findings.append(f"{key}: invalid platform classification")
+        elif entry.get("sha256") != hashlib.sha256(path.read_bytes()).hexdigest():
+            findings.append(f"{key}: platform behavior changed; review its classification")
+    for key, entry in practices.items():
+        path = root / key
+        if not path.is_file() or path.with_name("skill.json").exists() or entry.get("classification") != "portable_practice":
+            findings.append(f"{key}: invalid portable-practice classification")
+    canonical = {p.relative_to(root).as_posix(): p for p in (root / ".agents/skills").glob("*/SKILL.md")}
+    for key, path in canonical.items():
+        if not path.with_name("skill.json").is_file() and key not in practices:
+            findings.append(f"{key}: missing governed manifest or explicit practice classification")
+    for path in (root / ".agents/adapters").glob("*/*/SKILL.md"):
+        if path.relative_to(root).as_posix() not in sources:
+            findings.append(f"{path.relative_to(root)}: unclassified host adapter source")
+    adapters = {entry["target"] for entry in inventory.get("host_adapters", {}).values()}
     for host in (".claude", ".codex"):
         for path in sorted((root / host / "skills").glob("*/SKILL.md")):
-            if (root / "skills" / path.parent.name / "SKILL.md").is_file():
-                continue
-            if host == ".codex" and path.with_name("skill.json").is_file():
-                continue
             key = path.relative_to(root).as_posix()
-            seen.add(key)
-            entry = sources.get(key)
-            if not entry:
+            if key in adapters or (root / ".agents/skills" / path.parent.name / "SKILL.md").is_file():
+                continue
+            if key not in sources:
                 findings.append(f"{key}: unclassified platform behavior")
-            elif entry.get("classification") not in allowed:
-                findings.append(f"{key}: invalid platform classification")
-            elif entry.get("sha256") != hashlib.sha256(path.read_bytes()).hexdigest():
-                findings.append(f"{key}: platform behavior changed; review its classification")
-    findings.extend(f"{key}: stale platform classification" for key in sources.keys() - seen)
+        for path in sorted((root / host / "agents").rglob("*.toml")):
+            findings.append(f"{path.relative_to(root)}: unclassified host-local engineering agent")
     expected_agents = inventory.get("imported_agents", {})
     nested = {p.relative_to(root).as_posix(): p for host in (".claude", ".codex")
               for p in (root / host / "skills").glob("**/agents/*.toml")}
-    # Canonical portable skills live directly under skills/, unlike host folders.
-    nested.update({p.relative_to(root).as_posix(): p for p in (root / "skills").glob("*/agents/*.toml")})
+    nested.update({p.relative_to(root).as_posix(): p for p in (root / ".agents/skills").glob("*/agents/*.toml")})
+    nested.update({p.relative_to(root).as_posix(): p for p in (root / ".agents/adapters").glob("**/agents/*.toml")})
     for key, path in nested.items():
         if expected_agents.get(key) != hashlib.sha256(path.read_bytes()).hexdigest():
             findings.append(f"{key}: unclassified or changed imported agent resource")
     findings.extend(f"{key}: stale imported agent classification" for key in expected_agents.keys() - nested.keys())
-    for host in (".claude", ".codex"):
-        for path in sorted((root / host / "agents").rglob("*.toml")):
-            findings.append(f"{path.relative_to(root)}: unclassified host-local engineering agent")
-
     return findings
 
 
@@ -230,9 +252,9 @@ def c7_platform_authored_inventory(root: Path | None = None) -> None:
 
 def c2_canonical_frontmatter() -> None:
     """Canonical skill frontmatter `name` must equal its directory name."""
-    root = REPO_ROOT / "skills"
+    root = REPO_ROOT / ".agents/skills"
     if not root.is_dir():
-        record("C2 canonical frontmatter matches dir", True, "No skills/ directory.")
+        record("C2 canonical frontmatter matches dir", False, "Missing canonical .agents/skills directory.")
         return
     offenders = []
     for d in sorted(p for p in root.iterdir() if p.is_dir()):
@@ -251,8 +273,8 @@ def c2_canonical_frontmatter() -> None:
 
 
 def c3_agent_mirrors_have_authored_source() -> None:
-    """Every generated mirror must trace to an authored agents/*.toml."""
-    authored = {p.stem for p in (REPO_ROOT / "agents").glob("*.toml")}
+    """Every generated mirror must trace to an authored .agents/subagents/*.toml."""
+    authored = {p.stem for p in (REPO_ROOT / ".agents/subagents").glob("*.toml")}
     mirrors = list((REPO_ROOT / ".claude" / "agents").glob("*.md"))
     offenders = [m.name for m in mirrors if m.stem not in authored]
     unmirrored = sorted(authored - {m.stem for m in mirrors})
@@ -344,35 +366,48 @@ def c6_docs_parity_in_ci() -> None:
 
 
 def self_test() -> int:
+    import shutil
     import tempfile
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        source = root / "skills/example/SKILL.md"
+        source = root / ".agents/skills/example/SKILL.md"
         source.parent.mkdir(parents=True)
         source.write_text("---\nname: example\ndescription: Example\n---\nBehavior.\n")
         bridge = root / ".codex/skills/example/SKILL.md"
         bridge.parent.mkdir(parents=True)
-        valid = "---\nname: example\ndescription: Example\n---\nRead `skills/example/SKILL.md` and follow it.\n"
+        valid = "---\nname: example\ndescription: Example\n---\n\nRead `.agents/skills/example/SKILL.md` and follow it.\n"
         bridge.write_text(valid)
+        generator_path = Path('.agents/skills/agent-orchestration-governance/scripts/sync_host_adapters.py')
+        generator = root / generator_path
+        generator.parent.mkdir(parents=True)
+        shutil.copyfile(REPO_ROOT / generator_path, generator)
+        inventory = root / SOURCE_INVENTORY
+        inventory.parent.mkdir(parents=True, exist_ok=True)
+        inventory.write_text(json.dumps({"practice_sources": {
+            source.relative_to(root).as_posix(): {"classification": "portable_practice"}
+        }}))
+        claude = root / ".claude/skills/example/SKILL.md"
+        claude.parent.mkdir(parents=True, exist_ok=True)
+        claude.write_text(valid)
         assert bridge_findings(root) == []
         bridge.write_text(valid.replace("description: Example", "description: Drift"))
         assert any("frontmatter differs" in item for item in bridge_findings(root))
-        bridge.write_text(valid.replace("skills/example/SKILL.md", "missing/SKILL.md"))
-        assert any("missing pointer" in item for item in bridge_findings(root))
+        bridge.write_text(valid.replace(".agents/skills/example/SKILL.md", "missing/SKILL.md"))
+        assert any("bridge must point only" in item for item in bridge_findings(root))
         bridge.write_text(valid + "\n```sh\necho duplicate procedure\n```\n")
-        assert any("procedure" in item for item in bridge_findings(root))
+        assert any("bridge must point only" in item for item in bridge_findings(root))
         bridge.write_text(valid)
         claude = root / ".claude/skills/example/SKILL.md"
-        claude.parent.mkdir(parents=True)
+        claude.parent.mkdir(parents=True, exist_ok=True)
         claude.write_text(valid)
         assert bridge_findings(root) == []
         bridge.write_text(valid + "Deploy now.\n")
-        assert any("procedure" in item for item in bridge_findings(root))
+        assert any("bridge must point only" in item for item in bridge_findings(root))
         bridge.write_text(valid)
         source.write_text("---\nname: wrong\ndescription: Example\n---\nBehavior.\n")
         assert any("name differs" in item for item in bridge_findings(root))
         source.unlink()
-        assert any("dangling canonical" in item for item in bridge_findings(root))
+        assert any("invalid portable-practice" in item for item in classification_findings(root))
         source.write_text("No frontmatter\n")
         assert any("missing YAML" in item for item in bridge_findings(root))
         rogue = root / ".claude/skills/rogue/SKILL.md"
@@ -422,10 +457,10 @@ def self_test() -> int:
         assert "adapter/SKILL.md" not in debt[0]["detail"]
         imported.write_text('name = "changed-resource"')
         assert any("worker.toml" in x and "changed" in x for x in classification_findings(root))
-        rogue = root / ".codex/skills/new/SKILL.md"
+        rogue = root / ".agents/skills/new/SKILL.md"
         rogue.parent.mkdir(parents=True)
         rogue.write_text("Short unclassified behavior")
-        assert any("new/SKILL.md" in x and "unclassified" in x for x in classification_findings(root))
+        assert any("new/SKILL.md" in x and "missing governed manifest" in x for x in classification_findings(root))
         local_agent = root / ".claude/agents/rogue.toml"
         local_agent.parent.mkdir(parents=True)
         local_agent.write_text('name = "second-authored-copy"')

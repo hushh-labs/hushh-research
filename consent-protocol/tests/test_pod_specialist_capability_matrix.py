@@ -202,7 +202,7 @@ def test_the_generator_refuses_to_write_a_disagreeing_matrix(monkeypatch, tmp_pa
 
 def test_the_workflow_and_contract_index_carry_the_check() -> None:
     workflow = json.loads(
-        (REPO_ROOT / ".codex/workflows/product-agent-development/workflow.json").read_text()
+        (REPO_ROOT / ".agents/workflows/product-agent-development/workflow.json").read_text()
     )
     command = (
         "cd consent-protocol && uv run python "

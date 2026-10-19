@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
-import { shouldRetryReviewerBootstrap } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { shouldRetryReviewerBootstrap } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
 
 const scripts = [
   "../../scripts/testing/verify-signed-in-routes.mjs",
@@ -98,10 +98,10 @@ describe("reviewer route bootstrap contract", () => {
     const source = readFileSync(
       resolve(
         process.cwd(),
-        "../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs",
+        "../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs",
       ),
       "utf8",
-    ) + readFileSync(resolve(process.cwd(), "../.codex/skills/reviewer-app-testing/scripts/reviewer-session-bootstrap.mjs"), "utf8");
+    ) + readFileSync(resolve(process.cwd(), "../.agents/skills/reviewer-app-testing/scripts/reviewer-session-bootstrap.mjs"), "utf8");
 
     expect(source).toContain('page.locator("#unlock-passphrase")');
     expect(source).toContain("unlockInput.fill(reviewerPassphrase)");
@@ -120,7 +120,7 @@ describe("reviewer route bootstrap contract", () => {
     const harness = readFileSync(
       resolve(
         process.cwd(),
-        "../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs",
+        "../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs",
       ),
       "utf8",
     );
@@ -129,7 +129,7 @@ describe("reviewer route bootstrap contract", () => {
       "utf8",
     );
 
-    const bootstrap = readFileSync(resolve(process.cwd(), "../.codex/skills/reviewer-app-testing/scripts/reviewer-session-bootstrap.mjs"), "utf8");
+    const bootstrap = readFileSync(resolve(process.cwd(), "../.agents/skills/reviewer-app-testing/scripts/reviewer-session-bootstrap.mjs"), "utf8");
     const admission = harness + bootstrap;
     expect(admission).not.toContain("unlock with passphrase");
     // The submit button renders "Unlock" (and "Unlocking..." while busy).

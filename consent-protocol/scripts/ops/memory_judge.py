@@ -109,7 +109,7 @@ Scoring never calls a clock. Every timestamp in the report is read back from the
 manifest that the drill stamped at issue time, so re-ingesting a run produces a
 byte-identical report.
 
-Contract: ``.codex/skills/puppy-one-harness/references/judging-contract.md``.
+Contract: ``.agents/skills/puppy-one-harness/references/judging-contract.md``.
 """
 
 from __future__ import annotations

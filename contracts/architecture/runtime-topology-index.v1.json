@@ -797,7 +797,7 @@
       "id": "circle_chat_interaction_metadata",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Authenticated Circle chat member reactions and membership event history, rendered as reaction counts and system pills for current members."
+      "primary_access_path": "Authenticated Circle chat member reactions and membership event history, rendered as reaction counts and system pills for current members. A nullable event batch UUID groups only one reviewed multi-person add; it grants no access."
     },
     {
       "data_class": "personal_encrypted",
@@ -6951,7 +6951,7 @@
     "action_gateway": "8e48d7af6c7f766b702bfe38abf1cfa2a53ed77c26a2d55d88b76c7ac9453c5b",
     "agent_registry": "0027cdbc3561f20fc5440926d9da3a97768ebef568523e4219be41342610e327",
     "cache_manifest": "e0571b6c4ad7d73af8db63d90ae574a65b107f7c62951bbadf43998d3a199617",
-    "data_plane": "74544b18084683e6e553bcf6f2775db4690e8079848a20f6b41e0e3d9868a80c",
+    "data_plane": "9cded5536ae00f3c62baaf741590ae7e579bf695d29907c7d220b430be33911e",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "422d6becce2d7c41337d9a8d4e62c38f92922082b5195198385cafabae3ba6b8",

@@ -18,7 +18,7 @@ flowchart LR
 The bar for how the private agent moves on a phone, in numbers, and the
 program that measures and defends it. It complements the motion duration
 contract (the 150ms ceiling in `hushh-webapp/app/globals.css` and
-`skills/improve-animations/AUDIT.md`): that contract says how long an
+`.agents/skills/improve-animations/AUDIT.md`): that contract says how long an
 animation may run; this one says whether the frames inside it arrive.
 
 ## The bar

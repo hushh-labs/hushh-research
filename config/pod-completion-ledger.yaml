@@ -40,8 +40,8 @@ assertions:
       # Expected target and artifact digest are filled only from a fresh verified run.
       source_paths:
         - hushh-webapp/scripts/testing/first-run-reachability.mjs
-        - .codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs
-        - .codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs
+        - .agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs
+        - .agents/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs
         - hushh-webapp/scripts/testing/reviewer-test-identity.mjs
         - hushh-webapp/components/onboarding/onboarding-journey-guard.tsx
         - hushh-webapp/app/one/setup/page.tsx
@@ -104,8 +104,8 @@ assertions:
       # Expected target and artifact digest are filled only from a fresh verified run.
       source_paths:
         - hushh-webapp/scripts/testing/first-run-reachability.mjs
-        - .codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs
-        - .codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs
+        - .agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs
+        - .agents/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs
         - hushh-webapp/scripts/testing/reviewer-test-identity.mjs
         - hushh-webapp/lib/auth/use-session-chrome-suppression.ts
         - hushh-webapp/components/onboarding/onboarding-journey-guard.tsx

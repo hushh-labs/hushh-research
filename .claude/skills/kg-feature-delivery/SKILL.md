@@ -3,6 +3,7 @@ name: kg-feature-delivery
 description: Take a knowledge-graph feature prompt (a KG .html plus a long "implement X in One" prompt) from prompt to verified-live-on-UAT in one sitting, automation only. Use whenever Ankit hands over a feature graph and says "do this like we did for Circle / Connect / SMS / Profile". Encodes what actually worked on 2026-09-18..22 — measure the checkout before building, one failing test per graph observation, the repo's own patterns, an honest status vocabulary, and a ship loop that ends at the serving revision's deploy-sha, not at a green workflow.
 ---
 
+<!-- Generated host adapter; edit the canonical .agents source. -->
 # KG feature delivery
 
 **The graph is a source map of a past commit. Measure the checkout first. Then: one failing

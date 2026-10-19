@@ -940,8 +940,14 @@ Rules:
    - visually centered composition
    - similar optical weight across sibling headers and actions
 7. Refer to:
-   - `skills/hushh-icon-theme/SKILL.md`
-   - `docs/ui-migration/iconography-and-motion-audit.md`
+   - `.agents/skills/hushh-icon-theme/SKILL.md`
+
+Agent accents never override semantic interaction, error, success or warning colors.
+Use neutral icons for peer settings rows; service branding belongs only to actual
+service rows with approved bundled assets. Keep the registry as the source of truth;
+do not copy its configuration into page-local CSS or add another icon package.
+Motion follows the existing tiered timing and reduced-motion contracts, including
+the approved sheet entrance; there is no blanket 150 ms limit.
 
 ## Market-Specific Rules
 

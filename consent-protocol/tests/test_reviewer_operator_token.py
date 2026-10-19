@@ -9,7 +9,7 @@ def issuer():
     from pathlib import Path
 
     script = Path(__file__).resolve().parents[2] / (
-        ".codex/skills/reviewer-app-testing/scripts/reviewer_operator_token.py"
+        ".agents/skills/reviewer-app-testing/scripts/reviewer_operator_token.py"
     )
     spec = importlib.util.spec_from_file_location("reviewer_operator_token", script)
     module = importlib.util.module_from_spec(spec)

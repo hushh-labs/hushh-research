@@ -1,7 +1,7 @@
 # Branch Governance
 
 The canonical state-changing operator procedure is the
-[Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+[Admin merge and release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
 This page defines branch policy and governed cohorts; it does not redefine the
 exact-head Admin PR landing or environment dispatch sequence.
 

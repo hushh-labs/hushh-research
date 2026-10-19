@@ -1654,7 +1654,7 @@ async def test_uat_erasure_helper_refuses_email_linked_shadow_owner(monkeypatch)
 
     spec = importlib.util.spec_from_file_location(
         "uat_reset_helper",
-        REPO_ROOT / ".codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py",
+        REPO_ROOT / ".agents/skills/kai-test-account-reset/scripts/reset_kai_test_account.py",
     )
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)

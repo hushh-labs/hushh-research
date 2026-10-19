@@ -11,7 +11,7 @@ flowchart TB
   superpowers["docs/superpowers/<br/>agentic plan/spec archive"]
   protocol["consent-protocol/docs/<br/>backend + protocol package docs"]
   webapp["hushh-webapp/docs/<br/>frontend + native package docs"]
-  skills[".codex/skills + workflows<br/>reusable drafting and routing contracts"]
+  skills[".agents/<br/>instructions · skills · workflows · engineering lanes"]
 
   root --> cross
   cross --> reference
@@ -19,7 +19,7 @@ flowchart TB
   cross --> superpowers
   root --> protocol
   root --> webapp
-  cross --> skills
+  root --> skills
 ```
 
 Use this as the canonical map for documentation placement and consolidation.
@@ -82,7 +82,7 @@ This is the canonical home for:
 - plugin contracts
 - implementation notes that do not belong in root `docs/`
 
-### 5. `.codex/skills/` and `.codex/workflows/`
+### 5. `.agents/skills/` and `.agents/workflows/`
 
 This is the canonical home for:
 

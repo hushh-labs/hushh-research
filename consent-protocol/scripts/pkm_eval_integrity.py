@@ -3,7 +3,7 @@
 The structure-agent eval used to publish one run's rates as if they were the
 agents' accuracy. This module holds the rules that make a published number
 mean something, lifted from the judging contract the puppy-one harness already
-enforces (``.codex/skills/puppy-one-harness/references/judging-contract.md``):
+enforces (``.agents/skills/puppy-one-harness/references/judging-contract.md``):
 
 * The judge is never the answerer. Gemini answers; a deterministic scorer
   grades. Planted controls prove the scorer reads.

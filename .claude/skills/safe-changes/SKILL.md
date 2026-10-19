@@ -7,7 +7,8 @@ description: Pre-flight rules that stop a change in this repo from breaking an
   mistake is found.
 ---
 
-Read `.codex/skills/repo-operations/SKILL.md` and follow it.
+<!-- Generated host adapter; edit the canonical .agents source. -->
+Read `.agents/skills/repo-operations/SKILL.md` and follow it.
 
 Historical evidence: `docs/reference/operations/safe-changes-history.md`.
-Release authority: `.codex/skills/repo-operations/references/admin-release-sop.md`.
+Release authority: `.agents/skills/repo-operations/references/admin-release-sop.md`.

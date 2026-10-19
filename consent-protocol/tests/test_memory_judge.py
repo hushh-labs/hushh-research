@@ -8,7 +8,7 @@ could not be produced honestly at all.
 These pin the two halves. The writer rejects a verdict the contract does not
 allow while the judge can still fix it, and ingest either scores the run or
 voids it. Every void condition in
-`.codex/skills/puppy-one-harness/references/judging-contract.md` gets its own
+`.agents/skills/puppy-one-harness/references/judging-contract.md` gets its own
 case, because a void check that is never exercised is the same as no check: the
 first time it matters is the day a grader is wrong, and that is the worst moment
 to discover the condition was never wired.

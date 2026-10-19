@@ -4,6 +4,7 @@ description: The Hushh engineering operating standard for building, verifying, a
 allowed-tools: Read, Grep, Glob, Bash, Edit, Write
 ---
 
-Read `skills/verify-before-claim/SKILL.md` and follow it.
+<!-- Generated host adapter; edit the canonical .agents source. -->
+Read `.agents/skills/verify-before-claim/SKILL.md` and follow it.
 
-Release authority: `.codex/skills/repo-operations/references/admin-release-sop.md`.
+Release authority: `.agents/skills/repo-operations/references/admin-release-sop.md`.

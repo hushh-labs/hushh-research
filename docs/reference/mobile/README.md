@@ -82,7 +82,7 @@ surface without authenticating it. Resolve the authorized credential into
 runner memory only. This launch is preparation, not continuity evidence;
 subsequent attach-only tests do not relaunch, reset or sign out. Ordinary
 users' default methods are unchanged. Follow
-[physical reviewer preflight](../../../.codex/skills/mobile-parity-audit/references/physical-reviewer-preflight.md)
+[physical reviewer preflight](../../../.agents/skills/mobile-parity-audit/references/physical-reviewer-preflight.md)
 for device authorization and artifact handling.
 
 ## Native Authentication Settlement
@@ -245,7 +245,7 @@ rather than a pinned simulator UDID, because Xcode updates retire device types
 and a pinned id fails only after a full build. Simulator launches resolve a
 concrete device at launch time. The compatibility command
 `APP_RUNTIME_PROFILE=dev .claude/skills/run-ios-sim/launch.sh [UDID]` delegates to
-`.codex/skills/mobile-native/scripts/launch-ios-simulator.sh` through the canonical
+`.agents/skills/mobile-native/scripts/launch-ios-simulator.sh` through the canonical
 native environment resolver. It keeps Simulator in the background, bounds boot
 readiness to 120 seconds, and verifies the bundled backend before installation.
 Its historical default remains UAT; select dev explicitly for private-branch work.

@@ -51,7 +51,7 @@ import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-acti
 import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { COMMERCE_RETURN_EVENT } from "@/lib/services/scope-commerce-browser";
-import { commerceMoneyButtonName } from "../../../.codex/skills/reviewer-app-testing/scripts/scope-commerce-rehearsal-contract.mjs";
+import { commerceMoneyButtonName } from "../../../.agents/skills/reviewer-app-testing/scripts/scope-commerce-rehearsal-contract.mjs";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

@@ -231,7 +231,7 @@ def test_every_check_kind_has_a_runner(kind):
 
 # --------------------------------------------------------------------------- #
 # Controls and void runs, borrowed from the house judging contract
-# (.codex/skills/puppy-one-harness/references/judging-contract.md): a void run
+# (.agents/skills/puppy-one-harness/references/judging-contract.md): a void run
 # publishes NO result, "not a number with a caveat, because a number with a
 # caveat gets quoted without the caveat".
 # --------------------------------------------------------------------------- #

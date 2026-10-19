@@ -96,13 +96,13 @@ it("keeps every row glyph on native outline geometry in an authored colour", () 
 
 it("keeps Codex and Claude icon skill bridges identical and resolvable", () => {
   const root = resolve("..");
-  const canonical = readFileSync(resolve(root, "skills/hushh-icon-theme/SKILL.md"), "utf8");
+  const canonical = readFileSync(resolve(root, ".agents/skills/hushh-icon-theme/SKILL.md"), "utf8");
   const frontmatter = canonical.match(/^---\n[\s\S]*?\n---/)?.[0];
   const bridges = [".agents", ".claude"].map((host) =>
-    readFileSync(resolve(root, host, "skills/hushh-icon-theme/SKILL.md"), "utf8"));
+    readFileSync(resolve(root, host, ".agents/skills/hushh-icon-theme/SKILL.md"), "utf8"));
   expect(bridges[0]).toBe(bridges[1]);
   for (const bridge of bridges) {
     expect(bridge.startsWith(frontmatter!)).toBe(true);
-    expect(bridge).toContain("Read `skills/hushh-icon-theme/SKILL.md` and follow it.");
+    expect(bridge).toContain("Read `.agents/skills/hushh-icon-theme/SKILL.md` and follow it.");
   }
 });

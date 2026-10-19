@@ -60,7 +60,7 @@ generate design references before implementation.
 ## Updating
 
 Imported bundles are pinned by `skills-lock.json` and the governed
-[platform source inventory](../../.codex/skills/agent-orchestration-governance/references/platform-source-inventory.json).
+[platform source inventory](../../.agents/skills/agent-orchestration-governance/references/platform-source-inventory.json).
 Review the exact upstream revision, licenses, notices, dependencies, and nested agents
 before updating a bundle. Preserve compatibility entrypoints and regenerate/check
 host bridges and mirrors through `agent-orchestration-governance`. Do not run an

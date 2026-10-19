@@ -45,7 +45,7 @@ ALLOWED_PATHS = frozenset(
     {
         ".github/workflows/deploy-uat.yml",
         ".github/workflows/deploy-uat-one-chat.yml",
-        ".codex/skills/repo-operations/references/admin-release-sop.md",
+        ".agents/skills/repo-operations/references/admin-release-sop.md",
         "consent-protocol/api/routes/one/agent_chat.py",
         "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
         "consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py",

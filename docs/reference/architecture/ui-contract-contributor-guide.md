@@ -157,4 +157,4 @@ never resolve them wholesale as generated files. Keep generated gateway,
 capability and topology copies consistent across their deployment contexts.
 
 Canonical architecture: [route contracts](./route-contracts.md).
-Agent owner: [frontend architecture skill](../../../.codex/skills/frontend-architecture/SKILL.md).
+Agent owner: [frontend architecture skill](../../../.agents/skills/frontend-architecture/SKILL.md).

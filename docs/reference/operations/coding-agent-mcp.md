@@ -168,16 +168,16 @@ Codex supports project-scoped custom agents under `agents/`. In this repo, that 
 13. Compute the static guardrail with:
 
 ```bash
-python3 .codex/skills/agent-orchestration-governance/scripts/subagent_budget.py --requested-lanes 2
+python3 .agents/skills/agent-orchestration-governance/scripts/subagent_budget.py --requested-lanes 2
 ```
 
 14. After a close freeze, prove the local fallback with:
 
 ```bash
-python3 .codex/skills/agent-orchestration-governance/scripts/subagent_budget.py --open-agents 6 --requested-lanes 2 --close-hung
+python3 .agents/skills/agent-orchestration-governance/scripts/subagent_budget.py --open-agents 6 --requested-lanes 2 --close-hung
 ```
 
-15. Govern repo-scoped agent files, limits, and handoff rules through `.codex/skills/agent-orchestration-governance/`.
+15. Govern repo-scoped agent files, limits, and handoff rules through `.agents/skills/agent-orchestration-governance/`.
 16. The self-maintenance model is validation plus CI enforcement through the existing `Governance` job, not autonomous rewrite or scheduled mutation. Runtime topology maintenance uses the generated metadata-only index and profile-selected existing evidence lanes; it does not add a runtime maintenance agent.
 17. Repo custom agents inherit the Principal Craft Kernel from `AGENTS.md`; TOML prompts should add role-specific taste and evidence focus without duplicating the full personalization block.
 
@@ -257,7 +257,7 @@ Rules:
 Private workspace audit:
 
 ```bash
-python3 .codex/skills/codex-skill-authoring/scripts/founder_wiki_workspace_audit.py \
+python3 .agents/skills/codex-skill-authoring/scripts/founder_wiki_workspace_audit.py \
   --mcp-url https://mcp.hushh.ai/mcp \
   --output tmp/founder-wiki-workspace-audit-$(date +%F).md
 ```
@@ -284,31 +284,31 @@ Operator precedence:
 5. Use `./bin/hushh codex list-workflows`, `route-task <workflow-id>`, and `impact <workflow-id>` for recurring repo workflows before improvising a route.
 6. Use `./bin/hushh codex ci-status --watch` when the task depends on live PR checks or GitHub Actions state.
 7. Use `./bin/hushh codex rca --surface <uat|runtime|ci>` when the task starts from a core runtime, deploy, or semantic verification failure and needs a resume-safe RCA artifact.
-8. Use the repo-owned skill `.codex/skills/repo-context/` when the task starts with "scan the repo", "establish context", "map the codebase", or is otherwise cross-domain.
+8. Use the repo-owned skill `.agents/skills/repo-context/` when the task starts with "scan the repo", "establish context", "map the codebase", or is otherwise cross-domain.
 9. Use owner skills for broad domain intake:
-   - `.codex/skills/frontend/`
-   - `.codex/skills/mobile-native/`
-   - `.codex/skills/backend/`
-   - `.codex/skills/security-audit/`
-   - `.codex/skills/docs-governance/`
-   - `.codex/skills/repo-operations/`
-   - `.codex/skills/autonomous-rca-governance/`
-   - `.codex/skills/oss-license-governance/`
-   - `.codex/skills/contributor-onboarding/`
-   - `.codex/skills/subtree-upstream-governance/`
+   - `.agents/skills/frontend/`
+   - `.agents/skills/mobile-native/`
+   - `.agents/skills/backend/`
+   - `.agents/skills/security-audit/`
+   - `.agents/skills/docs-governance/`
+   - `.agents/skills/repo-operations/`
+   - `.agents/skills/autonomous-rca-governance/`
+   - `.agents/skills/oss-license-governance/`
+   - `.agents/skills/contributor-onboarding/`
+   - `.agents/skills/subtree-upstream-governance/`
 10. Use spoke skills only after the domain is narrowed to a specific frontend, backend, mobile, security, or repo-operations workflow.
-11. Use `.codex/skills/github-contribution-governance/` for GitHub contribution attribution, author-email checks, PR targeting, and green-dot eligibility.
-12. Use `.codex/skills/uat-scoped-deploy/` for scoped UAT deploys and Cloud Run region/provenance proof.
-13. Use `.codex/skills/frontend-native-surface-mapper/` before route/API/native/plugin/voice mapping work.
-14. Use `.codex/skills/frontend-cache-coherence/` for warm-cache UX, TTL, stale background refresh, and reviewer-backed screen cache proof.
-15. Use `.codex/skills/reviewer-app-testing/` with workflow `reviewer-app-rehearsal` for canonical reviewer BYOK unlock, memory-only protected information, same-session Next navigation, and separate cold-session re-unlock proof.
-16. Use `.codex/skills/pkm-upgrade-rehearsal/` with workflow `pkm-upgrade-rehearsal` for zero-loss historical fixtures, scope/rollback acceptance, and reviewer payload rehearsal before PKM upgrades.
-17. Use `.codex/skills/morphy-ax/` for shared Agent Experience state, typed semantic-assessment validation, compatibility projection, and performance budgets.
-18. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
-19. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
-20. Use `.codex/skills/planning-board/` for `Hussh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
-21. Use `.codex/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.codex/config.toml` agent limits, or delegation authority and handoff rules.
-22. Use `skills/pdf-artifact-generation/SKILL.md` for any portable PDF artifact. Codex keeps its governed route pointer under `.codex/skills/founder-brief-curation/`; Claude reaches the same behavior through `.claude/skills/pdf-artifact-generation/`. Do not create host-local PDF CSS or renderers.
+11. Use `.agents/skills/github-contribution-governance/` for GitHub contribution attribution, author-email checks, PR targeting, and green-dot eligibility.
+12. Use `.agents/skills/uat-scoped-deploy/` for scoped UAT deploys and Cloud Run region/provenance proof.
+13. Use `.agents/skills/frontend-native-surface-mapper/` before route/API/native/plugin/voice mapping work.
+14. Use `.agents/skills/frontend-cache-coherence/` for warm-cache UX, TTL, stale background refresh, and reviewer-backed screen cache proof.
+15. Use `.agents/skills/reviewer-app-testing/` with workflow `reviewer-app-rehearsal` for canonical reviewer BYOK unlock, memory-only protected information, same-session Next navigation, and separate cold-session re-unlock proof.
+16. Use `.agents/skills/pkm-upgrade-rehearsal/` with workflow `pkm-upgrade-rehearsal` for zero-loss historical fixtures, scope/rollback acceptance, and reviewer payload rehearsal before PKM upgrades.
+17. Use `.agents/skills/morphy-ax/` for shared Agent Experience state, typed semantic-assessment validation, compatibility projection, and performance budgets.
+18. Use `.agents/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
+19. Use `.agents/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
+20. Use `.agents/skills/planning-board/` for `Hussh Engineering Core` board work and `.agents/skills/comms-community/` for public/community explanation workflows.
+21. Use `.agents/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.codex/config.toml` agent limits, or delegation authority and handoff rules.
+22. Use `.agents/skills/pdf-artifact-generation/SKILL.md` for any portable PDF artifact. Codex keeps its governed route pointer under `.agents/skills/founder-brief-curation/`; Claude reaches the same behavior through `.claude/skills/pdf-artifact-generation/`. Do not create host-local PDF CSS or renderers.
 23. Use [hussh-code-persona.md](./hussh-code-persona.md) as the durable engineering persona contract before turning founder-language or product non-deviation guidance into skill or agent policy.
 
 If a developer has not configured MCP yet:

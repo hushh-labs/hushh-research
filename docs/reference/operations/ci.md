@@ -52,7 +52,7 @@ from the request pool. Per-caller limits still apply. The source-bound budget
 and concurrency/failure checks must agree before changing this ceiling.
 
 The canonical state-changing operator procedure is the
-[Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+[Admin merge and release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
 This page defines CI behavior; it does not redefine Admin bypass or deployment
 authority.
 

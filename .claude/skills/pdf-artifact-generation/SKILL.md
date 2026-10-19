@@ -4,4 +4,4 @@ description: Use when creating or polishing any portable Markdown, HTML, or PDF 
 allowed-tools: Read Grep Glob Bash
 ---
 
-Read `skills/pdf-artifact-generation/SKILL.md` and follow it.
+Read `.agents/skills/pdf-artifact-generation/SKILL.md` and follow it.

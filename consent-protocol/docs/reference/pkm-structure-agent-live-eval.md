@@ -97,7 +97,7 @@ The intent ontology is fixed:
 
 ## Honest harness
 
-The judging rules of `.codex/skills/puppy-one-harness/references/judging-contract.md`
+The judging rules of `.agents/skills/puppy-one-harness/references/judging-contract.md`
 apply here (`consent-protocol/scripts/pkm_eval_integrity.py`):
 
 - **The judge is never the answerer.** Gemini answers; a pure scorer

@@ -329,7 +329,7 @@ The app has a backend UAT-test phone path so QA can log in without SMS, with a F
 - **Native was gated off (`!isNative`) — fixed in `0c19110c2`:** `lib/firebase/auth-context.tsx` `startPhoneVerification` now tries the UAT-test start on native too, and `confirmPhoneVerification` routes `uat-test-phone:` verification ids to the UAT-test confirm before the real Firebase native link. Prod-safe (backend returns ineligible when not UAT/allowlisted → falls through to real Firebase).
 - **Allowlist changes are governed operations:** never read or print the secret value and never
   mutate Cloud Run directly from this bug log. Follow
-  `.codex/skills/repo-operations/references/admin-release-sop.md` and the current UAT phone-test
+  `.agents/skills/repo-operations/references/admin-release-sop.md` and the current UAT phone-test
   runbook; use the governed workflow so secret rotation, revision provenance, and rollback evidence
   remain auditable.
 

@@ -348,8 +348,8 @@ jobs:
               required_files.append("scripts/ci/run-release-pkm-gate.sh")
           if os.environ.get("RUN_REVIEWER_BYOK") == "true":
               required_files.extend((
-                  ".codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs",
-                  ".codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs",
+                  ".agents/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs",
+                  ".agents/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs",
               ))
           if any(not Path(filename).is_file() for filename in required_files):
               raise SystemExit("Candidate lacks selected preservation or owner-verification support")
@@ -1151,7 +1151,7 @@ jobs:
           REVIEWER_SECRET_PROJECT: ${{ env.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
+          node .agents/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
 
       - name: Classify dev release outcome
         if: always()

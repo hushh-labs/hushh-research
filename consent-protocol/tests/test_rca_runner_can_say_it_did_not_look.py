@@ -43,7 +43,7 @@ from pathlib import Path
 import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
-_RUNNER = _REPO / ".codex" / "skills" / "autonomous-rca-governance" / "scripts" / "rca_runner.py"
+_RUNNER = _REPO / ".agents" / "skills" / "autonomous-rca-governance" / "scripts" / "rca_runner.py"
 
 _spec = importlib.util.spec_from_file_location("rca_runner", _RUNNER)
 rca = importlib.util.module_from_spec(_spec)
@@ -291,7 +291,7 @@ def test_the_taxonomy_documents_the_unevaluable_state():
     """The skill's own taxonomy list is what an agent reads to decide what a
     verdict means. A class the runner can emit and the doc does not list is how
     the runner and the deploy gate drifted apart in the first place."""
-    skill = _REPO / ".codex" / "skills" / "autonomous-rca-governance" / "SKILL.md"
+    skill = _REPO / ".agents" / "skills" / "autonomous-rca-governance" / "SKILL.md"
     assert rca.CHECK_UNEVALUABLE in skill.read_text(), (
         f"{skill} does not document {rca.CHECK_UNEVALUABLE}"
     )

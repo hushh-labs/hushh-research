@@ -1,0 +1,99 @@
+{
+  "id": "repo-operations",
+  "role": "owner",
+  "owner_family": "repo-operations",
+  "primary_scope": "repo-operations-intake",
+  "description": "Use when working on Hussh CI/CD, branch protection, merge queue, GitHub Actions, deploys, env or secret parity, Cloud Run or Cloud Build operations, UAT or production rollout, incident triage, or operational verification.",
+  "owned_paths": [
+    "bin",
+    "scripts",
+    "config",
+    "deploy"
+  ],
+  "non_owned_paths": [
+    "docs-governance",
+    "planning-board",
+    "frontend",
+    "backend",
+    "analytics-observability-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance"
+  ],
+  "task_types": [
+    "pre-pr-readiness",
+    "ci-watch-and-heal",
+    "release-readiness",
+    "mobile-parity-check",
+    "docs-sync",
+    "github-contribution-governance",
+    "uat-scoped-deploy"
+  ],
+  "required_reads": [
+    "docs/reference/operations/README.md",
+    "docs/reference/operations/ci.md",
+    "docs/reference/operations/branch-governance.md",
+    ".agents/skills/repo-operations/references/admin-release-sop.md",
+    ".agents/skills/repo-operations/references/branch-runtime-ops.md",
+    ".agents/skills/repo-operations/references/maintainer-branch-freshness.md",
+    ".agents/skills/repo-operations/references/agent-trigger-policy.md",
+    ".agents/skills/repo-operations/references/anti-rationalization.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex ci-status",
+    "./scripts/ci/orchestrate.sh core",
+    "./bin/hushh codex rca --surface uat --text",
+    "./bin/hushh docs verify",
+    "./scripts/ci/verify-main-branch-protection.sh",
+    "./scripts/ci/apply-governance.py",
+    "./scripts/ci/verify-production-environment-governance.sh"
+  ],
+  "verification_bundles": [
+    {
+      "id": "repo-operations",
+      "commands": [
+        "./bin/hushh codex ci-status",
+        "./scripts/ci/orchestrate.sh core",
+        "./bin/hushh codex rca --surface uat --text",
+        "./bin/hushh docs verify",
+        "./scripts/ci/verify-main-branch-protection.sh",
+        "./scripts/ci/verify-production-environment-governance.sh"
+      ],
+      "tests": [
+        "./bin/hushh codex rca --surface uat --text",
+        "./bin/hushh docs verify",
+        "./scripts/ci/verify-main-branch-protection.sh",
+        "./scripts/ci/verify-production-environment-governance.sh"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-context",
+    "planning-board",
+    "docs-governance",
+    "analytics-observability-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance",
+    "uat-scoped-deploy",
+    "backend",
+    "security-audit"
+  ],
+  "adjacent_skills": [
+    "repo-context",
+    "backend",
+    "security-audit",
+    "docs-governance",
+    "analytics-observability-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance",
+    "uat-scoped-deploy"
+  ],
+  "risk_tags": [
+    "ci-drift",
+    "branch-protection-drift",
+    "env-parity-drift",
+    "release-drift"
+  ]
+}

@@ -77,49 +77,49 @@ Repo governance baseline:
 
 Top-level owner skills:
 
-- `.codex/skills/repo-context/`: broad repository orientation, cross-domain routing, and full-repo coverage mapping.
-- `.codex/skills/frontend/`: broad frontend intake across routes, components, services, and verification ownership.
-- `.codex/skills/mobile-native/`: iOS, Android, Capacitor plugin, and mobile parity intake.
-- `.codex/skills/backend/`: backend runtime, route, service, agent, and package-surface intake.
-- `.codex/skills/security-audit/`: IAM, consent, trust, vault, PKM, streaming, and verification/audit intake.
-- `.codex/skills/docs-governance/`: documentation homes, consolidation, maps, and docs verification policy.
-- `.codex/skills/repo-operations/`: CI/CD, branch protection, deploys, env parity, and runtime operations.
-- `.codex/skills/oss-license-governance/`: Apache-2.0 licensing, SPDX/REUSE, package metadata, and third-party notice governance.
-- `.codex/skills/contributor-onboarding/`: bootstrap, devcontainer, doctor, and contributor-first-run ownership.
-- `.codex/skills/subtree-upstream-governance/`: optional mirror coordination, subtree sync, and maintainer-only subtree policy.
-- `.codex/skills/analytics-observability-governance/`: GA4/Firebase/BigQuery topology, growth dashboard verification, environment split, and observability contract ownership.
-- `.codex/skills/planning-board/`: planning-board workflows for the `Hushh Engineering Core` board.
-- `.codex/skills/future-planner/`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
-- `.codex/skills/comms-community/`: public/community explanation workflows.
-- `.codex/skills/codex-skill-authoring/`: repo-local skill creation, retrofit, linting, scaffolding, and taxonomy maintenance.
-- `.codex/skills/agent-orchestration-governance/`: repo-scoped custom-agent authoring, bounded subagent limits, delegation authority, and handoff verification.
+- `.agents/skills/repo-context/`: broad repository orientation, cross-domain routing, and full-repo coverage mapping.
+- `.agents/skills/frontend/`: broad frontend intake across routes, components, services, and verification ownership.
+- `.agents/skills/mobile-native/`: iOS, Android, Capacitor plugin, and mobile parity intake.
+- `.agents/skills/backend/`: backend runtime, route, service, agent, and package-surface intake.
+- `.agents/skills/security-audit/`: IAM, consent, trust, vault, PKM, streaming, and verification/audit intake.
+- `.agents/skills/docs-governance/`: documentation homes, consolidation, maps, and docs verification policy.
+- `.agents/skills/repo-operations/`: CI/CD, branch protection, deploys, env parity, and runtime operations.
+- `.agents/skills/oss-license-governance/`: Apache-2.0 licensing, SPDX/REUSE, package metadata, and third-party notice governance.
+- `.agents/skills/contributor-onboarding/`: bootstrap, devcontainer, doctor, and contributor-first-run ownership.
+- `.agents/skills/subtree-upstream-governance/`: optional mirror coordination, subtree sync, and maintainer-only subtree policy.
+- `.agents/skills/analytics-observability-governance/`: GA4/Firebase/BigQuery topology, growth dashboard verification, environment split, and observability contract ownership.
+- `.agents/skills/planning-board/`: planning-board workflows for the `Hushh Engineering Core` board.
+- `.agents/skills/future-planner/`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
+- `.agents/skills/comms-community/`: public/community explanation workflows.
+- `.agents/skills/codex-skill-authoring/`: repo-local skill creation, retrofit, linting, scaffolding, and taxonomy maintenance.
+- `.agents/skills/agent-orchestration-governance/`: repo-scoped custom-agent authoring, bounded subagent limits, delegation authority, and handoff verification.
 
 Specialist spoke skills live under the same tree and should be used after the correct owner skill or `repo-context` has narrowed the request.
-Use `.codex/skills/github-contribution-governance/` as the repo-operations spoke for GitHub contribution attribution, author-email checks, PR targeting, and green-dot eligibility.
-Use `.codex/skills/uat-scoped-deploy/` as the repo-operations spoke for frontend-only/backend-only UAT deploys, Cloud Build timing proof, and Cloud Run region/provenance evidence.
-Use `.codex/skills/frontend-native-surface-mapper/` before route/API/native/plugin/voice mapping work so the generated frontend/native surface map stays authoritative.
-Use `.codex/skills/frontend-cache-coherence/` when a screen needs warm-cache UX, TTL, stale background refresh, or reviewer-backed cache behavior proof.
-Use `.codex/skills/reviewer-app-testing/` and workflow `reviewer-app-rehearsal` when Playwright must preserve an unlocked BYOK vault across same-session Next navigation and prove cold-session re-unlock separately.
-Use `.codex/skills/pkm-upgrade-rehearsal/` and workflow `pkm-upgrade-rehearsal` for historical-shape preservation, rollback, scope-origin, reviewer, and exact-payload acceptance before a PKM upgrade.
+Use `.agents/skills/github-contribution-governance/` as the repo-operations spoke for GitHub contribution attribution, author-email checks, PR targeting, and green-dot eligibility.
+Use `.agents/skills/uat-scoped-deploy/` as the repo-operations spoke for frontend-only/backend-only UAT deploys, Cloud Build timing proof, and Cloud Run region/provenance evidence.
+Use `.agents/skills/frontend-native-surface-mapper/` before route/API/native/plugin/voice mapping work so the generated frontend/native surface map stays authoritative.
+Use `.agents/skills/frontend-cache-coherence/` when a screen needs warm-cache UX, TTL, stale background refresh, or reviewer-backed cache behavior proof.
+Use `.agents/skills/reviewer-app-testing/` and workflow `reviewer-app-rehearsal` when Playwright must preserve an unlocked BYOK vault across same-session Next navigation and prove cold-session re-unlock separately.
+Use `.agents/skills/pkm-upgrade-rehearsal/` and workflow `pkm-upgrade-rehearsal` for historical-shape preservation, rollback, scope-origin, reviewer, and exact-payload acceptance before a PKM upgrade.
 
-Use `.codex/skills/morphy-ax/` and workflow `morphy-ax-governance` for shared agent-experience snapshots, presentation posture, typed semantic-assessment validation, compatibility, and AX performance budgets.
-Workflow packs under `.codex/workflows/` are the canonical recurring task surface for routing and onboarding.
+Use `.agents/skills/morphy-ax/` and workflow `morphy-ax-governance` for shared agent-experience snapshots, presentation posture, typed semantic-assessment validation, compatibility, and AX performance budgets.
+Workflow packs under `.agents/workflows/` are the canonical recurring task surface for routing and onboarding.
 Use `ci-watch-and-heal` plus `./bin/hushh codex ci-status` when the task depends on live PR checks or GitHub Actions state.
 Use `data-model-audit` plus `./bin/hushh codex data-model-audit` when migrations, table ownership, data classes, retention, or legacy memory write drift are in scope.
 Use `github-contribution-governance` when contribution graph visibility, verified author email, PR target branch, or merge eligibility affects the task outcome.
 
 ## Portable PDF artifacts
 
-All Codex and Claude PDF work uses the shared [portable PDF artifact skill](../../../skills/pdf-artifact-generation/SKILL.md).
-The existing Codex workflow retains routing metadata under `.codex/skills/founder-brief-curation/`; the
+All Codex and Claude PDF work uses the shared [portable PDF artifact skill](../../../.agents/skills/pdf-artifact-generation/SKILL.md).
+The existing Codex workflow retains routing metadata under `.agents/skills/founder-brief-curation/`; the
 portable behavior, full-bleed cover contract, semantic directives, and visual acceptance criteria live once
-at `skills/pdf-artifact-generation/SKILL.md`. Do not create a host-local PDF renderer or stylesheet.
+at `.agents/skills/pdf-artifact-generation/SKILL.md`. Do not create a host-local PDF renderer or stylesheet.
 For a calendar-level monthly GitHub report, use its parameterized collector and monthly cadence reference;
 the calendar is an event record, never a timekeeping or performance measure.
 
 ## References
 
-- [Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md): canonical queue, Admin PR landing, exact-SHA promotion, environment dispatch, proof, and closeout state machine.
+- [Admin merge and release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md): canonical queue, Admin PR landing, exact-SHA promotion, environment dispatch, proof, and closeout state machine.
 - [ci.md](./ci.md): local/remote CI parity and required lanes.
 - [pod-completion-judge.md](./pod-completion-judge.md): the completion ledger and explicit readiness assessment. Status is derived from checks, never declared; unevaluable reports UNKNOWN rather than PASS.
 - [cli.md](./cli.md): canonical root command surface for repo-level workflows.

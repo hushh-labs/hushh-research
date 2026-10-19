@@ -326,6 +326,6 @@ cd hushh-webapp && npm run verify:cache
 For skill/workflow changes, also run:
 
 ```bash
-python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
 ./bin/hushh codex audit
 ```

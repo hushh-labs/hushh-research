@@ -4,4 +4,4 @@ description: The engineering bar for all coding work in this repo — verify aga
 allowed-tools: Read Grep Glob Bash
 ---
 
-Read `skills/verify-before-claim/SKILL.md` and follow it.
+Read `.agents/skills/verify-before-claim/SKILL.md` and follow it.

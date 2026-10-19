@@ -3,7 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const test = fileURLToPath(new URL('../../../.codex/skills/analytics-observability-governance/scripts/test_inspect_android_scope.py', import.meta.url));
+const test = fileURLToPath(new URL('../../../.agents/skills/analytics-observability-governance/scripts/test_inspect_android_scope.py', import.meta.url));
 const command = process.platform === 'win32' ? 'python' : 'python3';
 const result = spawnSync(command, [test], { stdio: 'inherit', timeout: 30_000 });
 if (result.error) {

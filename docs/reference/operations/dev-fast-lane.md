@@ -6,7 +6,7 @@
 
 Dev is a governed dispatch-only proving lane, never a promotion lane. Any decision
 that lands a PR, promotes `main`, or deploys UAT/production follows the canonical
-[Admin release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+[Admin release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
 
 **The dev dispatch itself now follows that SOP's proof discipline too** (founder directive,
 2026-08-06). Dev remains dispatch-only and still never promotes — what changes is that a

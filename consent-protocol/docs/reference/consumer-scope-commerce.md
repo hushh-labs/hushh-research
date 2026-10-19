@@ -1960,7 +1960,7 @@ provider receipts. Its `feeConservationScope` is explicit and
 immutable server-authored withdrawal journal kind; a UUID cannot prove origin.
 Historical reservations without that kind remain unverified.
 
-[The resumable browser runner](../../../.codex/skills/reviewer-app-testing/scripts/verify-reviewer-scope-commerce.mjs)
+[The resumable browser runner](../../../.agents/skills/reviewer-app-testing/scripts/verify-reviewer-scope-commerce.mjs)
 uses canonical primary/counterpart sessions and bounded mutation callbacks. Its
 `--help` lists private fixture/binding/state inputs. Synthetic exact scopes must
 first be initialized by normal browser encryption. The runner checks the target's
@@ -2660,7 +2660,7 @@ The exact application/provider binding, synthetic fixtures, action admission and
 cumulative financial caps still apply. This mode is never an automatic fallback
 from failed credential-pair authentication. Apple provider exchanges remain outside
 the human rehearsal allowlist. See the canonical
-[reviewer preflight](../../../.codex/skills/reviewer-app-testing/references/human-reviewer-authentication.md).
+[reviewer preflight](../../../.agents/skills/reviewer-app-testing/references/human-reviewer-authentication.md).
 
 Focused reviewer tests and the reviewer skill gate passed; a removed live-mode
 manual-login guard caused the negative control to fail as expected. These source

@@ -4,4 +4,4 @@ description: Build multiple genuinely different versions of a UI piece you descr
 disable-model-invocation: true
 ---
 
-Read `skills/prototype/SKILL.md` and follow it.
+Read `.agents/skills/prototype/SKILL.md` and follow it.

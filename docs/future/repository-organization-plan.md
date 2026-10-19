@@ -2,9 +2,11 @@
 
 ## Status
 
-**Planning only — updated 2026-10-19.** Reviewed on infrastructure revision `9d817ba5f3`.
+**Implementation candidate — updated 2026-10-19.** Main and frozen local ADK
+were integrated through `f3132dff38`; canonical-source consolidation is under local verification.
 Continue on `claude/hushh-infrastructure-analysis-7o991c`; preserve concurrent work.
-This plan authorizes no push, main merge or deployment. The
+The current execution authorization permits a verified dev release. Main merge,
+UAT and production deployment remain separate. The
 [normal release transition](./personal-agent/NORMAL-RELEASE-TRANSITION.md) retains
 the private-agent implementation, migration and release prerequisites.
 
@@ -22,20 +24,20 @@ skills, subagents and workflows. Keep host-required entrypoints as thin adapters
 generated projections. Organize the rest of the repository around existing package
 and domain ownership, with deeper folders only for distinct responsibilities.
 
-The user-selected destination supersedes the current instruction that governed
-`.codex/skills/` must stay in place. Execute that change together with its consumers
-and policy checks; until then the current paths remain authoritative.
+The canonical operating contract now lives in `.agents/instructions.md`, loaded
+explicitly by root `AGENTS.md`. Skill, workflow, and lane consumers move together;
+host settings and generated discovery remain at their required native paths.
 
 ## Inspected baseline
 
 | Surface | Current source | Migration requirement |
 | --- | --- | --- |
-| Portable development skills | 20 under `skills/` | Preserve behavior and relative resource graphs |
-| Governed owner/spoke skills | 45 under `.codex/skills/` | Preserve `skill.json`, ownership, routing and verification contracts |
-| Development subagents | 19 authored TOML files under `agents/` | Preserve lane IDs, read-only authority and generated host mirrors |
-| Recurring workflows | 40 under `.codex/workflows/` | Preserve workflow IDs and existing CLI commands |
-| Existing `.agents/` skill | One icon-skill bridge | Replace its pointer with the canonical source during relocation |
-| Maintained documentation | 328 pages in the existing inventory | Classify every page; 37 flagged review candidates are not deletion decisions |
+| Portable development skills | 22 classified practices under `.agents/skills/` after integration | Preserve behavior and relative resource graphs |
+| Governed owner/spoke skills | 45 under `.agents/skills/` | Preserve `skill.json`, ownership, routing and verification contracts |
+| Development subagents | 19 authored TOML files under `.agents/subagents/` | Preserve lane IDs, read-only authority and generated host mirrors |
+| Recurring workflows | 40 under `.agents/workflows/` | Preserve workflow IDs and existing CLI commands |
+| Host discovery | Thin skill bridges and generated host invocation/lane projections | Check against canonical sources; retain native settings and the classified pinned import |
+| Maintained documentation | 321 pages in the existing inventory | Classify every page; 37 flagged review candidates are not deletion decisions |
 | Concurrent work | Ten dirty/untracked peer paths; active ADK worktree | Preserve hashes, coordinate ownership and reconcile before relocation |
 
 Counts describe this revision. Recount after concurrent work is integrated. Portable
@@ -111,10 +113,11 @@ facts into their owner, update callers, then delete redundant pages. Do not crea
 another archive to hide cleanup. Age, length and the word “plan” do not establish
 obsolescence. Retain unique active decisions and operating guidance.
 
-Confirmed review targets include the outdated skills map and the seven-page,
-unindexed `docs/ui-migration/` collection. Its incomplete verification record and
-the proposed TURN DNS work require an ownership decision before deletion. Review
-duplicate host skill aliases against their canonical procedure and provenance.
+The skills map now follows executable routing. Seven stale UI migration
+snapshots were removed after their useful acceptance criteria and semantic-accent
+rules were merged into the existing quality owners. Incomplete statuses and the
+contradictory blanket motion limit were not promoted. Other inventory flags remain
+review prompts, not deletion decisions; preserve unique operating guidance.
 
 ## Execution sequence and exit evidence
 

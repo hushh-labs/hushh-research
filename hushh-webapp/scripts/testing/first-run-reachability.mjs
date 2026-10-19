@@ -141,8 +141,8 @@ export async function auditFirstRun({ reviewer, browser, origin, budgetMs = 60_0
 async function main() {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
   const origin = process.env.ONE_ORIGIN || process.env.REVIEWER_APP_ORIGIN || "http://localhost:3000";
-  const { prepareReviewerRehearsal } = await import("../../../.codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs");
-  const { createReviewerSessionHarness } = await import("../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs");
+  const { prepareReviewerRehearsal } = await import("../../../.agents/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs");
+  const { createReviewerSessionHarness } = await import("../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs");
   const preflight = await prepareReviewerRehearsal({ repoRoot, appOrigin: origin });
   if (preflight.mutationPolicy !== "read_only") throw new Error("Read-only rehearsal required.");
   const budgetMs = Number(process.env.FIRST_RUN_BUDGET_MS || 60_000);

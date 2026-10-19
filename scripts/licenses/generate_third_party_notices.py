@@ -215,7 +215,7 @@ def load_web_packages() -> list[dict[str, str]]:
 def load_vendored_packages() -> list[dict[str, str]]:
     inventory = (
         REPO_ROOT
-        / ".codex/skills/agent-orchestration-governance/references/platform-source-inventory.json"
+        / ".agents/skills/agent-orchestration-governance/references/platform-source-inventory.json"
     )
     imports = json.loads(inventory.read_text(encoding="utf-8")).get("imports", {})
     return [

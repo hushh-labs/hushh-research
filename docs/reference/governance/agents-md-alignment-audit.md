@@ -117,4 +117,4 @@ Worth stating plainly, because an audit that only lists faults misleads:
 
 - Kernel under audit: `AGENTS.md`
 - Audit tool: `scripts/ops/audit_agents_md_alignment.py`
-- Standing verification practice: `skills/verify-before-claim/SKILL.md`
+- Standing verification practice: `.agents/skills/verify-before-claim/SKILL.md`

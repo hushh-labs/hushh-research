@@ -1,0 +1,78 @@
+---
+name: kai-test-account-reset
+description: Use when resetting a Kai/UAT test account by email for end-to-end onboarding, vault, RIA, consent, or profile retesting.
+---
+
+# Kai Test Account Reset Skill
+
+## Purpose and Trigger
+
+- Primary scope: `kai-test-account-reset`
+- Trigger on requests to delete or reset a Kai test user, especially when the user provides an email and wants to retest onboarding end to end.
+- Avoid overlap with `security-audit`, `iam-consent-governance`, and `repo-operations`.
+
+## Coverage and Ownership
+
+- Role: `spoke`
+- Owner family: `security-audit`
+
+Owned repo surfaces:
+
+1. `.agents/skills/kai-test-account-reset`
+
+Non-owned surfaces:
+
+1. `security-audit`
+2. `security-audit`
+3. `iam-consent-governance`
+4. `repo-operations`
+5. `backend`
+
+## Do Use
+
+1. UAT-backed test-account erasure where the email is explicitly supplied by the user; this is not same-UID delete/recreate repair.
+2. Dry-run discovery of Firebase UID shadows, actor profile rows, vault/PKM/RIA/consent rows, and email-linked developer/invite rows.
+3. Operator-side cleanup that must remain separate from the user-facing account deletion UI.
+
+## Do Not Use
+
+1. Production account deletion.
+2. Deleting accounts without an explicit user-authored email and action-time confirmation.
+3. Bypassing the in-app `profile.delete_account` vault-owner flow for normal user-initiated deletion.
+4. Firebase Auth account deletion or browser-local storage deletion unless explicitly scoped and confirmed.
+
+## Read First
+
+1. `consent-protocol/api/routes/account.py`
+2. `consent-protocol/hushh_mcp/services/account_service.py`
+3. `docs/reference/kai/kai-action-gateway-vnext.md`
+
+## Workflow
+
+1. Run a dry run first:
+   ```bash
+   python3 .agents/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --email <email>
+   ```
+2. Report the matched UID preview and planned cleanup scope without printing secrets.
+   Add `--include-counts` only when row counts are needed; it can be slow on large UAT tables.
+3. Ask for action-time confirmation before deletion, naming the email, environment, and data classes.
+4. Execute only after confirmation:
+   ```bash
+   python3 .agents/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --email <email> --execute --confirm-email <email>
+   ```
+5. Verify canonical erasure and remaining UID/email-linked rows. Never bulk-delete discovered rows outside the owning retention policy or continue cleanup after a failed transaction.
+6. The helper attests the connected UAT database and exact Firebase-bound owner; it preserves Firebase, external provider grants, and a minimal resurrection-suppression hash. Existing external-cleanup intents fail closed. An erased UID cannot recreate its UAT account; use a different authorized test account. Firebase/browser erasure requires a separately scoped workflow.
+
+## Handoff Rules
+
+1. Route schema or account-deletion-service gaps to `iam-consent-governance` or `security-audit`.
+2. Route backend runtime/proxy failures to `repo-operations`.
+3. Route user-facing One Voice/search action changes to `one-voice-governance`.
+
+## Required Checks
+
+```bash
+python3 .agents/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --help
+python3 -m py_compile .agents/skills/kai-test-account-reset/scripts/reset_kai_test_account.py
+python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
+```

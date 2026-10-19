@@ -4,12 +4,13 @@ description: Cut a Hussh One iOS build from green main and get it onto your iPho
 allowed-tools: Read Grep Glob Bash(gh *) Bash(git fetch*) Bash(git status*) Bash(git rev-parse*) Bash(git log*) Bash(git merge-base*) Bash(python3 *)
 ---
 
+<!-- Generated host adapter; edit the canonical .agents source. -->
 # TestFlight compatibility entry point
 
 This is not a second release SOP. Read and follow the canonical guidance:
 
-1. `.codex/skills/repo-operations/references/admin-release-sop.md`
-2. `.codex/skills/release-ios-appstore/references/release-proof.md`
+1. `.agents/skills/repo-operations/references/admin-release-sop.md`
+2. `.agents/skills/release-ios-appstore/references/release-proof.md`
 3. `docs/guides/mobile/ship-ios-testflight.md`
 4. `.github/workflows/ship-ios-testflight.yml`
 

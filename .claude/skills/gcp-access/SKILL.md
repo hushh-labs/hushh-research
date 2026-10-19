@@ -8,4 +8,5 @@ description: The complete GCP identity, permission, and deploy-authority map for
   any IAM binding, deny policy, or service account key. Verified 2026-08-07.
 ---
 
-Read `.codex/skills/repo-operations/SKILL.md` and follow it.
+<!-- Generated host adapter; edit the canonical .agents source. -->
+Read `.agents/skills/repo-operations/SKILL.md` and follow it.

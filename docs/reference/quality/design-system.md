@@ -258,7 +258,7 @@ After regeneration:
 
 ## Repo-Owned Skills
 
-Project-local UI skills live in `.codex/skills/`:
+Project-local UI skills live in `.agents/skills/`:
 
 1. `frontend`
 2. `frontend-design-system`
@@ -428,8 +428,8 @@ reaches documents without a second edit.
 
 | Concern | Canonical path |
 |---|---|
-| Portable artifact procedure | `skills/pdf-artifact-generation/SKILL.md` |
-| Codex routing + curation | `.codex/skills/founder-brief-curation/SKILL.md` |
+| Portable artifact procedure | `.agents/skills/pdf-artifact-generation/SKILL.md` |
+| Codex routing + curation | `.agents/skills/founder-brief-curation/SKILL.md` |
 | Claude discovery bridge | `.claude/skills/pdf-artifact-generation/SKILL.md` |
 | Formatter + theme contract | `hushh-webapp/lib/morphy-ux/pdf-document-formatter.mjs` |
 | Exporter (CLI) | `hushh-webapp/scripts/reports/export-markdown-pdf.mjs` |
@@ -483,7 +483,7 @@ list; an organisation calendar never substitutes for that evidence. The seven-da
 `pdf:table=calendar` semantic remains available only when its spatial view is materially useful.
 The
 portable collector and monthly cadence live under
-`skills/pdf-artifact-generation/`; calendar event density is never a proxy for hours,
+`.agents/skills/pdf-artifact-generation/`; calendar event density is never a proxy for hours,
 compensation, or individual performance.
 
 ### Legacy Claude alias: `.claude/skills/morphy-pdf/`

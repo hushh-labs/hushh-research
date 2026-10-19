@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The harness owns this policy; no browser, account, or secrets are needed here.
 // @ts-expect-error The canonical Node rehearsal script has no TS declaration.
-import { installReadOnlyMutationGuard, waitForReviewerVaultAdmission } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { installReadOnlyMutationGuard, waitForReviewerVaultAdmission } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 describe("reviewer preparation-only authority", () => {

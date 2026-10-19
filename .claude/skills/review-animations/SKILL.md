@@ -4,4 +4,4 @@ description: Reviews animation and motion code against a high craft bar derived 
 disable-model-invocation: true
 ---
 
-Read `skills/review-animations/SKILL.md` and follow it.
+Read `.agents/skills/review-animations/SKILL.md` and follow it.

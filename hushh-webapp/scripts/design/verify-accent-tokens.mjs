@@ -152,7 +152,7 @@ const CANONICAL_PIPELINE_FILES = [
   "scripts/reports/export-markdown-pdf.mjs",
   // The PR-governance contributor dashboard is a second PDF exporter (Molten Gold variant);
   // it must resolve its palette from globals.css too, never a frozen hex copy. Repo-root path.
-  "../.codex/skills/pr-governance-review/scripts/export_contributor_impact_pdf.mjs",
+  "../.agents/skills/pr-governance-review/scripts/export_contributor_impact_pdf.mjs",
 ];
 for (const repoPath of CANONICAL_PIPELINE_FILES) {
   const full = path.join(repoRoot, repoPath);

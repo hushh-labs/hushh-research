@@ -74,7 +74,7 @@ or a log):
 | Caller | Credential source |
 | --- | --- |
 | Native test bootstrap (`hushh-webapp/components/app-ui/native-test-bootstrap.tsx`), iOS and Android test bridges, `hushh-webapp/scripts/perf/ios-reviewer-signin.sh`, perf cards | Bridge `vaultPassphrase` from launch arguments, fed from `REVIEWER_VAULT_PASSPHRASE` / `HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE` in process env |
-| Reviewer rehearsal harness (`.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs`) | Bridge `reviewerSessionPassphrase`, a mint-only field, so the locked-vault context can authenticate without enabling auto-unlock |
+| Reviewer rehearsal harness (`.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs`) | Bridge `reviewerSessionPassphrase`, a mint-only field, so the locked-vault context can authenticate without enabling auto-unlock |
 | "Continue as reviewer" in native test mode (`hushh-webapp/components/onboarding/AuthStep.tsx`) | The same bridge fields |
 | `hushh-webapp/scripts/perf/resolve-reviewer-uid.mjs` | Process env, already |
 | `hushh-webapp/scripts/testing/export-reviewer-test-env.mjs` | The env resolver the others are loaded from |

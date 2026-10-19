@@ -4,4 +4,4 @@ description: Rebuild an accurate 0-to-1 picture of a workstream after time away 
 allowed-tools: Read Grep Glob Bash
 ---
 
-Read `skills/context-refresh/SKILL.md` and follow it.
+Read `.agents/skills/context-refresh/SKILL.md` and follow it.

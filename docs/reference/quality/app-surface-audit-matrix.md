@@ -50,3 +50,25 @@ one Xcode runner disconnect); it did not establish Finance Back behavior.
 1. `frontend-design-system`: audit canonical routes in bounded batches at 320/393px and desktop, light/dark, long text, keyboard focus, table overflow, and reduced motion. Compare measured gridlines against the owning contract; do not infer pixel accuracy from source or a fixture alone.
 2. `frontend-architecture`: keep the canonical route sweep and native surface inventory current; record pass/skip/error per route, including same-session navigation where vault state matters.
 3. `mobile-parity-check` and `reviewer-app-rehearsal`: rerun Finance setup entry, visible Back to One, and Chat return on the current USB iPhone build after a confirmed authenticated session. A build, connection, or unit test cannot substitute for that journey.
+
+## Route and responsive acceptance
+
+Derive the route set from `hushh-webapp/lib/navigation/app-route-layout.contract.json`
+and its signed-in route verifier. Classify each route by shell archetype; compatibility
+redirects are entry paths, not separate workspaces. Preserve information and function
+while changing presentation. Source checks alone never establish rendered acceptance.
+
+Use the relevant small-phone (320/375/390/393/430 px), tablet (768/820 px),
+landscape (1024 px), and desktop (1280/1440 px) targets. Cover loading, empty,
+partial, error, disabled, selected, validation, success and long-content states,
+as applicable. Verify safe-area and keyboard clearance, nested scroll behavior,
+constrained desktop columns, accessible touch targets and no horizontal overflow.
+Include real iOS Safari/native keyboard evidence before declaring native completion.
+
+Bounded review priorities include dense RIA/finance tables, Gmail section labels,
+marketplace status chips, developer labels and Location overlays. Distinguish true
+metadata from incorrectly styled content. Record actual route, revision, viewport,
+platform, outcome and evidence; no inherited “passed” or “not started” ledger is current proof.
+
+The former UI migration snapshots were consolidated here on 2026-10-19.
+Their historical claims remain in Git; no historical status was promoted to acceptance.

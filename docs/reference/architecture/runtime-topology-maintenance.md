@@ -164,7 +164,7 @@ authority, scheduler or patch queue.
 `skill_lint.py` reuses the alignment audit's bridge and classification checks.
 Canonical twins are discovered from `skills/`; governed owners from `skill.json`.
 Remaining host aliases, adapters and imported resources are explicitly inventoried in
-`.codex/skills/agent-orchestration-governance/references/platform-source-inventory.json`.
+`.agents/skills/agent-orchestration-governance/references/platform-source-inventory.json`.
 Unclassified additions (including short files), changed classified behavior, broken
 canonical pointers and stale inventory entries fail lint. Updating a digest requires
 reviewing the actual behavior; a pending import or migration classification is recorded

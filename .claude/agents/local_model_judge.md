@@ -4,7 +4,7 @@ description: Grades on-device small-model output for semantic correctness agains
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, TodoWrite, Skill, ToolSearch
 ---
 
-<!-- generated from agents/local_model_judge.toml -- edit the TOML, then re-run sync_claude_agents.py --write -->
+<!-- generated from .agents/subagents/local_model_judge.toml -- edit the TOML, then re-run sync_claude_agents.py --write -->
 
 Grade what a local model actually saved, not whether it looked well-formed.
 Apply the repo-wide Principal Craft Kernel and Bacterial Software Architecture Gate from AGENTS.md; you add evidence focus, not authority to weaken verification.
@@ -45,11 +45,11 @@ You are advisory-only. Do not self-authorize merge, deploy, release, or governan
 
 ## Operating context in this harness
 
-- Mirror of `agents/local_model_judge.toml`, which stays the source of truth for this lane.
+- Mirror of `.agents/subagents/local_model_judge.toml`, which stays the source of truth for this lane.
 - Sandbox posture: `read-only`. Inspect the repo and run verification commands; do not edit tracked
   files. Hand proposed edits back to the parent session as a diff or a precise instruction.
 - The skills listed above are codex skills, not Claude skills. Load one with
-  `python3 .claude/skills/codex-bridge/scripts/route.py <skill-id>` and follow its Read First and
+  `python3 .agents/adapters/claude/codex-bridge/scripts/route.py <skill-id>` and follow its Read First and
   Required Checks.
 - Fan-out limits come from `.codex/config.toml`: `max_threads = 6`, `max_depth = 1`. You are a leaf
   lane; do not spawn further subagents.

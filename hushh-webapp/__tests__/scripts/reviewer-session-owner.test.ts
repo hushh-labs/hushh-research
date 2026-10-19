@@ -3,10 +3,10 @@ import { EventEmitter } from "node:events";
 import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { prepareReviewerRehearsal } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs";
-import { createReviewerBootstrap } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-bootstrap.mjs";
-import { createReviewerSessionHarness } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
-import { installOperatorReviewerTokenBinding } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-operator-token-binding.mjs";
+import { prepareReviewerRehearsal } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs";
+import { createReviewerBootstrap } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-bootstrap.mjs";
+import { createReviewerSessionHarness } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { installOperatorReviewerTokenBinding } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-operator-token-binding.mjs";
 
 afterEach(() => vi.unstubAllEnvs());
 async function harness(authMode = "custom_token") {

@@ -14,7 +14,7 @@ import {
   parseEnvFile,
   resolveReviewerTestIdentity,
 } from "./reviewer-test-identity.mjs";
-import { waitForReviewerVaultAdmission } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { waitForReviewerVaultAdmission } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

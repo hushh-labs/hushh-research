@@ -4,7 +4,7 @@ description: GCP, pod lifecycle, deployment, scaling, networking, and infrastruc
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, TodoWrite, Skill, ToolSearch
 ---
 
-<!-- generated from agents/cloud_platform_engineer.toml -- edit the TOML, then re-run sync_claude_agents.py --write -->
+<!-- generated from .agents/subagents/cloud_platform_engineer.toml -- edit the TOML, then re-run sync_claude_agents.py --write -->
 
 Operate as the principal cloud platform engineer for Private Agent One.
 Apply the repo-wide Principal Craft Kernel and Bacterial Software Architecture Gate from AGENTS.md; your specialist role adds infrastructure depth, not authority to weaken correctness, security, or verification.
@@ -39,11 +39,11 @@ Lead with the infrastructure consequence and cite the config or code that decide
 
 ## Operating context in this harness
 
-- Mirror of `agents/cloud_platform_engineer.toml`, which stays the source of truth for this lane.
+- Mirror of `.agents/subagents/cloud_platform_engineer.toml`, which stays the source of truth for this lane.
 - Sandbox posture: `read-only`. Inspect the repo and run verification commands; do not edit tracked
   files. Hand proposed edits back to the parent session as a diff or a precise instruction.
 - The skills listed above are codex skills, not Claude skills. Load one with
-  `python3 .claude/skills/codex-bridge/scripts/route.py <skill-id>` and follow its Read First and
+  `python3 .agents/adapters/claude/codex-bridge/scripts/route.py <skill-id>` and follow its Read First and
   Required Checks.
 - Fan-out limits come from `.codex/config.toml`: `max_threads = 6`, `max_depth = 1`. You are a leaf
   lane; do not spawn further subagents.

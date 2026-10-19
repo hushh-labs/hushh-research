@@ -158,8 +158,8 @@ Docs and skills:
 
 ```bash
 ./bin/hushh docs verify
-python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a
-python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/docs-governance/scripts/doc_inventory.py tier-a
+python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
 ./bin/hushh codex audit
 ```
 

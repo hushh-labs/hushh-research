@@ -125,7 +125,7 @@ and that a Live session ends when the app is backgrounded.
 
 ## Run the normal build
 
-Follow the [admin release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md)
+Follow the [admin release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md)
 for branch authority, required review, rollback, and deployment escalation. This
 guide adds the TestFlight-specific gates; it does not replace that release
 authority contract.
