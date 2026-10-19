@@ -693,7 +693,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       busy={sending} locked={Boolean(pending)} sendLabel={pending ? "Retry message" : "Send message"}
       sendDisabled={loading || jumping || (!pending && Boolean(file) && validFile !== file) || (!text.trim() && !file && !pending)}
       showSend={!chatLane || Boolean(text.trim() || file || pending || sending)}
-      trailingAction={chatLane ? <DirectMessageEmojiPicker disabled={sending || Boolean(pending)} dismissSignal={pickerDismissSignal} onEmojiSelect={(emoji) => {
+      trailingAction={chatLane ? <DirectMessageEmojiPicker restoreTriggerFocusOnSelect={false} disabled={sending || Boolean(pending)} dismissSignal={pickerDismissSignal} onEmojiSelect={(emoji) => {
         const editor = composerEditor.current;
         const start = editor?.selectionStart ?? text.length;
         const end = editor?.selectionEnd ?? start;
