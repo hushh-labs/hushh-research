@@ -54,6 +54,31 @@ flowchart TB
 
 ---
 
+## Verified account phone retention
+
+`POST /api/account/identity/refresh` remains Firebase-authenticated. Ordinary
+refreshes, including forced/strict reads and display-name synchronization,
+preserve a complete verified phone in the serialized identity writer. A delayed
+provider snapshot cannot replace a newer committed E.164 number.
+
+Native OTP completion and web provider-phone replacement send optional JSON
+`{ "verified_phone_number": "+…" }`
+through the existing account proxy/shared native transport. This is explicit
+finalization intent, not verification proof: the backend freshly checks the
+authenticated UID and exact Firebase phone, then uses the existing phone claim
+writer without cross-owner transfer authority. Mismatch or conflicting ownership
+returns 409; provider/persistence failure returns 503. No number enters a URL.
+Web's existing secondary Firebase phone-token claim remains unchanged.
+If provider linking succeeds while persistence is unavailable, retrying the
+same linked phone rechecks provider proof and finalizes without another OTP.
+
+Backend and updated native shared JavaScript must ship together for native
+replacement. Older clients without explicit intent retain the existing app
+phone and fail their exact-number completion check rather than overwrite it.
+Concurrent explicit replacements on separate devices still require retry if
+their provider state changes; this is not a guarantee of offline or simultaneous
+replacement ordering. No historical erased claim is inferred or reconstructed.
+
 ## Messages unread action count
 
 `GET /api/one/messages/unread-count` requires the existing Firebase ID token
@@ -2492,6 +2517,12 @@ the backend claim commits, including same-user Firebase republication, and never
 uses stale/unverified cache evidence or a previous user's cache. Historical
 missing phone bindings are not reconstructed from email verification or OTP log
 messages; account owners restore them through the existing phone verification flow.
+An identity lookup failure is retryable availability uncertainty, not a removed
+phone. Auth state retains the known same-session claim, accepts later exact-owner
+cache updates, and fences delayed responses against account changes and newer
+committed claims. Profile offers Retry while the number is unresolved and Add
+only after an authoritative full unverified identity. View-cache TTL and the
+backend identity-refresh freshness interval do not expire a verified phone.
 
 | Method | Path                                              | Description                                                                                                                                                                                              |
 | ------ | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

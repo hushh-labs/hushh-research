@@ -3581,6 +3581,7 @@
         "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
+        "profile.retry_phone_lookup",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -3735,6 +3736,7 @@
         "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
+        "profile.retry_phone_lookup",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -3754,12 +3756,12 @@
         "route.profile_world_model",
         "route.ria_settings_compat"
       ],
-      "action_coverage": "none",
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-profile"
     },
     {
@@ -3803,6 +3805,7 @@
         "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
+        "profile.retry_phone_lookup",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -3822,12 +3825,12 @@
         "route.profile_world_model",
         "route.ria_settings_compat"
       ],
-      "action_coverage": "none",
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-profile"
     },
     {

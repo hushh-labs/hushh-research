@@ -765,12 +765,13 @@ function linkageInvariants() {
   const epochLinks = [
     ["lib/cache/cache-sync-service.ts", "bumpPkmInvalidationEpoch"],
     ["lib/pkm/use-pkm-domain-change-revision.ts", "currentPkmInvalidationEpoch"],
-    ["components/profile/pkm-natural-panel.tsx", "usePkmDomainChangeRevision"],
+    ["components/profile/pkm-natural-panel.tsx", "usePkmNaturalModel"],
+    ["components/profile/use-pkm-natural-model.ts", "usePkmDomainChangeRevision"],
     ["components/profile/profile-workspace-page.tsx", "currentPkmInvalidationEpoch"],
   ];
   for (const [relPath, needle] of epochLinks) {
     const source = readSource(relPath);
-    if (source && !source.includes(needle)) {
+    if (!source.includes(needle)) {
       violations.push(
         `${relPath} must reference ${needle} so a PKM write on another route forces a fresh read on mount`,
       );

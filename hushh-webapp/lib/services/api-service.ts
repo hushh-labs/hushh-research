@@ -1909,7 +1909,7 @@ export class ApiService {
 
   static async refreshAccountIdentityShadow(
     idToken?: string,
-    options?: { force?: boolean; requireSuccess?: boolean },
+    options?: { force?: boolean; requireSuccess?: boolean; verifiedPhoneNumber?: string },
   ): Promise<Response> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -1933,6 +1933,9 @@ export class ApiService {
       headers: {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
+      ...(options?.verifiedPhoneNumber ? {
+        body: JSON.stringify({ verified_phone_number: options.verifiedPhoneNumber }),
+      } : {}),
     });
   }
 

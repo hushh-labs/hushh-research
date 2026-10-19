@@ -16225,6 +16225,154 @@
     },
     {
       "aliases": [
+        "Retry phone lookup",
+        "retry phone lookup",
+        "reload my saved phone"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.retry_phone_lookup",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Retries reading the signed-in person's saved verified phone. Does not start OTP verification or change the phone.",
+      "execution": {
+        "binding_ref": "semantic_action:profile.retry_phone_lookup",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "profile.retry_phone_lookup"
+        }
+      },
+      "goal_id": "goal.profile.retry_phone_lookup",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Retry phone lookup",
+      "navigation": {
+        "fallback": "profile.retry_phone_lookup",
+        "routes": [
+          "/one/profile/account",
+          "/one/profile/account/phone"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "retry",
+        "number unavailable"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Profile",
         "open profile",
         "go to profile"
@@ -42288,7 +42436,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "d99869babe161e890e72058fc394687fa4c04dc6c94bd57ff35252337a553a19",
+      "projection_digest": "fd7b1829915ce13fbc4815c2d6d0bc187931e7fed57b99bb93684c0363ffa761",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42307,7 +42455,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
       },
-      "source_revision": "71f054528fd84ee6",
+      "source_revision": "9e463d7dc80f1a75",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -43825,7 +43973,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "71f054528fd84ee6",
+    "source_revision": "9e463d7dc80f1a75",
     "web": {
       "actions": [
         {
@@ -43868,7 +44016,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "9cf39929334eff8da5af2ec9bbca6eafb345f6b62532e2aca054bb510b1a0a56",
+      "projection_digest": "c7b324db7f8e93f6b6f95575a89ac7ca93b99b95ee723257c5bb60a4d5768153",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -43887,7 +44035,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
       },
-      "source_revision": "71f054528fd84ee6",
+      "source_revision": "9e463d7dc80f1a75",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -45444,7 +45592,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "71f054528fd84ee6",
+  "revision": "9e463d7dc80f1a75",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -46363,6 +46511,7 @@
         "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
+        "profile.retry_phone_lookup",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -46415,6 +46564,7 @@
         "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
+        "profile.retry_phone_lookup",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -46449,6 +46599,7 @@
         "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
+        "profile.retry_phone_lookup",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -47314,12 +47465,18 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:profile.retry_phone_lookup"
+    ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "screens:screen:/one/profile",
+      "screens:screen:/one/profile/account",
+      "screens:screen:/one/profile/account/phone"
+    ],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "9ae223df4c27d20f",
+    "from_revision": "71f054528fd84ee6",
     "migrated": [],
     "removed": []
   },
@@ -49559,18 +49716,18 @@
     "capability_graph_evolution": "bd3bb2e4006f923f21babacdc09ad98eac540d7faa36a514ed7d321b1a92b5da",
     "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "71a222bc99d70e56200d31a94568b1ae4b1220890cdaa247cbb336877a6f6a19",
+    "kai_action_gateway": "ea9c619293646518e1357b122d884c729314d685d14eca2ed0f2d396502312a5",
     "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "40a0062f8ecc8fca4b99e23c201e00ed49041bf2781c9cb142a008ea94d15199",
-    "route_orchestration_index": "4cd65e7bc9e301f346f78a08fd3c50ad821c4793690295ed66e15c8ed06bf324",
+    "product_agent_registry": "ae13cd844a94ec2224c4d068578089f21191e5b648e64f7ba61b3a110b7bb43c",
+    "route_orchestration_index": "4b3f6a32887714b74b98e2da04519af33482e30abbe60dc53e7599bf3d69d668",
     "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
   },
-  "source_revision": "71f054528fd84ee6",
+  "source_revision": "9e463d7dc80f1a75",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "71f054528fd84ee6",
+    "current_graph_revision": "9e463d7dc80f1a75",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -49664,6 +49821,7 @@
           "710bd535b7febc69",
           "715bed22457a573a",
           "71ed8af339174fae",
+          "71f054528fd84ee6",
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "793d7494bf839d4a",
@@ -49889,6 +50047,7 @@
           "710bd535b7febc69",
           "715bed22457a573a",
           "71ed8af339174fae",
+          "71f054528fd84ee6",
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "793d7494bf839d4a",
@@ -50088,6 +50247,7 @@
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
           "71ed8af339174fae",
+          "71f054528fd84ee6",
           "793d7494bf839d4a",
           "7dfe20ea4e593ddb",
           "807f7c1adc601995",
@@ -50339,6 +50499,7 @@
           "710bd535b7febc69",
           "715bed22457a573a",
           "71ed8af339174fae",
+          "71f054528fd84ee6",
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "793d7494bf839d4a",
@@ -50564,6 +50725,7 @@
           "710bd535b7febc69",
           "715bed22457a573a",
           "71ed8af339174fae",
+          "71f054528fd84ee6",
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "793d7494bf839d4a",
@@ -50789,6 +50951,7 @@
           "710bd535b7febc69",
           "715bed22457a573a",
           "71ed8af339174fae",
+          "71f054528fd84ee6",
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "793d7494bf839d4a",
@@ -51014,6 +51177,7 @@
           "710bd535b7febc69",
           "715bed22457a573a",
           "71ed8af339174fae",
+          "71f054528fd84ee6",
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "793d7494bf839d4a",
