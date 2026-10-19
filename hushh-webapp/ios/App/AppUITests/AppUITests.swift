@@ -4540,7 +4540,9 @@ final class AppUITests: XCTestCase {
         }
         let endIndex = requestedEnd.flatMap { destinations.firstIndex(of: $0) } ?? destinations.count - 1
         guard startIndex <= endIndex else { XCTFail("PROFILE_BATCH_RANGE_UNADMITTED"); return }
-        let admittedDestinations = Array(destinations[startIndex...endIndex])
+        let agentOnly = ProcessInfo.processInfo.environment["HUSHH_PROFILE_AGENT_ONLY"] == "true"
+        let admittedDestinations = agentOnly ? [] : Array(destinations[startIndex...endIndex])
+        if agentOnly { print("PROFILE_AGENT_ONLY selected=true") }
         let legalReturnOnly = ProcessInfo.processInfo.environment["HUSHH_PROFILE_LEGAL_RETURN_ONLY"] == "true"
         let phoneOnly = ProcessInfo.processInfo.environment["HUSHH_PROFILE_PHONE_ONLY"] == "true"
         guard !phoneOnly || admittedDestinations == ["account"] else { XCTFail("PROFILE_PHONE_RANGE_UNADMITTED"); return }
@@ -5349,6 +5351,19 @@ final class AppUITests: XCTestCase {
         guard waitForAdmittedControl(oneTab), waitForAdmittedControl(feedTab) else { XCTFail("ONE_PROFILE_TABS_UNAVAILABLE"); return }
         oneTab.tap()
         let memory = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Open Memory")).firstMatch
+        // The shared Live Mirror may contain enough source/conflict rows to
+        // place its footer below the fold. Exercise the owned content scroll;
+        // never replace the person's information with an empty fixture.
+        for _ in 0..<8 {
+            if memory.exists && memory.isHittable { break }
+            let top = max(oneTab.frame.maxY, feedTab.frame.maxY) + 20
+            let bottom = web.frame.maxY - 24
+            guard bottom > top + 32 else { break }
+            let origin = web.coordinate(withNormalizedOffset: .zero)
+            origin.withOffset(CGVector(dx: web.frame.width / 2, dy: bottom - web.frame.minY))
+                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: web.frame.width / 2, dy: top - web.frame.minY)))
+        }
+        print("ONE_PROFILE_MEMORY present=\(memory.exists) hittable=\(memory.exists && memory.isHittable)")
         XCTAssertTrue(waitForAdmittedControl(memory), "ONE_PROFILE_SHARED_CONTENT_UNAVAILABLE")
         XCTAssertTrue(waitForAdmittedControl(app.buttons["Back to Chat"].firstMatch))
         feedTab.tap()
