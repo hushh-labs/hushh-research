@@ -177,6 +177,11 @@ _WALLET_GROUPED_FEED_CTE = _GROUPED_FEED_CTE.replace(
     "  WHERE f.user_id = :user_id",
 )
 _COUNTERPART_PHOTO_KEY = "counterpart_photo_url"
+_DRIVE_DELIVERY_COUNT_FIELDS = (
+    "current_delivery_total_count",
+    "current_delivery_confirmed_count",
+    "current_delivery_pending_count",
+)
 _LOCATION_GRANT_EVENT_TYPES = frozenset(
     {
         "location_share_created",
@@ -237,6 +242,7 @@ _SAFE_METADATA_KEYS = frozenset(
         # order and request remain authoritative; this bounded projection
         # prevents an old Pay row from surviving payment or expiry.
         "current_request_status",
+        *_DRIVE_DELIVERY_COUNT_FIELDS,
         "current_payment_status",
         "current_checkout_expired",
         "current_request_expired",
@@ -532,6 +538,9 @@ class FeedService:
                     """
                     SELECT r.request_id::TEXT AS request_id,
                            r.status AS current_request_status,
+                           delivery.total AS current_delivery_total_count,
+                           delivery.available AS current_delivery_confirmed_count,
+                           delivery.pending AS current_delivery_pending_count,
                            r.expires_at AS current_request_expires_at,
                            (r.expires_at <= clock_timestamp()) AS current_request_expired,
                            (r.access_stop_requested_at IS NOT NULL) AS current_access_stopped,
@@ -576,6 +585,19 @@ class FeedService:
                     LEFT JOIN stripe_owner_payout_accounts a
                       ON a.user_id=r.user_id AND r.payment_required AND a.stripe_mode=:stripe_mode
                     LEFT JOIN drive_request_payment_refunds f ON f.request_id=r.request_id
+                    LEFT JOIN LATERAL (
+                      SELECT count(*) AS total,
+                        count(*) FILTER (WHERE e.state IN ('succeeded','preexisting')) AS available,
+                        count(*) FILTER (WHERE e.state IN ('queued','dispatching','unknown')) AS pending
+                      FROM drive_bulk_shares b
+                      JOIN drive_bulk_share_effects e ON e.share_id=b.share_id AND e.user_id=b.user_id
+                      JOIN drive_bulk_share_files selected ON selected.share_id=e.share_id
+                        AND selected.user_id=e.user_id AND selected.position=e.position
+                      WHERE r.status='partial' AND b.origin_request_id=r.request_id
+                        AND b.user_id=r.user_id AND b.approved_at IS NOT NULL
+                        AND e.recipient_user_id=r.recipient_user_id
+                        AND (b.progressive_batch=FALSE OR selected.origin_request_id=r.request_id)
+                    ) delivery ON TRUE
                     WHERE r.recipient_user_id=:user_id OR r.user_id=:user_id
                     """,
                     {
@@ -602,7 +624,23 @@ class FeedService:
                 result.append(row)
                 continue
             current = by_request.get(str(metadata.get("request_id") or ""), {})
+            # These fields are live receipt projections, never snapshot claims.
+            metadata = {
+                key: value
+                for key, value in metadata.items()
+                if key not in _DRIVE_DELIVERY_COUNT_FIELDS
+            }
             projection: dict[str, Any] = {}
+            if (
+                row.get("event_type") == "document_share_outcome"
+                and current.get("current_request_status") == "partial"
+            ):
+                # Historical outcome rows use current participant-scoped receipts,
+                # not payment state or the ambiguous request-level partial flag.
+                for field in _DRIVE_DELIVERY_COUNT_FIELDS:
+                    count = current.get(field)
+                    if type(count) is int and count >= 0:
+                        projection[field] = count
             if row.get("event_type") == "document_share_payment_ready":
                 # Fail closed in presentation: a missing read cannot authorize
                 # an old Pay instruction. The action rechecks the live order.

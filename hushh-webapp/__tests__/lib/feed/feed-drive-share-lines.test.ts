@@ -57,12 +57,33 @@ describe("Drive rows in the Feed", () => {
           user_facing_status: "partial",
         }),
       ).description,
-    ).toBe("Sharing finished with some files unavailable");
+    ).toBe("Check sharing and search results");
     expect(
       presentFeedItem(
         item("document_share_outcome", { user_facing_status: "partial" }),
       ).description,
-    ).toBe("Could not share all selected files");
+    ).toBe("Check sharing and search results");
+  });
+
+  it.each([{}, recipient])("uses confirmed receipts for partial requests (%j)", audience => {
+    const line = (counts: Record<string, unknown>) => presentFeedItem(item(
+      "document_share_outcome", {
+        ...audience, user_facing_status: "partial",
+        current_delivery_total_count: 20,
+        current_delivery_confirmed_count: 20,
+        current_delivery_pending_count: 0,
+        ...counts,
+      },
+    )).description;
+    expect(line({})).toBe("Files shared; request incomplete");
+    expect(line({ current_delivery_confirmed_count: 19 }))
+      .toBe("Some selected files could not be shared");
+    expect(line({ current_delivery_confirmed_count: 19, current_delivery_pending_count: 1 }))
+      .toBe("Sharing is still being checked");
+    expect(line({ current_delivery_confirmed_count: 21 }))
+      .toBe("Check sharing and search results");
+    expect(line({ current_delivery_pending_count: undefined }))
+      .toBe("Check sharing and search results");
   });
 
   it("reports an empty Drive search without implying a permission failure", () => {
