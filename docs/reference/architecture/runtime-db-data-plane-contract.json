@@ -1543,6 +1543,21 @@
       "expected_row_growth": "one row per person who chooses a model"
     },
     {
+      "id": "one_private_text_processing_approval",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_private_text_processing_approvals"
+      ],
+      "primary_access_path": "Firebase-authenticated GET/PUT /api/one/models/private-text-approval records an owner's explicit UAT Azure text-processing choice; document request admission and each model call verify the current generation.",
+      "retention_policy": "One mutable row per owner while the account exists. Revocation retains the disabled row and rotates its generation to invalidate in-flight work.",
+      "deletion_behavior": "Cascade-delete with actor_profiles on account deletion or reset.",
+      "trust_boundary": "Owner ID, enabled flag, disclosure version, generation, and timestamps only. Contains no Drive content, prompt, response, or credentials; an enabled row is scoped to the disclosed private Azure text processing and cannot grant file access.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "at most one row per owner"
+    },
+    {
       "id": "one_agent_message_feedback",
       "owner": "backend-runtime-governance",
       "data_class": "workflow_state",

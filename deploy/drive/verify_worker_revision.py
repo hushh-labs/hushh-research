@@ -52,6 +52,7 @@ def verify_revision(
     scanner_index_digest: str,
     scanner_amd64_digest: str,
     drain_enabled: str | None = None,
+    semantic_model_provider: str | None = None,
     max_instances: str | None = None,
     concurrency: str | None = None,
 ) -> None:
@@ -79,6 +80,17 @@ def verify_revision(
     }:
         raise ValueError("Drive worker container set mismatch")
     images = {item["name"]: item.get("image") for item in containers}
+    if semantic_model_provider is not None:
+        worker = next(item for item in containers if item["name"] == "drive-worker")
+        providers = [
+            item.get("value")
+            for item in worker.get("env", [])
+            if item.get("name") == "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER"
+        ]
+        if semantic_model_provider not in {"gemini", "azure_openai"} or providers != [
+            semantic_model_provider
+        ]:
+            raise ValueError("Drive worker semantic model provider mismatch")
     if drain_enabled is not None:
         worker = next(item for item in containers if item["name"] == "drive-worker")
         flags = [
@@ -109,6 +121,7 @@ def main() -> int:
             scanner_index_digest=os.environ["EXPECTED_SCANNER_INDEX_DIGEST"],
             scanner_amd64_digest=os.environ["EXPECTED_SCANNER_AMD64_DIGEST"],
             drain_enabled=os.environ.get("EXPECTED_DRAIN_ENABLED"),
+            semantic_model_provider=os.environ.get("EXPECTED_SEMANTIC_MODEL_PROVIDER"),
             max_instances=os.environ.get("EXPECTED_MAX_INSTANCES"),
             concurrency=os.environ.get("EXPECTED_CONCURRENCY"),
         )

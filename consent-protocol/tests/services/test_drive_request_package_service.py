@@ -488,3 +488,124 @@ async def test_policy_change_during_resume_never_relabels_old_assessments():
     final.assert_not_awaited()
     store.finalize_package.assert_not_awaited()
     assert store.release_evaluation.call_args.kwargs["retryable"] is False
+
+
+def test_semantic_provider_policy_preserves_default_and_invalidates_azure_binding(monkeypatch):
+    import hashlib
+    from pathlib import Path
+
+    from hushh_mcp.services import drive_request_package_assessment as assessment
+    from hushh_mcp.services import drive_request_package_service as service
+
+    monkeypatch.setattr(service, "resolve_fleet_model_name", lambda _: "synthetic-gemini")
+    monkeypatch.setattr(assessment, "validate_semantic_model_binding", lambda value: value)
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
+    manifest = Path(service.__file__).resolve().parents[1] / "agents/documents/agent.yaml"
+    old = "package-v1:" + hashlib.sha256(manifest.read_bytes() + b"\0synthetic-gemini").hexdigest()
+    assert service.assessment_policy_version() == old
+    selected = {
+        "provider": "gemini",
+        "deployment": "synthetic-gemini",
+        "config_fingerprint": "a",
+        "approval_generation": None,
+    }
+    assert service.assessment_policy_version(selected) == old
+    selected.update(
+        provider="azure_openai", deployment="synthetic-azure", approval_generation="generation-one"
+    )
+    azure = service.assessment_policy_version(selected)
+    assert azure != old
+    for key in ("deployment", "config_fingerprint", "approval_generation"):
+        assert service.assessment_policy_version({**selected, key: "changed"}) != azure
+    assert service.assessment_policy_version() == old
+
+
+@pytest.mark.parametrize(
+    "field", ["provider", "deployment", "config_fingerprint", "approval_generation"]
+)
+def test_malformed_semantic_binding_fails_closed_before_model_resolution(field):
+    from hushh_mcp.services.drive_request_package_assessment import (
+        validate_semantic_model_binding,
+    )
+
+    binding = {
+        "provider": "gemini",
+        "deployment": "synthetic-gemini",
+        "config_fingerprint": "synthetic-config",
+        "approval_generation": None,
+    }
+    binding[field] = ["untrusted"]
+    with pytest.raises(ValueError, match="Invalid Documents model binding"):
+        validate_semantic_model_binding(binding)
+
+
+@pytest.mark.parametrize("assemble", [False, True])
+async def test_legacy_package_genes_never_dispatch_an_azure_bound_request(monkeypatch, assemble):
+    from hushh_mcp.services import drive_request_package_assessment as assessment
+
+    monkeypatch.setattr(assessment, "validate_semantic_model_binding", lambda value: value)
+    work = job(0 if assemble else 1)
+    work["checkpoint"] = {"semantic_model_binding": {"provider": "azure_openai"}}
+    service, store, reader, assessor, final, _ = setup_work(work)
+    assert await service.run_one(user_id="owner", job_id="job") == "unavailable"
+    reader.read_compilation_match.assert_not_awaited()
+    assessor.assert_not_awaited()
+    final.assert_not_awaited()
+    store.finalize_package.assert_not_awaited()
+    assert store.release_evaluation.call_args.kwargs["error"] == "assessment_policy_changed"
+
+
+async def test_private_semantic_binding_keeps_one_approval_generation_and_composes_guard(
+    monkeypatch,
+):
+    from hushh_mcp.services import drive_request_package_assessment as assessment
+    from hushh_mcp.services import private_text_processing_approval_service as approval
+
+    monkeypatch.setattr(
+        assessment,
+        "semantic_request_model_binding",
+        lambda: {"provider": "azure_openai", "approval_generation": "sealed-generation"},
+    )
+    grant = object()
+    acquire = AsyncMock(return_value=grant)
+    approval_guard = AsyncMock()
+    monkeypatch.setattr(approval, "require_private_azure_text_approval", acquire)
+    monkeypatch.setattr(
+        approval,
+        "private_azure_text_require_current",
+        lambda value: approval_guard if value is grant else None,
+    )
+    monkeypatch.setattr(
+        assessment, "build_semantic_request_azure_model", lambda **kwargs: SimpleNamespace(**kwargs)
+    )
+    request_guard = AsyncMock()
+    model = await assessment.private_semantic_request_model(
+        user_id="synthetic", require_current=request_guard
+    )
+    await model.require_current()
+    await model.require_current()
+    acquire.assert_awaited_once_with("synthetic", expected_generation="sealed-generation")
+    assert approval_guard.await_count == 2 and request_guard.await_count == 3
+    request_guard.side_effect = PermissionError("lease ended")
+    with pytest.raises(assessment.RequestAssessmentAuthorityError):
+        await model.require_current()
+    assert approval_guard.await_count == 2
+    request_guard.side_effect = None
+    approval_guard.side_effect = PermissionError("approval generation changed")
+    with pytest.raises(PermissionError):
+        await model.require_current()
+
+
+@pytest.mark.parametrize(
+    "provider,environment",
+    [("unknown", "uat"), ("azure_openai", "production"), ("azure_openai", "development")],
+)
+def test_semantic_azure_selection_fails_closed_outside_trusted_uat(
+    monkeypatch, provider, environment
+):
+    from hushh_mcp.services.drive_request_package_assessment import semantic_request_model_binding
+
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", provider)
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    with pytest.raises(ValueError):
+        semantic_request_model_binding()

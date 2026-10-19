@@ -3,7 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -2170,3 +2170,93 @@ async def test_completeness_claims_name_quarters_year_to_date_and_may(months, co
     with pytest.raises(EvidenceValidationError) as info:
         await build_months(members, **copy)
     assert info.value.code == "model_readiness_invalid"
+
+
+async def test_only_semantic_planner_reuses_explicit_model_across_correction(monkeypatch):
+    from hushh_mcp.services import drive_suggestion_service as service
+
+    bound = object()
+    request_guard = AsyncMock()
+    binder = AsyncMock(return_value=bound)
+    monkeypatch.setattr(service, "private_semantic_request_model", binder)
+    build = Mock(return_value=object())
+    monkeypatch.setattr(service, "build_single_turn_agent", build)
+    good = _request_planner_response()
+    run = AsyncMock(side_effect=[{"semantic_query": {}}, good, {}])
+    monkeypatch.setattr(service, "run_single_turn", run)
+    result = await service.plan_semantic_live_search(
+        service.interpret_semantic_live_search,
+        prompt="synthetic request",
+        user_id="owner",
+        require_current=request_guard,
+    )
+    assert result.semantic_query.status == "ready"
+    binder.assert_awaited_once_with(
+        user_id="owner",
+        require_current=request_guard,
+        model_binding=service.validate_semantic_model_binding(None),
+    )
+    assert len(build.call_args_list) == 2
+    assert all(call.kwargs["model"] is bound for call in build.call_args_list)
+    assert all(call.args[0].id == "agent_documents_request_search" for call in build.call_args_list)
+    await service.interpret_live_search(prompt="legacy request", user_id="owner")
+    assert "model" not in build.call_args.kwargs
+    assert build.call_args.args[0].id == "agent_documents_live_search"
+    assert binder.await_count == 1
+
+
+async def test_only_request_assessor_reuses_explicit_model_across_correction(monkeypatch):
+    from hushh_mcp.services import drive_request_package_assessment as service
+
+    bound = object()
+    request_guard = AsyncMock()
+    binder = AsyncMock(return_value=bound)
+    monkeypatch.setattr(service, "private_semantic_request_model", binder)
+    build = Mock(return_value=object())
+    monkeypatch.setattr(service, "build_single_turn_agent", build)
+    retrieved = {
+        "untrusted_external_content": [
+            {
+                "document_ref": "p1",
+                "source_ref": "p1:content",
+                "source_version": "7",
+                "text": "The observed original document text.",
+            }
+        ]
+    }
+    good = {
+        "documents": [
+            {
+                "document_ref": "p1",
+                "decision": "include",
+                "confidence": 90,
+                "reason": "Substantive actual evidence.",
+                "covered_periods": [],
+                "citations": [{"source_ref": "p1:content", "quote": "original document text"}],
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        service, "run_single_turn", AsyncMock(side_effect=[{"documents": []}, good, {}])
+    )
+    result = await service.assess_request_document_batch(
+        request={"purpose": "synthetic request"},
+        retrieved=retrieved,
+        user_id="owner",
+        require_current=request_guard,
+    )
+    assert result.documents[0].source_version == "7"
+    binder.assert_awaited_once_with(
+        user_id="owner",
+        require_current=request_guard,
+        model_binding=service.validate_semantic_model_binding(None),
+    )
+    assert len(build.call_args_list) == 2
+    assert all(call.kwargs["model"] is bound for call in build.call_args_list)
+    assert all(
+        call.args[0].id == "agent_documents_request_assessment" for call in build.call_args_list
+    )
+    await service.interpret_document_batch(prompt="legacy request", user_id="owner")
+    assert "model" not in build.call_args.kwargs
+    assert build.call_args.args[0].id == "agent_documents_suggestions"
+    assert binder.await_count == 1

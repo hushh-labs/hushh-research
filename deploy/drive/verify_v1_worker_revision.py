@@ -18,6 +18,7 @@ def verify_v1_revision(
     scanner_index: str,
     scanner_amd64: str,
     drain_enabled: str = "true",
+    semantic_model_provider: str | None = None,
 ) -> None:
     verify_revision(
         revision,
@@ -26,6 +27,7 @@ def verify_v1_revision(
         scanner_index_digest=scanner_index,
         scanner_amd64_digest=scanner_amd64,
         drain_enabled=drain_enabled,
+        semantic_model_provider=semantic_model_provider,
     )
     if revision["spec"].get("serviceAccountName") != (
         "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
@@ -56,6 +58,7 @@ def main() -> int:
             scanner_index=os.environ["EXPECTED_SCANNER_INDEX_DIGEST"],
             scanner_amd64=os.environ["EXPECTED_SCANNER_AMD64_DIGEST"],
             drain_enabled=os.environ.get("EXPECTED_DRAIN_ENABLED", "true"),
+            semantic_model_provider=os.environ.get("EXPECTED_SEMANTIC_MODEL_PROVIDER"),
         )
     except (
         KeyError,

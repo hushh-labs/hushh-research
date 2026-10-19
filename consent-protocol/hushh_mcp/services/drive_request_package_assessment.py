@@ -10,9 +10,12 @@ from __future__ import annotations
 import asyncio
 import calendar
 import json
+import os
 import re
+import uuid
 from collections.abc import Awaitable, Callable
 from datetime import date, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Literal
 
@@ -29,6 +32,139 @@ MAX_PROMPT_BYTES = 160 * 1024
 ASSESSMENT_TIMEOUT_SECONDS = 60
 REQUEST_ASSESSMENT_TIMEOUT_SECONDS = 75
 REQUEST_FIRST_ATTEMPT_TIMEOUT_SECONDS = 55
+
+
+def semantic_request_model_binding(
+    *, provider: str | None = None, approval_generation: str | None = None
+) -> dict[str, str | None]:
+    """Resolve a provider descriptor without granting access to private content."""
+    from hushh_mcp.managed_ai_config import load_pwm_policy, profile_hash
+    from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+    from hushh_mcp.runtime_settings import managed_ai_settings
+
+    provider = (
+        (
+            os.environ.get("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini")
+            if provider is None
+            else provider
+        )
+        .strip()
+        .lower()
+    )
+    if provider == "gemini":
+        if approval_generation is not None:
+            raise ValueError("Gemini binding cannot contain an Azure approval")
+        settings = managed_ai_settings()
+        return {
+            "provider": "gemini",
+            "deployment": resolve_fleet_model_name("gemini-default"),
+            "config_fingerprint": settings.config_hash,
+            "approval_generation": None,
+        }
+    if provider != "azure_openai" or os.environ.get("ENVIRONMENT", "").lower() != "uat":
+        raise ValueError("Unsupported Documents semantic model binding")
+    policy = load_pwm_policy(environment="uat")
+    if policy["provider"] != "azure_openai_web_search":
+        raise ValueError("Documents requires the trusted UAT Azure configuration")
+    if approval_generation is not None:
+        try:
+            approval_generation = str(uuid.UUID(approval_generation))
+        except (ValueError, TypeError, AttributeError):
+            raise ValueError("Invalid private text approval generation") from None
+    return {
+        "provider": "azure_openai",
+        "deployment": policy["azure"]["primary_deployment"],
+        "config_fingerprint": profile_hash(policy["azure"]),
+        "approval_generation": approval_generation,
+    }
+
+
+def validate_semantic_model_binding(binding: dict | None) -> dict[str, str | None]:
+    """Freeze old jobs on Gemini and reject a changed or disabled Azure binding."""
+    if binding is None:
+        return semantic_request_model_binding(provider="gemini")
+    if not isinstance(binding, dict) or set(binding) != {
+        "provider",
+        "deployment",
+        "config_fingerprint",
+        "approval_generation",
+    }:
+        raise ValueError("Invalid Documents model binding")
+    provider = binding.get("provider")
+    generation = binding.get("approval_generation")
+    if (
+        not isinstance(provider, str)
+        or provider not in {"gemini", "azure_openai"}
+        or (provider == "azure_openai" and generation is None)
+    ):
+        raise ValueError("Invalid Documents model binding")
+    if (
+        not isinstance(binding.get("deployment"), str)
+        or not isinstance(binding.get("config_fingerprint"), str)
+        or (generation is not None and not isinstance(generation, str))
+    ):
+        raise ValueError("Invalid Documents model binding")
+    if (
+        provider == "azure_openai"
+        and os.environ.get("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini").strip().lower()
+        != "azure_openai"
+    ):
+        raise ValueError("Azure Documents pilot is disabled")
+    expected = semantic_request_model_binding(provider=provider, approval_generation=generation)
+    if binding != expected:
+        raise ValueError("Documents model binding changed")
+    return expected
+
+
+def build_semantic_request_azure_model(*, require_current, model_binding: dict | None = None):
+    """Trusted transport construction; callers must supply their invocation authority."""
+    from hushh_mcp.managed_ai_config import load_pwm_policy
+    from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
+
+    binding = (
+        semantic_request_model_binding()
+        if model_binding is None
+        else validate_semantic_model_binding(model_binding)
+    )
+    if binding["provider"] != "azure_openai" or require_current is None:
+        raise ValueError("Azure Documents transport requires a current-authority guard")
+    config = load_pwm_policy(environment="uat")["azure"]
+    return AzureOpenAIAdkModel.from_keyless(
+        endpoint=config["primary_endpoint"],
+        deployment=config["primary_deployment"],
+        tenant_id=config["tenant_id"],
+        client_id=config["client_id"],
+        require_current=require_current,
+    )
+
+
+async def private_semantic_request_model(
+    *, user_id, require_current=None, model_binding: dict | None = None
+):
+    """Bind one explicit owner approval generation for this operation and every retry."""
+    binding = (
+        semantic_request_model_binding()
+        if model_binding is None
+        else validate_semantic_model_binding(model_binding)
+    )
+    if binding["provider"] == "gemini":
+        return None
+    from hushh_mcp.services.private_text_processing_approval_service import (
+        private_azure_text_require_current,
+        require_private_azure_text_approval,
+    )
+
+    await _require_request_current(require_current)
+    grant = await require_private_azure_text_approval(
+        user_id, expected_generation=binding["approval_generation"]
+    )
+    approval_current = private_azure_text_require_current(grant)
+
+    async def current():
+        await _require_request_current(require_current)
+        await approval_current()
+
+    return build_semantic_request_azure_model(require_current=current, model_binding=binding)
 
 
 class RequestAssessmentAuthorityError(RuntimeError):
@@ -576,7 +712,9 @@ def _prompt(payload: dict) -> str:
     return prompt
 
 
-async def _interpret(*, prompt, user_id, output_schema, gene_id="agent_documents_suggestions"):
+async def _interpret(
+    *, prompt, user_id, output_schema, gene_id="agent_documents_suggestions", model=None
+):
     manifest = ManifestLoader.load(
         str(Path(__file__).resolve().parents[1] / "agents/documents/agent.yaml")
     )
@@ -587,7 +725,9 @@ async def _interpret(*, prompt, user_id, output_schema, gene_id="agent_documents
         or gene.runtime.transport != ["in_process"]
     ):
         raise ValueError("invalid package interpreter")
-    agent = build_single_turn_agent(gene, output_schema=output_schema)
+    agent = build_single_turn_agent(
+        gene, output_schema=output_schema, **({"model": model} if model is not None else {})
+    )
     result = await run_single_turn(
         agent,
         prompt_parts=prompt,
@@ -602,13 +742,16 @@ async def interpret_document_batch(*, prompt, user_id):
     return await _interpret(prompt=prompt, user_id=user_id, output_schema=DocumentBatchAssessment)
 
 
-async def interpret_request_document_batch(*, prompt, user_id):
+async def interpret_request_document_batch(*, prompt, user_id, model=None, model_binding=None):
     """Use the bounded request-local Documents gene; legacy package modes stay separate."""
+    if model is None:
+        model = await private_semantic_request_model(user_id=user_id, model_binding=model_binding)
     return await _interpret(
         prompt=prompt,
         user_id=user_id,
         output_schema=DocumentBatchAssessment,
         gene_id="agent_documents_request_assessment",
+        model=model,
     )
 
 
@@ -761,6 +904,7 @@ async def assess_request_document_batch(
     user_id: str,
     interpreter=interpret_request_document_batch,
     require_current: Callable[[], Awaitable[None]] | None = None,
+    model_binding: dict | None = None,
 ) -> BoundDocumentBatchAssessment:
     """At most one correction or transient retry inside the existing model budget.
 
@@ -778,7 +922,15 @@ async def assess_request_document_batch(
         "retrieved_documents": retrieved,
     }
     prompt = _prompt(payload)
-    # Leave a bounded retry slot if Vertex never answers the first request.
+    if interpreter is interpret_request_document_batch:
+        selected_binding = validate_semantic_model_binding(model_binding)
+        model = await private_semantic_request_model(
+            user_id=user_id,
+            require_current=require_current,
+            model_binding=selected_binding,
+        )
+        interpreter = partial(interpreter, model=model, model_binding=selected_binding)
+    # Leave a bounded retry slot if the provider never answers the first request.
     # A local timeout is transport absence, never an assessment decision.
     async with asyncio.timeout(REQUEST_ASSESSMENT_TIMEOUT_SECONDS):
         for attempt in (1, 2):

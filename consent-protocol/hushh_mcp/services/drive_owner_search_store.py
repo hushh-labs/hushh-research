@@ -37,6 +37,21 @@ ACTIVE = frozenset({"queued", "running"})
 _ROW = "SELECT * FROM drive_owner_search_jobs WHERE job_id=:job AND user_id=:user AND expires_at>clock_timestamp()"
 
 
+def _semantic_binding_current(checkpoint):
+    """The sealed provider is immutable; configuration changes never select a fallback."""
+    binding = checkpoint.get("semantic_model_binding")
+    if binding is None:
+        return
+    from hushh_mcp.services.drive_request_package_assessment import validate_semantic_model_binding
+
+    try:
+        if checkpoint.get("semantic_plan") is None:
+            raise ValueError("model binding requires semantic request")
+        validate_semantic_model_binding(binding)
+    except (ValueError, TypeError):
+        raise DriveReadError("search_superseded") from None
+
+
 def _identity(value: str) -> str:
     try:
         return str(UUID(value))
@@ -297,6 +312,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         ):
             raise DriveReadError("invalid_argument")
         _bounded_selection(checkpoint)
+        _semantic_binding_current(checkpoint)
         client = _identity(client_request_id)
         digest = self.search_cipher.digest("owner-search-request", [user_id, request])
         identity = str(uuid4())
@@ -1258,6 +1274,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 claimed = job["checkpoint"]
                 frozen = self._checkpoint(row)
                 semantic = claimed.get("semantic_plan")
+                _semantic_binding_current(claimed)
                 if semantic_search_request(private) != (semantic is not None):
                     raise DriveReadError("search_superseded")
                 if semantic is not None:
@@ -1267,6 +1284,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                             parsed.status == "ready"
                             and semantic_plan_digest(parsed) == claimed.get("semantic_plan_digest")
                             and claimed.get("semantic_purpose") == private.get("purpose")
+                            and claimed.get("semantic_model_binding")
+                            == private.get("semantic_model_binding")
                             and all(
                                 claimed.get(key) == frozen.get(key)
                                 for key in (
@@ -1274,6 +1293,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                                     "semantic_plan_digest",
                                     "semantic_purpose",
                                     "semantic_assessment_policy",
+                                    "semantic_model_binding",
                                 )
                             )
                         )
@@ -1399,6 +1419,11 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         def operation(connection):
             row = self._current(connection, job)
             saved_checkpoint = self._checkpoint(row)
+            _semantic_binding_current(saved_checkpoint)
+            if saved_checkpoint.get("semantic_model_binding") != checkpoint.get(
+                "semantic_model_binding"
+            ):
+                raise DriveReadError("search_superseded")
             if (saved_checkpoint.get("semantic_plan") is not None) != (
                 checkpoint.get("semantic_plan") is not None
             ):
@@ -1415,6 +1440,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                             "semantic_plan",
                             "semantic_plan_digest",
                             "semantic_assessment_policy",
+                            "semantic_model_binding",
                             "semantic_purpose",
                             "request_origin_id",
                             "request_revision",

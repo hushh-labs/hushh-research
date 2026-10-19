@@ -149,7 +149,7 @@ describe("Privacy Policy and Terms of Use pages", () => {
   it("discloses the separate Azure/Bing research opt-in and Bing privacy boundary", () => {
     const privacy = LEGAL_DOCUMENTS.privacy;
     const text = plainText(privacy);
-    expect(privacy.version).toBe("2.6");
+    expect(privacy.version).toBe("2.7");
     expect(privacy.lastUpdated).toBe("2026-10-19");
     expect(text).toContain("an earlier Google research setting does not authorize Microsoft research");
     expect(text).toContain("GPT-5-mini on Microsoft Azure AI receives your name");
@@ -163,6 +163,15 @@ describe("Privacy Policy and Terms of Use pages", () => {
     expect(screen.getByRole("link", { name: "Microsoft Privacy Statement" })).toHaveAttribute(
       "href", "https://privacy.microsoft.com/en-us/privacystatement",
     );
+  });
+
+  it("discloses private Azure scope and revocation separately from public research", () => {
+    const privacy = plainText(LEGAL_DOCUMENTS.privacy);
+    expect(privacy).toContain("Without current approval, the pilot cannot send these private text requests to Azure");
+    expect(privacy).toContain("relevant conversation history and memories");
+    expect(privacy).toContain("document-request purposes and relevant document text");
+    expect(privacy).toContain("Revocation blocks new private Azure text requests");
+    expect(privacy).toContain("This approval does not enable Bing search or Personal World Model research");
   });
 
   it("does not promise automatic expiry for manually created backups", () => {

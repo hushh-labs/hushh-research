@@ -15,6 +15,7 @@ import time
 from calendar import monthrange
 from contextlib import nullcontext
 from datetime import UTC, date, datetime, timedelta, timezone
+from functools import partial
 from zoneinfo import ZoneInfo
 
 from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, _open_url
@@ -1782,6 +1783,7 @@ class DriveOwnerSearchService:
         brain=None,
         plan_source=None,
         semantic_search=False,
+        semantic_model_binding=None,
     ):
         """Start or resume the owner-approved request's durable metadata search.
 
@@ -1827,6 +1829,8 @@ class DriveOwnerSearchService:
         query = purpose["purpose"]
         plan = _v1_meeting_note_plan(plan, purpose, v1_live_request=v1_live_request)
         semantic_plan = plan.get("semantic_query")
+        if semantic_model_binding is not None and semantic_plan is None:
+            raise DriveReadError("invalid_argument")
         if bool(semantic_plan is not None) != semantic_search:
             raise DriveReadError("invalid_argument")
         if semantic_plan is not None:
@@ -1840,7 +1844,13 @@ class DriveOwnerSearchService:
                 raise DriveReadError("invalid_argument")
             from hushh_mcp.services.drive_request_package_service import assessment_policy_version
 
-            semantic_policy = assessment_policy_version()
+            if semantic_model_binding is not None:
+                from hushh_mcp.services.drive_request_package_assessment import (
+                    validate_semantic_model_binding,
+                )
+
+                semantic_model_binding = validate_semantic_model_binding(semantic_model_binding)
+            semantic_policy = assessment_policy_version(semantic_model_binding)
         request = self._request(query, timezone)
         existing = await self.store.by_client(user_id=user_id, client_request_id=request_id)
         if existing is not None and existing["status"] in {"queued", "running"}:
@@ -1912,6 +1922,11 @@ class DriveOwnerSearchService:
                         "semantic_plan": semantic_plan,
                         "semantic_plan_digest": semantic_plan_digest(semantic_plan),
                         "semantic_assessment_policy": semantic_policy,
+                        **(
+                            {"semantic_model_binding": semantic_model_binding}
+                            if semantic_model_binding is not None
+                            else {}
+                        ),
                         "semantic_pending": [],
                         "semantic_seen": [],
                         "semantic_purpose": purpose,
@@ -2622,6 +2637,14 @@ class DriveOwnerSearchService:
 
         async def current():
             await self.store.require_current(job)
+            if current_binding["provider"] == "azure_openai":
+                from hushh_mcp.services.private_text_processing_approval_service import (
+                    require_private_azure_text_approval,
+                )
+
+                await require_private_azure_text_approval(
+                    job["user_id"], expected_generation=current_binding["approval_generation"]
+                )
 
         async def read(candidate):
             await current()
@@ -2656,11 +2679,28 @@ class DriveOwnerSearchService:
             "document_ref": f"candidate_{position}",
             "metadata": metadata,
         }
+        from hushh_mcp.services.drive_request_package_assessment import (
+            assess_request_document_batch,
+            validate_semantic_model_binding,
+        )
+
+        sealed_binding = checkpoint.get("semantic_model_binding")
+        try:
+            current_binding = validate_semantic_model_binding(sealed_binding)
+            current_policy = assessment_policy_version(sealed_binding)
+        except ValueError:
+            raise DriveReadError("source_changed") from None
         policy = checkpoint["semantic_assessment_policy"]
-        if policy != assessment_policy_version():
+        if policy != current_policy:
             raise DriveReadError("source_changed")
         assessor = self.candidate_assessor or assess_request_candidates
+        assessor_options = {}
+        if self.candidate_assessor is None:
+            assessor_options["assessor"] = partial(
+                assess_request_document_batch, model_binding=current_binding
+            )
         observations = await assessor(
+            **assessor_options,
             user_id=job["user_id"],
             request_id=checkpoint["request_origin_id"],
             request_revision=checkpoint["request_revision"],

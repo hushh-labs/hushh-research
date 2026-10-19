@@ -400,6 +400,72 @@ def test_uat_drive_worker_uses_the_evaluated_fleet_model() -> None:
     )
 
 
+def test_uat_semantic_provider_reaches_api_and_both_worker_revisions() -> None:
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    steps = workflow["jobs"]["deploy"]["steps"]
+    selector = "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT"
+    flag = "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER"
+    for step_id in ("deploy-backend", "deploy-drive-worker", "deploy-drive-v1-worker"):
+        step = next(item for item in steps if item.get("id") == step_id)
+        assert step["env"][selector] == "${{ vars." + selector + " || 'gemini' }}"
+    backend = next(item for item in steps if item.get("id") == "deploy-backend")
+    assert f"_{flag}=${{{selector}}}" in backend["run"]
+    build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    assert build["substitutions"][f"_{flag}"] == "gemini"
+    deployment = next(step for step in build["steps"] if step["id"] == "deploy-backend")
+    assert f'"{flag}=${{_{flag}}}"' in deployment["args"][1]
+    for script in ("deploy_worker_service.sh", "deploy_v1_worker_service.sh"):
+        source = _read(f"deploy/drive/{script}")
+        assert f'{selector}="${{{selector}:-gemini}}"' in source
+        assert f"{flag}=${{{selector}}}" in source
+        assert f'EXPECTED_SEMANTIC_MODEL_PROVIDER="${{{selector}}}"' in source
+    for lane in ("dev", "production"):
+        assert f"_{flag}=" not in _read(f".github/workflows/deploy-{lane}.yml")
+
+
+@pytest.mark.parametrize("lane", ["api", "worker", "v1"])
+@pytest.mark.parametrize("provider", [None, "gemini", "azure_openai", "unknown"])
+def test_uat_semantic_provider_deploy_guards_fail_closed(tmp_path, lane, provider) -> None:
+    selector = "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT"
+    environment = {"PATH": os.environ["PATH"]}
+    if provider is not None:
+        environment[selector] = provider
+    if lane == "api":
+        workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+        backend = next(
+            step
+            for step in workflow["jobs"]["deploy"]["steps"]
+            if step.get("id") == "deploy-backend"
+        )
+        start = backend["run"].index(
+            "if grep -q '^[[:space:]]*_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER:'"
+        )
+        end = backend["run"].index("\nfi", start) + len("\nfi")
+        guard = backend["run"][start:end]
+        (tmp_path / "deploy").mkdir()
+        (tmp_path / "deploy/backend.cloudbuild.yaml").write_text(
+            "  _DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER: gemini\n"
+        )
+        # GitHub supplies this declared default before the shell starts.
+        environment.setdefault(selector, "gemini")
+        guard = 'SUBSTITUTIONS=""\n' + guard
+    else:
+        script = "deploy_worker_service.sh" if lane == "worker" else "deploy_v1_worker_service.sh"
+        source = _read(f"deploy/drive/{script}")
+        start = source.index(f'{selector}="${{{selector}:-gemini}}"')
+        end = source.index("\nesac", start) + len("\nesac")
+        guard = source[start:end]
+    result = subprocess.run(  # noqa: S603 - bounded authored guards, synthetic env, no cloud calls
+        [shutil.which("bash") or "bash", "-c", "set -euo pipefail\n" + guard],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is (provider != "unknown")
+
+
 def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
     workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
     selection = workflow["jobs"]["select-target"]
