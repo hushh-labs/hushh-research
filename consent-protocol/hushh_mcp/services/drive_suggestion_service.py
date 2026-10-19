@@ -14,11 +14,12 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
 from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
+from hushh_mcp.runtime_providers.vertex_failover import is_retryable_vertex_error
 from hushh_mcp.services.drive_candidate_selection import (
     interpret_candidate_selection,
     select_matches,
@@ -29,6 +30,7 @@ from hushh_mcp.services.drive_document_retrieval import (
 )
 from hushh_mcp.services.drive_live_reader import DriveLiveReader
 from hushh_mcp.services.drive_packet_contract import EvidenceModel
+from hushh_mcp.services.drive_request_model_feedback import validation_feedback
 from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlan
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingError,
@@ -437,6 +439,10 @@ class SemanticLiveSearchModelPlan(LiveSearchModelPlan):
         return self
 
 
+class _SemanticPlannerOutputError(ValueError):
+    """A completed semantic turn returned undecodable output, not a config fault."""
+
+
 async def interpret_live_search(*, prompt, user_id):
     return await _interpret_live_search(prompt=prompt, user_id=user_id, semantic=False)
 
@@ -455,13 +461,20 @@ async def _interpret_live_search(*, prompt, user_id, semantic):
         gene,
         output_schema=SemanticLiveSearchModelPlan if semantic else LiveSearchModelPlan,
     )
-    result = await run_single_turn(
-        agent,
-        prompt_parts=prompt,
-        user_id=user_id,
-        consent_token="",
-        timeout_seconds=PLANNER_TIMEOUT_SECONDS,  # nosec B106
-    )
+    try:
+        result = await run_single_turn(
+            agent,
+            prompt_parts=prompt,
+            user_id=user_id,
+            consent_token="",
+            timeout_seconds=PLANNER_TIMEOUT_SECONDS,  # nosec B106
+        )
+    except ValidationError:
+        raise
+    except ValueError as error:
+        if not semantic:
+            raise
+        raise _SemanticPlannerOutputError() from error
     return result.model_dump(mode="json") if hasattr(result, "model_dump") else result
 
 
@@ -493,17 +506,61 @@ async def plan_live_search(planner, *, prompt, user_id) -> LiveSearchPlan:
 
 async def plan_semantic_live_search(planner, *, prompt, user_id) -> SemanticLiveSearchModelPlan:
     """Validate the entire semantic output; never replace an invalid interpretation."""
+    original_prompt = prompt
+    started = asyncio.get_running_loop().time()
     for attempt in (1, 2):
+        model_returned = False
         try:
-            return SemanticLiveSearchModelPlan.model_validate(
-                await planner(prompt=prompt, user_id=user_id)
-            )
-        except (ValueError, SpecialistAdkTurnError, DriveReadError):
+            raw = await planner(prompt=prompt, user_id=user_id)
+            model_returned = True
+            return SemanticLiveSearchModelPlan.model_validate(raw)
+        except SpecialistAdkTurnError as error:
+            if attempt == 2 or not _retryable_semantic_transport(error):
+                raise
+            # Transport failure supplied no model judgment to correct. Restore
+            # the original request even if the first attempt was a correction.
+            prompt = original_prompt
+            if is_retryable_vertex_error(error):
+                # Spend only unused time from the existing first-call slot;
+                # preserve the two-call budget rather than extending it.
+                spare = PLANNER_TIMEOUT_SECONDS - (asyncio.get_running_loop().time() - started)
+                if spare > 0:
+                    await asyncio.sleep(min(1.0, spare))
+            logger.info("drive_search_plan.retry reason=transport_unavailable")
+        except (ValueError, DriveReadError) as error:
             if attempt == 2:
                 raise
+            if not model_returned and not isinstance(
+                error, (ValidationError, _SemanticPlannerOutputError, DriveReadError)
+            ):
+                # A builder/configuration ValueError is not invalid model output.
+                raise
+            if isinstance(error, DriveReadError) and error.code != "narrow_selection_required":
+                raise
             logger.info("drive_search_plan.retry reason=invalid_semantic_plan")
-            prompt = f"{prompt}\n\nplanner_validation_feedback: invalid_semantic_plan"
+            feedback = validation_feedback(error, schema=SemanticLiveSearchModelPlan)
+            prompt = (
+                f"{original_prompt}\n\nplanner_validation_feedback: "
+                f"{json.dumps(feedback, separators=(',', ':'))}"
+            )
     raise AssertionError("unreachable")
+
+
+def _retryable_semantic_transport(error: SpecialistAdkTurnError) -> bool:
+    if is_retryable_vertex_error(error):
+        return True
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, TimeoutError):
+            return True
+        # Unclassified provider/configuration errors, including 401/403, are
+        # not timeout failures and must not spend a second model request.
+        if hasattr(current, "code") or hasattr(current, "status_code"):
+            return False
+        current = current.__cause__ or current.__context__
+    return False
 
 
 async def interpret_suggestions(*, prompt, user_id):

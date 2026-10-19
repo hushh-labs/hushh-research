@@ -2527,7 +2527,8 @@ def _semantic_content_io(service, bodies, decisions):
                 False,
             )
 
-    async def model(*, request, retrieved, user_id):
+    async def model(*, request, retrieved, user_id, require_current):
+        await require_current()
         source = retrieved["untrusted_external_content"][0]
         # These pre-labelled synthetic answers test transport/selection/binding,
         # not whether a real model can infer relevance from arbitrary language.

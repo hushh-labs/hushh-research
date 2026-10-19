@@ -7,22 +7,30 @@ model assessments, never calibrated probabilities or permission grants.
 
 from __future__ import annotations
 
+import asyncio
 import calendar
 import json
 import re
+from collections.abc import Awaitable, Callable
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+from hushh_mcp.runtime_providers.vertex_failover import is_retryable_vertex_error
+from hushh_mcp.services.drive_request_model_feedback import validation_feedback
 
 MAX_BATCH_DOCUMENTS = 6
 MAX_PACKAGE_DOCUMENTS = 120
 MAX_PROMPT_BYTES = 160 * 1024
 ASSESSMENT_TIMEOUT_SECONDS = 60
+
+
+class RequestAssessmentAuthorityError(RuntimeError):
+    """Keep a failed current-authority guard outside model-failure handling."""
 
 
 class EvidenceQuote(BaseModel):
@@ -659,6 +667,74 @@ def validate_document_batch(result, *, retrieved: dict) -> BoundDocumentBatchAss
     return BoundDocumentBatchAssessment(documents=bound)
 
 
+def _request_period(request: dict) -> tuple[date, date] | None:
+    if request.get("dateBasis") != "content":
+        return None
+    first, last = (
+        date.fromisoformat(request["periodStart"]),
+        date.fromisoformat(request["periodEnd"]),
+    )
+    if first > last:
+        raise ValueError("reversed requested content period")
+    return first, last
+
+
+def validate_request_document_batch(
+    result, *, request: dict, retrieved: dict
+) -> BoundDocumentBatchAssessment:
+    """Preserve exact evidence checks, including requested content-date grounding."""
+    period_window = _request_period(request)
+    parsed = validate_document_batch(result, retrieved=retrieved)
+    if period_window is None:
+        return parsed
+    first, last = period_window
+    for item in parsed.documents:
+        if item.decision != "include":
+            continue
+        if item.period_role == "unknown" or not item.covered_periods:
+            raise ValueError("content period is unverified")
+        quotes = {citation.source_ref: citation.quote for citation in item.citations}
+        for period in item.covered_periods:
+            quotation = "\n".join(quotes[ref] for ref in period.source_refs)
+            if not all(
+                _cited_day(date.fromisoformat(day), quotation)
+                for day in (period.period_start, period.period_end)
+            ):
+                raise ValueError("content period is unverified")
+        if not any(
+            date.fromisoformat(period.period_start) <= last
+            and date.fromisoformat(period.period_end) >= first
+            for period in item.covered_periods
+        ):
+            raise ValueError("content period outside request")
+    return parsed
+
+
+def _model_validation_error(error: BaseException) -> BaseException | None:
+    """Only structured-output failures qualify for a model correction."""
+    current = error
+    seen = set()
+    for _ in range(6):
+        if id(current) in seen:
+            break
+        seen.add(id(current))
+        if isinstance(current, (ValidationError, json.JSONDecodeError)):
+            return current
+        current = current.__cause__ or current.__context__
+        if current is None:
+            break
+    return None
+
+
+async def _require_request_current(require_current):
+    if require_current is None:
+        return
+    try:
+        await require_current()
+    except Exception as error:
+        raise RequestAssessmentAuthorityError("request authority ended") from error
+
+
 async def assess_document_batch(
     *, request: dict, retrieved: dict, user_id: str, interpreter=interpret_document_batch
 ) -> BoundDocumentBatchAssessment:
@@ -677,17 +753,86 @@ async def assess_document_batch(
 
 
 async def assess_request_document_batch(
-    *, request: dict, retrieved: dict, user_id: str, interpreter=interpret_request_document_batch
+    *,
+    request: dict,
+    retrieved: dict,
+    user_id: str,
+    interpreter=interpret_request_document_batch,
+    require_current: Callable[[], Awaitable[None]] | None = None,
 ) -> BoundDocumentBatchAssessment:
-    """Reuse exact source validation with the compact request-only assessment gene."""
+    """At most one correction or transient retry inside the existing model budget.
+
+    A correction adds only bounded machine feedback to the original request and
+    sources. Valid exclusions and uncertainty are complete model judgments.
+    """
     if request.get("assessmentMode") not in {None, "generic_request_candidate_v1"}:
         raise ValueError("invalid request assessment mode")
-    return await assess_document_batch(
-        request={**request, "assessmentMode": "generic_request_candidate_v1"},
-        retrieved=retrieved,
-        user_id=user_id,
-        interpreter=interpreter,
-    )
+    _sources(retrieved)
+    _request_period(request)
+    request = {**request, "assessmentMode": "generic_request_candidate_v1"}
+    payload = {
+        "package_mode": "document_assessment",
+        "document_request": request,
+        "retrieved_documents": retrieved,
+    }
+    prompt = _prompt(payload)
+    async with asyncio.timeout(ASSESSMENT_TIMEOUT_SECONDS):
+        for attempt in (1, 2):
+            await _require_request_current(require_current)
+            try:
+                result = await interpreter(prompt=prompt, user_id=user_id)
+            except Exception as error:
+                if attempt == 2:
+                    raise
+                invalid = _model_validation_error(error)
+                if invalid is None:
+                    if not is_retryable_vertex_error(error):
+                        raise
+                    # Confirmed transient transport failure has no judgment to
+                    # correct. Replay the same prompt within the shared budget.
+                    await asyncio.sleep(0.5)
+                    continue
+                feedback = validation_feedback(invalid, schema=DocumentBatchAssessment)
+            else:
+                await _require_request_current(require_current)
+                try:
+                    return validate_request_document_batch(
+                        result, request=request, retrieved=retrieved
+                    )
+                except ValueError as error:
+                    if attempt == 2:
+                        raise
+                    feedback = validation_feedback(error, schema=DocumentBatchAssessment)
+                    # These are host-owned structural evidence failures only.
+                    # Unknown errors and Pydantic values never become prose in
+                    # a correction prompt; no model judgment is replaced here.
+                    if type(error) is ValueError and len(error.args) == 1:
+                        rule = {
+                            "assessment must account for every supplied document exactly once": (
+                                "all_document_refs_required_once"
+                            ),
+                            "assessment citation does not match observed content": (
+                                "citation_must_match_same_document_source"
+                            ),
+                            "content period requires same-document cited evidence": (
+                                "period_requires_cited_same_document_source"
+                            ),
+                            "content period is unverified": (
+                                "included_coverage_requires_cited_role_and_endpoint_dates"
+                            ),
+                            "content period outside request": (
+                                "included_coverage_requires_requested_overlap"
+                            ),
+                        }.get(error.args[0] if isinstance(error.args[0], str) else None)
+                        if rule:
+                            feedback["rule"] = rule
+            prompt = _prompt(
+                {
+                    **payload,
+                    "assessment_validation_feedback": feedback,
+                }
+            )
+    raise AssertionError("unreachable")
 
 
 async def assess_package(
