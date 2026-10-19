@@ -21,8 +21,8 @@ import {
   SpinnerGapIcon as Loader2,
   ArrowsClockwiseIcon as RefreshCw,
   UserCircleIcon as User,
-  PROFILE_ICONS,
 } from "@/components/icons";
+import { PROFILE_ICONS } from "@/components/icons/profile-icons";
 import { VoiceRowIcon } from "@/components/icons/agents";
 import accountStyles from "@/components/profile/profile-your-account.module.css";
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
