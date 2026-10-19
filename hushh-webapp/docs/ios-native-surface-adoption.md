@@ -18,6 +18,25 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Combined physical checkpoint — 2026-10-19
 
+The next installed UAT-backed Release qualification candidate, `7e70d9885f`,
+restores the native hamburger and agent selector through seven strengthened
+background/resume cycles. The eighth Profile opening fails; a subsequent
+read-only admission check finds all controls available. Separately, ten warm
+Profile cycles and three measurement iterations execute successfully, but
+navigation reports zero rendered frames with nonzero FPS. Those metrics are
+unusable and **do not qualify performance**. This is not a clean ten-cycle
+interruption result, nor an accepted-default Release.
+
+The shell's Open handler also reads Next's stale concurrent query in addition
+to the current History entry. After Close, that stale `open` can discard a new
+tap as already open. Open/Close now use the existing synchronous History owner,
+matching the Profile presentation snapshot. Typecheck, lint, 26 nearest
+navigation checks and generated UI contracts pass. Fresh physical verification
+is separate; this source race is not claimed as the sole cause of the eighth
+cycle's failure. The existing three-iteration measurement also includes actual
+native Profile scrolling with Apple's scrolling/deceleration metric; a green
+test still requires usable exported frame evidence.
+
 UAT-backed app `09830bc94b` traverses all 13 recorded native Profile destinations,
 including their implemented editors, menus, Invite friends and Legal return.
 The same WebView and draft survive; reviewer changes are cancelled, not saved.
