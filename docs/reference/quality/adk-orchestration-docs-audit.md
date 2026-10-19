@@ -12,6 +12,16 @@ consent, placement and updates. Puppy inference executes on the explicitly grant
 trusted machine through its bound pod; it never silently falls back to cloud AI.
 Selected external model providers retain their disclosed processing boundary.
 
+## Visual Context
+
+Use the [Founder/CTO diagram guide](../architecture/README.md#founder-and-cto-diagram-guide)
+and [private-agent north star](../architecture/private-agent-north-star.md).
+Operating detail stays in the [dev pod runbook](../operations/dev-pod-first-light-runbook.md),
+[Files runbook](../operations/private-files-library.md),
+[deletion runbook](../operations/account-deletion-rollout.md) and
+[deployment standard](../architecture/deployment-standard.md).
+
+
 ## What works / what must change
 
 | Journey | Demonstrated outcome | Next measurable result |
@@ -66,7 +76,7 @@ closed. See [native Browser evidence](../../../consent-protocol/docs/reference/p
 ### Local integration candidate — 2026-10-19 UTC
 
 Fresh main `f47a4832dbc` and frozen local ADK `42bb9823005` are integrated
-through `cb2a136cd3` in an isolated checkout. Peer edits and the active ADK tree
+through `ac3dea21ef` in an isolated checkout. Peer edits and the active ADK tree
 remain intact. Provider-aware AI selection, Puppy controls and exact owner/vault
 authority were preserved across main's extracted UI models. Async AI/key/device
 operations now retain their original owner generation; Wallet reopen assertions
@@ -76,10 +86,12 @@ Focused receipts: 350 backend passes (73 environment skips), 77 deployment check
 131 final authority/UI checks, 484 Back cases and 38 ADK error cases. TypeScript,
 generated UI contracts and Swift parsing pass. The `.agents` consolidation retains
 45 governed skills, 22 practices, 19 lanes and 40 workflows behind checked host
-adapters. All 209 maintained diagrams rendered before the stale UI snapshots were
-removed; changed maps were visually inspected. These are local source results,
-not installed-cloud acceptance or a full core receipt. The integrated architecture
-baseline is under review; its gate currently refuses inherited/new findings.
+adapters. All 209 maintained diagrams render after seven stale UI snapshots were consolidated;
+changed maps were visually inspected. These are local source results, not installed-cloud
+acceptance or a full core receipt. Read-only frontend/backend and parent governance
+review reconciled 307 exact structural ceilings: 228 findings match a frozen parent;
+79 are reviewed compositions. Historical annotations and 500/250/80 budgets remain;
+the ratchet and its negative controls pass. This does not clear product blockers.
 
 Files recovery now persists provider-confirmed cancellation before later checks and
 retains it across failure/restart. Exact-session HTTP 410 is a separate invalidation
@@ -147,20 +159,14 @@ draft. No application main merge, UAT/production deployment, stable publication 
 automatic owner upgrade occurred. Managed Hussh provisioning and unqualified
 Shared/pod/cross-cloud moves remain unavailable.
 
-## Visual Context
-
-Use the [Founder/CTO diagram guide](../architecture/README.md#founder-and-cto-diagram-guide)
-and [private-agent north star](../architecture/private-agent-north-star.md).
-Operating detail stays in the [dev pod runbook](../operations/dev-pod-first-light-runbook.md),
-[Files runbook](../operations/private-files-library.md),
-[deletion runbook](../operations/account-deletion-rollout.md) and
-[deployment standard](../architecture/deployment-standard.md).
 
 ## Reviewed integration debt
 
 Historical anchor: the [architecture baseline](./architecture-fitness-baseline.json)
-owns reviewed spans, hashes and negative controls; the ratchet, exclusions and
-budgets remain unchanged. Existing integration chronology and original failed
+owns reviewed spans, hashes and negative controls. The 2026-10-19 integration
+record preserves all prior annotations, maps only active moved identities and binds
+selective ceilings to exact source hashes and parent provenance; the ratchet,
+exclusions and budgets remain unchanged. Existing integration chronology and original failed
 runs remain in Git. Scope-commerce qualification at `da6b4cdb8dec` retained all
 26 reviewed production deltas; it does not establish financial release acceptance.
 The separate workflow/Admin repair [PR #8121](https://github.com/hushh-labs/hushh-research/pull/8121)
