@@ -512,7 +512,7 @@ steps:
       - "_ANSWER_WORK_DRAIN_AUDIENCE=${_ANSWER_WORK_DRAIN_AUDIENCE}"
     id: "deploy-backend"
 
-  # UAT Azure PWM must prove federation and both model deployments from the
+  # UAT Azure PWM must prove federation, strict schema and attribution from the
   # exact no-traffic candidate image and runtime identity before promotion.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"

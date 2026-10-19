@@ -57,6 +57,8 @@ def policy_fingerprint() -> str:
 
     task = manifest()
     if POLICY["provider"] == "azure_openai_web_search":
+        from hushh_mcp.one_adk.world_model_azure import azure_execution_contract
+
         # A provider switch changes the owner-bound research generation. Keep
         # this fingerprint separate from Vertex's existing checkpoint lineage.
         material = {
@@ -69,6 +71,7 @@ def policy_fingerprint() -> str:
             "policy": POLICY,
             "provider": "azure-openai-web-search-v1",
             "gate": "evidence-chain-v2",
+            "azure_execution": azure_execution_contract(),
         }
         return hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
     return hashlib.sha256(

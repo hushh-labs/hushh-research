@@ -48,9 +48,9 @@ const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 const LAST_UPDATED = "2026-10-16";
 const LAST_UPDATED_LABEL = "October 16, 2026";
 const VERSION = "2.4";
-const PRIVACY_LAST_UPDATED = "2026-10-16";
-const PRIVACY_LAST_UPDATED_LABEL = "October 16, 2026";
-const PRIVACY_VERSION = "2.5";
+const PRIVACY_LAST_UPDATED = "2026-10-19";
+const PRIVACY_LAST_UPDATED_LABEL = "October 19, 2026";
+const PRIVACY_VERSION = "2.6";
 
 const p = (...text: LegalInline[]): LegalBlock => ({ kind: "p", text });
 const h = (text: string): LegalBlock => ({ kind: "h", text });
@@ -178,7 +178,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       ),
       h("Personal World Model public research in UAT"),
       p(
-        "Where available in UAT, this research is off until you turn it on in Personal World Model; an earlier Google research setting does not authorize Microsoft research. GPT-5-mini on Microsoft Azure AI receives your name, verified email address or phone number, public page text and citations, and your earlier confirmations or rejections to assess likely matches and avoid repeating suggestions. Phi-4-mini helps plan searches using only which identity fields are present and public research identifiers and counts; it does not receive your raw name, verified contacts, or review decisions. This research does not receive your vault key or private memories. You review every suggested detail before it is saved.",
+        "Where available in UAT, this research is off until you turn it on in Personal World Model; an earlier Google research setting does not authorize Microsoft research. GPT-5-mini on Microsoft Azure AI receives your name, verified email address or phone number, public page text and citations, and your earlier confirmations or rejections to assess likely matches and avoid repeating suggestions. GPT-5 mini also plans follow-up searches from received public profile labels and source URLs; earlier review decisions are not included in search-planning inputs. This research does not receive your vault key or private memories. You review every suggested detail before it is saved.",
       ),
       p(
         "Bing web search receives search terms that may include your name, verified email address or phone number, and links found on public pages. Bing search processing is outside Azure's compliance and data residency boundary; Azure's data protection commitments for AI model requests do not cover Bing search. You can turn research and its ready email off in Personal World Model.",
