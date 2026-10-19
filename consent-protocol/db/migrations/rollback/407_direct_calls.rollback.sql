@@ -5,6 +5,8 @@ DO $$ BEGIN
   RAISE EXCEPTION 'DIRECT_CALLS_MUST_END_BEFORE_ROLLBACK';
  END IF;
 END $$;
+DROP TABLE IF EXISTS public.direct_call_voip_outbox;
+DROP TABLE IF EXISTS public.direct_call_voip_tokens;
 DROP TABLE IF EXISTS public.direct_call_signals;
 DROP TABLE IF EXISTS public.direct_call_commands;
 DROP TABLE IF EXISTS public.direct_call_slots;

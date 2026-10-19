@@ -32,7 +32,7 @@ def prepare_call_schema(engine):
           CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY,public_person_ref UUID);
           CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY,display_name TEXT);
           CREATE TABLE trusted_devices(device_id TEXT PRIMARY KEY,user_id TEXT,
-            device_public_key TEXT,status TEXT DEFAULT 'active',UNIQUE(user_id,device_id));
+            device_public_key TEXT,status TEXT DEFAULT 'active',platform TEXT DEFAULT 'ios',UNIQUE(user_id,device_id));
           CREATE TABLE connections(user_a_id TEXT,user_b_id TEXT,status TEXT,PRIMARY KEY(user_a_id,user_b_id));
           CREATE TABLE conversations(id UUID PRIMARY KEY,participant_a_user_id TEXT,participant_b_user_id TEXT,
             UNIQUE(participant_a_user_id,participant_b_user_id));
@@ -82,7 +82,9 @@ def calls(monkeypatch):
             keys[device] = (owner, key)
             with engine.begin() as conn:
                 conn.execute(
-                    text("INSERT INTO trusted_devices VALUES(:device,:owner,:public,'active')"),
+                    text(
+                        "INSERT INTO trusted_devices(device_id,user_id,device_public_key,status) VALUES(:device,:owner,:public,'active')"
+                    ),
                     {"device": device, "owner": owner, "public": public},
                 )
         for env in (
@@ -110,7 +112,7 @@ def calls(monkeypatch):
                         proof_bytes(owner, operation, payload, proof), ec.ECDSA(hashes.SHA256())
                     )
                 ).decode()
-            method = "register_key" if operation == "register-key" else operation
+            method = operation.replace("-", "_")
             return getattr(service, method)(owner, payload, proof)
 
         for device, (_owner, key) in keys.items():
@@ -245,3 +247,113 @@ def test_first_call_materializes_pair_without_manufacturing_a_message(calls):
     with engine.begin() as conn:
         assert conn.execute(text("SELECT count(*) FROM conversations")).scalar_one() == 1
         assert conn.execute(text("SELECT to_regclass('public.messages')")).scalar_one() is None
+
+
+def native_tokens(monkeypatch, invoke):
+    key = ec.generate_private_key(ec.SECP256R1())
+    pem = key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    ).decode()
+    for name, value in {
+        "TEAM_ID": "SYNTHETIC1",
+        "KEY_ID": "SYNTHETIC2",
+        "PRIVATE_KEY": pem,
+        "BUNDLE_ID": "test.synthetic.calling",
+        "ENVIRONMENT": "sandbox",
+    }.items():
+        monkeypatch.setenv("DIRECT_CALLS_APNS_" + name, value)
+    for device, token in [("tdv_bob_one", "ab" * 32), ("tdv_bob_two", "cd" * 32)]:
+        invoke(device, "register-voip", {"token": token, "environment": "sandbox"})
+
+
+class SyntheticAPNS:
+    def __init__(self, status=200):
+        self.requests = []
+        self.status = status
+
+    def post(self, url, *, headers, json):
+        self.requests.append((url, headers, json))
+        return SimpleNamespace(status_code=self.status)
+
+
+def test_native_outbox_is_atomic_opaque_once_and_fenced_to_registration(calls, monkeypatch):
+    from hushh_mcp.services.direct_call_voip import drain
+
+    service, engine, invoke = calls
+    native_tokens(monkeypatch, invoke)
+    call = ring(invoke)
+    client = SyntheticAPNS()
+    assert drain(service.db, client=client)["accepted"] == 2
+    assert len(client.requests) == 2
+    for _url, headers, payload in client.requests:
+        assert set(payload) == {"aps", "callId", "deviceId", "keyId", "expiresAt"}
+        assert payload["callId"] == call["id"]
+        assert headers["apns-push-type"] == "voip" and headers["apns-expiration"] == "0"
+    assert client.requests[0][1]["authorization"] == client.requests[1][1]["authorization"]
+    assert drain(service.db, client=client)["accepted"] == 0
+    assert len(client.requests) == 2
+    # Token ownership transfers even if old-owner logout was offline.
+    invoke("tdv_alice", "register-voip", {"token": "ab" * 32, "environment": "sandbox"})
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT user_id FROM direct_call_voip_tokens WHERE token=:token"),
+            {"token": "ab" * 32},
+        ).all()
+        assert rows == [("alice",)]
+
+
+@pytest.mark.parametrize("boundary", ["block", "revoke", "rotate", "expired"])
+def test_native_pending_delivery_rechecks_authority_and_token_generation(
+    calls, monkeypatch, boundary
+):
+    from hushh_mcp.services.direct_call_voip import drain
+
+    service, engine, invoke = calls
+    native_tokens(monkeypatch, invoke)
+    ring(invoke)
+    if boundary == "rotate":
+        for device, token in [("tdv_bob_one", "ef" * 32), ("tdv_bob_two", "01" * 32)]:
+            invoke(device, "register-voip", {"token": token, "environment": "sandbox"})
+    else:
+        with engine.begin() as conn:
+            sql = {
+                "block": "INSERT INTO direct_message_blocks VALUES('bob','alice')",
+                "revoke": "UPDATE trusted_devices SET status='revoked' WHERE user_id='bob'",
+                "expired": "UPDATE direct_calls SET expires_at=clock_timestamp()-interval '1 second'",
+            }[boundary]
+            conn.execute(text(sql))
+    client = SyntheticAPNS()
+    drain(service.db, client=client)
+    assert client.requests == []
+    if boundary == "expired":
+        purge_batch(db=service.db)
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM direct_call_voip_outbox")).scalar_one() == 0
+
+
+def test_native_retry_and_invalid_token_cleanup(calls, monkeypatch):
+    from hushh_mcp.services.direct_call_voip import drain
+
+    service, engine, invoke = calls
+    native_tokens(monkeypatch, invoke)
+    ring(invoke)
+    client = SyntheticAPNS(status=503)
+    assert drain(service.db, client=client)["retry"] == 2
+    assert drain(service.db, client=client)["retry"] == 0  # scheduled backoff
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE direct_call_voip_outbox SET next_attempt_at=clock_timestamp()"))
+    client.status = 410
+    assert drain(service.db, client=client)["rejected"] == 2
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM direct_call_voip_tokens")).scalar_one() == 0
+
+
+def test_native_registration_rejects_other_platform_and_wrong_environment(calls, monkeypatch):
+    _service, engine, invoke = calls
+    native_tokens(monkeypatch, invoke)
+    with pytest.raises(CallError, match="environment"):
+        invoke("tdv_alice", "register-voip", {"token": "23" * 32, "environment": "production"})
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE trusted_devices SET platform='web' WHERE device_id='tdv_alice'"))
+    with pytest.raises(CallError, match="iOS"):
+        invoke("tdv_alice", "register-voip", {"token": "23" * 32, "environment": "sandbox"})

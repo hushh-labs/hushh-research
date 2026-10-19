@@ -6,13 +6,14 @@ import logging
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import limiter
 from api.routes.one.private_message_route import PrivateMessageRoute
+from hushh_mcp.services import direct_call_voip
 from hushh_mcp.services.direct_call_policy import CallError
 from hushh_mcp.services.direct_calls_service import DirectCallsService
 
@@ -48,6 +49,11 @@ class KeyPayload(Strict):
 
 class InboxPayload(Strict):
     pass
+
+
+class VoIPPayload(Strict):
+    token: str | None = Field(pattern=r"^[a-f0-9]{64,200}$")
+    environment: Literal["sandbox", "production"]
 
 
 class DirectoryPayload(Strict):
@@ -107,6 +113,7 @@ _PAYLOADS: dict[str, type[Strict]] = {
     "credentials": CredentialPayload,
     "inbox": InboxPayload,
     "offer": OfferPayload,
+    "register-voip": VoIPPayload,
 }
 
 
@@ -119,6 +126,7 @@ async def capabilities(user: str = Depends(require_firebase_auth)):
 @limiter.limit("180/minute")
 async def command(
     request: Request,
+    background_tasks: BackgroundTasks,
     operation: Literal[
         "register-key",
         "directory",
@@ -129,6 +137,7 @@ async def command(
         "credentials",
         "inbox",
         "offer",
+        "register-voip",
     ],
     body: Command,
     user: str = Depends(require_firebase_auth),
@@ -141,11 +150,14 @@ async def command(
         )
     except ValidationError:
         raise HTTPException(422, "Invalid call command.") from None
-    method = "register_key" if operation == "register-key" else operation
+    method = operation.replace("-", "_")
     try:
-        return await run_in_threadpool(
+        result = await run_in_threadpool(
             getattr(DirectCallsService(), method), user, payload, body.proof.model_dump(mode="json")
         )
+        if operation == "offer" and direct_call_voip.available():
+            background_tasks.add_task(direct_call_voip.deliver_after_offer)
+        return result
     except CallError as exc:
         raise HTTPException(exc.status, {"code": exc.code, "message": exc.message}) from None
     except Exception as exc:

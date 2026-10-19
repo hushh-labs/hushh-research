@@ -57,7 +57,9 @@ binds call, conversation, both devices, description kind and sequence. Each part
 anchors its actual local encryption/signing tuple, then compares the two winning
 endpoints' security code over a trusted independent channel. A directory-only
 fingerprint would not protect against directory substitution. Verification is
-remembered only for that endpoint pair in the current UI session.
+remembered only for that endpoint pair in the current browser UI session. iOS
+stores bounded public verified-pair fingerprints in its owner-bound calling
+Keychain record so a previously verified pair can answer while locked.
 
 Media uses a new peer connection per call and standard DTLS-SRTP. Only relay ICE
 candidates are accepted. Signed/encrypted SDP fingerprints are verified before
@@ -66,12 +68,78 @@ or performs inference. See [WebRTC security architecture](https://www.rfc-editor
 
 ## Lifetime and maintenance
 
-Calls acquire the existing exclusive foreground voice lease. Late permission,
+Browser calls acquire the existing exclusive foreground voice lease. Late permission,
 playback and HTTP results cannot restart or overwrite superseded calls.
 Microphone loss, lease revocation, backgrounding, page exit, hangup and owner
 teardown stop tracks/audio locally without waiting for HTTP cleanup. One modal
 owns call/verification state. Verification is the top Back layer; failures are
 visible and announced.
+
+## iOS native calling
+
+`CallingCoordinator` owns call lifetime from application launch, independently of
+React. The Capacitor adapter exposes intents and public state only. Swift-native
+signing/agreement keys enroll as a purpose-separated iOS installation through the
+existing trusted-device authority; browser IndexedDB private keys are never
+exported or silently replaced. Physical devices use Secure Enclave P-256 keys;
+the simulator uses synthetic/software P-256 keys. The dedicated calling Keychain
+record is environment/owner bound and uses `AfterFirstUnlockThisDeviceOnly`.
+Before the first unlock after reboot, calling fails closed. Vault and PKM key
+accessibility is unchanged.
+
+Native CryptoKit uses the same HPKE suite, canonical command proofs, DER SPKI and
+DER signatures as web. CI compiles the actual native wire source and exchanges
+synthetic encrypted offers and signatures in both directions with browser code.
+The app pins WebRTC 149.0.0 at `ff4647dc67f00d037c199c69e1a1ee8ceda88236`;
+the binary checksum is
+`79c5a3e49a68de30a99baabaf5b4c0067dd7a0b66fdd4b8afb8ec337e746abba`.
+Its exact BSD license is bundled with the app.
+
+PushKit and CallKit are initialized outside the WebView. Incoming pushes report
+promptly to CallKit, then fetch authenticated canonical state before answering.
+Only opaque call/device/key identifiers and the deadline travel in the push.
+First/new-key calls require foreground security-code comparison; a push never
+grants trust. Native WebRTC permits relay candidates only, waits for the actual
+DTLS peer connection, and keeps audio disabled until peer verification and
+CallKit audio activation. Native calls and One Voice share microphone ownership.
+Navigation/backgrounding preserves native calls; terminal state, owner changes,
+revocation, negotiation timeout and prolonged disconnect stop local media.
+
+PushKit tokens are distinct from ordinary FCM tokens. Signed registration binds
+an active iOS trusted device and communication key. The server selects the APNs
+topic/environment; a mismatched Debug sandbox/Release production build is
+rejected. Token reuse transfers ownership to one installation. Token invalidation
+removes registration; normal native sign-out stops media/PushKit immediately and
+attempts authenticated unregister for at most two seconds before Firebase
+sign-out. Offline cleanup can fail; revocation and local owner checks still fence
+audio, and invalid-token provider responses remove stale registrations.
+
+The offer-to-ringing transaction also creates a durable push outbox. Dispatch
+rechecks relationship, blocks, caller and exact target device, token generation,
+deadline and ringing state under the existing lock order. APNs provider authorization tokens are reused
+for 40 minutes, delivery retries are bounded, and no update/cancellation-only
+VoIP pushes are sent. Telemetry suppresses HTTP instrumentation and redacts APNs
+device paths. Aggregate provider acceptance is not device-delivery proof.
+
+APNs provider configuration is server-only: `DIRECT_CALLS_APNS_TEAM_ID`,
+`DIRECT_CALLS_APNS_KEY_ID`, `DIRECT_CALLS_APNS_PRIVATE_KEY`,
+`DIRECT_CALLS_APNS_BUNDLE_ID`, and `DIRECT_CALLS_APNS_ENVIRONMENT`
+(`sandbox` or `production`). iOS capability additionally requires
+`DIRECT_CALLS_VOIP_WORKER_QUALIFIED=1` and valid provider configuration. No keys,
+provisioning profiles, secrets or deployment flags are installed by this PR.
+Supervise the retry worker in the same environment/backend authority:
+
+```bash
+cd consent-protocol
+python -m hushh_mcp.services.direct_call_voip --watch
+```
+
+Post-offer delivery retries are also triggered in the backend threadpool; the
+supervised worker recovers the commit-to-background-task crash window. Qualify
+its restart behavior and APNs receipt before enabling the native capability.
+Physical two-account iPhone foreground/background/locked/cold answer,
+interruption, logout, changed keys, revocation and relay failure remain required;
+an Xcode/simulator pass cannot establish those outcomes.
 
 Preparation/ringing expires after 45 seconds. Calls and opaque relay credentials
 have an absolute one-hour maximum from creation. Credentials remain memory-only;
@@ -105,9 +173,10 @@ Remaining release blockers:
 - Implement/verify People text and attachment E2EE, historical migration and
   recovery, client-produced previews and navigation-key compatibility. Existing
   messages remain server-readable and their history is unchanged.
-- Implement native media/signaling ownership, CallKit/PushKit and Android Telecom
-  plus foreground-service integration. Native calls remain unavailable; no
-  foreground WebView fallback claims locked-screen support.
+- Qualify the implemented iOS media/signaling, CallKit/PushKit and native auth
+  recovery on physical devices. Implement Android Telecom plus foreground-service
+  integration. Android remains unavailable; no WebView fallback claims native
+  locked-screen support.
 - Prove trusted relay TLS/renewal, invalid/expired allocations, independent-network
   media, physical-device background/locked answer, interruption/revocation,
   capacity/cost, telemetry privacy and scheduled retention.
@@ -118,7 +187,8 @@ Remaining release blockers:
 ## Schema and integration
 
 Migration 407 owns public device-key bindings, calls, busy slots, replay nonces
-and encrypted signals. Its manifest, rollback and environment schema contracts
+encrypted signals, purpose-bound PushKit registrations and the delivery outbox.
+Its manifest, rollback and environment schema contracts
 are aligned. Migration 315 is preserved. Rollback refuses live calls and never
 touches message/attachment tables.
 

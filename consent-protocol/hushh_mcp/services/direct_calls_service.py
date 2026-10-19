@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.services import direct_call_admission as admission
+from hushh_mcp.services import direct_call_voip as voip
 from hushh_mcp.services.direct_call_authority import CallAuthority, canonical
 from hushh_mcp.services.direct_call_authority import proof_bytes as proof_bytes
 from hushh_mcp.services.direct_call_authority import verify_proof as verify_proof
@@ -53,6 +54,9 @@ class DirectCallsService:
                 available = False
         return {
             "available": available,
+            "iosAvailable": available
+            and os.getenv("DIRECT_CALLS_VOIP_WORKER_QUALIFIED") == "1"
+            and voip.available(),
             "relayOnly": True,
             "agentParticipation": False,
             "reason": None if available else "Calling is awaiting release verification.",
@@ -60,13 +64,19 @@ class DirectCallsService:
 
     @staticmethod
     def _require_release():
-        if not DirectCallsService.capabilities()["available"]:
+        if not release_available():
             raise CallError("CALL_NOT_QUALIFIED", "Calling is awaiting release verification.", 503)
+        relay_config()
 
     def register_key(self, user: str, payload: dict, proof: dict) -> dict:
         with self.db.engine.begin() as conn:
             authority = CallAuthority(conn)
             return admission.register_key(authority, user, payload, proof)
+
+    def register_voip(self, user: str, payload: dict, proof: dict) -> dict:
+        self._require_release()
+        with self.db.engine.begin() as conn:
+            return voip.register(CallAuthority(conn), user, payload, proof)
 
     def directory(self, user: str, payload: dict, proof: dict) -> dict:
         with self.db.engine.begin() as conn:
@@ -178,6 +188,10 @@ class DirectCallsService:
                 },
             )
             if state in TERMINAL_STATES:
+                conn.execute(
+                    text("DELETE FROM direct_call_voip_outbox WHERE call_id=CAST(:id AS UUID)"),
+                    {"id": call.id},
+                )
                 conn.execute(
                     text("DELETE FROM direct_call_slots WHERE call_id=CAST(:id AS UUID)"),
                     {"id": call.id},

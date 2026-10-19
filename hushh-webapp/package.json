@@ -104,6 +104,7 @@
     "smoke:analytics:uat": "node ./scripts/testing/run-uat-analytics-smoke.mjs",
     "audit:cache-coherence": "node ./scripts/architecture/audit-cache-coherence.mjs --check",
     "audit:ui-surfaces": "node ./scripts/architecture/audit-ui-surfaces.mjs",
+    "precap:build": "node ./scripts/native/verify-calling-native-build.mjs",
     "cap:build": "node ./scripts/native/clear-webpack-cache.mjs && node ./scripts/native/with-ios-native-env.mjs npx cross-env CAPACITOR_BUILD=true next build --webpack --debug-build-paths \"app/**/page.tsx,!app/api/**\"",
     "cap:build:profile": "node ./scripts/native/clear-webpack-cache.mjs && node ./scripts/native/with-ios-native-env.mjs npx cross-env CAPACITOR_BUILD=true next build --webpack --profile --debug-build-paths \"app/**/page.tsx,!app/api/**\"",
     "cap:sync:android": "npx cross-env CAPACITOR_PLATFORM=android npx cap sync android",

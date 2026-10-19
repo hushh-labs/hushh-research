@@ -1358,3 +1358,4 @@ tests/services/test_email_auth_postgres.py
 tests/services/test_direct_call_policy.py
 tests/test_direct_calls_postgres.py
 tests/test_direct_calls_routes.py
+tests/test_direct_calls_voip.py

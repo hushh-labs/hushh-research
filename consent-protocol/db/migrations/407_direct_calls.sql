@@ -56,14 +56,36 @@ CREATE TABLE IF NOT EXISTS public.direct_call_signals (
   UNIQUE(call_id,sender_device_id,sender_sequence)
 );
 CREATE INDEX IF NOT EXISTS idx_direct_call_signals_call ON public.direct_call_signals(call_id,sequence);
+CREATE TABLE IF NOT EXISTS public.direct_call_voip_tokens (
+  device_id TEXT PRIMARY KEY REFERENCES public.direct_communication_keys(device_id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES public.actor_profiles(user_id) ON DELETE CASCADE,
+  key_id UUID NOT NULL REFERENCES public.direct_communication_keys(key_id) ON DELETE CASCADE,
+  token TEXT NOT NULL CHECK(token ~ '^[a-f0-9]{64,200}$'),
+  generation UUID NOT NULL,
+  environment TEXT NOT NULL CHECK(environment IN ('sandbox','production')),
+  topic TEXT NOT NULL CHECK(length(topic) BETWEEN 8 AND 205),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE(environment,topic,token),
+  FOREIGN KEY(user_id,device_id) REFERENCES public.trusted_devices(user_id,device_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS public.direct_call_voip_outbox (
+  call_id UUID NOT NULL REFERENCES public.direct_calls(id) ON DELETE CASCADE,
+  device_id TEXT NOT NULL REFERENCES public.direct_call_voip_tokens(device_id) ON DELETE CASCADE,
+  token_generation UUID NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts BETWEEN 0 AND 3),
+  next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY(call_id,device_id)
+);
 -- Application service is the authority; no browser/anonymous direct table access.
 ALTER TABLE public.direct_communication_keys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.direct_calls ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.direct_call_slots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.direct_call_commands ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.direct_call_signals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.direct_call_voip_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.direct_call_voip_outbox ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.direct_communication_keys, public.direct_calls, public.direct_call_slots,
-  public.direct_call_commands, public.direct_call_signals FROM PUBLIC;
+  public.direct_call_commands, public.direct_call_signals, public.direct_call_voip_tokens, public.direct_call_voip_outbox FROM PUBLIC;
 DO $$ BEGIN
   IF to_regprocedure('public.install_account_deletion_write_guards()') IS NOT NULL THEN
     PERFORM public.install_account_deletion_write_guards();
@@ -72,12 +94,13 @@ END $$;
 DO $$ DECLARE role_name TEXT; BEGIN
   FOREACH role_name IN ARRAY ARRAY['anon','authenticated'] LOOP
     IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
-      EXECUTE format('REVOKE ALL ON public.direct_communication_keys,public.direct_calls,public.direct_call_slots,public.direct_call_commands,public.direct_call_signals FROM %I',role_name);
+      EXECUTE format('REVOKE ALL ON public.direct_communication_keys,public.direct_calls,public.direct_call_slots,public.direct_call_commands,public.direct_call_signals,public.direct_call_voip_tokens,public.direct_call_voip_outbox FROM %I',role_name);
     END IF;
   END LOOP;
   IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
     GRANT SELECT,INSERT,UPDATE,DELETE ON public.direct_communication_keys,public.direct_calls,
-      public.direct_call_slots,public.direct_call_commands,public.direct_call_signals TO service_role;
+      public.direct_call_slots,public.direct_call_commands,public.direct_call_signals,
+      public.direct_call_voip_tokens,public.direct_call_voip_outbox TO service_role;
     GRANT USAGE,SELECT ON SEQUENCE public.direct_call_signals_sequence_seq TO service_role;
   END IF;
 END $$;

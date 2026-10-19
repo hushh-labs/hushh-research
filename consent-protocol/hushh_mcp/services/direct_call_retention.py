@@ -41,6 +41,9 @@ def purge_batch(*, db=None, limit: int = 100) -> dict[str, int]:
             conn.execute(
                 text("DELETE FROM direct_call_slots WHERE call_id=CAST(:id AS UUID)"), params
             )
+            conn.execute(
+                text("DELETE FROM direct_call_voip_outbox WHERE call_id=CAST(:id AS UUID)"), params
+            )
             if row["compact"]:
                 conn.execute(text("DELETE FROM direct_calls WHERE id=CAST(:id AS UUID)"), params)
                 counts["compacted"] += 1

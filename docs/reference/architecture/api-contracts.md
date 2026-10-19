@@ -5,7 +5,7 @@
 `GET /api/one/messages/calls/capabilities` and signed
 `POST /api/one/messages/calls/{operation}` use Firebase identity plus separately
 purposed canonical-device proofs. Operations are register-key, directory, create,
-offer, inbox, read, action, signal and credentials. Commands reject foreign,
+  offer, inbox, read, action, signal, credentials and iOS-only register-voip. Commands reject foreign,
 revoked, replayed, expired, oversized and unexpected fields without echoing
 signaling. Existing participant/relationship/block authority remains decisive.
 The existing One proxy and platform-aware service transport own client pairing.

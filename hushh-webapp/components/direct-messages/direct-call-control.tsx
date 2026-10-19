@@ -8,17 +8,18 @@ import { Button } from "@/lib/morphy-ux/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DirectCallsService } from "@/lib/services/direct-calls-service";
 import { DirectCallSession, type CallView } from "@/lib/direct-messages/call-session";
+import { NativeCallSession } from "@/lib/direct-messages/native-call-session";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 
 type Props = { ownerId: string; getIdToken: () => Promise<string>; conversationId: string | null;
   peerName: string; personRef?: string | null; canCall: boolean; className: string; buttonTarget?: HTMLElement | null };
 
-/** Native admission stays off until a qualified OS-owned media adapter exists. */
+/** Browser transport and OS-owned iOS calling share the same presentation. */
 export function DirectCallControl(props: Props) {
   const token = useRef(props.getIdToken);
   const trigger = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => { token.current = props.getIdToken; }, [props.getIdToken]);
-  const session = useRef<DirectCallSession | null>(null);
+  const session = useRef<DirectCallSession | NativeCallSession | null>(null);
   const epoch = useRef(0);
   const [available, setAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -38,12 +39,11 @@ export function DirectCallControl(props: Props) {
     setAvailable(false);
     setView({ call: null, error: null, muted: false, mediaConnected: false });
     verified.current.clear();
-    // WKWebView/Android WebView foreground media is not native locked calling.
-    if (Capacitor.isNativePlatform()) return;
-    const service = new DirectCallsService(props.ownerId, () => token.current());
-    const engine = new DirectCallSession(service, next => { if (current) setView(next); }, async (conversationId, fingerprint) => {
+    const native = Capacitor.isNativePlatform();
+    if (native && Capacitor.getPlatform() !== "ios") return;
+    const verifyPeer = async (conversationId: string, fingerprint: string) => {
       if (!current) return false;
-      if (verified.current.get(conversationId) === fingerprint) return true;
+      if (!native && verified.current.get(conversationId) === fingerprint) return true;
       const accepted = await new Promise<boolean>(resolve => {
         pending.current?.(false);
         pending.current = resolve;
@@ -51,17 +51,31 @@ export function DirectCallControl(props: Props) {
       });
       if (current && accepted) verified.current.set(conversationId, fingerprint);
       return current && accepted;
-    });
+    };
+    const publish = (next: CallView) => { if (current) {
+      if (!next.call) { pending.current?.(false); pending.current = null; setVerification(null); }
+      setView(next);
+    } };
+    const service = new DirectCallsService(props.ownerId, () => token.current());
+    const engine = native ? new NativeCallSession(props.ownerId, publish, verifyPeer)
+      : new DirectCallSession(service, publish, verifyPeer);
     session.current = engine;
-    void service.capabilities().then(async capabilities => {
+    const initialize = native ? async () => {
+      const available = await (engine as NativeCallSession).initialize();
+      if (current) setAvailable(available);
+    } : async () => {
+      const capabilities = await service.capabilities();
       if (!current || !capabilities.available) return;
       await engine.initialize();
       if (current) setAvailable(true);
-    }).catch(() => { /* A failed capability probe keeps the existing disabled control. */ });
+    };
+    void initialize().catch(() => { /* Failed admission keeps the control unavailable. */ });
     const leave = () => { pending.current?.(false); pending.current = null; setVerification(null); void engine.end(); };
     const hidden = () => { if (document.visibilityState === "hidden") leave(); };
-    window.addEventListener("pagehide", leave);
-    document.addEventListener("visibilitychange", hidden);
+    if (!native) {
+      window.addEventListener("pagehide", leave);
+      document.addEventListener("visibilitychange", hidden);
+    }
     return () => {
       current = false;
       epoch.current += 1;
@@ -80,7 +94,7 @@ export function DirectCallControl(props: Props) {
         if ((!props.conversationId && !props.personRef) || !session.current) return;
         setBusy(true);
         const started = epoch.current;
-        void session.current.start(props.conversationId,props.personRef).finally(() => { if (started === epoch.current) setBusy(false); });
+        void session.current.start(props.conversationId,props.personRef).catch(() => undefined).finally(() => { if (started === epoch.current) setBusy(false); });
       }}><PhoneCall className="h-4 w-4" aria-hidden="true" /></button>;
   return <>
     {props.buttonTarget === undefined ? button : props.buttonTarget ? createPortal(button, props.buttonTarget) : null}
@@ -114,7 +128,7 @@ export function DirectCallControl(props: Props) {
           {!view.call?.isCaller && view.call?.state === "ringing" ? <Button disabled={busy} onClick={() => {
             setBusy(true);
             const started = epoch.current;
-            void session.current?.answer().finally(() => { if (started === epoch.current) setBusy(false); });
+            void session.current?.answer().catch(() => undefined).finally(() => { if (started === epoch.current) setBusy(false); });
           }}>Answer</Button> : null}
           {view.mediaConnected ? <Button variant="muted" aria-pressed={view.muted} onClick={() => session.current?.mute()}><Mic className="h-4 w-4" />{view.muted ? "Unmute" : "Mute"}</Button> : null}
           <Button variant="destructive" onClick={() => { void session.current?.end(true); }}><X className="h-4 w-4" />{view.call?.state === "ringing" && !view.call.isCaller ? "Decline" : "End call"}</Button>

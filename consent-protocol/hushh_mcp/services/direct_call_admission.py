@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.direct_call_authority import CallAuthority, canonical
 from hushh_mcp.services.direct_call_policy import RING_SECONDS, CallError
+from hushh_mcp.services.direct_call_voip import enqueue
 from hushh_mcp.services.direct_messages_service import DirectMessagesService
 
 
@@ -213,4 +214,5 @@ def offer(authority: CallAuthority, user: str, payload: dict, proof: dict) -> di
             "proof": canonical({"payload": payload, "proof": proof}),
         },
     )
+    enqueue(authority, row)
     return authority.project(row, user)

@@ -758,6 +758,23 @@
       "user_id",
       "call_id"
     ],
+    "direct_call_voip_outbox": [
+      "call_id",
+      "device_id",
+      "token_generation",
+      "attempts",
+      "next_attempt_at"
+    ],
+    "direct_call_voip_tokens": [
+      "device_id",
+      "user_id",
+      "key_id",
+      "token",
+      "generation",
+      "environment",
+      "topic",
+      "updated_at"
+    ],
     "direct_calls": [
       "id",
       "conversation_id",

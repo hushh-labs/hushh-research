@@ -1311,6 +1311,18 @@ Package count: 1274
 - `zustand` `5.0.12` — MIT
 - `zwitch` `2.0.4` — MIT
 
+## Native calling SDK
+
+Package count: 1
+
+### License summary
+
+- `BSD-3-Clause`: 1
+
+### Package inventory
+
+- `WebRTC` `149.0.0` — BSD-3-Clause; [License](hushh-webapp/ios/App/App/WebRTC-LICENSE.txt)
+
 ## Backend Python packages
 
 Package count: 197
