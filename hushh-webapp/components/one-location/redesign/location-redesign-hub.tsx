@@ -72,6 +72,11 @@ import {
   shareReplacementsLosingTime,
 } from "@/lib/one-location/share-replacement";
 import { ActionMenu } from "@/components/app-ui/action-menu";
+import {
+  FindPersonSearchIcon,
+  InvitePersonPlusIcon,
+  ManageConnectionsIcon,
+} from "@/components/icons/ui/people-action-icons";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -4254,6 +4259,8 @@ export function PeopleHub({
           disabled: vm.busy === "contactSync",
           busy: vm.busy === "contactSync",
           voiceControlId: "one-location-find-contacts",
+          icon: FindPersonSearchIcon,
+          iconClassName: "size-6",
         },
         ...(vm.contactSyncSummary && vm.onViewContactSyncResults
           ? [
@@ -4269,12 +4276,16 @@ export function PeopleHub({
           label: "Invite to One",
           onSelect: () => onInvite(),
           voiceControlId: "one-location-action-invite",
+          icon: InvitePersonPlusIcon,
+          iconClassName: "size-6",
         },
         {
           id: "manage",
           label: "Manage connections",
           onSelect: () => onAddConnections(),
           voiceControlId: "one-location-add-connections",
+          icon: ManageConnectionsIcon,
+          iconClassName: "size-6",
         },
       ]}
     />
@@ -5007,7 +5018,10 @@ function ShareFlow({
           />
         }
         title={
-          <span className="block min-w-0 truncate">{label}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate">{label}</span>
+            {r.connectedFromContacts ? <ContactSourceBadge /> : null}
+          </span>
         }
         // Only says something when there is something to say. A row that is
         // ready needs no sentence explaining that it is ready — but a row whose
@@ -5030,7 +5044,6 @@ function ShareFlow({
         }
         trailing={
           <span className="flex shrink-0 items-center gap-3">
-            {r.connectedFromContacts ? <ContactSourceBadge /> : null}
             {ready && !alreadyHasLocationShare ? (
               selected ? (
                 <SelectionDot selected />
@@ -5760,12 +5773,13 @@ function RequestRecipientListRow({
         onClick={rowSelectable ? onSelect : undefined}
         aria-label={rowSelectable ? actionAriaLabel : undefined}
         aria-pressed={rowSelectable ? selected : undefined}
-        className="grid w-full text-left focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] min-h-[58px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3.5 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
+        className="grid w-full min-h-[58px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3.5 py-2 text-left focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
       >
         <ContactAvatar label={name} photoUrl={photoUrl} verified={verified} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
-            {name}
+          <span className="flex min-w-0 items-center gap-1.5 text-[17px] font-normal leading-[22px] text-foreground">
+            <span className="min-w-0 truncate">{name}</span>
+            {fromContacts ? <ContactSourceBadge /> : null}
           </span>
           {subtitle ? (
             <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
@@ -5773,10 +5787,7 @@ function RequestRecipientListRow({
             </span>
           ) : null}
         </span>
-        {fromContacts ? (
-          <ContactSourceBadge className="col-start-2 row-start-2 mt-1 w-fit shrink-0 sm:col-start-3 sm:row-start-1 sm:mt-0" />
-        ) : null}
-        <span className="col-start-3 row-span-2 row-start-1 flex shrink-0 items-center gap-1.5 sm:col-start-4 sm:row-span-1">
+        <span className="col-start-3 row-start-1 flex shrink-0 items-center gap-1.5">
           {statusLabel ? (
             <StatusPill tone={pillTone} className="px-2 py-0 text-[12px]">
               {statusLabel}
@@ -6490,7 +6501,7 @@ function SelectedRecipientsRail({
                   className="h-8 w-8 text-[13px]"
                 />
                 <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
-                  <span className="min-w-0 flex-1 truncate">{label}</span>
+                  <span className="min-w-0 truncate">{label}</span>
                   {recipient.connectedFromContacts ? (
                     <ContactSourceBadge className="mt-px shrink-0" />
                   ) : null}

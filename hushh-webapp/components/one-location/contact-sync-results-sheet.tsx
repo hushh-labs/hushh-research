@@ -331,6 +331,10 @@ export function ContactSyncResultsSheet({
                         <p className="min-w-0 break-words text-sm font-semibold [overflow-wrap:anywhere]">
                           {name}
                         </p>
+                        {match.outcome === "auto_connected" ||
+                        match.outcome === "already_connected" ? (
+                          <ContactSourceBadge />
+                        ) : null}
                       </div>
                       <p className="break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
                         {requested
@@ -338,10 +342,6 @@ export function ContactSyncResultsSheet({
                           : resultStatus(match.outcome)}
                       </p>
                     </div>
-                    {match.outcome === "auto_connected" ||
-                    match.outcome === "already_connected" ? (
-                      <ContactSourceBadge />
-                    ) : null}
                     {match.outcome === "request_required" && !requested ? (
                       <Button
                         type="button"

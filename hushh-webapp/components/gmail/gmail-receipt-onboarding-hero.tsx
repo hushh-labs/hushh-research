@@ -72,7 +72,7 @@ export function GmailReceiptOnboardingHero({
       className="@container w-full"
       data-testid="receipt-sync-hero"
     >
-      <div className="grid w-full grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] items-center gap-3 overflow-hidden rounded-[24px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-[var(--app-card-shadow-feature)] @md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] @md:gap-8 @md:p-8 @lg:p-10">
+      <div className="grid w-full grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] items-center gap-3 overflow-hidden rounded-[24px] bg-[color:var(--app-card-surface-default-solid)] p-4 @md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] @md:gap-8 @md:p-8 @lg:p-10">
         <div className="min-w-0 @md:py-2">
           <h2
             // Derived from the page title's own token (not an independent
@@ -150,7 +150,7 @@ export function GmailReceiptOnboardingHero({
           {/* No @md max-width: the preview fills its grid column instead of
               floating at a fixed small width inside the space the equal-width
               desktop grid already gives it. */}
-          <div className="mx-auto w-full max-w-none rounded-[20px] border border-border/50 bg-card p-2.5 shadow-[0_20px_40px_-15px_rgba(28,55,90,0.12),0_0_1px_1px_rgba(0,0,0,0.03)] @md:mx-0 @md:rounded-[24px] @md:p-6 @lg:rounded-[28px] @lg:p-7">
+          <div className="mx-auto w-full max-w-none rounded-[20px] bg-[color:var(--app-neutral-fill)] p-2.5 @md:mx-0 @md:rounded-[24px] @md:p-6 @lg:rounded-[28px] @lg:p-7">
             <ul
               aria-label="Receipt categories"
               className="divide-y divide-slate-100/80"
