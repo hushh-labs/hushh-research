@@ -364,6 +364,35 @@ Nested routes that render one workspace must share one cache contract and still 
 - Same-session Profile transitions do not use the root generic skeleton: `app/one/profile/loading.tsx` preserves the route-transition envelope, and `PhoneMandateGuard` hydrates cached vault and phone-mandate hints before its first paint. A cold or unsafe mandate state still owns its explicit guard feedback.
 - Route splits must regenerate `cache-coherence-screen-manifest.generated.json` and keep route readiness/resource classes aligned with `CacheSyncService` invalidation paths.
 
+Phone display follows the committed account identity, which can differ from the
+primary social Firebase user's phone. AuthProvider retains a known number for
+the current session across view-cache expiry and same-user provider updates.
+If the provider already supplies a number but canonical cache evidence is
+missing, stale or hint-only, the same bounded background recovery revalidates
+it. Failed reads retain that display; fresh backend evidence can replace an
+older provider number without another OTP.
+It subscribes to exact-owner identity cache writes; verified full records heal
+the display, while full unverified records establish absence. Bootstrap hints,
+foreign records and stale cache entries cannot establish a displayed number.
+A failed or empty read is unavailable, never evidence that the number was removed.
+An authoritative full negative after a real binding transfer does clear the
+display. That absence is retained for the current auth session so an expired
+cache or old native provider number cannot resurrect the transferred claim.
+Degraded legacy projections and bootstrap hints cannot revoke a known phone.
+
+Unknown phone reads have a ten-second wait budget and at most three scheduled
+retries (2, 5 and 15 seconds). Online/visible/native-active wakes can start a new
+bounded recovery episode; overlapping wakes share one request. Background,
+offline and disposed consumers stop scheduled work. Confirmed absence stops
+automatic retries, and recovery cannot reset an active OTP editor. Identity
+requests are fenced by auth generation and publication order, so a late read
+cannot overwrite a newer read or committed phone save. A concurrent name/photo
+mutation still runs; its superseded identity snapshot is reconciled by a new
+read rather than replacing the newer phone claim.
+AuthProvider also rechecks fresh canonical phone evidence after an awaited read
+returns, including authoritative absence, so a claim published between service
+completion and consumer continuation cannot be reverted by the returned snapshot.
+
 The One setup family follows the same retained-surface rule. Its parent
 `app/one/loading.tsx` and `app/one/setup/loading.tsx` boundaries intentionally
 render no generic placeholder during a same-session switch. A capability adapter

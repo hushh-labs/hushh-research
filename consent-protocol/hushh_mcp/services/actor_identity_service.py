@@ -1674,10 +1674,55 @@ class ActorIdentityService:
             email_verified=getattr(user_record, "email_verified", None),
             phone_verified=True if firebase_phone_number else None,
             source="firebase_auth",
+            # Provider snapshots can arrive after a newer OTP claim. Metadata
+            # refresh may repair an incomplete phone, never replace a committed
+            # verified phone. Replacement has an explicit finalization path.
+            preserve_verified_phone=True,
         )
         if updated is None and require_success:
             raise ActorIdentitySyncUnavailableError()
+        # Preserve the existing qualification refresh when the provider agrees
+        # with the committed phone; a mismatched old snapshot grants nothing.
+        if (
+            firebase_phone_number
+            and updated
+            and updated.get("phone_verified") is True
+            and updated.get("phone_number") == firebase_phone_number
+        ):
+            await self._sync_referral_qualification_best_effort(user_id)
         return updated
+
+    async def finalize_verified_phone_from_firebase(
+        self, user_id: str, expected_phone_number: str
+    ) -> dict[str, Any] | None:
+        """Persist an explicitly completed native link, not an ambient refresh.
+
+        The requested value alone is not proof: Firebase must currently hold
+        that exact verified phone for this authenticated UID. Reuse the normal
+        serialized writer, without phone-token authority to transfer an owner.
+        """
+        phone = str(expected_phone_number or "").strip()
+        if not re.fullmatch(r"\+[1-9][0-9]{6,14}", phone):
+            raise ValueError("The verified phone number is invalid.")
+        record = await self._get_firebase_user_record(user_id, require_success=True)
+        if record is None:
+            raise ActorIdentitySyncUnavailableError()
+        if (
+            str(getattr(record, "uid", "")) != user_id
+            or str(getattr(record, "phone_number", "") or "").strip() != phone
+        ):
+            raise ValueError("The verified phone no longer matches this attempt. Please retry.")
+        identity = await self.claim_verified_phone(
+            user_id=user_id, phone_number=phone, source="firebase_auth"
+        )
+        if (
+            identity is None
+            or identity.get("user_id") != user_id
+            or identity.get("phone_verified") is not True
+            or identity.get("phone_number") != phone
+        ):
+            raise ActorIdentitySyncUnavailableError()
+        return identity
 
     @staticmethod
     def validate_display_name(display_name: str) -> str:

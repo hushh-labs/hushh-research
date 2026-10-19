@@ -134,6 +134,16 @@ function deferred<T>() {
 // ---------------------------------------------------------------------------
 
 describe("ApiService.apiFetch", () => {
+  it("sends explicit phone finalization as an authenticated body while ordinary refresh stays read-only", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ success: true }));
+    await ApiService.refreshAccountIdentityShadow("fixture-token", { requireSuccess: true, verifiedPhoneNumber: "+919000000001" });
+    const [url, init] = mockFetch.mock.calls.at(-1)!;
+    expect(url).not.toContain("9000000001");
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer fixture-token");
+    expect(JSON.parse(init.body)).toEqual({ verified_phone_number: "+919000000001" });
+    await ApiService.refreshAccountIdentityShadow("fixture-token", { force: true, requireSuccess: true });
+    expect(mockFetch.mock.calls.at(-1)![1].body).toBeUndefined();
+  });
   it.each(["list", "unlink"] as const)("fences trusted-device %s after asynchronous identity acquisition", async operation => {
     let active = true;
     const token = deferred<string | null>();
