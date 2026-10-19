@@ -10,7 +10,6 @@ from uuid import UUID
 from sqlalchemy import text
 
 from db.db_client import get_db_connection
-from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
 from hushh_mcp.services.plg_catalog import action_descriptor, activity_catalog
 
 PHASES = frozenset({"started", "returned", "failed", "cancelled", "blocked"})
@@ -18,22 +17,26 @@ DAILY_LIMIT = 500
 
 
 def enabled_for(user_id: str) -> bool:
-    from api.utils.firebase_auth import current_auth_lane
-
+    if os.getenv("ONE_PLG_ACTIVITY_ENABLED") != "true":
+        return False
     allowed = {
         uid.strip() for uid in os.getenv("ONE_PLG_EXPORT_ACCOUNT_IDS", "").split(",") if uid.strip()
     }
-    return (
-        os.getenv("ONE_PLG_ACTIVITY_ENABLED") == "true"
-        and current_auth_lane() == "production"
-        and 1 <= len(allowed) <= 100
-        and user_id in allowed
-    )
+    if not 1 <= len(allowed) <= 100 or user_id not in allowed:
+        return False
+    from api.utils.firebase_auth import current_auth_lane
+
+    return current_auth_lane() == "production"
 
 
 def admission(user_id: str) -> dict | None:
     if not enabled_for(user_id):
         return None
+    # Optional SDK observation must stay importable by offline evaluators.
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionLifecycleService,
+    )
+
     with get_db_connection() as conn:
         conn.execute(text("SET LOCAL statement_timeout='200ms'"))
         conn.execute(text("SET LOCAL lock_timeout='100ms'"))
@@ -52,6 +55,10 @@ def observe(
 ) -> bool:
     if not enabled_for(user_id):
         return False
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionLifecycleService,
+    )
+
     descriptor = action_descriptor(action_id)
     if (
         not descriptor
