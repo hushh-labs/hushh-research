@@ -963,6 +963,9 @@ for (const width of [320, 390, 1440]) {
     await expect(confirmation).toBeHidden();
     await expect(revoke).toBeFocused();
     expect(await revocations()).toEqual([]);
+    await revoke.click();
+    await expect(confirmation).toBeVisible();
+    expect(await revocations()).toEqual([]);
     expect(errors).toEqual([]);
   });
 
