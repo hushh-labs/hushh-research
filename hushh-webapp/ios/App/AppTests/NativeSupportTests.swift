@@ -580,8 +580,12 @@ final class NativeSupportTests: XCTestCase {
             XCTAssertEqual(artwork.base.renderingMode, originalArtwork.contains(id) ? .alwaysOriginal : .alwaysTemplate, id)
             XCTAssertEqual(artwork.accent != nil, accentedArtwork.contains(id), id)
         }
-        XCTAssertNil(NativeProfileArtwork.resolve("account")?.colorHex, "Shared Profile outlines follow semantic foreground")
-        XCTAssertNil(NativeProfileArtwork.resolve("vault-methods")?.colorHex)
+        for id in accentedArtwork {
+            XCTAssertNil(NativeProfileArtwork.resolve(id)?.colorHex,
+                "Shared Profile outlines use the same semantic foreground as the web, not capability colors: \(id)")
+        }
+        XCTAssertEqual(NativeProfileArtwork.resolve("style-name")?.colorHex, "#2563EB",
+            "Unrelated capability artwork keeps its authored treatment")
         XCTAssertEqual(NativeProfileArtwork.resolve("vault-password")?.accentColorHex?.lowercased(), "#007aff")
         XCTAssertNil(NativeProfileArtwork.resolve("account")?.accentColorHex, "Ordinary accent details follow the selected app accent")
         XCTAssertNotNil(NativeProfileArtwork.resolve("gemini"))
@@ -590,6 +594,11 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertNil(NativeProfileArtwork.resolve("unknown"))
     }
     func testCoherentDeviceAdmissionAndProfileGeometryPreservePlatformFallbacks() {
+        #if !DEBUG && !HUSHH_NATIVE_SHELL_QUALIFICATION
+        XCTAssertFalse(NativeDrawerQualificationPolicy.coherentShell,
+            "Ordinary distribution must not enable the unqualified custom native shell")
+        XCTAssertFalse(NativeDrawerQualificationPolicy.enabled)
+        #endif
         XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.pad, enabled: true, coherentShell: false))
         XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.phone, enabled: false, coherentShell: false))
         XCTAssertTrue(NativeDrawerQualificationPolicy.admits(.pad, enabled: true, coherentShell: true))
