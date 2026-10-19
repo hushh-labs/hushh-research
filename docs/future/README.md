@@ -66,6 +66,7 @@ Promotion targets:
 
 ## Current Domains
 
+- [Repository organization and unified development agents](./repository-organization-plan.md): local plan for canonical `.agents/` sources, host adapters, bounded folder consolidation and a linked, rendered documentation system.
 - **[Private-agent plans and evidence](./personal-agent/README.md).** Start with the [owner-pod direct-runtime handoff](./personal-agent/OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) for the inspected baseline and next dev milestone. The [remaining roadmap](./personal-agent/ROADMAP.md) retains deferred requirements; earlier architecture and test reports are historical provenance, not current deployment or completion claims.
 - [identity-assurance/README.md](./identity-assurance/README.md): WebAuthn/FIDO2 passkey + hardware-key (Google Titan/YubiKey) login and NIST 800-63B AAL mapping (personal-agent M14 companion).
 - [apple-a-plus/PLAN.md](./apple-a-plus/PLAN.md): the Apple/Jobs "A+" grading loop for the "your sovereign agent is alive" throughline (shares the personal-agent status surface).

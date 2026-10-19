@@ -20,6 +20,10 @@ The [agent-development procedure](./agent-development.md) owns registration;
 the [readiness memo](../../../docs/reference/quality/adk-orchestration-docs-audit.md)
 owns acceptance. Source checks are not cloud isolation or deployment evidence.
 
+The [Browser completion plan](../../../docs/future/personal-agent/browser-completion-plan.md)
+specifies the next native Gemini/Azure model adapters and headless/takeover
+qualification. Its target paths are not implemented capability claims.
+
 ### Latest controlled qualification
 
 The local slice is based on `22c7d3cac422`, frozen main `1d691714135e` and
