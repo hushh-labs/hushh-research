@@ -307,7 +307,19 @@ def test_azure_pwm_probe_loads_production_contracts_without_application_secrets(
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize("defect", [None, "wrong_attribution", "missing_case", "wrong_contract"])
+@pytest.mark.parametrize(
+    "defect",
+    [
+        None,
+        "wording",
+        "wrong_attribution",
+        "missing_case",
+        "wrong_contract",
+        "invented_attempt",
+        "wrong_finding",
+        "unknown_case",
+    ],
+)
 def test_azure_pwm_primary_probe_requires_actual_attribution_decisions(monkeypatch, capsys, defect):
     from unittest.mock import AsyncMock
 
@@ -324,9 +336,17 @@ def test_azure_pwm_primary_probe_requires_actual_attribution_decisions(monkeypat
         rows[0]["supported"] = True
     elif defect == "missing_case":
         rows.pop()
+    elif defect == "unknown_case":
+        rows[-1]["case_id"] = "untrusted-model-identifier"
     examples, _schemas = module._production_contract_examples()
-    if defect == "wrong_contract":
+    if defect == "wording":
+        examples["report"]["summary"] = "No search was performed in this fictional evaluation."
+    elif defect == "wrong_contract":
         examples["planner"]["action"] = "search"
+    elif defect == "invented_attempt":
+        examples["report"]["coverage"][0]["attempt_ids"] = [1]
+    elif defect == "wrong_finding":
+        examples["finding"] = {"skip": False}
     structured = AsyncMock(return_value={"decisions": rows, **examples})
     monkeypatch.setattr(
         world_model_azure,
@@ -337,9 +357,23 @@ def test_azure_pwm_primary_probe_requires_actual_attribution_decisions(monkeypat
         "primary_endpoint": "https://synthetic.openai.azure.com/openai/v1/",
         "primary_deployment": "synthetic-primary",
     }
-    if defect:
+    if defect not in {None, "wording"}:
         with pytest.raises(RuntimeError, match="evaluation failed"):
             asyncio.run(module._probe_primary(config, lambda: "synthetic"))
+        diagnostic = json.loads(capsys.readouterr().out)
+        assert set(diagnostic["failed_fields"]) <= {
+            "repository",
+            "degree",
+            "merge",
+            "namesake",
+            "metric",
+            "authorship",
+            "assessment",
+            "finding",
+            "planner",
+            "report",
+        }
+        assert "untrusted-model-identifier" not in json.dumps(diagnostic)
     else:
         asyncio.run(module._probe_primary(config, lambda: "synthetic"))
         event = json.loads(capsys.readouterr().out)
