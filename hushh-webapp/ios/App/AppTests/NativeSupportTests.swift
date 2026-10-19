@@ -582,6 +582,11 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertNil(NativeProfileArtwork.resolve("unknown"))
     }
     func testCoherentDeviceAdmissionAndProfileGeometryPreservePlatformFallbacks() {
+        #if !DEBUG && !HUSHH_NATIVE_SHELL_QUALIFICATION
+        XCTAssertFalse(NativeDrawerQualificationPolicy.coherentShell,
+            "Ordinary distribution must not enable the unqualified custom native shell")
+        XCTAssertFalse(NativeDrawerQualificationPolicy.enabled)
+        #endif
         XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.pad, enabled: true, coherentShell: false))
         XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.phone, enabled: false, coherentShell: false))
         XCTAssertTrue(NativeDrawerQualificationPolicy.admits(.pad, enabled: true, coherentShell: true))
