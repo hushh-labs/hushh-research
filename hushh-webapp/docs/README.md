@@ -14,6 +14,8 @@ flowchart TD
   root --> n3
   n4["iOS Native Controls And Liquid Glass"]
   root --> n4
+  contracts["Product UI Contracts"]
+  root --> contracts
 ```
 
 Frontend and native-client implementation references for the webapp package.
@@ -37,6 +39,8 @@ Brand contract: [`docs/reference/operations/brand-and-compatibility-contract.md`
 | [kai-analysis-layout-and-review-mode.md](./kai-analysis-layout-and-review-mode.md) | Kai analysis UI layout and app-review runtime behavior |
 | [one-location-now-and-map.md](./one-location-now-and-map.md) | One Location "now" surface and immersive map behavior |
 | [profile-management-design-rules.md](./profile-management-design-rules.md) | Guardrails for Profile IA, page navigation, and non-analytical summary usage |
+| [Connect UI contract](./ui-contracts/connect.md) | Connect pages, Connections and Circles CTAs, nested states, membership boundaries, and Back behavior |
+| [Product UI contracts](./ui-contracts/README.md) | Maintained product-surface contracts and their authoring requirements |
 | [ios-native-surface-adoption.md](./ios-native-surface-adoption.md) | Source-backed native-control inventory, Liquid Glass candidates, fallback boundaries and physical verification limits |
 
 ## Source Tree Indexes
