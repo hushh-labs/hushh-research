@@ -1227,6 +1227,7 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
         *,
         deploy_env: str = "uat",
         voice_enabled: str = "true",
+        drive_provider: str = "gemini",
     ) -> subprocess.CompletedProcess[str]:
         line = (
             "managed_vertex_probe_result " + json.dumps(report)
@@ -1235,12 +1236,15 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
         )
         return subprocess.run(  # noqa: S603 - fixed shell executes repository verdict logic with synthetic values
             ["/bin/bash", "-c", script],
+            cwd=REPO_ROOT,
             env={
                 "PATH": str(Path(sys.executable).parent) + os.pathsep + os.defpath,
                 "PROJECT_ID": "hushh-pda-uat",
                 "genai_project_id": project,
                 "_DEPLOY_ENV": deploy_env,
                 "_ONE_VOICE_LIVE_ENABLED": voice_enabled,
+                "_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER": drive_provider,
+                "_CLOUD_RUN_NO_TRAFFIC": "true",
                 "_MANAGED_AI_CONFIG_HASH": "checked-profile-hash",
                 "_GENAI_PROJECT_ID": project,
                 "_VERTEX_LIVE_MODEL_ID": "reviewed-live-model",
@@ -1287,6 +1291,58 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
     }
     assert run_verdict(partial, 85).returncode != 0
     assert run_verdict(healthy, 1).returncode != 0
+    exhausted = {
+        **healthy,
+        "ok": False,
+        "classification": "provider_unavailable",
+        "candidate_models_exercised": False,
+        "one_chat_probe_ok": False,
+        "one_voice_probe_ok": False,
+        "probes": [
+            {
+                "probe": name,
+                "ok": False,
+                "classification": "provider_unavailable",
+                "resource_exhausted": True,
+            }
+            for name in (
+                "one_chat:synthetic@global",
+                "embedding",
+                "one_voice_live:reviewed-live-model@reviewed-live-location",
+            )
+        ],
+    }
+    assert run_verdict(exhausted, 1, drive_provider="azure_openai").returncode == 0
+    assert run_verdict(exhausted, 1).returncode != 0
+    assert (
+        run_verdict(exhausted, 1, deploy_env="production", drive_provider="azure_openai").returncode
+        != 0
+    )
+    for unsafe in (
+        {
+            **exhausted,
+            "probes": [
+                {**exhausted["probes"][0], "resource_exhausted": False},
+                *exhausted["probes"][1:],
+            ],
+        },
+        {
+            **exhausted,
+            "probes": [
+                {**exhausted["probes"][0], "classification": "candidate_misconfigured"},
+                *exhausted["probes"][1:],
+            ],
+        },
+        {**exhausted, "probes": exhausted["probes"][1:]},
+        {**exhausted, "probes": exhausted["probes"][:2]},
+        {**exhausted, "config_hash": "other-profile"},
+        {**exhausted, "one_chat_project": "wrong-project"},
+        {**exhausted, "one_voice_project": "wrong-project"},
+    ):
+        assert run_verdict(unsafe, 1, drive_provider="azure_openai").returncode != 0, unsafe
+    assert run_verdict(exhausted, 0, drive_provider="azure_openai").returncode != 0
+    contradictory = {**exhausted, "probes": healthy["probes"]}
+    assert run_verdict(contradictory, 1, drive_provider="azure_openai").returncode != 0
     legacy = run_verdict(partial, 85, deploy_env="dev", voice_enabled="false")
     assert legacy.returncode == 0, legacy.stderr
     assert "Release CONTINUES" in legacy.stdout
