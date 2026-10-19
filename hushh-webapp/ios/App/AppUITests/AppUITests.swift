@@ -1135,6 +1135,11 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(profileClose) else { return false }
             profileClose.tap()
             guard waitForAdmittedControl(editor), waitForAdmittedControl(opener) else { return false }
+            guard waitForAdmittedControl(app.buttons["chat-history-toggle"].firstMatch),
+                  waitForAdmittedControl(app.segmentedControls["chat-agent-surface"].firstMatch) else {
+                printCoherentPresentationAdmission(app)
+                return false
+            }
             XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
             XCTAssertFalse(web.buttons["Unlock"].exists)
             XCTAssertTrue((editor.value as? String) == draft, "NATIVE_RESUME_DRAFT_CHANGED")

@@ -356,7 +356,15 @@ export function NativeChatChrome(props: Props) {
     const invalidateRemoved = () => { removedLease.current = lease.current; invalidate(); };
     const readmit = () => {
       const active = lease.current, snapshot = current.current;
-      if (cancelled || subscriptionsFailed || !active?.ownsInstallation || active.context !== snapshot.context || active.projection.ownerEpoch !== snapshot.epoch || !snapshot.theme) return;
+      if (cancelled || subscriptionsFailed || !nativePrivacyCanInteract() || !snapshot.theme) return;
+      if (!active?.ownsInstallation || !active.admissionReady || removedLease.current === active ||
+          active.context !== snapshot.context || active.projection.ownerEpoch !== snapshot.epoch) {
+        // Privacy may have actually retired this host. Updating its invalid
+        // lease returns false; it cannot reconstruct the presentation. Rejoin
+        // the existing acknowledged retirement/admission owner, never an action.
+        if (canPrepare()) remeasure(count => count + 1);
+        return;
+      }
       void active.update({ ...snapshot.theme, enabled: canAct(), value: snapshot.value, expanded: snapshot.expanded }, true).then(applied => {
         if (applied) notifyPresentationReady(active);
       }).catch(() => {

@@ -2593,6 +2593,35 @@ describe("native chrome presentation lease", () => {
     await waitFor(() => expect(fallback).toBeVisible()); // Only confirmed failure retirement restores it.
     expect(bridge.getCapabilities).toHaveBeenCalledOnce();
   });
+  it("readmits a privacy-retired header after release without replaying its old choice", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true,
+      coherentPresentation: true, retainedControls: true, inPlaceUpdates: true });
+    bridge.prepare.mockImplementation(async state => {
+      if (privacy.state.shielded) throw new Error("NATIVE_PRIVACY_COVERED");
+      return { ...state, phase: "prepared" };
+    });
+    const action = vi.fn();
+    const view = render(<ChatHarness onAction={action} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    const old = bridge.prepare.mock.calls.at(-1)![0];
+    act(() => {
+      privacy.state = { ...privacy.state, generation: 1, shielded: true };
+      bridge.callbacks.get("invalidated")?.(undefined);
+      privacy.callbacks.forEach(callback => callback(privacy.state));
+    });
+    await waitFor(() => expect(hasOutstandingNativeChrome("chat-history-toggle")).toBe(false));
+    const coveredPreparations = bridge.prepare.mock.calls.length;
+    act(() => {
+      privacy.state = { ...privacy.state, shielded: false };
+      privacy.callbacks.forEach(callback => callback(privacy.state));
+    });
+    await waitFor(() => expect(bridge.prepare.mock.calls.length).toBeGreaterThan(coveredPreparations));
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
+    expect(view.getByText("Authored history")).not.toBeVisible();
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...old, sequence: 1, privacyGeneration: 0, updateSequence: 0 }));
+    expect(action).not.toHaveBeenCalled();
+  });
   it.each(["back", "history"] as const)("recovers a warm concealed %s slot after listener setup fails", async (kind) => {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: [kind], independentControls: true });
     await getNativeChromeCapabilities();

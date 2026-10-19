@@ -16,6 +16,34 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Combined physical checkpoint — 2026-10-19
+
+UAT-backed app `09830bc94b` traverses all 13 recorded native Profile destinations,
+including their implemented editors, menus, Invite friends and Legal return.
+The same WebView and draft survive; reviewer changes are cancelled, not saved.
+That batch's subsequent One-profile assertion fails on its below-fold Memory
+footer. Runner `2309318afc` adds bounded content scrolling and a changed-family
+selector; the targeted One-profile journey then passes in 47.402 seconds without
+repeating the 13 valid destinations. Shared backend/web application source is
+unchanged by that test-only runner update.
+
+Ten warm background/resume cycles and observed Control Center interruption pass
+Profile/editor touch recovery in 146.164 seconds. The subsequent Release
+performance preflight exposes missing hamburger/agent-selector controls after
+resume, so it produces **no accepted performance measurements**. Release tried
+to update a lease whose native host privacy had already retired. The repair
+rejoins confirmed retirement/admission for missing or invalid leases, retaining
+in-place updates for valid hosts. Its nearest regression fails before the fix
+and passes afterward; 277 focused checks pass. The physical interruption check
+now requires those header controls too. This latest repair still needs a fresh
+combined installation and physical confirmation.
+
+Canonical core passes in 724 seconds for the preparation batch; the native
+host-isolation and runner follow-ups are separately verified. No CI gate is
+weakened. Ordinary native defaults remain OFF. Visual, accessibility, frame-time,
+accepted-family default admission, exact-head CI and release transitions are not
+established by these functional receipts.
+
 ### Covered Profile preparation — implementation checkpoint, 2026-10-19
 
 NativeDrawers v1 now negotiates preparation of the exact current Profile visit
