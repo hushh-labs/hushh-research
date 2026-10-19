@@ -16,6 +16,25 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Bottom navigation scroll clearance — 2026-10-19
+
+Physical reproduction found a real clearance defect: the 83-point native tab
+bar moved only 55 points, leaving 28 points exposed on the 844-point viewport.
+The old smoke required only six points of movement and missed it. The existing
+check now requires full viewport clearance and upward-scroll restoration.
+The retained compositor applies one progress sample in one UIKit transaction,
+adding the tab bar's safe-area travel without moving the Agent Dock into the
+home-indicator region. Resting geometry and stale-sample fences remain intact.
+
+UAT-backed Release `31617014f0` passes two physical native host contracts,
+three warm down/reverse cycles, keyboard/draft/single-WebView continuity and
+actual Control Center touch recovery. Its app executable is
+`d5f7d766b17dcb2133745a2a86e5f1ad05589c8e8a5448e9c7ce2adffe755995`.
+This is bounded functional evidence, not visual/accessibility or performance
+acceptance. The correction is independently reversible at `9528b46b63`.
+Ordinary custom-native admission remains off; its pinned recovery navigation,
+older wrappers and unqualified iPad behavior are unchanged.
+
 ### Resume release ordering repair — 2026-10-18
 
 The shared bridge previously counted duplicate lifecycle deliveries as new
