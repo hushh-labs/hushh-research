@@ -4,6 +4,7 @@ import {
   NativeDrawerChoiceFence, sameNativeDrawer, validNativeDrawerProjection,
   subscribeNativeDrawerIsolation, reconcileNativeDrawerIsolation, retainNativeDrawerIsolation,
   nativeDrawerAcknowledged as acknowledged,
+  nativeWorkspaceRetirementBarrier,
   type HushhNativeDrawersPlugin, type NativeDrawerChoice, type NativeDrawerIdentity,
   type NativeDrawerProjection, type NativeDrawerReceipt,
   type NativeDrawerReadmission, type NativeDrawerPresentationState,
@@ -204,6 +205,15 @@ export class NativeDrawerPresentation {
       const state = this.pending;
       this.pending = null;
       try {
+        const withdrawal = nativeWorkspaceRetirementBarrier();
+        if (withdrawal) {
+          if (!await acknowledged(withdrawal)) throw new Error("NATIVE_WORKSPACE_RETIRE_UNCONFIRMED");
+          if (this.disposed) return;
+          if (!this.ownerIsCurrent()) { this.quarantine(); return; }
+          // A newer binding can arrive while UIKit finishes dismissal. Do not
+          // install the superseded projection or replay an operation.
+          if (this.current?.state.updateSequence !== state.updateSequence) continue;
+        }
         const receipt = await acknowledged(this.plugin.apply(state));
         if (this.disposed) return;
         if (!receiptMatches(receipt, state, "active") || !this.ownerIsCurrent()) { this.quarantine(); return; }

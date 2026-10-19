@@ -16,7 +16,7 @@ import { DockEventFence, nativeDockRestingFrame, type DockEvent, type DockState 
 import { NativeDrawerChoiceFence, validNativeConnectorPath, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type NativeDrawerReadmission, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
 import { NativeDrawerPresentation } from "@/lib/capacitor/native-drawer-presentation";
 import type { NativeDrawerPresentationState } from "@/lib/capacitor/native-drawers";
-import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible, nativeDrawers } from "@/lib/capacitor/native-drawers";
+import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible, nativeDrawers, nativeWorkspaceRetirementBarrier, trackNativeWorkspaceRetirement } from "@/lib/capacitor/native-drawers";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "@/lib/capacitor/native-drawer-owner";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -24,7 +24,7 @@ import { NativeAgentDock } from "@/components/agent/native-agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { NativePanelPoseWriter, useNativePanelPresentation, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
 import { nativePresentationAdmission, registerNativeDrawerPose, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativeFullWindowOverlayReady, waitForNativeDrawerCoverageRelease, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
-import { AgentDockProvider, useAgentDockState } from "@/components/agent/agent-dock";
+import { AgentDockProvider, useAgentDockState, AgentDockPortal } from "@/components/agent/agent-dock";
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { setNativeBaseAperture } from "@/lib/capacitor/native-base-apertures";
@@ -50,6 +50,93 @@ import { validNativeWorkspace, workspaceAcknowledged, type NativeWorkspaceProjec
 import { useNativeWorkspace } from "@/lib/capacitor/use-native-workspace";
 
 describe("private route-body presentation boundary", () => {
+  it("keeps an uncertain route retirement fenced until exact native absence is read back", async () => {
+    const identity = { documentId: "public-retirement-document", ownerEpoch: "public-retirement-owner",
+      ownerGeneration: 1, revision: 1, workspace: "referrals" as const };
+    const receipt = { ...identity, updateSequence: 0, privacyGeneration: 0, layoutRevision: 0,
+      phase: "retired" as const, settled: true };
+    const source = { getWorkspaceState: vi.fn().mockResolvedValue({ valid: false }) };
+    trackNativeWorkspaceRetirement(identity, Promise.resolve(false), source);
+    try {
+      await Promise.resolve();
+      expect(await nativeWorkspaceRetirementBarrier()).toBe(false);
+      source.getWorkspaceState.mockResolvedValue({ ...receipt, ownerEpoch: "other-owner" });
+      expect(await nativeWorkspaceRetirementBarrier()).toBe(false);
+      source.getWorkspaceState.mockResolvedValue(receipt);
+      expect(await nativeWorkspaceRetirementBarrier()).toBe(true);
+      expect(nativeWorkspaceRetirementBarrier()).toBeUndefined();
+      expect(source.getWorkspaceState).toHaveBeenCalledTimes(3);
+    } finally {
+      source.getWorkspaceState.mockResolvedValue(receipt);
+      await nativeWorkspaceRetirementBarrier();
+    }
+  });
+  it("waits for route-body disappearance before reopening a retained Profile drawer", async () => {
+    const bootstrap = Object.getOwnPropertyDescriptor(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
+    Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { configurable: true,
+      value: { contractVersion: 1, enabled: true, coherentShell: true } });
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
+    publishValidatedAuthSessionOwner("synthetic-return-owner");
+    bridge.documentId = crypto.randomUUID();
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
+    const originalObserver = globalThis.ResizeObserver;
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    const measure = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 0, y: 100, width: window.innerWidth, height: 400 } as DOMRect);
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true,
+      wholePresentation: true, routeWorkspaces: ["referrals"], ...nativeDrawerIsolation() });
+    const retirement = deferred<unknown>();
+    let absent = false;
+    drawerBridge.retireWorkspace.mockReset().mockImplementation(() => retirement.promise);
+    drawerBridge.applyWorkspace.mockReset().mockImplementation(async state => ({ ...state,
+      layoutRevision: state.frame.layoutRevision, phase: "active", settled: true }));
+    drawerBridge.apply.mockReset().mockImplementation(async state => {
+      if (state.open && !absent) throw new Error("NATIVE_DRAWER_RETIRING");
+      return { ...state, phase: "active" };
+    });
+    drawerBridge.retire.mockImplementation(async identity => ({ ...identity, updateSequence: 1,
+      privacyGeneration: 0, phase: "retired" }));
+    function Workspace() {
+      const phase = useNativeWorkspace({ owner: "synthetic-return-owner", current: () => true, back: () => {},
+        content: { workspace: "referrals", page: "overview", title: "Public workspace", enabled: true,
+          backEnabled: false, sections: [] }, actions: new Map() });
+      return <div data-native-workspace-seat="true"><output data-testid="workspace-phase">{phase}</output></div>;
+    }
+    function Profile({ open }: { open: boolean }) {
+      const phase = useNativeDrawerPresentation({ family: "profile", owner: "synthetic-return-owner",
+        vaultEpoch: snapshotVaultSessionEpoch(), ready: true, open, title: "Profile",
+        project: () => ({ sections: [], actions: { rows: new Map(), open: () => {}, close: () => {} } }) });
+      return <output data-testid="profile-phase">{phase}</output>;
+    }
+    function Journey() {
+      const [returned, setReturned] = useState(false);
+      return <>{!returned && <Workspace />}<Profile open={returned} />
+        <button onClick={() => setReturned(true)}>Return to Profile</button></>;
+    }
+    const view = render(<Journey />);
+    try {
+      await waitFor(() => expect(view.getByTestId("workspace-phase")).toHaveTextContent("native"));
+      await waitFor(() => expect(view.getByTestId("profile-phase")).toHaveTextContent("native"));
+      await act(async () => { fireEvent.click(view.getByRole("button", { name: "Return to Profile" })); });
+      expect(drawerBridge.retireWorkspace).toHaveBeenCalledOnce();
+      expect(drawerBridge.apply.mock.calls.filter(([state]) => state.open)).toHaveLength(0);
+      const identity = drawerBridge.retireWorkspace.mock.calls[0][0];
+      absent = true;
+      await act(async () => { retirement.resolve({ ...identity, phase: "retired", settled: true }); });
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.filter(([state]) => state.open)).toHaveLength(1));
+      await waitFor(() => expect(view.getByTestId("profile-phase")).toHaveTextContent("native"));
+    } finally {
+      absent = true;
+      retirement.resolve({ ...drawerBridge.retireWorkspace.mock.calls[0]?.[0], phase: "retired", settled: true });
+      view.unmount();
+      await act(async () => { await Promise.resolve(); });
+      measure.mockRestore(); vi.stubGlobal("ResizeObserver", originalObserver);
+      publishValidatedAuthSessionOwner(null);
+      if (bootstrap) Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", bootstrap);
+      else Reflect.deleteProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
+    }
+  });
   it("rejects a delayed confirmation after content changes and consumes the new choice once", async () => {
     publishValidatedAuthSessionOwner("synthetic-workspace-owner");
     bridge.documentId = crypto.randomUUID();
@@ -1590,11 +1677,9 @@ describe("private dock asynchronous submission boundary", () => {
   function Feature({ blocked, onAction, onEdit }: { blocked: boolean; onAction: NativeDockPort["onAction"]; onEdit?: (text: string) => void }) {
     const dock = useAgentDockState();
     const host = useRef<HTMLDivElement>(null);
-    const owner = useRef(Symbol("test-composer"));
     useNativeNavigationBlocked(blocked);
     useLayoutEffect(() => {
       dock?.setHost(host.current);
-      dock?.claim(owner.current, true, false);
     }, [dock]);
     useNativeDockPort("text", { projection: {
       context: "synthetic-conversation", mode: "text", text: "Synthetic draft", placeholder: "Message One",
@@ -1602,7 +1687,8 @@ describe("private dock asynchronous submission boundary", () => {
       recording: false, recordingReady: false, muted: false, supportsHold: false,
       attachments: [], attachmentRevision: 0, editorRevision: 0,
     }, onAction, onEdit });
-    return <div data-agent-bar-shell><div ref={host}><div data-agent-dock-embedded /></div><NativeAgentDock enabled /><PresentationProbe /></div>;
+    return <div data-agent-bar-shell><div ref={host} /><AgentDockPortal enabled visible>
+      <div data-agent-dock-embedded /></AgentDockPortal><NativeAgentDock enabled /><PresentationProbe /></div>;
   }
   function PresentationProbe() {
     const ports = useNativeDockPorts();

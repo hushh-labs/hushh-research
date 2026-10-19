@@ -10,7 +10,7 @@ import type { NativeWorldModelScenePort } from "./native-profile-world-model-sce
 import type { NativeRuntimeScenePort } from "./native-profile-runtime-scene";
 import type { NativeConnectorScenePort } from "./native-profile-connector-scene";
 import type { NativeMemoryScenePort } from "./native-profile-memory-scene";
-import type { NativeWorkspacePort, NativeWorkspaceChoice, NativeWorkspaceEdit, NativeWorkspaceFinalEdit } from "./native-workspace";
+import { sameNativeWorkspace, type NativeWorkspacePort, type NativeWorkspaceIdentity, type NativeWorkspaceChoice, type NativeWorkspaceEdit, type NativeWorkspaceFinalEdit } from "./native-workspace";
 import { nativeLegalActionIds, validNativeLegalDocument, type NativeLegalDocument } from "./native-profile-legal";
 
 /** Private presentation, never public chrome metadata. Values and callbacks are
@@ -197,6 +197,45 @@ export async function nativeDrawerAcknowledged<T>(operation: Promise<T>): Promis
       timer = setTimeout(() => reject(new Error("NATIVE_DRAWER_UNCERTAIN_ACK")), 5_000);
     })]);
   } finally { clearTimeout(timer); }
+}
+
+// Join actual route-body withdrawal, not its React unmount. An incoming
+// persistent drawer can publish in that same commit; native correctly refuses
+// it while the outgoing workspace still owns a menu or presentation.
+type WorkspaceRetirement = { identity: NativeWorkspaceIdentity; settlement: Promise<boolean>;
+  source?: Pick<NativeWorkspacePort, "getWorkspaceState"> };
+const workspaceRetirements = new Map<string, WorkspaceRetirement>();
+export function trackNativeWorkspaceRetirement(identity: NativeWorkspaceIdentity, operation: Promise<boolean>, source?: Pick<NativeWorkspacePort, "getWorkspaceState">): void {
+  const metadata = { documentId: identity.documentId, ownerEpoch: identity.ownerEpoch,
+    ownerGeneration: identity.ownerGeneration, revision: identity.revision, workspace: identity.workspace };
+  const key = JSON.stringify(metadata); // Public lease metadata only, never a body or editor.
+  const item = { identity: metadata, settlement: operation.then(absent => absent === true, () => false), source };
+  workspaceRetirements.set(key, item);
+  void item.settlement.then(absent => {
+    if (absent && workspaceRetirements.get(key) === item) workspaceRetirements.delete(key);
+  });
+}
+export function nativeWorkspaceRetirementBarrier(): Promise<boolean> | undefined {
+  if (!workspaceRetirements.size) return;
+  return (async () => {
+    while (workspaceRetirements.size) {
+      const outcomes = await Promise.all([...workspaceRetirements].map(async ([key, item]) => {
+        let absent = await item.settlement;
+        if (!absent && item.source) {
+          // One targeted readback per incoming handoff. Unknown is not absence;
+          // keep the identity-scoped fence without replaying withdrawal.
+          try {
+            const state = await nativeDrawerAcknowledged(item.source.getWorkspaceState(item.identity));
+            absent = "phase" in state && sameNativeWorkspace(state, item.identity) && state.phase === "retired" && state.settled === true;
+          } catch { absent = false; }
+        }
+        if (absent && workspaceRetirements.get(key) === item) workspaceRetirements.delete(key);
+        return absent;
+      }));
+      if (outcomes.some(absent => !absent)) return false;
+    }
+    return true;
+  })();
 }
 
 // Uncertain withdrawal transfers only a public metadata observer to document

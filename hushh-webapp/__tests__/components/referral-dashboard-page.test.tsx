@@ -22,6 +22,16 @@ const mocks = vi.hoisted(() => ({
   shareLink: vi.fn(),
   hasSeenReferralIntroduction: vi.fn(),
   markReferralIntroductionSeen: vi.fn(),
+  workspaceCapabilities: vi.fn(),
+}));
+
+vi.mock("@/lib/capacitor/native-drawers", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/capacitor/native-drawers")>(),
+  nativeDrawers: {
+    getCapabilities: mocks.workspaceCapabilities,
+    applyWorkspace: vi.fn(), retireWorkspace: vi.fn(), confirmWorkspaceChoice: vi.fn(),
+    settleWorkspaceChoice: vi.fn(), getWorkspaceState: vi.fn(),
+  },
 }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
@@ -107,6 +117,28 @@ describe("formatCountdown", () => {
 });
 
 describe("ReferralDashboardPage", () => {
+  it("preserves the complete dashboard in a native shell instead of admitting the stripped workspace", async () => {
+    const bootstrap = Object.getOwnPropertyDescriptor(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
+    Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { configurable: true,
+      value: { contractVersion: 1, enabled: true, coherentShell: true } });
+    mocks.workspaceCapabilities.mockResolvedValue({ contractVersion: 1, supported: true,
+      wholePresentation: true, routeWorkspaces: ["referrals"] });
+    try {
+      render(<VaultContext.Provider value={{ vaultOwnerToken: "synthetic-owner-token" } as never}>
+        <ReferralDashboardPage />
+      </VaultContext.Provider>);
+      expect(await screen.findByRole("heading", { name: "Good things grow together" })).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Your progress" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Invite" })).toBeInTheDocument();
+      expect(screen.getByText("2,450")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
+      expect(screen.getByRole("region", { name: "Rewards" })).toBeInTheDocument();
+      expect(mocks.claimReward).not.toHaveBeenCalled();
+    } finally {
+      if (bootstrap) Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", bootstrap);
+      else Reflect.deleteProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
+    }
+  });
   it("uses Apple Watch artwork and label for the approved 500-referral reward", async () => {
     mocks.getMilestones.mockResolvedValue({ joined_referral_count: 120, earned: [],
       next_milestone: { milestone_key: "airpods_500", threshold: 500, reward: "Apple Watch", progress: 120 },

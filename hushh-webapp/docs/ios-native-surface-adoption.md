@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-18.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-19.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -18,7 +18,7 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Integrated preservation repair — 2026-10-19
 
-The ADK worktree includes main `c075c85262`, including the team's bounded
+The ADK worktree includes main `cfcdb3618f`, including the team's bounded
 Vertex-readiness recovery, provider-usage and verified-phone recovery changes. No CI policy or readiness
 gate is changed by this repair. The preservation reference remains pre-landing
 main `f7b77b6781`; it is not a reset target.
@@ -51,7 +51,38 @@ These are not physical acceptance or Release performance receipts.
 The first combined core run found four new transitive icon inputs missing from
 the existing editor-lane path filter. Only those exact inputs were added; its
 17 scheduling/negative-control checks pass. No lane, policy or readiness gate
-was removed or redesigned. The corrected combined core must pass before push.
+was removed or redesigned. The preservation candidate `86e28853a9` passes core
+in 443 seconds; integration of main `cfcdb3618f` at `0da80191b1` passes in 440
+seconds. Its client source is byte-identical to the installed `86e28853a9`.
+
+That Release qualification app and its matching runner are now installed on the
+iPhone. Normal passphrase unlock reaches protected Chat. The warm Profile batch
+passes Account/phone and confirmation cancellation, Payouts, pricing, Memory,
+Personal World Model, Preferences/Voice/provider editing, Security/Vault,
+Devices, Connectors and Referrals controls without saving or deleting reviewer
+records. It then fails Referrals' return to Profile; Help and Legal are not
+reached. This is partial functional evidence, not whole-Profile acceptance.
+
+The shared handoff has a source-reproduced retirement race: a retained drawer's
+layout publish can precede the outgoing workspace's passive cleanup, and native
+admission rejects the still-retiring workspace. The nearest regression fails
+before the repair. Workspace layout cleanup now registers actual withdrawal;
+incoming drawers join its confirmed completion and recheck owner, disposal and
+latest projection. Failed withdrawal retains an identity-scoped metadata fence
+until exact native absence is read back. No route/business action is retried.
+The 216 bridge/component checks and typecheck pass. Their dock fixture now uses
+the actual shared portal instead of bypassing the authored active-editor seat.
+Corrected-candidate physical confirmation and final core remain pending.
+
+Invite friends also has a confirmed presentation regression: its native
+route-workspace prototype flattens the team's dashboard into settings rows,
+omitting hero/reward artwork, progress layout and streak presentation. The route
+now selects the existing complete React dashboard before reveal, even inside a
+qualified native shell. Shared shell navigation and the retained feature model
+are unchanged. This is an explicit linked-workspace renderer exception, not a
+new native conversion or an on-tap fallback. The nearest functional regression
+fails on the flattened renderer with capabilities enabled; no broad shell inset
+change is needed. The unused native prototype remains reversible and unqualified.
 
 This ordering repair does **not** implement shielded preparation of the replacement
 Profile/form/content-pane/chrome composition. That composition barrier remains

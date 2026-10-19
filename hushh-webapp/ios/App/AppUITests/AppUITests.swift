@@ -5219,34 +5219,33 @@ final class AppUITests: XCTestCase {
                       waitForAdmittedControl(routeBack) else {
                     XCTFail("PROFILE_BATCH_REFERRALS_ROUTE_UNAVAILABLE"); return
                 }
-                if ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
-                    let body = app.otherElements["native-route-workspace"].firstMatch
-                    let tabs = app.segmentedControls["native-workspace-tabs"].firstMatch
-                    guard body.waitForExistence(timeout: 10), waitForAdmittedControl(tabs) else {
-                        XCTFail("PROFILE_NATIVE_REFERRALS_BODY_UNAVAILABLE"); return
+                // Referrals deliberately retains the complete authored rich
+                // dashboard. Qualification must not admit the settings-row
+                // prototype just because the surrounding shell is native.
+                do {
+                    XCTAssertFalse(app.otherElements["native-route-workspace"].firstMatch.exists,
+                                   "PROFILE_REFERRALS_DUPLICATE_RENDERER")
+                    guard web.buttons["Invite"].firstMatch.waitForExistence(timeout: 15) else {
+                        XCTFail("PROFILE_REFERRALS_DASHBOARD_UNAVAILABLE"); return
                     }
                     for label in ["Ranking", "Rewards", "You"] {
-                        let option = tabs.buttons[label].firstMatch
-                        guard waitForAdmittedControl(option) else { XCTFail("PROFILE_NATIVE_REFERRALS_TAB_UNAVAILABLE"); return }
+                        let option = web.buttons[label].firstMatch
+                        guard waitForAdmittedControl(option) else { XCTFail("PROFILE_REFERRALS_TAB_UNAVAILABLE"); return }
                         option.tap()
                         let selected = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in option.isSelected }, object: app)
                         guard XCTWaiter.wait(for: [selected], timeout: 10) == .completed else {
-                            XCTFail("PROFILE_NATIVE_REFERRALS_SELECTION_UNCONFIRMED"); return
+                            XCTFail("PROFILE_REFERRALS_SELECTION_UNCONFIRMED"); return
                         }
                     }
-                    let rules = app.buttons["How it works"].firstMatch
-                    let scroll = app.scrollViews["native-workspace-scroll"].firstMatch
-                    for _ in 0..<10 {
-                        if rules.exists && rules.isHittable { break }
-                        scroll.swipeUp()
-                    }
-                    guard waitForAdmittedControl(rules) else { XCTFail("PROFILE_NATIVE_REFERRALS_RULES_UNAVAILABLE"); return }
+                    let rules = web.buttons["How it works"].firstMatch
+                    guard waitForAdmittedControl(rules) else { XCTFail("PROFILE_REFERRALS_RULES_UNAVAILABLE"); return }
                     rules.tap()
-                    let localBack = app.buttons["native-workspace-back"].firstMatch
-                    guard waitForAdmittedControl(localBack) else { XCTFail("PROFILE_NATIVE_REFERRALS_LOCAL_BACK_UNAVAILABLE"); return }
-                    localBack.tap()
-                    guard waitForAdmittedControl(tabs) else { XCTFail("PROFILE_NATIVE_REFERRALS_ROOT_NOT_RESTORED"); return }
-                    print("PROFILE_NATIVE_REFERRALS tabs=3 rules=true returned=true mutated=false")
+                    guard web.staticTexts["How it works"].firstMatch.waitForExistence(timeout: 10),
+                          waitForAdmittedControl(routeBack) else { XCTFail("PROFILE_REFERRALS_LOCAL_BACK_UNAVAILABLE"); return }
+                    routeBack.tap()
+                    guard waitForAdmittedControl(web.buttons["You"].firstMatch),
+                          web.buttons["Invite"].firstMatch.exists else { XCTFail("PROFILE_REFERRALS_ROOT_NOT_RESTORED"); return }
+                    print("PROFILE_REFERRALS renderer=react tabs=3 rules=true returned=true mutated=false")
                 }
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
                 XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")
@@ -5259,7 +5258,7 @@ final class AppUITests: XCTestCase {
                     XCTFail("PROFILE_BATCH_REFERRALS_PARENT_NOT_RESTORED"); return
                 }
                 XCTAssertFalse(web.buttons["Unlock"].exists)
-                print("PROFILE_NATIVE_DESTINATION family=invite warm=true single_host=true")
+                print("PROFILE_RETAINED_DESTINATION family=invite warm=true single_host=true")
                 continue
             }
                 guard admittedBack() else { printCoherentPresentationAdmission(app); XCTFail("PROFILE_BATCH_BACK_UNAVAILABLE"); return }
