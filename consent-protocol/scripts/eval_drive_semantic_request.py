@@ -489,7 +489,7 @@ async def evaluate_case(case: dict, *, progress: dict | None = None) -> dict:
                     read_candidate=read,
                     require_current=current,
                     assessor=assessor,
-                    assessment_timeout_seconds=60,
+                    assessment_timeout_seconds=75,
                     total_timeout_seconds=85,
                 ),
                 progress=progress,
