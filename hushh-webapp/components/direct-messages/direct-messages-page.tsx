@@ -27,6 +27,7 @@ import { ConnectionsService, type ConnectionSummaryEntry } from "@/lib/services/
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { DirectMessageVoiceRecorder } from "./direct-message-voice-recorder";
 import { DirectMessageVoicePlayer } from "./direct-message-voice-player";
+import { DirectCallControl } from "./direct-call-control";
 import { shareFile } from "@/lib/share/share-file";
 import { isShareCancellationError } from "@/lib/share/share-link";
 import { CircleMessagesPane } from "@/components/connect/circles/circle-messages-pane";
@@ -58,7 +59,6 @@ import {
   Mic,
   ChevronDown,
   Pencil,
-  PhoneCall,
   Quote,
   RefreshCw,
   Search,
@@ -370,6 +370,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [composerError, setComposerError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [recordingVoice, setRecordingVoice] = useState(false);
+  const [callButtonTarget, setCallButtonTarget] = useState<HTMLSpanElement | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [contactInfoOpen, setContactInfoOpen] = useState(false);
   const [jumpTarget, setJumpTarget] = useState<string | null>(null);
@@ -1465,6 +1466,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
 
   return (
     <AppPageShell width="expanded" fitContent={false} nativeTest={nativeTest} className={styles.shell}>
+      {user?.uid ? <DirectCallControl key={user.uid} ownerId={user.uid} getIdToken={() => user.getIdToken()}
+        conversationId={thread.conversation?.id ?? null} personRef={thread.peerPersonRef} peerName={selectedLabel} buttonTarget={callButtonTarget}
+        canCall={thread.canSend && !recordingVoice} className={styles.headerAction ?? ""} /> : null}
       <section
         ref={pageRef}
         className={styles.page}
@@ -1506,6 +1510,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 onChange={(event) => setInboxSearch(event.target.value)}
                 placeholder="Search messages or people"
                 aria-label="Search conversations"
+                data-message-call-focus-anchor
               />
             </label>
           </div>
@@ -1651,15 +1656,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                         </button>
                       </label>
                     ) : null}
-                    <button
-                      type="button"
-                      className={styles.headerAction}
-                      aria-label="Start voice call"
-                      title="Calls are not available yet"
-                      disabled
-                    >
-                      <PhoneCall className="h-4 w-4" aria-hidden="true" />
-                    </button>
+                    <span className="inline-flex" ref={setCallButtonTarget} />
                     <button type="button" className={styles.headerAction} aria-label="Contact info" onClick={() => setContactInfoOpen(true)}>
                       <Info className="h-5 w-5" aria-hidden="true" />
                     </button>

@@ -42,6 +42,7 @@ type AppKeyRecord = {
   key: CryptoKeyPair;
   publicKeyB64: string;
   subjectId: string | null;
+  communication?: { keyId: string; pair: CryptoKeyPair; publicKey: string };
 };
 
 type PinRecord = {
@@ -685,6 +686,39 @@ export function decodePodSessionClaims(session: string): Record<string, unknown>
 // Authority mutations share the owner lock; internal composition never re-enters it.
 export const refreshEndpointFromHub = serializeOwnerPodOperation(refreshEndpointFromHubUnlocked);
 export const ensureAppEnrollment = serializeOwnerPodOperation(ensureAppEnrollmentUnlocked);
+
+/** Purpose-separated encryption handle below the existing installation identity.
+ * No extractable private key, second device registry or plaintext key backup.
+ */
+export const communicationIdentity = serializeOwnerPodOperation(async (
+  userId: string, transport: OwnerPodTransport,
+): Promise<{ deviceId: string; keyId: string; pair: CryptoKeyPair; publicKey: string; signingKey: string }> => {
+  const deviceId = await ensureAppEnrollmentUnlocked(userId, transport);
+  const record = await ensureAppKey(userId);
+  let communication = record.communication;
+  if (!communication) {
+    const pair = await subtle().generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+    communication = { pair, keyId: crypto.randomUUID(), publicKey: bytesToBase64(
+      new Uint8Array(await subtle().exportKey("spki", pair.publicKey))) };
+    await writeRecord(KEY_STORE, { ...record, communication });
+  }
+  return { deviceId, ...communication, signingKey: record.publicKeyB64 };
+});
+
+/** Sign only the versioned communications domain using canonical device custody. */
+export const signCommunicationCommand = serializeOwnerPodOperation(async (
+  userId: string, operation: string, payload: Record<string, unknown>,
+): Promise<{ deviceId: string; nonce: string; expiresAt: number; signature: string }> => {
+  const record = await ensureAppKey(userId);
+  if (!record.subjectId) throw new OwnerPodError("COMMUNICATION_DEVICE_NOT_ENROLLED");
+  const proof = { deviceId: record.subjectId, nonce: crypto.randomUUID(), expiresAt: Math.floor(Date.now() / 1000) + 90 };
+  const hash = new Uint8Array(await subtle().digest("SHA-256", new TextEncoder().encode(canonicalJson(payload))));
+  const digest = Array.from(hash, byte => byte.toString(16).padStart(2, "0")).join("");
+  const signature = await signWithAppKey(record, canonicalJson([
+    "hussh-communications-command-v1", userId, operation, proof.deviceId, proof.nonce, proof.expiresAt, digest,
+  ]));
+  return { ...proof, signature };
+});
 export const openPodSession = serializeOwnerPodOperation(openPodSessionUnlocked);
 export const renewPodSession = serializeOwnerPodOperation(renewPodSessionUnlocked);
 export const currentPodSession = serializeOwnerPodOperation(currentPodSessionUnlocked);

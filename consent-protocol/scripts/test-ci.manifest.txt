@@ -1353,3 +1353,8 @@ tests/services/test_drive_v1_authority.py
 tests/services/test_drive_request_payment_v1_lane.py
 # Independent authentication authority, including real Postgres lock races.
 tests/services/test_email_auth_postgres.py
+
+# Device-authorized calling policy, bounded API and real PostgreSQL answer races.
+tests/services/test_direct_call_policy.py
+tests/test_direct_calls_postgres.py
+tests/test_direct_calls_routes.py

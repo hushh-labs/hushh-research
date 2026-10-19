@@ -916,6 +916,20 @@
       "primary_access_path": "developer app registration, token issuance, and MCP/developer API access"
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "direct_communication_keys",
+        "direct_calls",
+        "direct_call_slots",
+        "direct_call_commands",
+        "direct_call_signals"
+      ],
+      "id": "direct_call_control",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Signed, active-device and conversation-participant commands through /api/one/messages/calls; governed direct_call_retention maintenance entrypoint. Release admission remains disabled until encrypted-history and native qualification."
+    },
+    {
       "data_class": "personal_encrypted",
       "exact_tables": [
         "messages",
@@ -6941,11 +6955,11 @@
     "action_gateway": "8e48d7af6c7f766b702bfe38abf1cfa2a53ed77c26a2d55d88b76c7ac9453c5b",
     "agent_registry": "06cf99be50cccb6d63c4950b577ca62ec7b5e84130584f8c6927f610979af9fb",
     "cache_manifest": "e0571b6c4ad7d73af8db63d90ae574a65b107f7c62951bbadf43998d3a199617",
-    "data_plane": "4cdb99438b69852002668f79b7e9eec0948fc89db1900100656d608628c8a63d",
+    "data_plane": "25320933381038571525fff7c9b98cd76f9b52d5d5a4f5e64fa2fadf8723e383",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "ce0a63b0f3fe938eef9948c6ab49bb7a882d455bf39ae4402ede21eb8477083c",
-    "route_layout": "9c29b156bd677be804a4be1fdcb74562bba2967a514dec53e2f0c5ce57d6a371",
+    "route_layout": "7ab3f9c8fdcffc1bde6d526e0d4d4beeb00fdff0af8195ac3ccad89f960bd6b2",
     "surface_map": "85ed48c1aa1f9acd8b9667da21cbfe9442464ccf8c4ee3b1488948964acb98c8",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
@@ -6960,6 +6974,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 160,
     "semantic_routes": 17,
-    "table_families": 122
+    "table_families": 123
   }
 }

@@ -38,8 +38,11 @@ class PrivateMessageRoute(APIRoute):
 
         async def bounded(request: Request):
             try:
-                if request.method == "POST" and request.url.path.rstrip("/") == "/api/one/messages":
-                    maximum = MAX_DIRECT_ATTACHMENT_BASE64_LENGTH + 64_000
+                is_call = request.url.path.startswith("/api/one/messages/calls/")
+                if request.method == "POST" and (
+                    is_call or request.url.path.rstrip("/") == "/api/one/messages"
+                ):
+                    maximum = 650_000 if is_call else MAX_DIRECT_ATTACHMENT_BASE64_LENGTH + 64_000
                     declared = request.headers.get("content-length")
                     if declared and declared.isdigit() and int(declared) > maximum:
                         raise HTTPException(413, "Message request is too large.")
@@ -56,9 +59,18 @@ class PrivateMessageRoute(APIRoute):
                 return result
             except RequestValidationError:
                 # Validation errors must never echo an attachment's base64 data.
-                raise HTTPException(422, "Invalid message request.") from None
+                raise HTTPException(
+                    422, "Invalid message request.", headers={"Cache-Control": "private, no-store"}
+                ) from None
             except TimeoutError:
-                raise HTTPException(408, "Message request timed out.") from None
+                raise HTTPException(
+                    408,
+                    "Message request timed out.",
+                    headers={"Cache-Control": "private, no-store"},
+                ) from None
+            except HTTPException as exc:
+                exc.headers = {**(exc.headers or {}), "Cache-Control": "private, no-store"}
+                raise
 
         return bounded
 

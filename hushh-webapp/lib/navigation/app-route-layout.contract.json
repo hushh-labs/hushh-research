@@ -2566,7 +2566,7 @@
         }
       ],
       "kind": "root",
-      "reason": "Messages owns thread-level navigation inside its workspace through route-scoped Back layers."
+      "reason": "Messages owns thread navigation and call layers: verification dismisses before call cleanup; thread navigation follows. Calling is release-gated and native execution remains unavailable."
     }
   },
   {
