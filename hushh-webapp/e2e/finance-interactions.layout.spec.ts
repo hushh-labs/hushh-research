@@ -6,6 +6,7 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
 
 let css: string;
 let script: string;
+let marketScript: string;
 let saveActionClass: string;
 let stickyOffsets: string[];
 let fixtureOutDir: string | undefined;
@@ -68,6 +69,44 @@ test.beforeAll(async () => {
     },
   });
   script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+  const boundary = path.join(root, "e2e/fixtures/finance-market-boundaries.ts");
+  await build({
+    configFile: false,
+    logLevel: "error",
+    publicDir: false,
+    plugins: [{
+      name: "market-css-candidates",
+      transform(source, id) {
+        if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id))
+          for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }]))
+            candidates.add(candidate);
+      },
+    }],
+    oxc: { jsx: { runtime: "automatic", development: false } },
+    resolve: {
+      alias: [
+        ...[
+          "next/navigation", "@/hooks/use-auth", "@/lib/firebase/auth-context",
+          "@/lib/vault/vault-context", "@/lib/cache/use-stale-resource",
+          "@/lib/kai/kai-financial-resource", "@/lib/kai/kai-market-home-resource",
+          "@/lib/services/kai-token-guard", "@/lib/kai/actions/voice-surface-metadata",
+        ].map(find => ({ find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), replacement: boundary })),
+        { find: "@", replacement: root },
+      ],
+    },
+    define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
+    build: {
+      outDir,
+      emptyOutDir: false,
+      lib: {
+        entry: path.join(root, "e2e/fixtures/finance-market.tsx"),
+        name: "MarketFixture",
+        formats: ["iife"],
+        fileName: () => "market.js",
+      },
+    },
+  });
+  marketScript = fs.readFileSync(path.join(outDir, "market.js"), "utf8");
   const { compile } = await import("tailwindcss");
   const compiler = await compile(
     fs
@@ -88,6 +127,67 @@ test.beforeAll(async () => {
   );
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
 });
+
+for (const width of [320, 375, 393, 430, 768, 1440]) {
+  for (const theme of ["light", "dark"]) {
+    test(`Market news matches Location text and fits at ${width}px in ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 932 });
+      await page.route("http://localhost/finance-market", route => route.fulfill({
+        contentType: "text/html",
+        body: `<!doctype html><html class="${theme}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><style>html,body{height:auto}</style></head><body><div id="root"></div></body></html>`,
+      }));
+      await page.goto("http://localhost/finance-market");
+      await page.evaluate(() => {
+        window.addEventListener("app-internal-navigation-requested", event => {
+          document.body.dataset.navigationHref = (event as CustomEvent).detail.href;
+        });
+      });
+      await page.addScriptTag({ content: marketScript });
+      await awaitProductFont(page);
+      const action = page.getByRole("button", { name: "All news", exact: true });
+      await expect(action).toBeVisible();
+      const target = await action.boundingBox();
+      expect(target!.height).toBeGreaterThanOrEqual(44);
+      expect(target!.width).toBeGreaterThanOrEqual(44);
+      const card = page.getByRole("button").filter({ hasText: "A longer market headline" });
+      await expect(card).toBeVisible();
+      const measurements = await card.evaluate(el => {
+        const reference = document.querySelector("[data-location-type-reference]")!;
+        const style = (root: Element, selector: string) => {
+          const css = getComputedStyle(root.querySelector(selector)!);
+          return [css.fontFamily, css.fontSize, css.lineHeight, css.color];
+        };
+        const content = el.lastElementChild!;
+        return {
+          headline: style(el, ".ui-text-medium-row-label"),
+          row: style(reference, ".ui-text-row-label"),
+          description: style(el, ".ui-text-row-description"),
+          descriptionReference: style(reference, ".ui-text-row-description"),
+          helper: style(el, ".ui-text-helper-text"),
+          helperReference: style(reference, ".ui-text-helper-text"),
+          action: style(el, ".ui-text-trailing-action"),
+          actionReference: style(reference, ".ui-text-trailing-action"),
+          padding: getComputedStyle(content).padding,
+          cardOverflow: el.scrollWidth > el.clientWidth,
+          pageOverflow: document.documentElement.scrollWidth > innerWidth,
+          railOverflow: el.parentElement!.scrollWidth > el.parentElement!.clientWidth,
+        };
+      });
+      expect(measurements.headline).toEqual(measurements.row);
+      expect(measurements.description).toEqual(measurements.descriptionReference);
+      expect(measurements.helper).toEqual(measurements.helperReference);
+      expect(measurements.action).toEqual(measurements.actionReference);
+      expect(measurements.padding).toBe("16px");
+      expect(measurements.cardOverflow).toBe(false);
+      expect(measurements.pageOverflow).toBe(false);
+      expect(measurements.railOverflow).toBe(true);
+      await action.click();
+      await expect(page.locator("body")).toHaveAttribute("data-navigation-href", "/one/kai/news");
+      await card.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: test.info().outputPath(`finance-${width}-${theme}.png`) });
+    });
+  }
+}
 
 test.afterAll(() => {
   if (fixtureOutDir) fs.rmSync(fixtureOutDir, { recursive: true, force: true });

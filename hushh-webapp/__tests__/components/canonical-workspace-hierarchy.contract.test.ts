@@ -96,5 +96,8 @@ describe("canonical workspace hierarchy", () => {
     expect(analysis).not.toContain("pb-safe");
     expect(analysis).not.toContain("h-full overflow-hidden");
     expect(analysis).not.toContain("space-y-6 overflow-hidden");
+    // Analysis is mounted only inside the Finance workspace; its locked and
+    // loading states must not add another shell/gutter inside that column.
+    expect(read("app/one/kai/analysis/page.tsx")).not.toContain("<AppPageShell");
   });
 });
