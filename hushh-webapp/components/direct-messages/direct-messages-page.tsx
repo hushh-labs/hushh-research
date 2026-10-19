@@ -23,14 +23,12 @@ import { OneChatBubble } from "@/components/agent/chat-message-styles";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { ConnectionsService, type ConnectionSummaryEntry } from "@/lib/services/connections-service";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
-import { MessageReactionMenu, QUICK_MESSAGE_REACTIONS } from "@/components/app-ui/message-reaction-menu";
 import { useLongPress } from "@/lib/morphy-ux/hooks/use-long-press";
 import { DirectMessageVoiceRecorder } from "./direct-message-voice-recorder";
 import { DirectMessageVoicePlayer } from "./direct-message-voice-player";
 import { shareFile } from "@/lib/share/share-file";
 import { isShareCancellationError } from "@/lib/share/share-link";
 import { CircleMessagesPane } from "@/components/connect/circles/circle-messages-pane";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,6 +61,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  Smile,
   MoonIcon,
   SunIcon,
   Plus,
@@ -441,6 +440,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const messageMenuSequence = useRef(0);
   const messageMenuOpening = useRef<MessageMenuOpening | null>(null);
   const replyFocus = useRef<MessageMenuOpening | null>(null);
+  const reactionFocus = useRef<MessageMenuOpening | null>(null);
+  const editFocus = useRef<{ opening: MessageMenuOpening; message: DirectMessage } | null>(null);
   const inboxLoadGeneration = useRef(0);
   const successfulInboxOwner = useRef<string | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
@@ -450,6 +451,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     ++operationGeneration.current;
     messageMenuOpening.current = null;
     replyFocus.current = null;
+    reactionFocus.current = null;
+    editFocus.current = null;
   }, []);
 
   const hasRouteSelection = Boolean(resolvingSelection || requestedPersonRef || requestedConversationId);
@@ -618,20 +621,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     setMessageSearchOpen(false);
     setMessageSearchQuery("");
   }, [activeConversationId]);
-
-  const editingMessageId = editingMessage?.id;
-
-  useEffect(() => {
-    if (!editingMessageId) return;
-    const frame = requestAnimationFrame(() => {
-      const input = editingInputRef.current;
-      if (!input) return;
-      input.focus();
-      const caret = input.value.length;
-      input.setSelectionRange(caret, caret);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [editingMessageId]);
 
   useChatAlertVisibility(lane === "people" && hasRouteSelection && activeConversationId && !loadingThread && !blockingLayer && !messageSearchOpen
     ? `direct-chat:${activeConversationId}` : null, messageListRef);
@@ -1298,16 +1287,18 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   };
 
   const startEditing = (message: DirectMessage) => {
-    editDraftGeneration.current += 1;
+    const opening = messageMenuOpening.current;
+    if (!opening || opening.generation !== operationGeneration.current ||
+        opening.messageId !== message.id || opening.conversationId !== message.conversationId) return;
+    editFocus.current = { opening, message };
     setOpenMessageMenu(null);
     setActiveMessageActions(null);
-    setMessageActionError(null);
-    setEditingMessage(message);
-    setEditingContent(message.content);
   };
 
   const openMessageActions = (message: DirectMessage) => {
     replyFocus.current = null;
+    reactionFocus.current = null;
+    editFocus.current = null;
     messageMenuOpening.current = {
       generation: operationGeneration.current,
       sequence: ++messageMenuSequence.current,
@@ -1849,22 +1840,17 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                               </OneChatBubble>
                               <div className={styles.messageActions} aria-label="Message actions">
                                 {!message.deletedForEveryoneAt ? (
-                                  <Popover open={openReactionPicker === message.id}
-                                    onOpenChange={(open) => setOpenReactionPicker(open ? message.id : null)}>
-                                    <PopoverTrigger asChild>
-                                      <button type="button" className={styles.messageActionButton}
-                                        aria-label="React to message" aria-expanded={openReactionPicker === message.id}>
-                                        <span aria-hidden="true">☺</span>
-                                      </button>
-                                    </PopoverTrigger>
-                                    <PopoverContent side="top" align={message.senderIsViewer ? "end" : "start"}
-                                      collisionPadding={12} className={styles.reactionPicker} aria-label="Choose a reaction">
-                                      {QUICK_MESSAGE_REACTIONS.map((emoji) => (
-                                        <button key={emoji} type="button" aria-label={`React ${emoji}`}
-                                          onClick={() => saveReaction(message, emoji)}>{emoji}</button>
-                                      ))}
-                                    </PopoverContent>
-                                  </Popover>
+                                  <DirectMessageEmojiPicker
+                                    label="React to message"
+                                    triggerIcon={<Smile className="h-5 w-5" />}
+                                    triggerClassName={styles.messageActionButton}
+                                    open={openReactionPicker === message.id}
+                                    onOpenChange={(open) => {
+                                      if (open) setOpenMessageMenu(null);
+                                      setOpenReactionPicker(open ? message.id : null);
+                                    }}
+                                    onEmojiSelect={(emoji) => saveReaction(message, emoji)}
+                                  />
                                 ) : null}
                                 <DropdownMenu
                                   modal={false}
@@ -1892,11 +1878,26 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                     collisionPadding={12}
                                     className={styles.messageMenu}
                                     onCloseAutoFocus={(event) => {
-                                      // Radix owns close settlement. Hand Reply focus over
-                                      // here, not in a competing animation-frame callback.
+                                      // Settle the menu before handing focus to another surface.
                                       if (!opening || opening.generation !== operationGeneration.current ||
                                           opening !== messageMenuOpening.current) {
                                         event.preventDefault();
+                                        return;
+                                      }
+                                      if (reactionFocus.current === opening) {
+                                        reactionFocus.current = null;
+                                        event.preventDefault();
+                                        setOpenReactionPicker(message.id);
+                                        return;
+                                      }
+                                      if (editFocus.current?.opening === opening) {
+                                        const { message: editMessage } = editFocus.current;
+                                        editFocus.current = null;
+                                        event.preventDefault();
+                                        editDraftGeneration.current += 1;
+                                        setMessageActionError(null);
+                                        setEditingMessage(editMessage);
+                                        setEditingContent(editMessage.content);
                                         return;
                                       }
                                       if (replyFocus.current !== opening) return;
@@ -1905,9 +1906,15 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                       composerRef.current?.focus();
                                     }}
                                   >
-                                    {!message.deletedForEveryoneAt ? <MessageReactionMenu
-                                      disabled={reactionPending.current.has(message.id)}
-                                      onSelect={(emoji) => { setOpenMessageMenu(null); saveReaction(message, emoji); }} /> : null}
+                                    {!message.deletedForEveryoneAt ? (
+                                      <DropdownMenuItem onSelect={() => {
+                                        reactionFocus.current = opening;
+                                        setOpenMessageMenu(null);
+                                      }}>
+                                        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                                        React
+                                      </DropdownMenuItem>
+                                    ) : null}
                                     {!message.deletedForEveryoneAt ? (
                                       <DropdownMenuItem onSelect={() => startReply(message)}>
                                         <Quote className="h-3.5 w-3.5" aria-hidden="true" />
@@ -2076,6 +2083,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       }}
                     />
                     <DirectMessageEmojiPicker
+                      key={draftScope}
+                      triggerIcon={<Smile className="h-5 w-5" />}
                       restoreTriggerFocusOnSelect={false}
                       disabled={sending || recordingVoice || !canCompose || Boolean(unconfirmedDraft)}
                       onEmojiSelect={(emoji) => {
@@ -2134,7 +2143,14 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
               <Dialog modal open={Boolean(editingMessage)} onOpenChange={(open) => {
                 if (!open) { editDraftGeneration.current += 1; setEditingMessage(null); setEditingContent(""); }
               }}>
-                <DialogContent className={styles.editDialog} srDescription="Update the text of your message.">
+                <DialogContent className={styles.editDialog} srDescription="Update the text of your message."
+                  onOpenAutoFocus={(event) => {
+                    event.preventDefault();
+                    const input = editingInputRef.current;
+                    if (!input) return;
+                    input.focus();
+                    input.setSelectionRange(input.value.length, input.value.length);
+                  }}>
                   <DialogHeader><DialogTitle>Edit message</DialogTitle></DialogHeader>
                   <label className="sr-only" htmlFor="message-edit-text">Edit message</label>
                   <div className={styles.expandedMessageEditor}>

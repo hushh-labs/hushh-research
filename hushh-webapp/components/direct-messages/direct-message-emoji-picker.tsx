@@ -153,7 +153,11 @@ export function DirectMessageEmojiPicker({
     grid.current?.scrollTo?.(0, 0);
   }, [activeCategory, query, open]);
 
-  useEffect(() => { setOpen(false); }, [dismissSignal, setOpen]);
+  useEffect(() => {
+    // Controlled reaction pickers already follow the owning message's state.
+    // Only an explicit owner/route dismissal signal should reset this picker.
+    if (dismissSignal !== undefined) setOpen(false);
+  }, [dismissSignal, setOpen]);
 
   useEffect(() => {
     setRecent(readRecentEmojis());

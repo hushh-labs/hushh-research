@@ -340,6 +340,7 @@ test.describe("touch emoji sending", () => {
     await expect(page.getByRole("heading", { name: "Leah Roy", exact: true })).toBeVisible();
     await expect(page.getByText("Start the conversation with Leah Roy.", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Conversation", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Choose emoji", exact: true }).locator("svg")).toBeVisible();
     await page.screenshot({ path: test.info().outputPath("connected-person-new-chat.png"), animations: "disabled" });
     const selections = [
       { emoji: "😊", source: "recent" }, { emoji: "😊", source: "recent" },
@@ -738,7 +739,12 @@ test.describe("compact message layout", () => {
         expect(rect.height).toBeGreaterThanOrEqual(44);
         expect(rect.x).toBeGreaterThanOrEqual(0);
         expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+        if (!(await touchMessageActions(page))) await button.hover();
         await expect(button).toHaveCSS("background-image", /14px.*15px/);
+        await page.keyboard.press("Tab");
+        await button.focus();
+        await expect(button).toHaveCSS("outline-style", "solid");
+        await expect(button).toHaveCSS("outline-width", "2px");
       }
     }
     await page.screenshot({ path: test.info().outputPath(`compact-message-controls-${width}.png`), animations: "disabled" });
@@ -849,6 +855,62 @@ test("Enter preserves composition and mobile newlines while desktop Enter sends"
 });
 
 
+for (const width of [320, 393, 1440]) {
+  for (const dark of [false, true]) {
+    test(`message menu is action-only and full reactions fit at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width === 320 ? 568 : 900 });
+      const errors = await mount(page, dark);
+      await fixture(page, "fixture.remoteChange('maya-79', 'Choose any reaction')");
+      const message = page.locator('[data-chat-message="maya-79"]');
+      await expect(message).toContainText("Choose any reaction");
+      await holdMessage(page, message);
+      const menu = page.getByRole("menu");
+      await expect(menu.getByRole("menuitem", { name: "Reply", exact: true })).toBeVisible();
+      await expect(menu.getByRole("group", { name: "Quick reactions" })).toHaveCount(0);
+      await expect(menu.getByRole("button")).toHaveCount(0);
+      await page.screenshot({ path: test.info().outputPath(`message-menu-${width}-${dark ? "dark" : "light"}.png`), animations: "disabled" });
+      await page.keyboard.press("Escape");
+      const draft = page.locator("[data-direct-message-composer-input]");
+      await draft.fill("Keep this draft");
+      const useMenu = await page.evaluate(() => matchMedia("(max-width: 767px), (hover: none)").matches);
+      for (const emoji of ["🐱", "👩🏽‍💻", "🇮🇳"]) {
+        if (useMenu) {
+          await holdMessage(page, message);
+          await page.getByRole("menuitem", { name: "React", exact: true }).click();
+        } else {
+          await message.hover();
+          await message.getByRole("button", { name: "React to message", exact: true }).click();
+        }
+        const picker = page.getByRole("dialog", { name: "Emoji picker", exact: true });
+        await expect(picker).toBeVisible();
+        await expect(picker.getByRole("tab", { name: "Animals and nature", exact: true })).toBeVisible();
+        const box = (await picker.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(width);
+        expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.y + box.height).toBeLessThanOrEqual(width === 320 ? 568 : 900);
+        await picker.getByPlaceholder("Search emoji").fill(emoji);
+        if (emoji === "🐱") {
+          await fixture(page, "fixture.remoteChange('maya-79', 'Choose any reaction')");
+          await expect(picker).toBeVisible();
+        }
+        await picker.getByRole("button", { name: `Use ${emoji}`, exact: true }).click();
+        await expect(picker).toHaveCount(0);
+        await expect(message.getByRole("button", { name: `${emoji} reaction, 1`, exact: true })).toBeVisible();
+        await expect(draft).toHaveValue("Keep this draft");
+      }
+      expect(await page.evaluate(() => (window as any).directChatFixture.sends.length)).toBe(0);
+      await holdMessage(page, message);
+      await page.getByRole("menuitem", { name: "React", exact: true }).click();
+      await expect(page.getByRole("dialog", { name: "Emoji picker", exact: true })).toBeVisible();
+      await page.screenshot({ path: test.info().outputPath(`full-reactions-${width}-${dark ? "dark" : "light"}.png`), animations: "disabled" });
+      await fixture(page, "fixture.changeOwner()");
+      await expect(page.getByRole("dialog", { name: "Emoji picker", exact: true })).toHaveCount(0);
+      expect(errors).toEqual([]);
+    });
+  }
+}
+
 test("preserves replies, edits and delete actions with a short phone keyboard", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 }); await mount(page);
   const received = page.locator('[data-chat-message="maya-77"]');
@@ -866,6 +928,8 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   const own = page.locator('[data-chat-message]').filter({ hasText: "Reply stays in this chat" });
   await holdMessage(page, own);
   await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Edit message", exact: true })).toBeFocused();
   await page.evaluate(() => { document.documentElement.classList.add('kb-open', 'native-keyboard-inset'); document.documentElement.style.setProperty("--kb-height", "300px"); });
   await page.getByRole("textbox", { name: "Edit message", exact: true }).fill("Edited reply");
   await expect.poll(async () => (await page.getByRole("button", { name: "Save", exact: true }).boundingBox())!.y + (await page.getByRole("button", { name: "Save", exact: true }).boundingBox())!.height).toBeLessThanOrEqual(268);
@@ -876,7 +940,10 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   const edited = page.locator('[data-chat-message]').filter({ hasText: "Edited reply" });
   await holdMessage(page, edited);
   await fixture(page, "fixture.holdReaction()");
-  await page.getByRole("menuitem", { name: "React ❤️", exact: true }).click();
+  await expect(page.getByRole("group", { name: "Quick reactions" })).toHaveCount(0);
+  await page.getByRole("menuitem", { name: "React", exact: true }).click();
+  await page.getByPlaceholder("Search emoji").fill("heart");
+  await page.getByRole("button", { name: "Use ❤️", exact: true }).click();
   await expect(edited.getByRole("button", { name: "❤️ reaction, 1", exact: true })).toBeVisible();
   await edited.locator("[data-chat-bubble]").click();
   await fixture(page, "fixture.releaseReaction()");

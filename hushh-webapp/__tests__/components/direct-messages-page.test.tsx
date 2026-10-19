@@ -816,7 +816,7 @@ describe("DirectMessagesPage", () => {
   );
 
   it("offers the full emoji picker and opens One chat for voice", async () => {
-    renderConnectionThread();
+    const view = renderConnectionThread();
 
     const composer = await screen.findByRole("textbox", {
       name: "Message Ankit Kumar Singh",
@@ -847,6 +847,12 @@ describe("DirectMessagesPage", () => {
     expect(composer).toHaveValue("😀🐱");
     expect(screen.queryByRole("button", { name: "Talk to One" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Choose emoji" }));
+    fireEvent.change(composer, { target: { value: "A draft update" } });
+    expect(screen.getByLabelText("Emoji picker")).toBeVisible();
+    mocks.user = { ...mocks.user, uid: "viewer-2" };
+    view.rerender(connectionThread());
+    await waitFor(() => expect(screen.queryByLabelText("Emoji picker")).not.toBeInTheDocument());
   });
 
   it("does not admit an empty thread until its owner-bound read succeeds, or accept a failed read", async () => {
@@ -1044,7 +1050,7 @@ describe("DirectMessagesPage", () => {
     expect(timestamp?.parentElement?.parentElement).toContainElement(screen.getByLabelText("Sent"));
   });
 
-  it("opens reactions and replies on a stationary long press, not a tap or scroll", async () => {
+  it("keeps the long-press menu action-only and reactions in the full picker", async () => {
     const message = {
       id: "message-1",
       conversationId: "conversation-1",
@@ -1080,7 +1086,10 @@ describe("DirectMessagesPage", () => {
       expect(screen.getByRole("menu")).toBeInTheDocument();
       pointer("pointerup");
     } finally { vi.useRealTimers(); }
-    fireEvent.click(screen.getByRole("menuitem", { name: "React ❤️" }));
+    expect(within(screen.getByRole("menu")).queryByRole("group", { name: "Quick reactions" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "React", exact: true }));
+    fireEvent.change(await screen.findByPlaceholderText("Search emoji"), { target: { value: "heart" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use ❤️" }));
     await waitFor(() =>
       expect(mocks.reactToMessage).toHaveBeenCalledWith({
         idToken: "test-token",
@@ -1185,12 +1194,13 @@ describe("DirectMessagesPage", () => {
     operation.mockReturnValueOnce(pending);
     if (action === "reaction") {
       fireEvent.click(screen.getByRole("button", { name: "React to message" }));
-      fireEvent.click(screen.getAllByRole("button", { name: "React ❤️" })[0]!);
+      fireEvent.change(screen.getByPlaceholderText("Search emoji"), { target: { value: "heart" } });
+      fireEvent.click(screen.getByRole("button", { name: "Use ❤️" }));
     } else {
       fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
       fireEvent.click(await screen.findByRole("menuitem", { name: action === "edit" ? "Edit" : "Delete for me" }));
       if (action === "edit") {
-        fireEvent.change(screen.getByRole("textbox", { name: "Edit message" }), { target: { value: "Synthetic A edit" } });
+        fireEvent.change(await screen.findByRole("textbox", { name: "Edit message" }), { target: { value: "Synthetic A edit" } });
         fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
       } else fireEvent.click(screen.getByRole("button", { name: "Yes, delete", exact: true }));
     }
