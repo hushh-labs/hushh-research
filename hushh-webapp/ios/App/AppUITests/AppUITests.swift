@@ -1269,12 +1269,26 @@ final class AppUITests: XCTestCase {
             guard #available(iOS 26.0, *) else { throw XCTSkip("Native hitch measurement requires iOS 26") }
             let options = XCTMeasureOptions()
             options.iterationCount = 3
-            func exerciseProfile() -> Bool {
+            func exerciseProfile(scroll: Bool = false) -> Bool {
                 profile.tap()
                 let preferences = app.buttons["native-profile-row-preferences"].firstMatch
                 guard waitForAdmittedControl(preferences) else {
                     printCoherentPresentationAdmission(app)
                     XCTFail("NATIVE_PRODUCT_PERFORMANCE_PROFILE_MISSING"); return false
+                }
+                if scroll {
+                    // Measure actual native scrolling as well as push/pop.
+                    // A completed navigation test with zero rendered frames
+                    // is not usable frame-pacing evidence.
+                    let menu = app.scrollViews["native-profile-menu-scroll"].firstMatch
+                    guard menu.exists && menu.isHittable else {
+                        XCTFail("NATIVE_PRODUCT_PERFORMANCE_SCROLL_MISSING"); return false
+                    }
+                    menu.swipeUp(velocity: .slow)
+                    menu.swipeDown(velocity: .slow)
+                    guard waitForAdmittedControl(preferences) else {
+                        XCTFail("NATIVE_PRODUCT_PERFORMANCE_SCROLL_RETURN_FAILED"); return false
+                    }
                 }
                 preferences.tap()
                 let back = nativeProfileBack(app, parent: "Profile")
@@ -1304,11 +1318,13 @@ final class AppUITests: XCTestCase {
             }
             print("NATIVE_PRODUCT_WARM_PROFILE cycles=10 single_composer=true mutated=false")
             var failed = false
-            measure(metrics: [XCTOSSignpostMetric.navigationTransitionMetric, XCTHitchMetric(application: app)], options: options) {
+            measure(metrics: [XCTOSSignpostMetric.navigationTransitionMetric,
+                              XCTOSSignpostMetric.scrollingAndDecelerationMetric,
+                              XCTHitchMetric(application: app)], options: options) {
                 // Do not replay a failed or uncertain navigation operation in
                 // a later measurement iteration.
                 guard !failed else { return }
-                failed = !exerciseProfile()
+                failed = !exerciseProfile(scroll: true)
             }
             guard !failed else { return }
             print("NATIVE_PRODUCT_PERFORMANCE requested_iterations=3 configuration=release warm=true mutated=false")
