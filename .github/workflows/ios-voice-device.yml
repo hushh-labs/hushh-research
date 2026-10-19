@@ -1,4 +1,4 @@
-name: One Voice Physical Device Gate
+name: "Verify iOS Voice on Device"
 
 on:
   workflow_call:

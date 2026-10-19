@@ -36,6 +36,11 @@ Hub deployment never installs an owner-pod image.
 
 ## 2. Consolidate the existing release path
 
+Local cleanup removes the two duplicate pod-only scheduled workflows and standardizes
+13 display names. Normal Protocol CI retains both core suites. See the
+[workflow catalog and timing review](../../reference/operations/ci.md#workflow-catalog-and-naming).
+Core gate names, deployment authority and capacity tick titles are unchanged.
+
 All three workflows already share `resolve-deploy-scope.py`, Cloud Build templates,
 immutable image handling and revision-provenance helpers. Consolidate measured
 remaining duplication in those owners; do not create a second release authority.
@@ -53,6 +58,9 @@ Thin environment entrypoints may remain for GitHub permissions and dispatch
 compatibility. They must call the common implementation rather than carry their own
 copy. Delete obsolete references, selectors, tests and runbook commands together.
 Normal application deployment and owner-pod installation remain separate operations.
+After an authorized main rollout, reconcile GitHub registry entries for deleted
+workflow files against main, active callers and recent runs. Disable only confirmed
+obsolete entries, preserving historical run evidence and platform-managed security.
 
 Before editing workflows, record a responsibility diff and identify each duplicated
 block being replaced. Extend existing workflow/selector tests with negative controls

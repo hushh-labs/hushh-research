@@ -1,4 +1,4 @@
-name: Provision Wallet Pass Certificate
+name: "Provision Wallet Signing Certificate"
 
 # One-click provisioning of the Apple Pass Type ID (`pass.com.hushh.app.one`) and
 # its PASS_TYPE_ID signing certificate for the Hushh One Wallet Profile pass.

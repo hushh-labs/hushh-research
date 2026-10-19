@@ -617,31 +617,6 @@ assertions:
       # neither a missing env variable nor a string grep establishes fleet state.
       requires: [uv]
 
-  - id: the-drill-runs-on-a-schedule
-    requirement: Learning loop
-    statement: "The existing weekly offline lifecycle-orchestration job has a fresh successful scheduled execution for the audited source."
-    falsifiable: true
-    check:
-      kind: receipt
-      required_target_mode: local
-      source_paths:
-        - .github/workflows/dev-pod-lifecycle-drill.yml
-        - consent-protocol/scripts/ops/pod_lifecycle_drill.py
-      observation_requirements:
-        event: {equals: schedule}
-        head_branch: {equals: main}
-        conclusion: {equals: success}
-        mode: {equals: dry-run}
-        report_verified: {equals: true}
-      reproduce: .github/workflows/dev-pod-lifecycle-drill.yml
-      expires_after_days: 14
-      pending: >-
-        This is the existing Monday 07:23 UTC offline job, not a live cloud drill.
-        Run 33406975413 succeeded on 2026-08-31 at main revision
-        04b3deb51bc5a55b74a1e54f4e76005bdf671e87. Its workflow and drill source
-        differ from this tree, so it remains historical evidence. Reconcile the
-        common source and verify a fresh scheduled report; add no new schedule.
-
   - id: the-judge-itself-can-fail
     requirement: Learning loop
     statement: "The judge reports NOT finished when an item is failing, and cannot report a false green."

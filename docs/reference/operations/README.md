@@ -121,7 +121,7 @@ the calendar is an event record, never a timekeeping or performance measure.
 
 - [Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md): canonical queue, Admin PR landing, exact-SHA promotion, environment dispatch, proof, and closeout state machine.
 - [ci.md](./ci.md): local/remote CI parity and required lanes.
-- [pod-completion-judge.md](./pod-completion-judge.md): the completion ledger and the judge that asks "did we finish it" on a cadence. Status is derived from checks, never declared; unevaluable reports UNKNOWN rather than PASS.
+- [pod-completion-judge.md](./pod-completion-judge.md): the completion ledger and explicit readiness assessment. Status is derived from checks, never declared; unevaluable reports UNKNOWN rather than PASS.
 - [cli.md](./cli.md): canonical root command surface for repo-level workflows.
 - [workos-sso-local-run.md](./workos-sso-local-run.md): local sandbox run for WorkOS enterprise SSO (dashboard setup, env, org seed, checks).
 - [branch-governance.md](./branch-governance.md): branch rules, review gates, protected surfaces, and **the bypass lane** — the sanctioned maintainer cohort that may land directly on `main` and edit protected pipeline paths. It waives review, never validation: `CI Status Gate`, merge queue validation, and `Main Post-Merge Smoke Gate` still apply to every member. Live membership is `config/ci-governance.json` only — never transcribed into prose.

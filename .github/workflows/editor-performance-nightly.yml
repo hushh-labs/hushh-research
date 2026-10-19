@@ -1,4 +1,4 @@
-name: "Editor Performance Nightly"
+name: "Measure Editor Performance"
 
 # PR Validation runs the macOS editor latency lane (web-editor-performance-check
 # in ci.yml) only when its `editor` path filter matches: the files the lane's

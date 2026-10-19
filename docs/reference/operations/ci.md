@@ -69,6 +69,119 @@ Canonical pre-PR command:
 
 This command runs the same blocking local CI surface that feeds GitHub `PR Validation` and `CI Status Gate`. Use `./bin/hushh codex pre-pr --include-advisory` only when you intentionally want the wider non-blocking readiness lane too.
 
+## Workflow catalog and naming
+
+Workflow files and required check names are stable API identifiers. Display names
+use a clear action and purpose: **Deploy**, **Release**, **Resume**, **Verify**,
+**Measure**, **Warm**, **Schedule**, **Maintain**, **Provision** or **Rollback**.
+`PR Validation`, `Queue Validation` and `Main Post-Merge Smoke` keep their existing
+names because governance and external tooling use them as release authority.
+App Store and Android publication also retain the exact display names checked
+by their dispatch verifiers; filenames and release receipts remain unchanged.
+Never rename required job/check contexts for cosmetic consistency.
+
+| Family | Workflow files | Purpose / trigger |
+| --- | --- | --- |
+| Validation | `ci.yml`, `queue-validation.yml`, `main-post-merge-smoke.yml` | PR checks; identical-tree queue reuse; landed-main smoke. No duplicate full suite in the queue |
+| Deployment | `deploy-dev.yml`, `deploy-uat.yml`, `deploy-production.yml` | Governed manual exact-SHA deployment through existing shared build/provenance helpers |
+| Scoped compatibility deployment | `deploy-uat-one-chat.yml` | Explicit backend cutover with its own capacity/recovery contract; no schedule or automatic deployment |
+| Native releases | `ship-ios-testflight.yml`, `release-ios-appstore.yml`, `ship-android-playstore-v1.yml`, `resume-ios-testflight.yml` | Explicit release or continuation of a known upload; recovery does not rebuild/upload again |
+| Device qualification | `ios-voice-device.yml` | Explicit/reusable physical-device evidence; not another PR suite |
+| Capacity | `capacity-maintenance-clock.yml`, `capacity-maintenance.yml` | Due-work controller, authenticated bounded cleanup; timer wait occurs before runner assignment |
+| Operational recovery | `rollback.yml`, `prod-cloudsql-backup-posture.yml` | Governed rollback and daily live backup-posture verification |
+| Security | `verify-protected-lists.yml`, `supply-chain.yml` | Hourly protected-configuration drift; changed-dependency SBOM/provenance |
+| Performance | `editor-performance-nightly.yml` | Daily runner/browser performance drift check, complementing changed-path PR coverage |
+| Dependency cache | `ios-swift-package-cache.yml` | Daily main-owned cache preparation and bounded cold-fetch verification |
+| Signing / package publication | `provision-wallet-pass-certificate.yml`, `publish-hushh-mcp.yml` | Explicit signing-resource creation and verified package publication |
+
+The local candidate removes the separate weekly offline pod drill and weekday
+completion-judge workflows. Both core test suites remain in Protocol CI's manifest;
+the judge CLI and live completion receipts remain in the existing
+[readiness workflow](./pod-completion-judge.md). No scheduled failure is needed to
+announce an unchanged external prerequisite. These removals take effect on GitHub
+only after the source lands on the default branch.
+
+Capacity tick run titles are protocol inputs for checkpoint reconciliation. They
+retain their exact names independently of the workflow's display name. Dispatchers
+and provenance readers should bind to workflow file paths rather than presentation
+labels unless a specific authority contract explicitly requires the label.
+
+GitHub also exposes platform-managed CodeQL, Dependabot and Copilot workflows,
+and may retain entries for deleted workflow files. Those entries are not proof of
+an active source workflow or a duplicate test. Reconcile old entries with main and
+recent runs before disabling anything. Required security coverage must remain.
+No remote disable, cancellation or schedule change is authorized by this local edit.
+
+## Run-history review — 2026-10-18
+
+Read-only sample: 100 recent runs for discovery, then the last 20 completed PR
+validations and 10 completed deployments per environment. Job/step metadata uses
+the latest attempt; failed and cancelled runs are excluded from success timing.
+These small, different source cohorts are diagnostic samples, not a speed SLA or
+a controlled benchmark. Elapsed times include gates and waits, not billed CPU time.
+
+| Successful scope | Dev median | UAT median | Sample count |
+| --- | --- | --- | --- |
+| Backend only | 16.5 min | 32.1 min | Dev 5; UAT 3 |
+| Backend + frontend | 25.4 min | 37.5 min | Dev 4; UAT 4 |
+| Frontend only | Not sampled | 14.8 min | UAT 2 |
+
+Sources: [dev backend](https://github.com/hushh-labs/hushh-research/actions/runs/39091378215),
+[UAT backend](https://github.com/hushh-labs/hushh-research/actions/runs/39167882081),
+[dev both services](https://github.com/hushh-labs/hushh-research/actions/runs/39082250085),
+[UAT both services](https://github.com/hushh-labs/hushh-research/actions/runs/39177524405),
+[UAT frontend](https://github.com/hushh-labs/hushh-research/actions/runs/39161330609).
+Comparing a frontend-only UAT run with a backend dev release is misleading.
+
+The PR sample contains 10 successes, 7 failures and 3 cancellations. Successful
+elapsed median is 19.8 min across changing lane sets. Protocol validation is the
+largest repeated measured step (14.8 min median, 5 observations); iOS compilation
+and tests take 7.7 min median (2). Observed macOS job starts are 5–9 seconds after
+preflight in 5 successful jobs, so runner contention is not established as the
+cause of those runs. [Example native-inclusive validation](https://github.com/hushh-labs/hushh-research/actions/runs/39175468636).
+
+Successful dev steps: backend deploy wrapper 7.2 min median (9), image pin/build
+2.8 min (9), migrations/schema 3.4 min (9). UAT additionally spends 7.8 min on its
+private Drive worker deployment/attestation (7). That worker reuses the pinned
+backend image; this is not a second image build. Frontend builds already overlap
+backend preparation in both environments. Step medians are not additive estimates.
+
+### Failure causes and next improvements
+
+- **PR preparation:** missing Live Memory impact declarations and an unauthorized
+  protected-policy edit produced valid early refusals. Use the current PR template
+  and existing governance preflight before publication; retain those checks.
+  [Missing declaration](https://github.com/hushh-labs/hushh-research/actions/runs/39169067111),
+  [protected-policy refusal](https://github.com/hushh-labs/hushh-research/actions/runs/39149416659).
+- **Browser fixtures and behavior:** a source extractor could no longer locate the
+  agent-name anchor; another run failed a WebKit drag assertion. Repair the owning
+  fixture or interaction with unchanged behavioral limits; do not remove browser
+  coverage. [Extractor failure](https://github.com/hushh-labs/hushh-research/actions/runs/39173344405),
+  [drag failure](https://github.com/hushh-labs/hushh-research/actions/runs/39176000165).
+- **Runtime/native tests:** a Vitest case exceeded its 5-second deadline; iOS reached
+  test execution and failed assertions. These are observed failures, not proven
+  flakes. Establish the cause before changing timeouts or workers.
+  [Vitest](https://github.com/hushh-labs/hushh-research/actions/runs/39173073117),
+  [iOS](https://github.com/hushh-labs/hushh-research/actions/runs/39169674663).
+- **Deployment:** Cloud Build readback confirms image build, IAM verification,
+  backend deployment and Azure memory verification succeeded in the failed UAT
+  run. `verify-managed-vertex-runtime` failed; the detailed provider condition
+  remains unclassified. This is a model-readiness refusal, not a Docker build failure.
+  [Failed release](https://github.com/hushh-labs/hushh-research/actions/runs/39114036433),
+  [Cloud Build record](https://console.cloud.google.com/cloud-build/builds/8c705e26-b042-49b8-9110-71b95044bfd3?project=hushh-pda-uat).
+- **Highest-value profiling:** split protocol time into dependency setup, generated
+  checks, lint/types/security, parallel tests and serial database tests before
+  selecting an optimization. Profile Drive worker startup/attestation separately.
+  Preserve database isolation, scanning, migration fences and exact-image readback.
+- **Reuse what already exists:** targeted PR Node packs defer to the mandatory
+  three-shard Vitest suite. Queue validation reuses equivalent green source.
+  Dev pod-image building stays off unless the pod artifact actually changed.
+  Batch completed fixes into one push; rerun only failed jobs when source is unchanged.
+
+Future reviews should compare the same scope, lane set and attempt, with sample
+counts, cache observations and failure causes. Reuse existing run timestamps and
+release receipts; add no monitoring workflow or scheduled test loop for this review.
+
 ## Monitoring Rule
 
 After any merge to `main`, bypass merge, deploy trigger, or manual workflow dispatch, keep monitoring the resulting GitHub workflow chain until it reaches a terminal state.

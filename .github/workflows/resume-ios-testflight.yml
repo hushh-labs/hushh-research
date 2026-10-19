@@ -1,10 +1,10 @@
-name: Resume TestFlight Distribution
+name: "Resume iOS TestFlight Release"
 
 on:
   workflow_dispatch:
     inputs:
       upload_run_id:
-        description: Original Ship iOS to TestFlight or Release iOS to App Store run with a successful upload and recovery receipt
+        description: Original Release iOS to TestFlight or Release iOS to App Store run with a successful upload and recovery receipt
         required: true
         type: string
 

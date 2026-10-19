@@ -1,4 +1,4 @@
-name: Deploy UAT One Chat Backend Only
+name: "Deploy UAT One Chat Backend"
 
 on:
   workflow_dispatch:

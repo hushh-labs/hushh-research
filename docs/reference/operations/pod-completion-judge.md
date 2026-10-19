@@ -9,10 +9,10 @@ flowchart LR
   judge --> fail["FAIL<br/>this is the work"]
   judge --> unknown["UNKNOWN<br/>could not look, never done"]
   judge --> hollow["NOT FALSIFIABLE<br/>fix the check"]
-  fail --> nag["Scheduled workflow fails<br/>the nag"]
-  unknown --> nag
-  hollow --> nag
-  nag --> work["Work lands"] --> ledger
+  fail --> review["Readiness decision<br/>retain blockers"]
+  unknown --> review
+  hollow --> review
+  review --> work["Work lands"] --> ledger
 ```
 
 **Question it answers:** is the private pod deployment finished, and if not, what is left?
@@ -27,7 +27,7 @@ status is exactly what drifts.
 cd consent-protocol
 uv run python scripts/ops/pod_completion_judge.py                      # today's answer
 uv run python scripts/ops/pod_completion_judge.py --only firstrun      # one area
-uv run python scripts/ops/pod_completion_judge.py --fail-on-unfinished # the nag, exits 1
+uv run python scripts/ops/pod_completion_judge.py --fail-on-unfinished # strict readiness verdict, exits 1
 ```
 
 ## The three invariants, and the failure each one prevents
@@ -60,24 +60,22 @@ also governs this judge. Both use the same negative and positive control boundar
 The controls run on every invocation rather than as a separate step, because a control someone
 can skip is not a control.
 
-## The nag
+## When to run it
 
-`.github/workflows/pod-completion-judge.yml` runs the judge on a weekday cadence and on explicit
-dispatch. It does not run on every pull-request commit: the judge reports live completion
-evidence and **fails while anything is unfinished**, on purpose. A green run that means
-"still not done" is indistinguishable from one that means
-"done", which is the lie the whole mechanism exists to prevent. The verdict is written to the
-run summary and kept as an artifact.
+Run the CLI explicitly for a readiness decision with the required local/cloud
+evidence available. Preserve its strict verdict and sanitized report; UNKNOWN
+still cannot count as complete. This is a readiness assessment, not another PR
+validation or a timer that repeatedly re-runs tests for unchanged source.
 
-When the ledger or judge changes, dispatch this workflow deliberately after the ordinary PR
-validation passes. Keeping that evidence lane out of per-commit validation avoids repeated
-red runs for external prerequisites while preserving the scheduled reminder.
+The dedicated weekday judge and weekly offline-drill workflows are removed from
+the local candidate. Both core suites already run in normal Protocol CI through
+`consent-protocol/scripts/test-ci.manifest.txt`: `test_pod_completion_judge.py`
+checks the verdict boundary and `test_pod_lifecycle_drill.py` executes the dry-run
+oracle with a state-losing negative control. The live lifecycle receipt remains a
+separate requirement. An offline pass never proves live recovery or cloud cleanup.
 
-The workflow runs the judge's own tests **before** trusting its verdict, because a judge with a
-broken guard can report anything.
-
-**Activation:** GitHub fires `schedule:` only from the default branch. Check the current default-branch workflow and remote run history to establish
-activation; local file presence alone does not prove that a schedule is active.
+This source change affects GitHub scheduling only after it reaches the default
+branch. Existing run history remains historical evidence.
 
 ## Adding an item
 

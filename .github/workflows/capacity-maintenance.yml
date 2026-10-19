@@ -1,4 +1,4 @@
-name: Capacity Maintenance
+name: "Maintain Cloud Capacity"
 # A scoped tick names its environment in the run title. The checkpoint guard
 # (assert_checkpoint_publication in scripts/ci/uat-retention-maintenance.py)
 # reads that title to skip, without fetching jobs, passes that could not have

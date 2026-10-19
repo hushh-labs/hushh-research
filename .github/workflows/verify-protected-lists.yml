@@ -1,4 +1,4 @@
-name: Protected list secrets
+name: "Verify Protected Configuration"
 
 # A list stored in a secret can be destroyed by one careless write, because
 # `gcloud secrets versions add` REPLACES the whole value. On 2026-09-03 the UAT

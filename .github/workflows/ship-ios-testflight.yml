@@ -1,4 +1,4 @@
-name: Ship iOS to TestFlight
+name: "Release iOS to TestFlight"
 
 # This workflow creates a normal UAT-backed TestFlight build only. It never
 # creates an App Store version or submits the app for public App Store review.
