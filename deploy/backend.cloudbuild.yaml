@@ -296,12 +296,7 @@ steps:
         add_secret ADVISORS_API_KEY ADVISORS_API_KEY
         add_secret INSURANCE_AGENTS_API_KEY INSURANCE_AGENTS_API_KEY
         source deploy/email-auth/bind_secrets.sh "${_DEPLOY_ENV}"
-        # This pilot is unavailable unless enabled in BACKEND_RUNTIME_CONFIG_JSON.
-        # Keep private UID allowlists and request-signing keys Secret Manager-backed.
-        if [[ "${_DEPLOY_ENV}" == "production" ]]; then
-          add_secret ONE_PLG_EXPORT_SECRET ONE_PLG_EXPORT_SECRET
-          add_secret ONE_PLG_EXPORT_ACCOUNT_IDS ONE_PLG_EXPORT_ACCOUNT_IDS
-        fi
+        source deploy/plg/bind_secrets.sh "${_DEPLOY_ENV}"
         add_secret NWS_NEARBY_API_KEY NWS_NEARBY_API_KEY
         add_secret NWS_NEARBY_V4_API_KEY NWS_NEARBY_V4_API_KEY
         add_secret NWS_NEARBY_V4_ACTOR_HMAC_KEY NWS_NEARBY_V4_ACTOR_HMAC_KEY
