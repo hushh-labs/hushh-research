@@ -114,7 +114,7 @@ import {
 } from "@/lib/one-location/system-circles";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { LOCATION_ACTION_SHAPE } from "../location-action-styles";
-import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { CirclePersonSelectionRow } from "./circle-person-selection-row";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { LivingCirclePanel } from "@/components/connect/circles/living-circle-panel";
 import { CirclePhotoEditor } from "@/components/connect/circles/circle-photo-editor";
@@ -759,8 +759,8 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
     saving, nameMissing, canSubmit, nameHelpId, showNameError, nameHelpText, submit, people, peopleProps, busy, showCircleType } = model;
 
   return (
-    <div data-testid="one-location-create-circle-flow">
-      {savedCircle ? <div hidden={step !== "people"}>
+    <div data-testid="one-location-create-circle-flow" data-circle-create-step={step} className={step === "people" ? "flex min-h-0 flex-1 flex-col" : undefined}>
+      {savedCircle ? <div hidden={step !== "people"} className={step === "people" ? "flex min-h-0 flex-1 flex-col" : undefined}>
         <CreateCirclePeopleBody {...peopleProps} model={people} />
       </div> : null}
       <div hidden={step !== "details"} className="space-y-5">
@@ -1354,6 +1354,7 @@ function CircleMemberRow({
       <ConnectionPersonAvatar
         label={member.displayName}
         photoUrl={member.photoUrl}
+        fromContacts={member.connectedFromContacts}
         size="list"
         verified={Boolean(member.isRia)}
         className={CIRCLE_MEMBER_AVATAR_CLASSNAME}
@@ -1368,7 +1369,6 @@ function CircleMemberRow({
           <span className={CIRCLE_MEMBER_NAME_CLASSNAME} title={member.displayName}>
             {member.displayName}
           </span>
-          {member.connectedFromContacts ? <ContactSourceBadge /> : null}
         </p>
         <p
           className={cn(
@@ -2995,45 +2995,12 @@ export function CircleDetailFlow({
                               selectedConnections.size >= selectionLimit;
 
                             return (
-                              <SettingsRow
+                              <CirclePersonSelectionRow
                                 key={connection.userId}
-                                layout="person"
-                                leading={
-                                  <ConnectionPersonAvatar
-                                    size="list"
-                                    photoUrl={connection.photoUrl ?? null}
-                                    label={connection.displayName}
-                                    verified={Boolean(connection.isRia)}
-                                  />
-                                }
-                                title={
-                                  <span className="flex min-w-0 items-center gap-1.5">
-                                    <span className="min-w-0 truncate">{connection.displayName}</span>
-                                    {connection.connectedFromContacts ? <ContactSourceBadge /> : null}
-                                  </span>
-                                }
-                                ariaPressed={selected}
+                                person={connection}
+                                selected={selected}
                                 disabled={!selected && selectionAtCapacity}
-                                trailing={
-                                  <span className="flex shrink-0 items-center gap-3">
-                                    <span
-                                      className={cn(
-                                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
-                                        selected
-                                          ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                                          : "border-border bg-transparent",
-                                      )}
-                                    >
-                                      {selected ? (
-                                        <Check
-                                          className="h-4 w-4"
-                                          weight="bold"
-                                        />
-                                      ) : null}
-                                    </span>
-                                  </span>
-                                }
-                                onClick={() =>
+                                onToggle={() =>
                                   setSelectedConnections((current) => {
                                     const next = new Map(current);
                                     if (next.has(connection.userId)) {

@@ -111,6 +111,26 @@ describe("named Circle flows", () => {
     vi.clearAllMocks();
   });
 
+  it("retains the 20-person batch cap and allows deselection at capacity", async () => {
+    const props = createProps();
+    const people = Array.from({ length: 21 }, (_, index) => ({
+      connectionId: `connection-${index}`, userId: `person-${index}`, displayName: `Person ${index}`, isRia: false,
+    }));
+    const onLoad = vi.fn(async () => ({ eligibleConnections: people, pendingInvites: [], remainingCapacity: 99, page: 1, hasMore: false, totalCount: people.length }));
+    const { result } = renderHook(() => useCreateCirclePeopleModel({
+      circleId: "new-circle", circleName: "Roommates", active: true,
+      onLoad, onAdd: props.onAddPeople, onComplete: props.onComplete, onBack: vi.fn(), onSavingChange: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => { people.forEach(person => result.current.add(person.userId)); });
+    expect(result.current.limit).toBe(20);
+    expect(result.current.selected).toHaveLength(20);
+    act(() => result.current.remove("person-0"));
+    act(() => result.current.add("person-20"));
+    await act(async () => result.current.finish(true));
+    expect(props.onAddPeople).toHaveBeenCalledWith("new-circle", people.slice(1).map(person => person.userId));
+  });
+
   it.each([true, false])("settles the retained people model before creating another Circle (add selected: %s)", async (addSelected) => {
     const props = createProps();
     const { result, rerender } = renderHook(({ circleId }) => useCreateCirclePeopleModel({
@@ -778,7 +798,7 @@ describe("named Circle flows", () => {
     expect(within(roster).getByLabelText("Verified advisor")).toBeTruthy();
     const badge = within(roster).getByLabelText("Connected from your contacts");
     expect(badge).toBeTruthy();
-    expect(badge.previousElementSibling).toHaveTextContent("Asha Contact");
+    expect(badge.closest('[data-slot="avatar"]')).toBeTruthy();
     expect(badge.querySelector("svg")).toBeTruthy();
     expect(screen.getByText("Asha Contact")).toHaveAttribute("title", "Asha Contact");
   });

@@ -7076,7 +7076,7 @@ describe("OneLocationAgentPage", () => {
     const contactIcon = within(advisorRow as HTMLElement).getByLabelText(
       "Connected from your contacts",
     );
-    expect(contactIcon.previousElementSibling).toHaveTextContent("Advisor C");
+    expect(contactIcon.closest('[data-slot="avatar"]')).toBeTruthy();
     expect(contactIcon.querySelector("svg")).toBeTruthy();
     expect(within(list).queryByText("Trusted B")).toBeNull();
     expect(

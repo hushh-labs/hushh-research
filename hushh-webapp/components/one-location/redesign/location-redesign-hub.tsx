@@ -136,7 +136,6 @@ import {
 } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { useBackLayer } from "@/lib/navigation/back-layers";
-import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { RequestCard, SharedWithMeCard, type GrantViewStatus } from "./cards";
 
@@ -5015,12 +5014,12 @@ function ShareFlow({
             label={label}
             photoUrl={r.photoUrl}
             verified={Boolean(r.isRia)}
+            fromContacts={r.connectedFromContacts}
           />
         }
         title={
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="min-w-0 truncate">{label}</span>
-            {r.connectedFromContacts ? <ContactSourceBadge /> : null}
           </span>
         }
         // Only says something when there is something to say. A row that is
@@ -5775,11 +5774,10 @@ function RequestRecipientListRow({
         aria-pressed={rowSelectable ? selected : undefined}
         className="grid w-full min-h-[58px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3.5 py-2 text-left focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
       >
-        <ContactAvatar label={name} photoUrl={photoUrl} verified={verified} />
+        <ContactAvatar label={name} photoUrl={photoUrl} verified={verified} fromContacts={fromContacts} />
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-1.5 text-[17px] font-normal leading-[22px] text-foreground">
             <span className="min-w-0 truncate">{name}</span>
-            {fromContacts ? <ContactSourceBadge /> : null}
           </span>
           {subtitle ? (
             <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
@@ -6498,13 +6496,11 @@ function SelectedRecipientsRail({
                   label={label}
                   photoUrl={recipient.photoUrl}
                   verified={Boolean(recipient.isRia)}
+                  fromContacts={recipient.connectedFromContacts}
                   className="h-8 w-8 text-[13px]"
                 />
                 <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
                   <span className="min-w-0 truncate">{label}</span>
-                  {recipient.connectedFromContacts ? (
-                    <ContactSourceBadge className="mt-px shrink-0" />
-                  ) : null}
                 </span>
               </div>
             );

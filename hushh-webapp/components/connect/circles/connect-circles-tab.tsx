@@ -704,6 +704,7 @@ export function ConnectCirclesTab({
         }}
       >
         <DialogContent
+          className="sm:max-w-2xl [&:has([data-circle-create-step=people])>[data-slot=dialog-header]]:sr-only"
           showCloseButton={!busy}
           srDescription="Name your Circle and choose its type. Next, add people now or later."
           onEscapeKeyDown={(event) => {
