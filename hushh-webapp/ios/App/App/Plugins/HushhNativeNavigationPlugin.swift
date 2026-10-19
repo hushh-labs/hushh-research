@@ -289,7 +289,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                   let offset = self.scrollState.apply(generation: generation, sequence: sequence, progress: progress, travel: travel) else {
                 call.resolve(["applied": false]); return
             }
-            container.setBottomChromeScrollOffset(UIAccessibility.isReduceMotionEnabled ? 0 : offset)
+            self.applyScroll(offset: offset, progress: CGFloat(progress), in: container)
             self.publishPresentationProbe()
             call.resolve(["applied": true])
         }
@@ -299,6 +299,11 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         return compositor?.wholeNativeDrawers == true && compositor?.interactionIsolated == false && compositor?.contentPane == nil &&
             scrollFollowing && !scrollPressHeld && state.visible && state.interactionEnabled && privacy.appIsActive && !privacy.shielded && !keyboardVisible
+    }
+    private func applyScroll(offset: CGFloat, progress: CGFloat, in container: NativePresentationContainer) {
+        let reduced = UIAccessibility.isReduceMotionEnabled
+        container.setBottomChromeScrollOffset(reduced ? 0 : offset,
+            navigationOffset: reduced ? 0 : min(160, offset + bottomInset * progress))
     }
     @discardableResult private func reconcileScrollSnap(requested: Bool) -> Bool {
         pendingScrollSnap = pendingScrollSnap || requested
@@ -364,7 +369,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                 guard compositor.workspaceScrollOwner == identity, self.state.documentId == identity.documentId, self.scrollActive,
                       let progress = self.contentScrollState.apply(y: y, fromPerson: fromPerson) else { return }
                 let travel = ceil(self.contentHeight) + 6
-                compositor.setBottomChromeScrollOffset(UIAccessibility.isReduceMotionEnabled ? 0 : min(160, progress * travel))
+                self.applyScroll(offset: min(160, progress * travel), progress: progress, in: compositor)
                 self.publishPresentationProbe()
             }
         } else if let shield = host.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {

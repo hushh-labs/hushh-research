@@ -150,6 +150,7 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     private var fences: [String: NativePanelPoseFence] = [:]
     private var controls: [String: (view: UIView, group: String?, pane: NativeContentPaneIdentity?, admitted: Bool)] = [:]
     private(set) var bottomChromeScrollOffset: CGFloat = 0
+    private var bottomNavigationScrollOffset: CGFloat = 0
     var bottomChromePressChanged: ((Bool) -> Void)?
     var workspaceScrollChanged: ((NativeWorkspaceIdentity, CGFloat?, Bool) -> Void)?
     private(set) var workspaceScrollOwner: NativeWorkspaceIdentity?
@@ -336,25 +337,32 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
         } else { underlay.addSubview(view) }
         controls[id] = (view, group, pane, false)
         if Self.bottomChromeIds.contains(id), pane == nil {
-            view.transform = CGAffineTransform(translationX: 0, y: bottomChromeScrollOffset)
+            view.transform = CGAffineTransform(translationX: 0, y: bottomScrollOffset(for: id))
         }
     }
 
     private static let bottomChromeIds: Set<String> = ["bottom-navigation", "agent-dock"]
-    /// Both retained native surfaces move in one UIKit transaction. Header,
-    /// WebView, layout reservations and operation admission never move with them.
-    func setBottomChromeScrollOffset(_ offset: CGFloat) {
-        guard offset.isFinite, (0...160).contains(offset) else { return }
+    /// Both retained native surfaces move in one UIKit transaction. The tab bar
+    /// includes UIKit's bottom safe area; the dock must keep that area clear.
+    /// Header, WebView, layout reservations and action admission stay in place.
+    func setBottomChromeScrollOffset(_ offset: CGFloat, navigationOffset: CGFloat? = nil) {
+        let navigation = navigationOffset ?? offset
+        guard offset.isFinite, (0...160).contains(offset),
+              navigation.isFinite, (0...160).contains(navigation) else { return }
         bottomChromeScrollOffset = offset
+        bottomNavigationScrollOffset = navigation
         UIView.performWithoutAnimation {
             for (id, control) in controls where Self.bottomChromeIds.contains(id) && control.pane == nil {
-                control.view.transform = CGAffineTransform(translationX: 0, y: offset)
+                control.view.transform = CGAffineTransform(translationX: 0, y: bottomScrollOffset(for: id))
             }
         }
     }
+    private func bottomScrollOffset(for id: String) -> CGFloat {
+        id == "bottom-navigation" ? bottomNavigationScrollOffset : bottomChromeScrollOffset
+    }
     func restingBottomChromeFrame(_ id: String) -> CGRect? {
         guard Self.bottomChromeIds.contains(id), let control = controls[id], control.pane == nil else { return nil }
-        return control.view.convert(control.view.bounds, to: self).offsetBy(dx: 0, dy: -bottomChromeScrollOffset)
+        return control.view.convert(control.view.bounds, to: self).offsetBy(dx: 0, dy: -bottomScrollOffset(for: id))
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer is NativeBottomChromePressObserver, let touched = touch.view else { return true }
