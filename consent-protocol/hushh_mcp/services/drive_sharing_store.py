@@ -727,11 +727,13 @@ class DriveSharingStore(DriveDocumentStore):
         return cast(dict, await self._transaction(operation))
 
     @staticmethod
-    def _payment_metadata(connection, request_id):
+    def _payment_metadata(connection, request_id, *, autoshare=False):
         """Requester-only payment fields: the legacy order keys plus ``payment``.
 
         ``payment`` is the shared RequesterPaymentView, present only when the
         request requires payment; free requests keep their exact legacy shape.
+        ``autoshare`` is the request's sealed flow (``autoshare_request``),
+        known only to a caller that opened the envelope; lists never do.
         """
         row = (
             connection.execute(
@@ -804,6 +806,7 @@ class DriveSharingStore(DriveDocumentStore):
                 ),
                 owner_payout_ready=row["owner_payout_ready"],
                 configured_mode=configured_stripe_mode(),
+                autoshare=autoshare is True,
             ),
         }
 
@@ -1232,6 +1235,21 @@ class DriveSharingStore(DriveDocumentStore):
                     "needs_dates": code == "date_range_required",
                 },
             )
+            if terminal and not has_job and autoshare_request(self._open_request(row)):
+                # The automatic start failed for good before any search existed,
+                # so nothing can ever be delivered. B may already have paid (the
+                # order exists from A's Allow): that payment is reconciled here,
+                # as one that arrives after this park is, and the refund worker
+                # returns it in full instead of B reading "Paid" until expiry.
+                connection.execute(
+                    text("""UPDATE drive_request_payment_orders
+                      SET reconciliation_required=TRUE,
+                        reconciliation_reason='authority_changed',
+                        reconciliation_at=clock_timestamp(),updated_at=clock_timestamp()
+                      WHERE request_id=:request AND status='paid'
+                        AND reconciliation_required=FALSE"""),
+                    {"request": row["request_id"]},
+                )
             if (
                 visible_code
                 in {
@@ -2881,7 +2899,13 @@ class DriveSharingStore(DriveDocumentStore):
                     if not recipient and payout_setup_relevant
                     else {}
                 ),
-                **(self._payment_metadata(connection, request_id) if recipient else {}),
+                **(
+                    self._payment_metadata(
+                        connection, request_id, autoshare=autoshare_request(private)
+                    )
+                    if recipient
+                    else {}
+                ),
                 **setup,
                 **({} if recipient else self._owner_drive_setup(connection, row)),
             }

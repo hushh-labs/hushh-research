@@ -41,7 +41,9 @@ establish adequate database CPU, IO, query latency or lock headroom.
 The checker currently counts pooled connections. Session-scoped advisory work
 uses `dedicated_connection()` outside those pools; its connections are not yet
 included in that calculation or bounded by a shared dedicated-session budget.
-Account for and bound that demand before qualifying larger replica limits.
+The Drive worker's batch hold is one of them: one session per in-flight batch
+pass, a few per worker instance. Account for and bound that demand before
+qualifying larger replica limits.
 
 Maximum replicas times request concurrency describes nominal in-flight request
 slots. It is neither a user count nor a qualified request rate. Estimate required

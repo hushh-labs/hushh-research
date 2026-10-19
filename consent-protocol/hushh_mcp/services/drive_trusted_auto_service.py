@@ -9,6 +9,7 @@ worker; this service only reads recipient permissions before checkout.
 from __future__ import annotations
 
 import asyncio
+from contextlib import AbstractAsyncContextManager, nullcontext
 
 from hushh_mcp.services.drive_bulk_share_service import DriveBulkShareService
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
@@ -237,9 +238,29 @@ class DriveTrustedAutoService:
         return outcomes
 
     async def share_available(self, *, user_id: str, request_id: str, max_batches: int = 8) -> int:
-        """Queue at most eight 25-file batches; wake again if more are committed."""
+        """Queue at most eight 25-file batches; wake again if more are committed.
+
+        One worker at a time freezes and approves a request's batches. A pass
+        that finds another worker holding them returns 0 at once: that worker
+        continues them (and wakes this lane if more remain), so waiting here
+        never defers the request or counts as a failed attempt.
+        """
         if type(max_batches) is not int or not 1 <= max_batches <= 16:
             raise ValueError("invalid trusted batch bound")
+        async with self._batch_hold(request_id) as held:
+            if not held:
+                return 0
+            return await self._share_held(
+                user_id=user_id, request_id=request_id, max_batches=max_batches
+            )
+
+    def _batch_hold(self, request_id: str) -> AbstractAsyncContextManager[bool]:
+        # Only the PostgreSQL store can hold a request; a test double runs unguarded.
+        if isinstance(self.bulk, DriveBulkShareStore):
+            return self.bulk.request_batch_hold(request_id=request_id)
+        return nullcontext(True)
+
+    async def _share_held(self, *, user_id: str, request_id: str, max_batches: int) -> int:
         context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
         if (
             context.get("v1LiveRequest")

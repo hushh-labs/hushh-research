@@ -11,11 +11,14 @@ import base64
 import hmac
 import json
 from collections import Counter
+from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
+from db.connection import dedicated_connection
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_owner_allowed import (
@@ -39,6 +42,7 @@ from hushh_mcp.services.drive_v1_manual_review import (
     require_manual_selection,
     require_manual_share_files,
 )
+from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import FILE_ID, DriveReadError
 from hushh_mcp.services.google_drive_permission_adapter import SHARE_HINTS
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
@@ -53,6 +57,10 @@ _TERMINAL = frozenset(
 )
 _ACTIVE = frozenset({"queued", "running"})
 _ROW = "SELECT * FROM drive_bulk_shares WHERE share_id=:share AND user_id=:user"
+# One worker at a time freezes and approves a request's automatic batches
+# (request_batch_hold). A session lock outlives the pass's own transactions and
+# ends with its session, so a worker that dies never keeps it.
+_HOLD_REQUEST_BATCHES = "SELECT pg_try_advisory_lock(hashtextextended($1,0))"
 _SAFE_REASONS = frozenset(
     {
         "source_changed",
@@ -251,10 +259,52 @@ def _safe_recipient(item: dict, owner: str) -> dict:
     return {"user_id": user_id, "email": email, "subject": subject, "kind": kind, "name": name}
 
 
+async def _end_hold_session(session: AsyncExitStack) -> None:
+    try:
+        await session.aclose()
+    except Exception:
+        # A session that cannot close cleanly is aborted, and PostgreSQL then
+        # ends it and frees its locks.
+        logger.warning("drive_bulk_share.request_hold_close outcome=aborted")
+
+
 class DriveBulkShareStore(DriveLivePreferences):
     def __init__(self, db=None, *, cipher=None):
         super().__init__(db)
         self.cipher = cipher or DriveSharingCipher()
+
+    @asynccontextmanager
+    async def request_batch_hold(self, *, request_id) -> AsyncIterator[bool]:
+        """Hold one request's automatic batches for this worker, or yield False.
+
+        Two drains can pick the same request at once (the scheduled tick and a
+        payment wake on two instances, or one instance's search slice and the
+        other's continue_batches): due_trusted_batches' SKIP LOCKED covers only
+        its own claim. While one pass waits to approve the batch it froze,
+        create_review refuses the other's next freeze as bulk_conflict, which
+        the drain counts as a failed attempt. This session lock spans the whole
+        freeze-and-approve pass and never waits: another holder means skip.
+
+        The lock lives on a dedicated session, never on a connection of the
+        SQLAlchemy pool: a Drive worker's pool has one connection
+        (DB_SQLALCHEMY_POOL_SIZE=1, DB_SQLALCHEMY_MAX_OVERFLOW=0), and the pass
+        runs every transaction through it. Closing the session frees the lock,
+        also when the pass fails or is cancelled.
+        """
+        key = f"drive-request-batches:{_uuid(request_id)}"
+        session = AsyncExitStack()
+        try:
+            connection = await session.enter_async_context(dedicated_connection())
+            held = await connection.fetchval(_HOLD_REQUEST_BATCHES, key) is True
+        except BaseException as error:
+            await _end_hold_session(session)
+            if isinstance(error, Exception):
+                raise ConnectorLifecycleError("connector_storage_unavailable") from None
+            raise
+        try:
+            yield held
+        finally:
+            await _end_hold_session(session)
 
     def _require_paid_for_origin(self, connection, request_id):
         if request_id is None:

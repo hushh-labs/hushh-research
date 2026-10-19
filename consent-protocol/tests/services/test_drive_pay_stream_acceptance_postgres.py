@@ -1509,3 +1509,49 @@ async def test_s20_a_request_waits_for_the_owners_running_search_and_never_parks
     assert tuple(row.values()) == (0, "trusted_auto_queued", None)
     await flow.sharing_drain()
     assert flow.order()["status"] == "checkout_open"
+
+
+@pytest.mark.asyncio
+@pay_at_allow_only
+async def test_s21_a_payment_made_before_the_search_start_parked_is_refunded(flow_factory):
+    """B paid at Allow, before any search existed; the automatic start then
+    failed for good (three failed starts, no search job). Nothing can ever be
+    delivered, so the payment is refunded in full at once, as one made after
+    the park is (S19), instead of B reading "Paid" until the request expires."""
+    world = DriveWorld([*in_period(4), *noise(10)])
+    flow = flow_factory(world)
+    await flow.ask()
+    await flow.sharing_drain()
+    assert flow.order()["status"] == "checkout_open"
+    await flow.pay()
+    assert flow.order()["reconciliation_required"] is False
+    await _park_automatic_start(flow)
+
+    order = flow.order()
+    assert (order["status"], order["reconciliation_required"], order["reconciliation_reason"]) == (
+        "paid",
+        True,
+        "authority_changed",
+    )
+    for _ in range(2):
+        await flow.settle()
+
+    assert [(row["amount_cents"], row["status"]) for row in flow.refunds()] == [
+        (ALLOW_CENTS, "succeeded")
+    ]
+    assert flow.stripe.refund_creates == [ALLOW_CENTS]
+    assert flow.order()["status"] == "refunded"
+    view = await flow.payment_view()
+    assert (view["state"], view["refund"]) == (
+        "refunded",
+        {"status": "succeeded", "amountCents": ALLOW_CENTS},
+    )
+    [jobs] = flow.sql(
+        "SELECT count(*) AS jobs FROM drive_owner_search_jobs WHERE client_request_id=:request",
+        {"request": flow.request_id},
+    )
+    assert jobs["jobs"] == 0 and world.created == Counter()
+    assert flow.payout()["stripe_transfer_id"] is None
+    creates = list(flow.stripe.refund_creates)
+    await flow.settle()
+    assert flow.stripe.refund_creates == creates

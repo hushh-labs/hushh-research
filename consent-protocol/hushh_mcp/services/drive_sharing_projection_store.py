@@ -8,6 +8,7 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_bulk_share_store import bulk_outcome_summary, issue_list
 from hushh_mcp.services.drive_live_query_store import STALE_CLAIM_SECONDS
+from hushh_mcp.services.drive_owner_allowed import autoshare_request
 from hushh_mcp.services.drive_request_recovery_view import (
     RECOVERY_REQUEST_STATUSES,
     owner_review_request_view,
@@ -280,8 +281,16 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                 and not stop_requested
                 and self._paid_frozen_batch(connection, user_id=user_id, request_id=request_id)
             )
-            payment = self._payment_metadata(connection, request_id) if recipient else {}
             private = self._open_request(request) if request.get("request_envelope") else None
+            payment = (
+                self._payment_metadata(
+                    connection,
+                    request_id,
+                    autoshare=private is not None and autoshare_request(private),
+                )
+                if recipient
+                else {}
+            )
             grants = (
                 connection.execute(
                     text("""

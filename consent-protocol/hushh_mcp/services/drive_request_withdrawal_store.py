@@ -27,6 +27,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from hushh_mcp.services.drive_owner_allowed import autoshare_request
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 
 logger = logging.getLogger(__name__)
@@ -116,7 +117,10 @@ def require_unpaid_and_undispatched(connection, locked: dict[str, Any]) -> None:
 
 def _summary(store, connection, row) -> dict[str, Any]:
     summary = store._summary(row, recipient=True)
-    payment = store._payment_metadata(connection, str(row["request_id"])).get("payment")
+    # The same view as the request's status read, sealed flow included.
+    payment = store._payment_metadata(
+        connection, str(row["request_id"]), autoshare=autoshare_request(store._open_request(row))
+    ).get("payment")
     return {**summary, "payment": payment} if payment is not None else summary
 
 
