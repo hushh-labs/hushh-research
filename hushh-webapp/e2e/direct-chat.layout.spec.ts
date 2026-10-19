@@ -91,6 +91,9 @@ for (const [width, height] of [[393, 844], [768, 1024], [1024, 768], [1440, 1000
     await expect(transcript(page).getByText("See you tomorrow 😊", { exact: true })).toBeVisible();
     await page.locator('[data-direct-message-composer-input]').blur();
     await page.mouse.move(0, height!);
+    const navigation = page.locator("[data-bottom-shell-navigation-slot]");
+    await expect(navigation.getByRole("radio", { name: "One", exact: true })).toHaveAttribute("aria-checked", "true");
+    await expect(navigation.getByRole("radio", { name: "Chat", exact: true })).toHaveAttribute("aria-checked", "false");
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width!);
     await page.screenshot({ path: test.info().outputPath(`messages-preview-${width}.png`), animations: "disabled" });
     expect(errors).toEqual([]);
@@ -105,6 +108,9 @@ for (const width of [393, 768, 960, 1920]) {
     await page.getByRole("button", { name: /Weekend friends/ }).click();
     const input = page.getByRole("textbox", { name: "Message", exact: true });
     await expect(input).toBeVisible();
+    const navigation = page.locator("[data-bottom-shell-navigation-slot]");
+    await expect(navigation.getByRole("radio", { name: "One", exact: true })).toHaveAttribute("aria-checked", "true");
+    await expect(navigation.getByRole("radio", { name: "Chat", exact: true })).toHaveAttribute("aria-checked", "false");
     const pane = page.locator('[data-circle-messages-pane][data-active="true"]');
     const thread = pane.getByRole("region", { name: "Weekend friends messages" });
     const dock = page.locator('[data-bottom-shell-motion-stack]');
@@ -230,9 +236,9 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   const lanes = page.getByRole("tablist", { name: "Message lanes" });
   await expect(lanes.getByRole("tab", { name: "People 2" })).toHaveAttribute("aria-selected", "true");
   await expect(lanes.getByRole("tab", { name: "Circles 3" })).toHaveAttribute("aria-selected", "false");
-  const activeNav = navigation.getByRole("radio", { name: "Chat", exact: true });
+  const activeNav = navigation.getByRole("radio", { name: "One", exact: true });
   await expect(activeNav).toHaveAttribute("aria-checked", "true");
-  await expect(navigation.getByRole("radio", { name: "One", exact: true })).toHaveAttribute("aria-checked", "false");
+  await expect(navigation.getByRole("radio", { name: "Chat", exact: true })).toHaveAttribute("aria-checked", "false");
   await expect(activeNav).toHaveCSS("color", "rgb(10, 132, 255)");
   const navLabels = await navigation.innerText();
   expect(navLabels).toContain("Chat");
