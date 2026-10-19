@@ -4524,7 +4524,6 @@ final class AppUITests: XCTestCase {
         let opener = app.buttons["Open Profile"].firstMatch
         let close = app.buttons["native-profile-drawer-close"].firstMatch
         let nativeAccountBack = nativeProfileBack(app, parent: "Profile")
-        let nativeLegalBack = nativeProfileBack(app, parent: "Legal")
         var back: XCUIElement {
             nativeAccountBack.exists && nativeAccountBack.isHittable
                 ? nativeAccountBack : app.buttons["Back in Profile"].firstMatch
@@ -4552,13 +4551,6 @@ final class AppUITests: XCTestCase {
             let field = raw.split(separator: ";").first(where: { $0.hasPrefix("profilePaneLevel=") })
             guard let field, let level = Int(field.dropFirst("profilePaneLevel=".count)), (0...2).contains(level) else { return nil }
             return level
-        }
-        func publicPaneHistoryDepth() -> Int? {
-            let probe = app.buttons["native-profile-back-admission"].firstMatch
-            guard probe.exists, let raw = probe.value as? String, raw.utf8.count <= 1024,
-                  let field = raw.split(separator: ";").first(where: { $0.hasPrefix("profileHistoryDepth=") }),
-                  let depth = Int(field.dropFirst("profileHistoryDepth=".count)), (0...10000).contains(depth) else { return nil }
-            return depth
         }
         func publicPaneGeometry() -> (sample: Int, frame: CGRect)? {
             let probe = app.buttons["native-profile-back-admission"].firstMatch
@@ -4657,19 +4649,15 @@ final class AppUITests: XCTestCase {
             }
             guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
             let previousPaneSample = publicPaneGeometry()?.sample ?? 0
-            let originHistoryDepth = publicPaneHistoryDepth()
             print("PROFILE_BATCH_STEP stage=destination_tap")
             destination.tap()
             if ["privacy", "terms"].contains(id), app.scrollViews["native-legal-reader-\(id)"].firstMatch.waitForExistence(timeout: 5) {
                 print("PROFILE_LEGAL_STEP phase=reader_admitted")
                 let reader = app.scrollViews["native-legal-reader-\(id)"].firstMatch
-                guard let originHistoryDepth else { XCTFail("PROFILE_LEGAL_ORIGIN_UNAVAILABLE"); return }
-                // Referrals restores an untracked root. Its existing Back
-                // uses the authored Legal parent; a tracked menu entry instead
-                // returns to Profile. Require the actual origin, not either
-                // conveniently hittable Back button.
-                let sectionParent = originHistoryDepth == 0
-                let documentBack = sectionParent ? nativeLegalBack : nativeAccountBack
+                // This journey enters each document through an authored
+                // Profile root row. Require that exact parent, without a
+                // DEBUG-only history probe or accepting whichever Back exists.
+                let documentBack = nativeAccountBack
                 guard waitForAdmittedControl(documentBack), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_NATIVE_LEGAL_HEADER_UNAVAILABLE"); return
                 }
@@ -4713,11 +4701,6 @@ final class AppUITests: XCTestCase {
                           waitForAdmittedControl(documentBack) else { XCTFail("PROFILE_LEGAL_REPLACEMENT_CHANGED_BACK_DEPTH"); return }
                 }
                 documentBack.tap()
-                if sectionParent {
-                    guard waitForAdmittedControl(app.buttons["native-profile-row-legal-open-\(id)"].firstMatch),
-                          waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_LEGAL_PARENT_NOT_RESTORED"); return }
-                    nativeAccountBack.tap()
-                }
                 guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_LEGAL_ROOT_NOT_RESTORED"); return
                 }
@@ -4726,7 +4709,7 @@ final class AppUITests: XCTestCase {
                 } else {
                     print("PROFILE_NATIVE_LEGAL family=\(id) contents=true replaced=true returned=true")
                 }
-                print("PROFILE_NATIVE_LEGAL_ORIGIN family=\(id) parent=\(sectionParent ? "section" : "profile")")
+                print("PROFILE_NATIVE_LEGAL_ORIGIN family=\(id) parent=profile")
                 continue
             }
             if legalReturnOnly && ["privacy", "terms"].contains(id) {
@@ -5221,16 +5204,15 @@ final class AppUITests: XCTestCase {
                 guard admittedBack(), waitForAdmittedControl(app.buttons["profile-close"].firstMatch) else {
                     XCTFail("PROFILE_INVITE_PANE_CHROME_UNAVAILABLE"); return
                 }
-                // Release qualification observes the actual dialog bounds;
-                // it must not depend on DEBUG-only navigation diagnostics.
-                let candidates = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Invite friends"))
+                // Measure the retained full-window content plane, not an AX
+                // descendant's rectangle or DEBUG-only navigation diagnostics.
+                // Actual CSS box alignment is independently measured by the
+                // production-optimized native-feature-page WebKit fixture.
                 let fullPane = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    candidates.allElementsBoundByIndex.contains { element in
-                        guard element.elementType != .staticText else { return false }
-                        let frame = element.frame
-                        return abs(frame.minY - app.frame.minY) <= 1 && abs(frame.maxY - app.frame.maxY) <= 1 &&
-                            (UIDevice.current.userInterfaceIdiom != .phone || abs(frame.width - app.frame.width) <= 1)
-                    }
+                    guard web.exists else { return false }
+                    let frame = web.frame
+                    return abs(frame.minY - app.frame.minY) <= 1 && abs(frame.maxY - app.frame.maxY) <= 1 &&
+                        (UIDevice.current.userInterfaceIdiom != .phone || abs(frame.width - app.frame.width) <= 1)
                 }, object: app)
                 guard XCTWaiter.wait(for: [fullPane], timeout: 10) == .completed else {
                     XCTFail("PROFILE_INVITE_PANE_FRAME_UNAVAILABLE"); return
@@ -5244,7 +5226,7 @@ final class AppUITests: XCTestCase {
                 guard XCTWaiter.wait(for: [parent], timeout: 15) == .completed else {
                     XCTFail("PROFILE_INVITE_PANE_PARENT_NOT_RESTORED"); return
                 }
-                print("PROFILE_RETAINED_DESTINATION family=invite pane=true full_height=true returned=true warm=true single_host=true")
+                print("PROFILE_RETAINED_DESTINATION family=invite pane=true plane_full_height=true returned=true warm=true single_host=true")
                 continue
             }
                 guard admittedBack() else { printCoherentPresentationAdmission(app); XCTFail("PROFILE_BATCH_BACK_UNAVAILABLE"); return }
@@ -5340,7 +5322,7 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
         print("PROFILE_STACK_CONTINUITY screens=\(admittedDestinations.count) warm=true single_host=true")
         // A changed-family batch must not rerun already-proven One Profile.
-        if admittedDestinations == ["connectors"] { return }
+        if requestedStart != nil || requestedEnd != nil { return }
         // WebKit exposes this authored SVG button as an Other AX element on
         // devices. Match its explicit label within the same WebView, not a
         // UIKit-only button role or a coordinate fallback.
