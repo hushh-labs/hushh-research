@@ -2553,9 +2553,11 @@ def _semantic_content_io(service, bodies, decisions):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("subject", ["Alder Rowan", "Nia O'Keefe", "Zoë Amari"])
+@pytest.mark.parametrize("request_revision", [0, 3])
 async def test_semantic_request_keeps_fifty_generic_titles_and_resumes_unique_candidates(
     monkeypatch,
     subject,
+    request_revision,
 ):
     first = [
         _provider_file(f"generic-{n}", f"Research notebook {n}", version="9") for n in range(50)
@@ -2581,6 +2583,7 @@ async def test_semantic_request_keeps_fifty_generic_titles_and_resumes_unique_ca
     labels[bodies["generic-37"]] = labels[bodies["later-match"]] = "include"
     reads = _semantic_content_io(service, bodies, labels)
     checkpoint = _semantic_checkpoint(subject)
+    checkpoint["request_revision"] = request_revision
     job = {"user_id": "owner", "generation": 7, "checkpoint": checkpoint}
 
     checkpoint, files, incomplete, done = await service._page(job)
@@ -2621,7 +2624,8 @@ async def test_semantic_request_keeps_fifty_generic_titles_and_resumes_unique_ca
         assert evidence["source"]["id"] == item["id"]
         assert evidence["owner_user_id"] == "owner"
         assert evidence["request_id"] == checkpoint["request_origin_id"]
-        assert evidence["request_revision"] == 3 and evidence["connection_generation"] == 7
+        assert evidence["request_revision"] == request_revision
+        assert evidence["connection_generation"] == 7
         assert evidence["plan_digest"] == checkpoint["semantic_plan_digest"]
 
 
