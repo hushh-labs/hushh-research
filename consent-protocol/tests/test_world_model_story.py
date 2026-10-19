@@ -401,6 +401,9 @@ async def test_owner_can_read_cited_partial_batch_after_failure_but_changed_bind
     assert json.loads(frames[1]["data"])["validated_facts"] == live["validated_facts"]
     research.proceed[2].set()
     await settle(instance)
+    vertex_failed = await instance.status("owner", "fixture-token")
+    assert vertex_failed["status"] == "unavailable"
+    assert vertex_failed["validated_facts"] == live["validated_facts"]
     use_azure_budget(story, monkeypatch)
     state = instance.store.rows["owner"]
     state["work"].update(
@@ -416,7 +419,10 @@ async def test_owner_can_read_cited_partial_batch_after_failure_but_changed_bind
     )
     failed = await instance.status("owner", "fixture-token")
     assert failed["status"] == "unavailable"
-    assert failed["validated_facts"] == live["validated_facts"]
+    # The Azure display contract cannot retain a prior coverage citation which
+    # is not owned by the current selected candidate's anchors. Vertex above
+    # keeps its existing coverage contract; provider rebinding must revoke it.
+    assert failed["validated_facts"] == []
     assert failed["progress"]["topics_checked"] == ["career", "education"]
     from hushh_mcp.one_adk.world_model_usage import public_result
 
