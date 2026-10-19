@@ -100,35 +100,7 @@ def main():
                 "command_test",
             ):
                 raise ValueError("Runtime database identity mismatch")
-        app = firebase_admin.initialize_app(
-            EmulatorCredential(), options={"projectId": "demo-hushh-calling"}
-        )
-        for owner in ("alice", "bob"):
-            auth.create_user(
-                uid=owner,
-                email=f"{owner}@calling.invalid",
-                email_verified=True,
-                password=os.environ["CALLING_REHEARSAL_PASSWORD"],
-                app=app,
-            )
-        from fastapi import FastAPI
-        from slowapi import _rate_limit_exceeded_handler
-        from slowapi.errors import RateLimitExceeded
-
-        from api.middlewares.rate_limit import limiter
-        from api.routes.account import router as account_router
-        from api.routes.one.calls import router as calling_router
-
-        application = FastAPI()
-        application.state.limiter = limiter
-        application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-        application.include_router(account_router)
-        application.include_router(calling_router)
-
-        @application.get("/rehearsal-health")
-        def health():
-            return {"ready": True, "scope": "disposable-calling-rehearsal"}
-
+        application = authenticated_app()
         print(json.dumps({"backendReady": True}), flush=True)
         uvicorn.run(
             application, host="127.0.0.1", port=args.port, access_log=False, log_level="warning"
@@ -145,6 +117,39 @@ def main():
             )
             conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{name}"')
         admin.dispose()
+
+
+def authenticated_app():
+    app = firebase_admin.initialize_app(
+        EmulatorCredential(), options={"projectId": "demo-hushh-calling"}
+    )
+    for owner in ("alice", "bob"):
+        auth.create_user(
+            uid=owner,
+            email=f"{owner}@calling.invalid",
+            email_verified=True,
+            password=os.environ["CALLING_REHEARSAL_PASSWORD"],
+            app=app,
+        )
+    from fastapi import FastAPI
+    from slowapi import _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+
+    from api.middlewares.rate_limit import limiter
+    from api.routes.account import router as account_router
+    from api.routes.one.calls import router as calling_router
+
+    application = FastAPI()
+    application.state.limiter = limiter
+    application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    application.include_router(account_router)
+    application.include_router(calling_router)
+
+    @application.get("/rehearsal-health")
+    def health():
+        return {"ready": True, "scope": "disposable-calling-rehearsal"}
+
+    return application
 
 
 def maintenance(*, inspect: bool):
