@@ -79,6 +79,11 @@ logs or Terraform state. The source key must match dashboard
 process memory/stdin. Never reuse application, session, OTP or provider keys.
 Keep the flag off until separately approved releases of both reviewed PRs are
 verified. See [the API contract](../architecture/api-contracts.md#one-plg-pilot-task-evidence).
+The production binding helper checks only version metadata and binds the pair
+only when both `latest` versions are `ENABLED`. Missing, disabled or unreadable
+versions bind neither secret; empty provisioning containers cannot break an
+independent production release. Cloud Build passes the target project explicitly
+to the helper; its built-in substitutions are not assumed to be shell variables.
 
 - **Local:** `.env` (backend) and `.env.local` (frontend) must contain exactly the keys the application code reads. Use the repo `.env.example` files as the template; they are audited to match the code.
 - **Production:** GCP Secret Manager must hold **exactly** the secrets the code expects — no more, no less. The Cloud Build config (`deploy/*.cloudbuild.yaml`) injects only these; do not add secrets that are not read by the code, and do not remove any that are.

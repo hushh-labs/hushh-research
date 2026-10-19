@@ -165,6 +165,9 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/release-tools/email-auth"
           cp deploy/email-auth/bind_secrets.sh \
             "${RUNNER_TEMP}/release-tools/email-auth/bind_secrets.sh"
+          mkdir -p "${RUNNER_TEMP}/release-tools/plg"
+          cp deploy/plg/bind_secrets.sh \
+            "${RUNNER_TEMP}/release-tools/plg/bind_secrets.sh"
           cp scripts/ci/assert_one_voice_live_probe.py \
             "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py"
           # Orchestration must remain current when rolling back to an older image.
@@ -207,6 +210,9 @@ jobs:
           mkdir -p deploy/email-auth
           cp "${RUNNER_TEMP}/release-tools/email-auth/bind_secrets.sh" \
             deploy/email-auth/bind_secrets.sh
+          mkdir -p deploy/plg
+          cp "${RUNNER_TEMP}/release-tools/plg/bind_secrets.sh" \
+            deploy/plg/bind_secrets.sh
           cp "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py" \
             scripts/ci/assert_one_voice_live_probe.py
           mkdir -p deploy/drive
