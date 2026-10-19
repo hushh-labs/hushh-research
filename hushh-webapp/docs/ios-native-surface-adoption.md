@@ -27,7 +27,9 @@ main `f7b77b6781`; it is not a reset target.
 |---|---|---|
 | Profile roster lost neutral outlines | ADK integration `95dfa163f7` replaced the pane's authored icon selection | Restored through `PROFILE_ICONS`; web and generated iOS assets share the existing geometry and accent layers. |
 | Nested Account/Security/connector rows lost approved artwork | `e6456b8315` replaced the pane-specific selections | Restored selectively; operation callbacks and provider logos are unchanged. Account name and Legal entries now select their exact authored native asset. |
+| One/Puppy switching replaced the composer DOM node | Stable editor/portal work in `141ec62448` and `7cf18524a4`; `5c86617f2c` coupled placement to the selected agent | Restored stable portals with separate active claims and hidden/inert inactive owners. The existing test fails on replaced nodes before the fix, then passes identity, selection, separate-draft and inactive-submit checks for both agents. |
 | Compact Chat header and inline History connectors | `c9236dfd84`/`e4c25b71b1` and `f7890fae39` | Intentional requested replacements, retained. |
+| Team Chat performance improvements | Originating batching, memoization, transcript scroll, drawer-retirement and deferred-work changes inspected through integrated main | Retained: frame-batched deltas, reader override/sticky follow, scoped gesture listeners, context preparation and avatar optimizations. No additional semantic loss was established by this bounded audit; physical frame pacing remains separate. |
 | Payment, Wallet and encrypted-answer protection | Pre-landing and integrated AST comparison of five affected payment/wallet services and routes | No lost protection established; no backend rewrite or restoration made. |
 
 This table is bounded audit evidence, not proof that every historical semantic
@@ -44,6 +46,11 @@ intermediate fading-blocker implementation fails the nearest regression; the
 corrected three-test host batch passes. The 53 focused frontend/bridge checks,
 479 Back checks, generated UI contracts and design/brand checks also pass.
 These are not physical acceptance or Release performance receipts.
+
+The first combined core run found four new transitive icon inputs missing from
+the existing editor-lane path filter. Only those exact inputs were added; its
+17 scheduling/negative-control checks pass. No lane, policy or readiness gate
+was removed or redesigned. The corrected combined core must pass before push.
 
 This ordering repair does **not** implement shielded preparation of the replacement
 Profile/form/content-pane/chrome composition. That composition barrier remains

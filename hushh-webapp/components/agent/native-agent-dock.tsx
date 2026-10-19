@@ -11,7 +11,7 @@ import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/c
 import { getNativeSessionPrivacyState, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { nativeDrawerIsolation, observeNativeDrawerIsolation } from "@/lib/capacitor/native-drawers";
 import { isSessionChromeSuppressed, useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
-import { useAgentDockState } from "./agent-dock";
+import { activeAgentDockSeat, useAgentDockState } from "./agent-dock";
 import { useNativeDockPorts } from "./native-dock-port";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { setNativeBaseAperture, removeNativeBaseAperture } from "@/lib/capacitor/native-base-apertures";
@@ -297,7 +297,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
     }
     if (!theme || !port || !dock?.host || failed.current) return;
     const shell = dock.host.closest<HTMLElement>("[data-agent-bar-shell]");
-    const seat = family === "text" ? dock.host.querySelector<HTMLElement>("[data-agent-dock-embedded]") : shell?.querySelector<HTMLElement>("[data-agent-dock-surface]");
+    const seat = family === "text" ? activeAgentDockSeat(dock.host) : shell?.querySelector<HTMLElement>("[data-agent-dock-surface]");
     if (!seat) return;
     const bounds = nativeDockRestingFrame(seat);
     if (!bounds || bounds.width < 88 || bounds.height < 44) return;

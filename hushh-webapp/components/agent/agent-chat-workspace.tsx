@@ -10863,7 +10863,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          <AgentDockPortal enabled={isCanonicalChatRoute && !isPuppySurface} visible={!showVoiceBar}>
+          <AgentDockPortal enabled={isCanonicalChatRoute} active={!isPuppySurface} visible={!showVoiceBar}>
           <div
             inert={isHistoryDrawerOpen}
             data-agent-chat-composer-form={
