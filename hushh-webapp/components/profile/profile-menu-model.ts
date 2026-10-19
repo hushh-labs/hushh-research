@@ -1,4 +1,4 @@
-import { PROFILE_ICONS } from "@/components/icons";
+import { PROFILE_ICONS } from "@/components/icons/profile-icons";
 import { LEGAL_DOCUMENTS } from "@/lib/legal/legal-documents";
 
 export const PROFILE_LABELS = {
