@@ -90,7 +90,7 @@ export function PuppyOneSurface({
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* With no selected Puppy conversation, do not expose Cloud's voice
               launcher under the Puppy header. The authored New chat owns entry. */}
-          <AgentDockPortal enabled={sharedDock && active && conversations !== undefined && !conversations.some(conversation => conversation.id === activeConversationId)} visible={false} suppressed>{null}</AgentDockPortal>
+          <AgentDockPortal enabled={sharedDock} active={active && conversations !== undefined && !conversations.some(conversation => conversation.id === activeConversationId)} visible={false} suppressed>{null}</AgentDockPortal>
           {conversations === undefined ? <HermesChatPanel active={active} sharedDock={sharedDock} composerDisabled={composerDisabled} /> : (
             <>
               {conversations.length === 0 ? (
