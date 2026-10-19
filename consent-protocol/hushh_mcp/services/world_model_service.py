@@ -153,9 +153,6 @@ async def offer(
             "primary_endpoint": config["primary_endpoint"],
             "primary_deployment": config["primary_deployment"],
             "primary_token_supplier": token_provider,
-            "phi_endpoint": config["phi_endpoint"],
-            "phi_deployment": config["phi_deployment"],
-            "phi_token_supplier": token_provider,
         }
     result = await runner(
         identity=identity,
@@ -299,6 +296,8 @@ class WorldModelJobs(ProfileResearchJobs):
         if state.get("identity_binding") != binding:
             return {"status": "pending", "pkm_written": False, "restart_required": True}
         current = await self.store.get(user_id)
+        if await validate_first_party_owner_token(user_id, consent_token) is None:
+            raise PermissionError("Owner session ended")
         if current is None or any(
             current.get(key) != state.get(key) for key in ("revision", "fence")
         ):

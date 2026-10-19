@@ -800,6 +800,7 @@ tests/test_pkm_answer_catalog.py
 tests/test_answer_center_surface_integration.py
 
 tests/test_world_model.py
+tests/test_world_model_azure.py
 tests/test_world_model_story.py
 tests/test_world_model_contracts.py
 
