@@ -120,7 +120,7 @@ for (const [width, height, current] of [
 }
 
 for (const width of [320, 390, 768, 1440]) {
-  test(`contact badges align beside row controls at ${width}px`, async ({ page }, testInfo) => {
+  test(`contact icons sit beside names without overlapping row controls at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.route("http://localhost/duration-dialog**", (route) => route.fulfill({
@@ -136,26 +136,29 @@ for (const width of [320, 390, 768, 1440]) {
         : page.getByTestId("contact-picker-row");
       await expect(rows).toHaveCount(4);
       const geometry = await rows.evaluateAll((elements, surface) => elements.map((row) => {
-        const badge = row.querySelector('[aria-label="Connected from your contacts"]')!;
+        const icon = row.querySelector('[aria-label="Connected from your contacts"]')!;
+        const name = icon.previousElementSibling!;
         const control = row.querySelector(surface === "invite"
           ? '[data-slot="settings-row-trailing"] > span > span:last-child'
           : "button")!;
-        const b = badge.getBoundingClientRect();
+        const b = icon.getBoundingClientRect();
+        const n = name.getBoundingClientRect();
         const c = control.getBoundingClientRect();
         const r = row.getBoundingClientRect();
-        return { right: b.right, gap: c.left - b.right,
-          centreDelta: Math.abs(b.y + b.height / 2 - c.y - c.height / 2),
+        return { nameGap: b.left - n.right, controlGap: c.left - b.right,
+          centreDelta: Math.abs(b.y + b.height / 2 - n.y - n.height / 2),
           controlRight: c.right, rowRight: r.right };
       }), surface);
       for (const row of geometry) {
-        expect(row.right).toBeCloseTo(geometry[0].right, 0);
-        expect(row.gap).toBeCloseTo(12, 0);
-        expect(row.centreDelta).toBeLessThanOrEqual(1);
+        expect(row.nameGap).toBeGreaterThanOrEqual(5);
+        expect(row.nameGap).toBeLessThanOrEqual(7);
+        expect(row.controlGap).toBeGreaterThanOrEqual(0);
+        expect(row.centreDelta).toBeLessThanOrEqual(4);
         expect(row.controlRight).toBeLessThanOrEqual(row.rowRight - 10);
       }
       if (process.env.OVERFLOW_ACTION_EVIDENCE_DIR && (width === 390 || width === 1440)) {
         await page.screenshot({ path: path.join(process.env.OVERFLOW_ACTION_EVIDENCE_DIR,
-          `contact-badges-${surface}-${width}-${testInfo.project.name}.png`) });
+          `contact-icons-${surface}-${width}-${testInfo.project.name}.png`) });
       }
     }
   });

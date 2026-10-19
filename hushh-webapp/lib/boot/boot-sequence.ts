@@ -50,7 +50,7 @@ export const BOOT_STAGE_LINES: Readonly<Record<BootStage, BootLine>> = {
   workspace: { emoji: "🤝", text: "Getting One ready" },
 };
 
-export const BOOT_TITLE = "Hussh One is getting ready";
+export const BOOT_TITLE = "One is getting ready";
 export const BOOT_OFFLINE_LINE: BootLine = {
   emoji: "📡",
   text: "Waiting for a connection",

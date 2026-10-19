@@ -179,9 +179,10 @@ function ContactRow({
       />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-start gap-1.5">
-          <MediumRowLabel as="span" className="min-w-0 flex-1 truncate">
+          <MediumRowLabel as="span" className="min-w-0 truncate">
             {label}
           </MediumRowLabel>
+          {fromContacts ? <ContactSourceBadge /> : null}
         </span>
         {completed ? (
           <StatusText
@@ -196,7 +197,6 @@ function ContactRow({
           </RowDescription>
         ) : null}
       </span>
-      {fromContacts ? <ContactSourceBadge /> : null}
       <span
         className={cn(
           "flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors",
