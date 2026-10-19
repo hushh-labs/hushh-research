@@ -1363,10 +1363,11 @@ function CircleMemberRow({
           hasRelationshipControl && CIRCLE_MEMBER_ACTION_COPY_CLASSNAME,
         )}
       >
-        <p className={CIRCLE_MEMBER_NAME_ROW_CLASSNAME}>
+        <p className={cn(CIRCLE_MEMBER_NAME_ROW_CLASSNAME, "flex items-center gap-1.5")}>
           <span className={CIRCLE_MEMBER_NAME_CLASSNAME} title={member.displayName}>
             {member.displayName}
           </span>
+          {member.connectedFromContacts ? <ContactSourceBadge /> : null}
         </p>
         <p
           className={cn(
@@ -1393,9 +1394,6 @@ function CircleMemberRow({
           hasRelationshipControl && CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME,
         )}
       >
-        {member.connectedFromContacts ? (
-          <ContactSourceBadge className="shrink-0 whitespace-nowrap" />
-        ) : null}
         <div className="flex shrink-0 items-center justify-end gap-1">
         {pendingLabel && !canCancelRequest ? (
           <span
@@ -3005,17 +3003,15 @@ export function CircleDetailFlow({
                                   />
                                 }
                                 title={
-                                  <span className="block min-w-0 truncate">
-                                    {connection.displayName}
+                                  <span className="flex min-w-0 items-center gap-1.5">
+                                    <span className="min-w-0 truncate">{connection.displayName}</span>
+                                    {connection.connectedFromContacts ? <ContactSourceBadge /> : null}
                                   </span>
                                 }
                                 ariaPressed={selected}
                                 disabled={!selected && selectionAtCapacity}
                                 trailing={
                                   <span className="flex shrink-0 items-center gap-3">
-                                    {connection.connectedFromContacts ? (
-                                      <ContactSourceBadge />
-                                    ) : null}
                                     <span
                                       className={cn(
                                         "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
