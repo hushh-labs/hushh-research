@@ -86,7 +86,7 @@ def _citation(annotation: Any, text: str, *, offset: int) -> AzureCitation | Non
     if not isinstance(url, str):
         return None
     title = annotation.get("title")
-    if not isinstance(title, str) or not 1 <= len(title) <= MAX_CITATION_TITLE_CHARS:
+    if not isinstance(title, str) or len(title) > MAX_CITATION_TITLE_CHARS:
         return None
     try:
         # Keep provider reference text and URL byte-for-byte. The factual
@@ -181,7 +181,9 @@ def extract_azure_web_receipts(response: Mapping[str, Any]) -> AzureWebReceipts:
                     continue
                 if len(sources) >= MAX_SOURCES:
                     raise ValueError("Azure sources exceed supported bounds")
-                source = ProfileSource(title=title, url=url)
+                # Page-open citations may have no provider title. Preserve that
+                # exact citation; this is only a display label, never new evidence.
+                source = ProfileSource(title=title or "Public page", url=url)
                 seen_urls.add(url)
                 sources.append(source)
     if not sources:

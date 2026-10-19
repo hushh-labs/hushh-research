@@ -169,14 +169,20 @@ def test_completed_search_rejects_missing_or_invalid_billing_count(count):
 
 @pytest.mark.parametrize("action", ["open_page", "find_in_page"])
 @pytest.mark.parametrize("count", [0, 2])
-def test_completed_page_retrieval_accepts_explicit_zero_bing_queries(action, count):
+@pytest.mark.parametrize("empty_title", [False, True])
+def test_completed_page_retrieval_accepts_explicit_zero_bing_queries(action, count, empty_title):
     raw = response()
     raw["output"][1]["action"] = {"type": action, "url": "https://example.test/team/owner"}
     raw["tool_usage"]["web_search"]["num_requests"] = count
+    if empty_title:
+        raw["output"][2]["content"][0]["annotations"][0]["title"] = ""
     receipts = extract_azure_web_receipts(raw)
     assert receipts.observed is True
     assert receipts.num_requests == count
     assert len(receipts.sources) == 1
+    if empty_title:
+        assert receipts.citations[0]["title"] == ""
+        assert receipts.sources[0].title == "Public page"
 
 
 @pytest.mark.parametrize("action", ["open_page", "find_in_page", "search", "unknown"])

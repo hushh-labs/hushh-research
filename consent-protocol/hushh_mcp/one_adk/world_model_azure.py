@@ -261,7 +261,11 @@ specific supported attributes, and any explicit outbound profile links actually 
 Do not combine profiles by matching name, job, skills or employer. A matching brand name
 does not establish a company-domain match. Keep each unlinked URL as a separate lead;
 do not call a set a coherent person or cluster without received cross-link evidence.
-Do not answer with a suggested next-step menu: the host plans the next bounded search."""
+Do not answer with a suggested next-step menu: the host plans the next bounded search.
+The supplied source catalog contains STARTING anchors, not an exhaustive evidence list.
+Use newly retrieved web-tool content and cite its returned URLs; the host assigns their
+source IDs afterward. Inspect concrete dates, projects and explicit outbound links where
+the tool supplies them. If the tool returns no page content, say so without inventing it."""
 
 _STRUCTURED_INSTRUCTION = """Return only the supplied JSON contract wrapped in result.
 Never invent a source ref, receipt, query attempt, or identity anchor.
@@ -345,7 +349,7 @@ def _structured_schema(value: Any, *, definitions: dict[str, Any]) -> Any:
 def azure_execution_contract() -> dict[str, Any]:
     """Invalidate old drafts when active transport instructions or bounds change."""
     return {
-        "revision": "observed-topic-report-contract-v17",
+        "revision": "observed-topic-report-contract-v18",
         "assessment": _ASSESSMENT_INSTRUCTION,
         "assessment_repair": _ASSESSMENT_REPAIR_INSTRUCTION,
         "single_page_assessment_repair": _SINGLE_PAGE_REPAIR_INSTRUCTION,

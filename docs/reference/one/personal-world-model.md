@@ -137,6 +137,10 @@ The owner-only provisional stream applies the same current-anchor receipt fence.
 If reassessment changes the selected page while reusing a candidate ID, earlier
 coverage batches cannot survive as claims about that new page. Unmarked Vertex
 coverage retains its original contract.
+An Azure page citation may legitimately have an empty title. Its raw title, URL
+and offsets remain exact; the source card uses only the generic "Public page"
+label. This does not relax URL, range, completion or billing validation. Starting
+anchors do not prohibit the search stage from using newly retrieved public URLs.
 
 Identity assessment/repair uses medium reasoning with an 8,192-token ceiling.
 Only final compilation/repair uses high reasoning. Other stages keep low effort,
