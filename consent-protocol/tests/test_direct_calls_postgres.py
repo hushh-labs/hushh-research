@@ -49,8 +49,8 @@ def prepare_call_schema(engine):
         conn.exec_driver_sql(source[start : source.index("$$;", start) + 3])
     migration = (ROOT / "db/migrations/407_direct_calls.sql").read_text(encoding="utf-8")
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        conn.exec_driver_sql(migration)
-        conn.exec_driver_sql(migration)
+        conn.exec_driver_sql(migration, execution_options={"no_parameters": True})
+        conn.exec_driver_sql(migration, execution_options={"no_parameters": True})
 
 
 @pytest.fixture
