@@ -1798,7 +1798,7 @@ def test_the_grading_lane_is_read_only_and_is_not_told_to_write(tmp_path):
     true, and whichever way a host resolved it, the resolution was silent.
     """
     root = Path(__file__).resolve().parents[2]
-    lane = (root / "agents" / "local_model_judge.toml").read_text(encoding="utf-8")
+    lane = (root / ".agents" / "subagents" / "local_model_judge.toml").read_text(encoding="utf-8")
     assert 'sandbox_mode = "read-only"' in lane
     # The specific instruction that contradicted it: a `record` invocation aimed
     # at the grader. `replay` is the orchestrator's command and may be named.

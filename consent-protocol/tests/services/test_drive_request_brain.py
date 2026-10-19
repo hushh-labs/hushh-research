@@ -689,6 +689,7 @@ def _search():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("flag", [None, "false"])
+@pytest.mark.usefixtures("shared_hub_owner")
 async def test_owner_and_trusted_request_flows_never_construct_or_call_gemini(monkeypatch, flag):
     if flag is None:
         monkeypatch.delenv(GEMINI_PLANNER_FLAG, raising=False)

@@ -1682,6 +1682,7 @@ async def drain_until_complete(monkeypatch, *, slices_per_run, wake_enabled):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("shared_hub_owner")
 async def test_chained_slices_finish_a_forty_thousand_file_drive_in_fewer_ticks(monkeypatch):
     from hushh_mcp.services.drive_owner_search_worker import MAX_SLICES_PER_RUN
 

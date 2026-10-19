@@ -222,7 +222,7 @@ Do not create another authored fleet, prompt copy or routing authority.
 ## Project-Wide Routing Gate
 
 Route every non-trivial task before implementation or delegation. Use
-`docs/project_context_map.md` for location and `.codex/` for ownership.
+`docs/project_context_map.md` for location and `.agents/` for ownership.
 
 Repository precedence:
 

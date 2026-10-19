@@ -158,6 +158,9 @@ class AccountService:
             "one_model_preferences": text(
                 "DELETE FROM one_model_preferences WHERE user_id = :user_id"
             ),
+            "one_private_text_processing_approvals": text(
+                "DELETE FROM one_private_text_processing_approvals WHERE user_id = :user_id"
+            ),
             "one_profile_discovery_jobs": text(
                 "DELETE FROM one_profile_discovery_jobs WHERE user_id = :user_id"
             ),
@@ -1507,6 +1510,7 @@ class AccountService:
                 "one_action_directive_ledger",
                 "pod_lifecycle_events",
                 "one_mcp_pending_calls",
+                "one_private_text_processing_approvals",
                 "live_memory_hosted_source_envelopes",
                 "live_memory_hosted_pilot_grants",
                 "agent_chat_messages",
@@ -2152,6 +2156,7 @@ class AccountService:
                         "one_location_nearby_check_in_preferences",
                         "one_location_sos_voice_preferences",
                         "one_model_preferences",
+                        "one_private_text_processing_approvals",
                         "one_profile_discovery_jobs",
                         "pkm_embeddings",
                         "ria_business_contacts",

@@ -25,7 +25,7 @@ from api.routes.drive_sharing import (
     PrivateSharingRoute,
     StrictRequest,
     _call,
-    _owner,
+    _content_owner,
     _service,
 )
 from hushh_mcp.services.drive_owner_shared_files import DriveOwnerSharedFilesStore
@@ -68,7 +68,7 @@ def _facade() -> _SharedFilesFacade:
 async def shared_files(
     request_id: UUID,
     cursor: str | None = Query(default=None, max_length=48),
-    owner: Owner = Depends(_owner),
+    owner: Owner = Depends(_content_owner),
 ):
     if cursor is not None and not re.fullmatch(_FILE_REF_PATTERN, cursor):
         cursor = "invalid"  # The store rejects it as invalid_argument.
@@ -79,7 +79,7 @@ async def shared_files(
 
 @router.post("/requests/{request_id}/shared-files/remove", status_code=202)
 async def remove_shared_file(
-    request_id: UUID, body: SharedFileAction, owner: Owner = Depends(_owner)
+    request_id: UUID, body: SharedFileAction, owner: Owner = Depends(_content_owner)
 ):
     return await _call(
         "remove_file",
@@ -92,7 +92,7 @@ async def remove_shared_file(
 
 @router.post("/requests/{request_id}/shared-files/restore")
 async def restore_shared_file(
-    request_id: UUID, body: SharedFileAction, owner: Owner = Depends(_owner)
+    request_id: UUID, body: SharedFileAction, owner: Owner = Depends(_content_owner)
 ):
     return await _call(
         "restore_file",

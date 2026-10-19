@@ -8683,7 +8683,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "__init__",
-      "value": 759
+      "value": 762
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8701,7 +8701,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_clear_user_data_tables",
-      "value": 278
+      "value": 279
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8710,7 +8710,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_delete_full_account_transaction",
-      "value": 545
+      "value": 546
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -20527,7 +20527,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
       "symbol": null,
-      "value": 1783
+      "value": 1786
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30146,7 +30146,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_search_performance_proof.py",
       "symbol": null,
-      "value": 1724
+      "value": 1725
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30696,7 +30696,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_request_brain.py",
       "symbol": null,
-      "value": 749
+      "value": 750
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -75536,5 +75536,54 @@
     "after": 87,
     "source_sha256": "25ee88f070492cb49d5930a36669b89571aa21ea21ed815b6e2aa373c4709365",
     "review": "Typed non-optional subscription is separated from the nullable cleanup handle. Existing stream lifetime, authority checks, cancellation and finally unsubscribe remain unchanged. Five nearest lifecycle tests and full mypy pass. One line only; no budget or exclusion change."
+  },
+  "integration_erasure_and_fixture_review_20261019": {
+    "candidate_parent_revision": "a06eac52b5bf292822ebefdb6a659ca37cdfeb20",
+    "reviewer": "read-only backend authority review",
+    "scope": "Six exact local integration corrections; no global budget, retained finding or exclusion changed.",
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|__init__|function exceeds the advisory gene budget",
+        "before": 759,
+        "after": 762,
+        "source_sha256": "d5a9b0573c2a1630314614febc50ed853ff7423b2ee6f0b3fdaaab6c5232cedb",
+        "review": "Exact owner-keyed approval deletion added to existing query map and both reset/full cleanup lists. Migration 364 cascade does not cover reset. No new authority or parallel erasure owner; core regression and omitted-delete negative control protect the consent boundary."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_clear_user_data_tables|function exceeds the advisory gene budget",
+        "before": 278,
+        "after": 279,
+        "source_sha256": "d5a9b0573c2a1630314614febc50ed853ff7423b2ee6f0b3fdaaab6c5232cedb",
+        "review": "Exact owner-keyed approval deletion added to existing query map and both reset/full cleanup lists. Migration 364 cascade does not cover reset. No new authority or parallel erasure owner; core regression and omitted-delete negative control protect the consent boundary."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_delete_full_account_transaction|function exceeds the advisory gene budget",
+        "before": 545,
+        "after": 546,
+        "source_sha256": "d5a9b0573c2a1630314614febc50ed853ff7423b2ee6f0b3fdaaab6c5232cedb",
+        "review": "Exact owner-keyed approval deletion added to existing query map and both reset/full cleanup lists. Migration 364 cascade does not cover reset. No new authority or parallel erasure owner; core regression and omitted-delete negative control protect the consent boundary."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py||module exceeds the advisory operon budget",
+        "before": 1783,
+        "after": 1786,
+        "source_sha256": "9e2494be89f79d584e7b5d6a43f9ea1c506b1e7bd6db44fcc4a6232cac760bbe",
+        "review": "Extend nearest existing reset regression: approval must be removed while actor spine remains. Omitted optional-table deletion fails the negative control."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_search_performance_proof.py||module exceeds the advisory operon budget",
+        "before": 1724,
+        "after": 1725,
+        "source_sha256": "291163aac80737fbba1727abf25be0eb6e3634e011d4d44ccc7328b44b6b62ba",
+        "review": "One explicit Shared fixture declaration keeps the real placement guard for the bounded 40k synthetic search proof; unknown/private refusal remains separately covered."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_request_brain.py||module exceeds the advisory operon budget",
+        "before": 749,
+        "after": 750,
+        "source_sha256": "7fe62522e0afc5f5e7e135ecc40e9b4da19f6bb8e3d940c77a1efd6fa9ee29df",
+        "review": "One explicit Shared fixture declaration keeps the real placement guard and removes accidental live registry access from the synthetic planner proof."
+      }
+    ]
   }
 }

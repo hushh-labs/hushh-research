@@ -76,7 +76,7 @@ closed. See [native Browser evidence](../../../consent-protocol/docs/reference/p
 ### Local integration candidate — 2026-10-19 UTC
 
 Fresh main `f47a4832dbc` and frozen local ADK `42bb9823005` are integrated
-through `ac3dea21ef` in an isolated checkout. Peer edits and the active ADK tree
+through `a06eac52b5` plus reviewed integration corrections in an isolated checkout. Peer edits and the active ADK tree
 remain intact. Provider-aware AI selection, Puppy controls and exact owner/vault
 authority were preserved across main's extracted UI models. Async AI/key/device
 operations now retain their original owner generation; Wallet reopen assertions
@@ -92,6 +92,15 @@ acceptance or a full core receipt. Read-only frontend/backend and parent governa
 review reconciled 307 exact structural ceilings: 228 findings match a frozen parent;
 79 are reviewed compositions. Historical annotations and 500/250/80 budgets remain;
 the ratchet and its negative controls pass. This does not clear product blockers.
+
+The combined core run passed web-core and retained 21,397 backend passes; it
+also exposed ten source/fixture failures and 388 strict test-database setup errors.
+The corrections enforce the content guard on new Drive file routes, erase private
+processing approval on reset and deletion, restore canonical schema order, and
+follow the new instruction paths. Their 337 focused checks and 766 real local
+PostgreSQL checks pass. The omitted-reset-cleanup negative control fails as intended.
+Test clusters close after use; the peer database and browser connection are preserved.
+The final combined core receipt is still pending. No new hosted CI or deployment is claimed.
 
 Files recovery now persists provider-confirmed cancellation before later checks and
 retains it across failure/restart. Exact-session HTTP 410 is a separate invalidation

@@ -1776,8 +1776,11 @@ def test_account_reset_erases_pending_connector_reviews_and_hosted_memory_intent
     service._clear_user_data_tables(conn, "user_123", results)
     executed = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
     assert "DELETE FROM one_mcp_pending_calls" in executed
+    assert "DELETE FROM one_private_text_processing_approvals" in executed
+    assert "DELETE FROM actor_profiles" not in executed
     assert "DELETE FROM live_memory_hosted_pilot_grants" in executed
     assert "DELETE FROM live_memory_hosted_source_envelopes" in executed
     assert results.get("one_mcp_pending_calls") is True
+    assert results.get("one_private_text_processing_approvals") is True
     assert results.get("live_memory_hosted_pilot_grants") is True
     assert results.get("live_memory_hosted_source_envelopes") is True

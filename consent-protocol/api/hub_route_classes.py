@@ -54,6 +54,9 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+GET /api/connectors/google_drive/sharing/requests/{request_id}/shared-files
+POST /api/connectors/google_drive/sharing/requests/{request_id}/shared-files/remove
+POST /api/connectors/google_drive/sharing/requests/{request_id}/shared-files/restore
 GET /api/one/world-model/jobs/stream
 POST /api/one/world-model/ensure
 DELETE,GET,POST /api/one/world-model/source-reviews
@@ -173,6 +176,7 @@ POST /api/pkm/agent-lab/structure
 POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 [AUTHORITY]
+GET,PUT /api/one/models/private-text-approval
 GET,PUT /api/one/world-model/preferences
 POST /api/one/world-model/invitations/reject
 DELETE,GET,POST /api/one/hosted-memory/pilot
@@ -214,6 +218,7 @@ POST /api/pkm/domains/{domain}/scope-exposure
 GET /api/pkm/memory/mutation-impact/{user_id}/{domain}
 GET /api/pkm/scopes/{user_id}
 [NETWORK]
+GET /api/one/messages/unread-count
 POST /api/one/world-model/invitation-preview
 POST /api/one/calendar/rescheduling/options
 GET /api/one/source-snapshots/document-request-payments
