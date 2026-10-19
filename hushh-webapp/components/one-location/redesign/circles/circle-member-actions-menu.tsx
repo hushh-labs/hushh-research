@@ -4,6 +4,9 @@ import { DirectMessageLink } from "@/components/direct-messages/direct-message-l
 import Link from "next/link";
 
 /**
+ * A share-only row acts directly; rows with additional choices retain their
+ * responsive action surface, using the Profile icon palette.
+ *
  * The two things you can do TO one person in a Circle -- Share location and
  * Remove from Circle -- and the surface that offers them.
  *
@@ -62,8 +65,6 @@ import Link from "next/link";
 import { useState, useSyncExternalStore } from "react";
 import {
   MessageCircle,
-  MoreVertical,
-  Share2,
   Trash2,
   UserRound,
 } from "@/components/icons";
@@ -79,6 +80,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  ProfilePaneDeleteIcon,
+  ProfilePaneMessageIcon,
+  ProfilePaneShareIcon,
+} from "@/components/profile/profile-pane-icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
   Drawer,
@@ -277,6 +283,28 @@ export function CircleMemberActionsMenu({
     );
   }
 
+  // A single valid action needs no intermediate menu. Retain the existing
+  // multi-action surfaces whenever profile, message or removal is available.
+  if (canShare && !canRemove && !messageHref && !profileHref) {
+    return (
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        disabled={busy}
+        aria-label={`Share location with ${displayName}`}
+        className={CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME}
+        onClick={onShare}
+      >
+        <ProfilePaneShareIcon size={24} />
+      </Button>
+    );
+  }
+
+  const TriggerIcon = canShare
+    ? ProfilePaneShareIcon
+    : canRemove ? ProfilePaneDeleteIcon : ProfilePaneMessageIcon;
+
   const closeSheet = () => {
     setSheetOpen(false);
     setSheetConfirmingRemove(false);
@@ -299,7 +327,7 @@ export function CircleMemberActionsMenu({
             setSheetOpen(true);
           }}
         >
-          <MoreVertical className="h-5 w-5" weight="regular" />
+          <TriggerIcon size={24} />
         </Button>
 
         <Drawer
@@ -430,8 +458,8 @@ export function CircleMemberActionsMenu({
                         onShare();
                       }}
                     >
-                      <Share2
-                        className="h-5 w-5 shrink-0 text-[#0071E3]"
+                      <ProfilePaneShareIcon
+                        className="h-5 w-5 shrink-0"
                         aria-hidden="true"
                       />
                       Share location
@@ -489,7 +517,7 @@ export function CircleMemberActionsMenu({
             aria-label={menuLabel}
             className={CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME}
           >
-            <MoreVertical className="h-5 w-5" weight="regular" />
+            <TriggerIcon size={24} />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -522,7 +550,7 @@ export function CircleMemberActionsMenu({
               className={MEMBER_ACTIONS_MENU_ITEM_CLASSNAME}
               onSelect={() => onShare()}
             >
-              <Share2 className="h-4 w-4 text-current" />
+              <ProfilePaneShareIcon className="h-4 w-4" />
               Share location
             </DropdownMenuItem>
           ) : null}

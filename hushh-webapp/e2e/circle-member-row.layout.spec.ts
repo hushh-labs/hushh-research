@@ -165,6 +165,7 @@ function buildProductionMemberActionsStylesheet(): Promise<string> {
       "components/one-location/redesign/circles/circle-member-row-layout.ts",
       "components/one-location/redesign/location-action-styles.ts",
       "components/connections/connection-person-avatar.tsx",
+      "components/profile/profile-pane-icons.tsx",
       "components/ui/alert-dialog.tsx",
       "components/ui/avatar.tsx",
       "components/ui/button.tsx",
@@ -917,7 +918,7 @@ test.describe("Circle roster row", () => {
 
   for (const owner of [false, true]) {
     for (const width of [320, 390, 600]) {
-      test(`opens the production phone sheet for ${owner ? "owner" : "member"} at ${width}px`, async ({
+      test(`${owner ? "shares directly for the owner" : "opens the production phone sheet for a member"} at ${width}px`, async ({
         page,
       }, testInfo) => {
         const fixture = await startProductionMemberActionsFixture(owner);
@@ -933,6 +934,26 @@ test.describe("Circle roster row", () => {
           await expect(page.getByRole("heading", { name: "SMS Circle" }))
             .toBeVisible({ timeout: 15_000 });
           await awaitProductFont(page);
+
+          if (owner) {
+            const share = page.getByRole("button", { name: `Share location with ${fixture.memberName}` });
+            await expect(share).toBeVisible();
+            const box = await share.boundingBox();
+            expect(box!.width).toBeGreaterThanOrEqual(44);
+            expect(box!.height).toBeGreaterThanOrEqual(44);
+            await expect(share.locator("svg.profile-pane-icon")).toBeVisible();
+            const colors = await share.locator("svg").evaluate(svg => ({
+              outline: getComputedStyle(svg.querySelector("path")!).stroke,
+              accent: getComputedStyle(svg.querySelector(".profile-pane-icon-accent")!).stroke,
+            }));
+            expect(colors.outline).not.toBe(colors.accent);
+            expect(colors.accent).not.toBe("none");
+            await share.click();
+            await expect(page.getByTestId("circle-member-actions-sheet")).toHaveCount(0);
+            await expect(page.getByRole("menu")).toHaveCount(0);
+            expect(browserErrors).toEqual([]);
+            return;
+          }
 
           await page
             .getByRole("button", { name: `Actions for ${fixture.memberName}` })
@@ -972,7 +993,12 @@ test.describe("Circle roster row", () => {
           await expect(menu).toHaveCSS("border-radius", "20px");
           const share = page.getByRole("menuitem", { name: "Share location" });
           await expect(share).toHaveCSS("height", "52px");
-          await expect(share.locator("svg")).toHaveCSS("color", "rgb(0, 113, 227)");
+          const colors = await share.locator("svg").evaluate(svg => ({
+            outline: getComputedStyle(svg.querySelector("path")!).stroke,
+            accent: getComputedStyle(svg.querySelector(".profile-pane-icon-accent")!).stroke,
+          }));
+          expect(colors.outline).not.toBe(colors.accent);
+          expect(colors.accent).not.toBe("none");
           const cancel = sheet.getByRole("button", { name: "Cancel", exact: true });
           await expect(cancel).toHaveCSS("height", "50px");
           if (!owner) {

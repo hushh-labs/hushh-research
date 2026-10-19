@@ -97,6 +97,36 @@ function renderMenu(
 
 const triggerName = `Actions for ${MEMBER_NAME}`;
 
+describe.each(["phone", "desktop"] as const)("a share-only Circle row on %s", (viewport) => {
+  beforeEach(() => setViewport(viewport));
+
+  it("shares directly using the Profile icon without opening another surface", () => {
+    const { onShare } = renderMenu({ canRemove: false });
+    const share = screen.getByRole("button", { name: `Share location with ${MEMBER_NAME}` });
+    expect(share.querySelector("svg.profile-pane-icon")).toBeTruthy();
+    expect(share.querySelector(".profile-pane-icon-accent")).toBeTruthy();
+    expect(share).not.toHaveAttribute("aria-haspopup");
+    fireEvent.click(share);
+    expect(onShare).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId(MEMBER_ACTIONS_SHEET_TESTID)).toBeNull();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("blocks sharing while the Circle is busy", () => {
+    const { onShare } = renderMenu({ canRemove: false, busy: true });
+    const share = screen.getByRole("button", { name: `Share location with ${MEMBER_NAME}` });
+    expect(share).toBeDisabled();
+    fireEvent.click(share);
+    expect(onShare).not.toHaveBeenCalled();
+  });
+
+  it("keeps profile access in the existing multi-action surface", () => {
+    renderMenu({ canRemove: false, profileHref: "/person/member" });
+    expect(screen.getByRole("button", { name: triggerName })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: `Share location with ${MEMBER_NAME}` })).toBeNull();
+  });
+});
+
 describe("CircleMemberActionsMenu on a phone", () => {
   beforeEach(() => {
     setViewport("phone");
