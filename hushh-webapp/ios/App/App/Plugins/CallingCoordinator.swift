@@ -87,6 +87,7 @@ final class CallingCoordinator {
         authListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             Task { @MainActor in
                 guard let self else { return }
+                guard Auth.auth().currentUser === user else { return }
                 let changed = self.ownerSession.ownerId != user?.uid || (self.api != nil && (try? self.api?.check()) == nil)
                 if changed { self.end(); self.ownerSession.reset(); self.system.unregisterPushes() }
                 // Cold launch restores ONLY a previously enrolled calling installation.
@@ -95,13 +96,14 @@ final class CallingCoordinator {
                         let api = try await self.ownerSession.ready(owner: user.uid, allowEnrollment: false)
                         guard self.api === api else { return }
                         try await self.registerPushToken()
+                        try self.current(self.generation, api)
                         self.system.registerPushes()
                         self.monitor()
                     } catch { /* Unenrolled/locked owners stay unavailable. */ }
                 }
             }
         }
-        system.registerPushes()
+        if Auth.auth().currentUser != nil { system.registerPushes() }
     }
     func enable(owner: String) async throws {
         launch()
@@ -110,6 +112,7 @@ final class CallingCoordinator {
         let api = try await ownerSession.ready(owner: user.uid, allowEnrollment: true)
         guard self.api === api else { throw CallingError.cancelled }
         try await registerPushToken()
+        try current(generation, api)
         system.registerPushes()
         monitor()
     }
@@ -122,6 +125,7 @@ final class CallingCoordinator {
                    "mediaConnected": mediaConnected, "verification": verification as Any? ?? NSNull()])
     }
     func registerPushToken() async throws {
+        guard !shuttingDown else { throw CallingError.cancelled }
         guard let api else { return }
         #if DEBUG
         let environment = "sandbox"

@@ -2,6 +2,14 @@ import XCTest
 @testable import App
 
 final class CallingContractTests: XCTestCase {
+    func testColdRecoveryEndsOnlyTheInstallationThatLostItsTransport() {
+        let caller: [String: Any] = ["state": "active", "isCaller": true, "callerDeviceId": "local", "calleeDeviceId": "peer"]
+        XCTAssertTrue(CallingRecovery.ownsOrphan(caller, device: "local"))
+        XCTAssertFalse(CallingRecovery.ownsOrphan(caller, device: "peer"))
+        XCTAssertTrue(CallingRecovery.ownsOrphan(["state": "connecting", "isCaller": false, "calleeDeviceId": "local"], device: "local"))
+        XCTAssertFalse(CallingRecovery.ownsOrphan(["state": "ringing", "isCaller": false, "calleeDeviceId": NSNull()], device: "local"))
+        XCTAssertFalse(CallingRecovery.ownsOrphan(["state": "ended", "isCaller": true, "callerDeviceId": "local"], device: "local"))
+    }
     func testNewCallDropsPriorMuteAndRequiresFreshActivationAndVerification() {
         var gate = CallingAudioGate(activated: true, verified: true, muted: true)
         XCTAssertTrue(gate.enabled)

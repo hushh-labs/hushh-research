@@ -104,6 +104,9 @@ DTLS peer connection, and keeps audio disabled until peer verification and
 CallKit audio activation. Native calls and One Voice share microphone ownership.
 Navigation/backgrounding preserves native calls; terminal state, owner changes,
 revocation, negotiation timeout and prolonged disconnect stop local media.
+Cold recovery ends an orphaned call only when this installation was its selected
+endpoint; ephemeral DTLS media is never silently resumed or assigned to another
+device. This releases abandoned busy admission before a person starts a new call.
 
 PushKit tokens are distinct from ordinary FCM tokens. Signed registration binds
 an active iOS trusted device and communication key. The server selects the APNs

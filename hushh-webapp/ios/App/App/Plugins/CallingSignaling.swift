@@ -1,6 +1,16 @@
 import AVFoundation
 import Foundation
 
+enum CallingRecovery {
+    /// A cold process cannot resume an old ephemeral DTLS connection. End only
+    /// the call assigned to this exact installation, preserving other devices.
+    static func ownsOrphan(_ call: [String: Any], device: String) -> Bool {
+        guard ["preparing", "ringing", "connecting", "active"].contains(call["state"] as? String ?? "") else { return false }
+        if call["isCaller"] as? Bool == true { return call["callerDeviceId"] as? String == device }
+        return call["isCaller"] as? Bool == false && call["calleeDeviceId"] as? String == device
+    }
+}
+
 extension CallingCoordinator {
     func answer() async throws {
         guard !answering, let incoming = call, incoming["isCaller"] as? Bool == false,
@@ -74,7 +84,15 @@ extension CallingCoordinator {
             } else {
                 let result = try await client.command("inbox")
                 try current(epoch, client)
-                guard let incoming = (result["items"] as? [[String: Any]])?.first,
+                guard let incoming = (result["items"] as? [[String: Any]])?.first else { return }
+                if CallingRecovery.ownsOrphan(incoming, device: client.identity.deviceId) {
+                    let id = try CallingWire.string(incoming, "id")
+                    _ = try await client.command("action", ["callId": id, "action": "end", "revision": incoming["revision"] ?? 0])
+                    try current(epoch, client)
+                    if let uuid = UUID(uuidString: id) { system.finish(uuid) }
+                    return
+                }
+                guard
                       incoming["isCaller"] as? Bool == false, incoming["state"] as? String == "ringing",
                       let id = incoming["id"] as? String, let uuid = UUID(uuidString: id) else { return }
                 call = incoming; system.incoming(uuid, completion: {}); publish()
