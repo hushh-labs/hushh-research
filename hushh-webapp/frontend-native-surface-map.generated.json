@@ -5102,6 +5102,7 @@
         "profile.update_display_name",
         "route.profile",
         "route.profile_access_panel",
+        "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
         "route.profile_payouts",
@@ -10383,5 +10384,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "e03aa1a609b2205725ffd57f3c897f28ae589ee2eae40742d1f10f6214f061d4"
+  "content_sha256": "9f7d645b482d4d7fdba29a7c02c395760c79c5b3ff340d79827d7a23076d0d28"
 }

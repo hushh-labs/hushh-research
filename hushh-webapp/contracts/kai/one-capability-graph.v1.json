@@ -16511,6 +16511,153 @@
     },
     {
       "aliases": [
+        "Open Account",
+        "open account",
+        "open my phone number"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.profile_account",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens account identity and saved phone management in Profile.",
+      "execution": {
+        "binding_ref": "route:/one/profile/account",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/profile/account"
+        }
+      },
+      "goal_id": "goal.route.profile_account",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open Account",
+      "navigation": {
+        "fallback": "/one/profile/account",
+        "routes": [
+          "/one/profile/account"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "account",
+        "identity",
+        "phone number"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Memory",
         "open my saved details",
         "my saved details"
@@ -42436,7 +42583,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "930554ae1a2138d8541e8b30fc05563bb24512d03a94432ffa2df61d976b2f12",
+      "projection_digest": "6e2205b00327ed6d171dea6f273f5114f64af960643b8bf4264699764fb88028",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42455,7 +42602,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
       },
-      "source_revision": "d3eff8317e031ea1",
+      "source_revision": "1d676482f1105e19",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -43973,7 +44120,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "d3eff8317e031ea1",
+    "source_revision": "1d676482f1105e19",
     "web": {
       "actions": [
         {
@@ -44016,7 +44163,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "b59621c46553f86fb795c5aa0fdf0fc0136fdea9c205d0936969c89f0a92c82a",
+      "projection_digest": "60abdaa5acb5b6d4ec058604195abc6d02f1d4a0a45c3a632abfb556a3fe7150",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -44035,7 +44182,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
       },
-      "source_revision": "d3eff8317e031ea1",
+      "source_revision": "1d676482f1105e19",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -45592,7 +45739,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "d3eff8317e031ea1",
+  "revision": "1d676482f1105e19",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -46519,6 +46666,7 @@
         "route.back",
         "route.profile",
         "route.profile_access_panel",
+        "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
         "route.profile_payouts",
@@ -46572,6 +46720,7 @@
         "route.back",
         "route.profile",
         "route.profile_access_panel",
+        "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
         "route.profile_payouts",
@@ -46607,6 +46756,7 @@
         "route.back",
         "route.profile",
         "route.profile_access_panel",
+        "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
         "route.profile_payouts",
@@ -47466,7 +47616,8 @@
   ],
   "semantic_diff": {
     "added": [
-      "actions:profile.retry_phone_lookup"
+      "actions:profile.retry_phone_lookup",
+      "actions:route.profile_account"
     ],
     "breaking": [],
     "changed": [
@@ -49716,18 +49867,18 @@
     "capability_graph_evolution": "bd3bb2e4006f923f21babacdc09ad98eac540d7faa36a514ed7d321b1a92b5da",
     "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "ea9c619293646518e1357b122d884c729314d685d14eca2ed0f2d396502312a5",
+    "kai_action_gateway": "b2ded1352d1ab5e6e93bdea63fb7b44f62ac1d6bfe689d9bbd9dcd4386233795",
     "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "40a0062f8ecc8fca4b99e23c201e00ed49041bf2781c9cb142a008ea94d15199",
-    "route_orchestration_index": "4b3f6a32887714b74b98e2da04519af33482e30abbe60dc53e7599bf3d69d668",
+    "route_orchestration_index": "835d8f1d7838c3b8968e6bc24dfc4345a4622eee83bf95486ed51cd475074242",
     "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
   },
-  "source_revision": "d3eff8317e031ea1",
+  "source_revision": "1d676482f1105e19",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "d3eff8317e031ea1",
+    "current_graph_revision": "1d676482f1105e19",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

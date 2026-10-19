@@ -2382,7 +2382,7 @@ function ProfilePageContent({
         id: "profile_account",
         label: PROFILE_LABELS.account,
         purpose: "opens account identity, mail, and phone management.",
-        actionId: "route.profile",
+        actionId: "route.profile_account",
         role: "card",
         voiceAliases: ["account", "phone number", "identity"],
       },

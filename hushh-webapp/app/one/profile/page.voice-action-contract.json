@@ -79,6 +79,31 @@
       "speaker_persona": "one"
     },
     {
+      "action_id": "route.profile_account",
+      "label": "Open Account",
+      "meaning": "Opens account identity and saved phone management in Profile.",
+      "aliases": ["open account", "open my phone number"],
+      "search_keywords": ["account", "identity", "phone number"],
+      "reachability": {
+        "routes": ["/one/profile/account"],
+        "screens": ["profile_account"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/account"
+      },
+      "control_ids": ["profile_account"],
+      "state_exposure": [],
+      "docs_references": ["components/profile/profile-workspace-page.tsx"],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "route.profile_my_data",
       "label": "Open Memory",
       "meaning": "Opens saved details and sharing in Profile.",

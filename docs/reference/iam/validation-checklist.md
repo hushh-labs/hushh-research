@@ -43,6 +43,8 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
   phone-less, returns an older number, or republishes after view-cache expiry.
   Temporary identity failures offer Retry rather than Add/verification. Verify
   recovery after online/foreground, bounded retries and unmount cleanup.
+  From another screen, phone recovery must offer the canonical Account route;
+  Retry runs only after its unavailable-phone control is mounted and signed in.
 - [ ] A delayed identity response cannot overwrite a newer phone claim, including
   logout/login to the same UID. Concurrent name/avatar saves still execute and
   reconcile stale readbacks. Foreground recovery preserves a sent OTP.
