@@ -98,7 +98,7 @@ def _citation(annotation: Any, text: str, *, offset: int) -> AzureCitation | Non
 
 
 def extract_azure_web_receipts(response: Mapping[str, Any]) -> AzureWebReceipts:
-    """Extract only completed search calls and their URL-citation receipts.
+    """Extract completed search/page retrievals and their URL-citation receipts.
 
     `num_requests` is the provider's billable Bing request count, which can be
     larger than the number of visible `web_search_call` entries. Missing usage
@@ -108,15 +108,23 @@ def extract_azure_web_receipts(response: Mapping[str, Any]) -> AzureWebReceipts:
         raise ValueError("Azure response must be a mapping")
     output = _bounded_list(response.get("output"), limit=MAX_OUTPUT_ITEMS, name="output")
     count = _request_count(response)
-    completed_search = any(
-        isinstance(item, Mapping)
+    actions = [
+        item.get("action", {}).get("type")
+        for item in output
+        if isinstance(item, Mapping)
         and item.get("type") == "web_search_call"
         and item.get("status") == "completed"
-        for item in output
+        and isinstance(item.get("action"), Mapping)
+    ]
+    completed_retrieval = any(
+        isinstance(action, str) and action in {"search", "open_page", "find_in_page"}
+        for action in actions
     )
-    if completed_search and (count is None or count == 0):
-        raise ValueError("Completed Azure web search has no billable request count")
-    if response.get("status") != "completed" or not completed_search:
+    # Opening/finding in an existing page can explicitly bill zero Bing queries.
+    # An actual search still requires a positive count; missing usage stays unknown.
+    if completed_retrieval and (count is None or ("search" in actions and count == 0)):
+        raise ValueError("Completed Azure web retrieval has no valid billable request count")
+    if response.get("status") != "completed" or not completed_retrieval:
         return AzureWebReceipts(False, "", (), count or 0)
 
     answer_parts: list[str] = []

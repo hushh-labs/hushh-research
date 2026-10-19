@@ -82,6 +82,28 @@ Shorter names and unlinked institutional/company/aggregator records remain
 uncertain. Raw citations are not independent verification of their contents, so
 Azure candidates remain for owner review. No minimum finding count is forced.
 
+Azure's native planner schema projects the existing admitted identity/coverage
+branches, selected candidate and anchor IDs. Candidate-for-review coverage uses
+public name/anchors; contacts remain limited to identity research. The prompt
+requests a short question and at most two anchors within the original host
+bounds. A coherent review candidate should receive public coverage rather than
+repeat exact-contact searches; competing candidates still require identity work.
+Company, GitHub and social profiles need an explicit received first-party URL
+cross-link before their anchors are combined. Reports place missing evidence and
+namesake observations in gaps, not personal findings. These are model-authored
+semantic instructions, not a host guarantee of page support or identity. A returned invalid plan may receive one charged correction using the
+same context and failed field/type feedback. Four model slots must remain before
+repair, preserving search, assessment and final reporting. Invalid correction
+stops expansion and preserves existing cited findings; provider errors and loss
+of authority are never retried as plan corrections. Logs contain only bounded
+error types, never model field names or contact values.
+
+Within the unchanged 240-second slice, follow-up search reserves 145 seconds:
+up to 45 seconds for reassessment and 100 seconds for final reporting. Reporting
+keeps its 90-second provider cap. Optional provisional batches yield when that
+reserve is needed. This replaces a 230-second follow-up admission requirement
+that effectively prevented expansion after ordinary initial-call latency.
+
 An identity assessment that fails schema or evidence validation may receive one
 paid, tool-free model repair using the same admitted identity and received
 sources. The replacement must pass the unchanged validators. The host never
@@ -117,7 +139,14 @@ Owner-authorized JSON research responses expose their aggregate in
 `X-Hussh-PWM-Usage`; the web proxy preserves that header. JSON and SSE result
 bodies keep their existing strict shape. Unacknowledged calls or missing SDK
 usage produce nullable totals, never an assumed zero. Bing request totals use
-the provider's reported `tool_usage.web_search.num_requests`. Currency requires
+the provider's reported `tool_usage.web_search.num_requests`. Completed `open_page`
+and `find_in_page` calls accept an explicit zero Bing-query count; actual `search`
+actions still require a positive count, and missing usage is never inferred.
+A malformed search
+receipt (including a missing billable count) admits no evidence and leaves that
+paid call unacknowledged. Further search stops at the existing conservative
+budget boundary, while earlier assessed receipts can still produce a draft;
+Bing totals remain unknown. Currency requires
 identified provider rates and remains an estimate rather than an invoice total.
 
 | Environment | Vertex project | Text/PWM | Live | Embeddings |

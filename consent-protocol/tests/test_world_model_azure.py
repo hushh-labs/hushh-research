@@ -163,14 +163,12 @@ class FakeGateway:
                 "full_name": IDENTITY["full_name"],
             }
         else:
+            planner_calls = self.calls.count("plan")
             assert self.charges == [
                 1,
-                MODEL_FIRST,
-                MODEL_FIRST + 1,
-                MODEL_FIRST + 2,
-                MODEL_FIRST + 3,
+                *range(MODEL_FIRST, MODEL_FIRST + 3 + planner_calls),
                 2,
-                MODEL_FIRST + 4,
+                MODEL_FIRST + 3 + planner_calls,
             ]
             assert self.snapshots[-1]["attempts"]["2"]["state"] == "started"
             assert request["exact_owner_fields"] == {"full_name": IDENTITY["full_name"]}
@@ -676,9 +674,31 @@ async def test_azure_runner_does_not_assess_uncited_search():
 
 
 @pytest.mark.asyncio
-async def test_azure_runner_offers_existing_receipts_when_phi_returns_prose():
+@pytest.mark.parametrize("defect", ["prose", "oversized_question", "extra_field"])
+async def test_azure_runner_offers_existing_receipts_when_planner_contract_fails(defect, caplog):
     charges, snapshots = [], []
-    gateway = FakeGateway(charges=charges, snapshots=snapshots, phi_non_json=True)
+
+    class InvalidPlanGateway(FakeGateway):
+        async def plan(self, payload):
+            value = await super().plan(
+                {
+                    key: value
+                    for key, value in payload.items()
+                    if key not in {"invalid_plan", "validation_errors"}
+                }
+            )
+            if defect == "oversized_question":
+                value["plan"]["question"] = "x" * 601
+            if defect == "extra_field":
+                value["plan"][IDENTITY["email"]] = "untrusted"
+            return value
+
+    gateway = InvalidPlanGateway(
+        charges=charges,
+        snapshots=snapshots,
+        phi_non_json=defect == "prose",
+        coverage_plan=defect != "prose",
+    )
 
     async def charge(slots):
         charges.extend(slots)
@@ -703,9 +723,18 @@ async def test_azure_runner_offers_existing_receipts_when_phi_returns_prose():
         "identity_assessment",
         "provisional_findings",
         "plan",
+        *(["plan"] if defect != "prose" else []),
         "world_model_report",
     ]
-    assert charges == [1, *range(MODEL_FIRST, MODEL_FIRST + 5)]
+    assert charges == [
+        1,
+        *range(MODEL_FIRST, MODEL_FIRST + 5 + int(defect != "prose")),
+    ]
+    assert "one.pwm_planner_stopped" in caplog.text
+    if defect == "oversized_question":
+        assert "string_too_long" in caplog.text
+    assert "x" * 601 not in caplog.text
+    assert IDENTITY["email"] not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -784,7 +813,7 @@ async def test_azure_runner_reserves_final_report_time_after_cited_assessment():
 
 
 @pytest.mark.asyncio
-async def test_azure_runner_phi_timeout_keeps_report_reserve():
+async def test_azure_runner_skips_planner_without_followup_time():
     clock = [0.0]
     charges, snapshots = [], []
 
@@ -824,15 +853,61 @@ async def test_azure_runner_phi_timeout_keeps_report_reserve():
         monotonic_clock=lambda: clock[0],
     )
     assert result["status"] == "offered"
-    assert gateway.calls == ["search", "identity_assessment", "plan", "world_model_report"]
+    assert gateway.calls == [
+        "search",
+        "identity_assessment",
+        "provisional_findings",
+        "world_model_report",
+    ]
     assert charges == [1, *range(MODEL_FIRST, MODEL_FIRST + 4)]
-    assert clock[0] == 140
+    assert clock[0] == 130
 
 
 @pytest.mark.asyncio
-async def test_azure_runner_allows_coverage_for_review_candidate_without_linking_owner():
+@pytest.mark.parametrize("realistic_latency", [False, True])
+@pytest.mark.parametrize("repair_plan", [False, True])
+@pytest.mark.parametrize("receipt_missing", [False, True])
+async def test_azure_runner_allows_coverage_for_review_candidate_without_linking_owner(
+    realistic_latency,
+    repair_plan,
+    receipt_missing,
+):
     charges, snapshots = [], []
-    gateway = FakeGateway(charges=charges, snapshots=snapshots, coverage_plan=True)
+    clock = [0.0]
+
+    class TimedGateway(FakeGateway):
+        async def search(self, request):
+            result = await super().search(request)
+            clock[0] += 20 if realistic_latency else 0
+            if receipt_missing and self.calls.count("search") == 2:
+                result.pop("tool_usage")
+            return result
+
+        async def structured(self, **kwargs):
+            result = await super().structured(**kwargs)
+            if realistic_latency:
+                clock[0] += {"identity_assessment": 15, "provisional_findings": 8}.get(
+                    kwargs["purpose"], 20
+                )
+            return result
+
+        async def plan(self, payload):
+            is_repair = "invalid_plan" in payload
+            public_context = {
+                k: v for k, v in payload.items() if k not in {"invalid_plan", "validation_errors"}
+            }
+            result = await super().plan(public_context)
+            if repair_plan and not is_repair:
+                result["plan"]["anchor_ids"] = ["a1"] * 5
+            if is_repair:
+                assert payload["invalid_plan"]["plan"]["anchor_ids"] == ["a1"] * 5
+                assert payload["validation_errors"] == [
+                    {"path": ["anchor_ids"], "type": "too_long"}
+                ]
+            clock[0] += 12 if realistic_latency else 0
+            return result
+
+    gateway = TimedGateway(charges=charges, snapshots=snapshots, coverage_plan=True)
 
     async def charge(slots):
         charges.extend(slots)
@@ -849,6 +924,7 @@ async def test_azure_runner_allows_coverage_for_review_candidate_without_linking
         on_progress=progress,
         owner_decisions={"rejected": ["An unrelated claim"]},
         gateway=gateway,
+        monotonic_clock=lambda: clock[0],
     )
     assert result["status"] == "offered"
     assert result["report"]["match_status"] == "uncertain"
@@ -859,11 +935,21 @@ async def test_azure_runner_allows_coverage_for_review_candidate_without_linking
         "identity_assessment",
         "provisional_findings",
         "plan",
+        *(["plan"] if repair_plan else []),
         "search",
-        "identity_assessment",
-        "provisional_findings",
+        *([] if receipt_missing else ["identity_assessment"]),
+        *(
+            []
+            if receipt_missing or (repair_plan and realistic_latency)
+            else ["provisional_findings"]
+        ),
         "world_model_report",
     ]
+    if receipt_missing:
+        assert snapshots[-1]["attempts"]["2"]["observed"] is False
+        assert snapshots[-1]["attempts"]["2"]["state"] == "unavailable"
+        assert "bing_requests" not in snapshots[-1]["attempts"]["2"]
+        assert result["_provider_usage"]["bing_requests"] is None
 
 
 @pytest.mark.asyncio
@@ -898,6 +984,7 @@ async def test_azure_runner_refuses_contact_seed_for_review_candidate_coverage()
         "search",
         "identity_assessment",
         "provisional_findings",
+        "plan",
         "plan",
         "world_model_report",
     ]
@@ -980,7 +1067,10 @@ async def test_identity_repair_preserves_authority_and_report_reserve(boundary):
             result = await super().structured(**kwargs)
             if kwargs["purpose"] == "identity_assessment":
                 if boundary == "time":
-                    clock[0] = 121
+                    from hushh_mcp.one_adk.world_model import TASK_SECONDS
+                    from hushh_mcp.one_adk.world_model_azure import FINAL_REPORT_RESERVE_SECONDS
+
+                    clock[0] = TASK_SECONDS - FINAL_REPORT_RESERVE_SECONDS
                 if boundary == "authority":
                     revoked = True
             return result
@@ -1470,6 +1560,32 @@ async def test_primary_planner_uses_native_schema_and_needs_no_phi_credentials()
     assert kwargs["model"] == "primary" and kwargs["store"] is False
     assert kwargs["text"]["format"]["type"] == "json_schema"
     assert kwargs["text"]["format"]["strict"] is True
+    from jsonschema import Draft202012Validator, ValidationError
+
+    from hushh_mcp.one_adk.world_model_azure import _cap_unverified_contact, _planner_schema
+    from hushh_mcp.one_adk.world_model_contracts import IdentityAssessment
+
+    reviewed = IdentityAssessment.model_validate(_cap_unverified_contact(assessment()))
+    await gateway.plan({"query_plan_schema": _planner_schema(IDENTITY, reviewed)})
+    native = create.call_args.kwargs["text"]["format"]["schema"]
+    coverage = {
+        "purpose": "coverage",
+        "seed_fields": ["full_name"],
+        "anchor_ids": ["a1"],
+        "candidate_id": "c1",
+        "topics": ["career"],
+        "question": "Find public work.",
+    }
+    validator = Draft202012Validator(native)
+
+    def envelope(plan):
+        return {"result": {"action": "search", "plan": plan}}
+
+    validator.validate(envelope(coverage))
+    for changed in ({"seed_fields": ["email"]}, {"candidate_id": "c2"}, {"anchor_ids": ["a2"]}):
+        with pytest.raises(ValidationError):
+            validator.validate(envelope({**coverage, **changed}))
+    validator.validate(envelope({**coverage, "purpose": "identity", "seed_fields": ["email"]}))
     # A malformed envelope is a provider failure, never a replacement decision.
     response.output_text = '{"action":"finish","plan":null}'
     with pytest.raises(ValueError, match="result envelope"):
