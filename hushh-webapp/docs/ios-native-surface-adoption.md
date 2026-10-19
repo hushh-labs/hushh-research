@@ -25,10 +25,17 @@ The nearest regressions fail on both old paths. Identical deliveries now preserv
 the epoch; superseded readers receive the current observation. iOS broadcasts
 confirmed release to all privacy consumers, retaining the same native notification
 and exact-document/generation/active-app/retirement checks. No action is replayed
-or interaction force-enabled. An installed-candidate ten-cycle resume journey
-and native host verification remain pending; the existing two-cycle physical
-baseline passed but did not reproduce the intermittent reported freeze. This
-bounded ordering fix does not close the staged-reconstruction gate below.
+or interaction force-enabled. Release UAT app `487d02f1ad` (1.4.1/69) passes six
+physical native privacy host contracts, ten warm background/resume cycles and
+an actual Control Center interruption, recovering Profile/Chat touch without
+losing the draft or session. The stress runner is `ae44dd1280`; its resume case
+is unchanged from `487d02f1ad`. Its unrelated field-role experiment was removed
+before release; current tracked source at `2a58e1bb30` is byte-identical to
+`487d02f1ad`. The installed app executable digest remains
+`f0b7e6df2fadd6ebf19b5382349ebb880e6718d5c718275a424b164ea2248469`.
+These checks did not reproduce every intermittent report and are not visual,
+accessibility or frame-pacing acceptance. This bounded ordering fix does not
+close the staged-reconstruction gate below.
 
 ### Current candidate and Memory owner boundary — 2026-10-18
 
