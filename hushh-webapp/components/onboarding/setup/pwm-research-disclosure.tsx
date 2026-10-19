@@ -13,7 +13,7 @@ export const PWM_RESEARCH_DISCLOSURE_COMPACT =
   "One uses public info for your Personal World Model and emails you when ready. Review before saving; turn either off anytime.";
 
 export const PWM_AZURE_RESEARCH_DISCLOSURE =
-  "Public research for your Personal World Model is off until you turn it on there. If you do, GPT-5-mini on Microsoft Azure AI checks public pages. Bing receives search terms that can include your name and verified email or phone outside Azure's compliance and data residency boundary. Phi-4-mini plans searches without your raw name or contacts. You review findings before anything is saved, and can turn research and ready email off anytime.";
+  "Public research for your Personal World Model is off until you turn it on there. If you do, GPT-5 mini on Microsoft Azure AI plans searches and prepares your draft from public pages. Bing receives search terms that can include your name and verified email or phone outside Azure's compliance and data residency boundary. You review findings before anything is saved, and can turn research and ready email off anytime.";
 
 export const PWM_AZURE_RESEARCH_DISCLOSURE_COMPACT =
   "Azure public research is off until you turn it on in Personal World Model. Bing may receive your name and verified email or phone in search terms outside Azure's compliance and data residency boundary. Review findings before saving; control research and ready email there.";

@@ -149,11 +149,11 @@ describe("Privacy Policy and Terms of Use pages", () => {
   it("discloses the separate Azure/Bing research opt-in and Bing privacy boundary", () => {
     const privacy = LEGAL_DOCUMENTS.privacy;
     const text = plainText(privacy);
-    expect(privacy.version).toBe("2.5");
-    expect(privacy.lastUpdated).toBe("2026-10-16");
+    expect(privacy.version).toBe("2.6");
+    expect(privacy.lastUpdated).toBe("2026-10-19");
     expect(text).toContain("an earlier Google research setting does not authorize Microsoft research");
     expect(text).toContain("GPT-5-mini on Microsoft Azure AI receives your name");
-    expect(text).toContain("Phi-4-mini helps plan searches using only which identity fields are present");
+    expect(text).toContain("GPT-5 mini also plans follow-up searches from received public profile labels and source URLs");
     expect(text).toContain("Bing web search receives search terms that may include your name");
     expect(text).toContain("outside Azure's compliance and data residency boundary");
     expect(text).toContain("You review every suggested detail before it is saved");

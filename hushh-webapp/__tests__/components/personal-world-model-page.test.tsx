@@ -507,7 +507,7 @@ describe("Personal World Model page", () => {
     research({ status: "consent_required", pkm_written: false }, { enabled: false, email_enabled: true });
     (mock.research.preferences as Record<string, unknown>).research_provider = "azure_openai_web_search";
     render(<PersonalWorldModelPage embedded />);
-    const directOptIn = screen.getByText(/GPT-5-mini on Microsoft Azure AI checks public pages/);
+    const directOptIn = screen.getByText(/GPT-5 mini on Microsoft Azure AI plans searches/);
     expect(directOptIn).toHaveTextContent("Bing receives search terms that can include your name and verified email or phone");
     expect(directOptIn).toHaveTextContent("outside Azure's compliance and data residency boundary");
     expect(screen.getByRole("button", { name: "Turn on" })).toBeInTheDocument();

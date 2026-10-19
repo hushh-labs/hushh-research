@@ -168,6 +168,7 @@ class FakeGateway:
             assert self.snapshots[-1]["attempts"]["2"]["state"] == "started"
             assert request["exact_owner_fields"] == {"full_name": IDENTITY["full_name"]}
             assert request["evidenced_anchors"][0]["kind"] == "public_profile"
+            assert request["received_sources"] == [{"ref": "s1", "title": "Public bio", "url": URL}]
         return search_response(citations=self.citations, answer_has_contact=self.answer_has_contact)
 
     async def plan(self, payload):
@@ -179,8 +180,10 @@ class FakeGateway:
         serialized = json.dumps(payload)
         assert "owner_decisions" not in serialized
         assert IDENTITY["email"] not in serialized
-        assert IDENTITY["full_name"] not in serialized
-        assert "Public bio" not in serialized
+        if payload["research_history"]["assessment"]["anchors"]:
+            assert payload["research_history"]["assessment"]["anchors"][0]["public_sources"] == [
+                {"ref": "s1", "title": "Public bio", "url": URL}
+            ]
         if self.phi_non_json:
             raise ValueError("Phi planner response is not JSON")
         if self.phi_api_error:
@@ -981,5 +984,120 @@ async def test_azure_gateway_bounds_web_search_reasoning_and_sdk_retries():
     assert await gateway.search({"research_question": "Synthetic"}) == result
     kwargs = FakeClient.responses.create.call_args.kwargs
     assert kwargs["reasoning"] == {"effort": "low"}
-    assert kwargs["tools"] == [{"type": "web_search", "search_context_size": "low"}]
-    assert kwargs["max_output_tokens"] == 2048
+    assert kwargs["tools"] == [{"type": "web_search", "search_context_size": "medium"}]
+    assert kwargs["max_output_tokens"] == 6000
+    assert kwargs["max_tool_calls"] == 2 and kwargs["store"] is False
+    from hushh_mcp.one_adk.world_model import manifest
+
+    assert kwargs["instructions"].startswith(manifest().system_instruction)
+
+
+@pytest.mark.asyncio
+async def test_primary_planner_uses_native_schema_and_needs_no_phi_credentials():
+    gateway = AzurePwmGateway(
+        primary_endpoint="https://synthetic.openai.azure.com/openai/v1/",
+        primary_deployment="primary",
+        primary_token_supplier=lambda: "synthetic",
+    )
+    response = SimpleNamespace(
+        status="completed",
+        incomplete_details=None,
+        output_text=json.dumps({"result": {"action": "finish", "plan": None}}),
+    )
+    create = AsyncMock(return_value=response)
+
+    class FakeClient:
+        responses = SimpleNamespace(create=create)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    client = AsyncMock(return_value=FakeClient())
+    gateway._client = client
+    assert await gateway.plan({"available_seed_fields": ["full_name"]}) == {
+        "action": "finish",
+        "plan": None,
+    }
+    client.assert_awaited_once_with(gateway.primary_endpoint, gateway.primary_token_supplier)
+    kwargs = create.call_args.kwargs
+    assert kwargs["model"] == "primary" and kwargs["store"] is False
+    assert kwargs["text"]["format"]["type"] == "json_schema"
+    assert kwargs["text"]["format"]["strict"] is True
+    # A malformed envelope is a provider failure, never a replacement decision.
+    response.output_text = '{"action":"finish","plan":null}'
+    with pytest.raises(ValueError, match="result envelope"):
+        await gateway.plan({})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("contract", ["assessment", "findings", "report"])
+async def test_native_schema_preserves_resolvable_refs_and_host_bounds(contract):
+    from jsonschema import Draft202012Validator
+
+    from hushh_mcp.one_adk.world_model_azure import _FINDING_SCHEMA
+    from hushh_mcp.one_adk.world_model_contracts import IdentityAssessment, WorldModelReport
+
+    schema = {
+        "assessment": IdentityAssessment.model_json_schema(),
+        "findings": _FINDING_SCHEMA,
+        "report": WorldModelReport.model_json_schema(),
+    }[contract]
+    gateway = AzurePwmGateway(
+        primary_endpoint="https://synthetic.openai.azure.com/openai/v1/",
+        primary_deployment="primary",
+        primary_token_supplier=lambda: "synthetic",
+    )
+    value = (
+        assessment()
+        if contract == "assessment"
+        else {
+            "candidate_id": "c1",
+            "attempt_id": 1,
+            "topic": "career",
+            "facts": report(assessment()["identity"])["sections"][0]["facts"],
+        }
+        if contract == "findings"
+        else report(assessment()["identity"])
+    )
+    create = AsyncMock(
+        return_value=SimpleNamespace(
+            status="completed",
+            incomplete_details=None,
+            output_text=json.dumps({"result": value}),
+        )
+    )
+
+    class Client:
+        responses = SimpleNamespace(create=create)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    gateway._client = AsyncMock(return_value=Client())
+    assert (
+        await gateway.structured(
+            purpose=contract,
+            instruction="Synthetic evaluation",
+            payload={},
+            schema=schema,
+            max_output_tokens=2048,
+        )
+        == value
+    )
+    native = create.call_args.kwargs["text"]["format"]["schema"]
+    Draft202012Validator(native).validate({"result": value})
+    assert "$defs" not in native["properties"]["result"]
+    assert (
+        schema
+        == {
+            "assessment": IdentityAssessment.model_json_schema(),
+            "findings": _FINDING_SCHEMA,
+            "report": WorldModelReport.model_json_schema(),
+        }[contract]
+    )

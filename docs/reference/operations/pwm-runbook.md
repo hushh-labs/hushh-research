@@ -16,10 +16,31 @@ Nothing here reads owner content. Lifecycle logs carry codes and counts only;
 the sealed job state (draft, sources, identity) is only readable with the
 owner's request-scoped chat key and never appears in logs.
 
-UAT currently uses Azure GPT-5-mini and Phi-4-mini with Bing web search after
+UAT uses Azure GPT-5 mini for planning, Bing research and structured reporting after
 explicit Azure/Bing consent. Production remains on Vertex. The Google-specific
 provider refusal and project checks below apply to Vertex; first identify the
 serving provider when investigating UAT.
+
+All Azure stages share the manifest-owned PWM instruction. Discovery uses medium
+search context with a 6,000-token output ceiling and at most two tool calls per
+invocation; final reporting has a 16,384-token ceiling. These are ceilings, not
+required output lengths. Bing can bill several internal requests per invocation;
+the durable ledger records its actual returned count. The planner sees admitted
+public source titles/URLs and candidate labels, with no owner review decisions.
+The strict Responses JSON schema wraps internal results without changing the
+public HTTP/SSE shapes. Host Pydantic and receipt validation still apply.
+
+The no-traffic UAT candidate probe uses the real gateway and primary deployment
+with the production assessment, finding, planner and report schemas and six
+synthetic attribution cases, including degree/repository overclaims, merge
+authorship, namesakes and correctly attributed self-reports. Its secret-free job
+uses disposable process-only settings to load the runtime contracts; those keys
+cannot validate application tokens or decrypt owner records. It makes no Bing
+query and reads no owner records. Its policy hash binds the result to the
+image's instruction and evidence contract. This is a bounded semantic regression,
+not proof of arbitrary-person research accuracy. Citation receipts remain
+view-only research, without independently fetched source bodies or automatic
+identity verification. Check the exact release receipt before claiming readiness.
 
 ## Quick status
 

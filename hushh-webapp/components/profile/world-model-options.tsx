@@ -155,7 +155,7 @@ export function WorldModelOptions({
             <SettingsRow
               title="Research public pages"
               description={azureResearch
-                ? "Turning this on lets GPT-5-mini on Microsoft Azure AI check public pages. Bing may receive your name and verified email or phone in search terms outside Azure's compliance and data residency boundary. Phi-4-mini plans searches without your raw contacts. You review findings before saving."
+                ? "Turning this on lets GPT-5 mini on Microsoft Azure AI plan searches and prepare your draft from public pages. Bing may receive your name and verified email or phone in search terms outside Azure's compliance and data residency boundary. You review findings before saving."
                 : "Uses your name and verified email or phone to find pages about you with Google Search through Vertex AI."}
               trailing={
                 <span className="inline-flex h-11 items-center">

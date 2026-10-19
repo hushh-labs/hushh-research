@@ -42,6 +42,9 @@ MAX_WORLD_MODEL_FACTS = 269
 MAX_WORLD_MODEL_FACTS_PER_TOPIC = 40
 ShortText = Annotated[str, Field(min_length=1, max_length=600)]
 Reference = Annotated[str, Field(pattern=r"^[acs][1-9][0-9]{0,3}$")]
+CandidateReference = Annotated[str, Field(pattern=r"^c[1-9][0-9]{0,3}$")]
+AnchorReference = Annotated[str, Field(pattern=r"^a[1-9][0-9]{0,3}$")]
+SourceReference = Annotated[str, Field(pattern=r"^s[1-9][0-9]{0,3}$")]
 Seed = Literal["full_name", "email", "phone_number"]
 
 
@@ -52,8 +55,8 @@ class Contract(BaseModel):
 class QueryPlan(Contract):
     purpose: Literal["identity", "coverage"]
     seed_fields: list[Seed] = Field(max_length=3)
-    anchor_ids: list[Reference] = Field(max_length=4)
-    candidate_id: Reference | None
+    anchor_ids: list[AnchorReference] = Field(max_length=4)
+    candidate_id: CandidateReference | None
     topics: list[Topic] = Field(max_length=20)
     question: str = Field(max_length=600)
 
@@ -73,19 +76,19 @@ class QueryPlan(Contract):
 
 
 class IdentityAnchor(Contract):
-    id: Reference
-    candidate_id: Reference
+    id: AnchorReference
+    candidate_id: CandidateReference
     kind: Literal["verified_contact", "public_profile", "reciprocal_link"]
     seed_field: Seed | None
     assertion: ShortText
-    source_refs: list[Reference] = Field(min_length=1, max_length=3)
+    source_refs: list[SourceReference] = Field(min_length=1, max_length=3)
     temporal_context: ShortText
 
 
 class CandidateCluster(Contract):
-    id: Reference
+    id: CandidateReference
     label: ShortText
-    anchor_ids: list[Reference] = Field(max_length=12)
+    anchor_ids: list[AnchorReference] = Field(max_length=12)
     blocking_conflicts: list[ShortText] = Field(max_length=8)
 
 
@@ -93,8 +96,8 @@ class IdentityPivot(Contract):
     state: Literal["owner_linked", "candidate_for_review", "ambiguous", "no_match"]
     reason: ShortText
     probability: None = None
-    selected_candidate_id: Reference | None
-    supporting_anchor_ids: list[Reference] = Field(max_length=12)
+    selected_candidate_id: CandidateReference | None
+    supporting_anchor_ids: list[AnchorReference] = Field(max_length=12)
     next_step: Literal["search", "review", "request_owner_anchor", "finish"]
 
 
@@ -176,7 +179,7 @@ class CoverageRepair(Contract):
 class FindingBatch(Contract):
     """A provisional model-authored batch tied to one observed search."""
 
-    candidate_id: Reference
+    candidate_id: CandidateReference
     attempt_id: Annotated[int, Field(ge=1, le=32)]
     topic: Topic
     facts: list[ProfileFact[ProfileSourceRef]] = Field(min_length=1, max_length=8)
@@ -377,6 +380,7 @@ class WorldModelReport(Contract):
                 ref
                 for row in rows
                 if row["plan"].purpose == "coverage"
+                and row.get("observed") is True
                 and row["plan"].candidate_id == candidate_id
                 and candidate_id is not None
                 for ref in row["source_refs"]
