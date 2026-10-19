@@ -18,50 +18,39 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Combined physical checkpoint — 2026-10-19
 
-The next installed UAT-backed Release qualification candidate, `7e70d9885f`,
-restores the native hamburger and agent selector through seven strengthened
-background/resume cycles. The eighth Profile opening fails; a subsequent
-read-only admission check finds all controls available. Separately, ten warm
-Profile cycles and three measurement iterations execute successfully, but
-navigation reports zero rendered frames with nonzero FPS. Those metrics are
-unusable and **do not qualify performance**. This is not a clean ten-cycle
-interruption result, nor an accepted-default Release.
+Installed iPhone candidate `4ca8c78c63` is signed Release 1.4.1 (69), with
+bundled UAT assets and a separately installed matching runner. Normal passphrase
+unlock passes. Ten strengthened background/resume cycles and an observed
+Control Center interruption pass in 177.086 seconds, including Profile touch,
+native hamburger, One/Puppy selector, editor, unchanged WebView and draft.
 
-The shell's Open handler also reads Next's stale concurrent query in addition
-to the current History entry. After Close, that stale `open` can discard a new
-tap as already open. Open/Close now use the existing synchronous History owner,
-matching the Profile presentation snapshot. Typecheck, lint, 26 nearest
-navigation checks and generated UI contracts pass. Fresh physical verification
-is separate; this source race is not claimed as the sole cause of the eighth
-cycle's failure. The existing three-iteration measurement also includes actual
-native Profile scrolling with Apple's scrolling/deceleration metric; a green
-test still requires usable exported frame evidence.
+The candidate fixes two distinct resume defects: missing/invalid header leases
+rejoin confirmed native retirement/admission, while valid hosts update in place;
+Profile Open/Close uses the current History entry rather than a stale concurrent
+Next query that can veto reopening. The header regression fails before its fix;
+277 focused checks, typecheck/lint, 26 navigation checks and UI contracts pass.
+Earlier `7e70d9885f` fails Profile opening on interruption cycle eight; that
+failure remains recorded, and the query race is not claimed as its sole cause.
 
-UAT-backed app `09830bc94b` traverses all 13 recorded native Profile destinations,
-including their implemented editors, menus, Invite friends and Legal return.
-The same WebView and draft survive; reviewer changes are cancelled, not saved.
-That batch's subsequent One-profile assertion fails on its below-fold Memory
-footer. Runner `2309318afc` adds bounded content scrolling and a changed-family
-selector; the targeted One-profile journey then passes in 47.402 seconds without
-repeating the 13 valid destinations. Shared backend/web application source is
-unchanged by that test-only runner update.
+A separate ten-cycle Profile journey and three actual navigation/scrolling
+measurement iterations pass functionally in 220.282 seconds. Both exported
+frame counts remain zero alongside positive FPS, so **performance is not
+qualified**. Instruments lists the iPhone but cannot resolve the app by name
+or its CoreDevice-confirmed live PID; no recording is created. No private screen
+recording, permission change or service restart is used to work around it.
 
-Ten warm background/resume cycles and observed Control Center interruption pass
-Profile/editor touch recovery in 146.164 seconds. The subsequent Release
-performance preflight exposes missing hamburger/agent-selector controls after
-resume, so it produces **no accepted performance measurements**. Release tried
-to update a lease whose native host privacy had already retired. The repair
-rejoins confirmed retirement/admission for missing or invalid leases, retaining
-in-place updates for valid hosts. Its nearest regression fails before the fix
-and passes afterward; 277 focused checks pass. The physical interruption check
-now requires those header controls too. This latest repair still needs a fresh
-combined installation and physical confirmation.
+Unchanged destination evidence is retained: app `09830bc94b` traverses all 13
+native Profile destinations, their implemented editors/menus, Invite friends
+and Legal return without saving reviewer changes. Its later One-profile Memory
+footer check fails; runner `2309318afc` reveals the below-fold action through
+owned scrolling, then the targeted journey passes in 47.402 seconds. The 13
+destinations are not repeated merely for the shell-only repair.
 
-Canonical core passes in 724 seconds for the preparation batch; the native
-host-isolation and runner follow-ups are separately verified. No CI gate is
-weakened. Ordinary native defaults remain OFF. Visual, accessibility, frame-time,
-accepted-family default admission, exact-head CI and release transitions are not
-established by these functional receipts.
+Canonical core passes in 724 seconds for the preparation batch, not the latest
+head. The host-isolation, shell and runner changes have their separate evidence.
+Ordinary custom-native defaults remain OFF. Visual/accessibility, usable
+performance evidence, accepted-family admission, exact-head CI and release
+transitions remain separate; these functional results do not establish them.
 
 ### Covered Profile preparation — implementation checkpoint, 2026-10-19
 
