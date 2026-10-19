@@ -4,6 +4,7 @@
   "license": "Apache-2.0",
   "private": true,
   "scripts": {
+    "test:calling:realtime": "node scripts/testing/run-direct-calls-rehearsal.mjs",
     "predev": "node scripts/prepare-wallet-ocr.mjs",
     "predev:webpack": "node scripts/prepare-wallet-ocr.mjs",
     "prebuild": "node scripts/prepare-wallet-ocr.mjs",

@@ -66,6 +66,50 @@ candidates are accepted. Signed/encrypted SDP fingerprints are verified before
 remote descriptions are used. TURN forwards ciphertext; it never terminates media
 or performs inference. See [WebRTC security architecture](https://www.rfc-editor.org/rfc/rfc8827.html).
 
+Web and iOS bound gathering to ten seconds. At that deadline an already gathered
+relay candidate may proceed while another transport remains unavailable. Missing
+relay candidates or any host/server-reflexive/peer-reflexive candidate still fail
+closed. One failed alternate transport must not discard a working relay.
+
+## Real media rehearsal
+
+`npm run test:calling:realtime` in `hushh-webapp` runs two independent browser
+owners through the actual phone control, Firebase authentication, trusted-device
+enrollment, signed API commands, HPKE signaling, PostgreSQL and DTLS-SRTP audio.
+It checks both directions' RTP counters and selected relay candidate types,
+explicit security-code comparison, mute/unmute, hangup and decline without
+recipient capture. Database inspection then requires no live calls, busy slots,
+signals or retained offers. It uses synthetic microphone input; no person is
+recorded.
+
+Prerequisites are the installed frontend/backend dependencies, Chromium from
+Playwright, Go 1.25 or newer, a local `firebase-tools@15.34.0` installation, and
+the disposable `command_test` PostgreSQL fixture. Set:
+
+```text
+CALLING_FIREBASE_CLI=<absolute path to firebase-tools/lib/bin/firebase.js>
+CALLING_GO_BIN=<go executable, optional when on PATH>
+ONE_COMMAND_TEST_DATABASE_URL=postgresql+psycopg2://command_test:<fixture password>@127.0.0.1:<fixture port>/command_test
+```
+
+The driver rejects remote databases and connection-query overrides, creates its
+own database, and uses a minimal child environment. Emulator project
+`demo-hushh-calling`, all HTTP listeners, and the test-only Pion TURN adapter are
+local. TURN binds UDP 3478 on loopback, permits only loopback peers and uses a new
+in-memory REST secret per run. The test adapter pins
+[`github.com/pion/turn/v5` v5.1.2](https://github.com/pion/turn/tree/v5.1.2), under
+its MIT license; it is not bundled with the application. Chromium's
+[loopback peer-connection flag](https://chromium.googlesource.com/chromium/src/+/refs/tags/133.0.6893.1/content/public/common/content_switches.cc)
+allows this isolated relay. The unavailable TLS alternative deliberately
+exercises bounded gathering with a working UDP relay.
+
+The dedicated Playwright configuration records no trace, screenshot or video;
+private handles, credentials, security codes, SDP and media are not evidence
+artifacts. The driver stops owned process trees and removes its database/temp
+files on completion, failure or handled interruption. This repeatable local
+proof does not qualify deployed TLS, independent networks, real microphones,
+physical iPhone background/locked answer or historical message recovery.
+
 ## Lifetime and maintenance
 
 Browser calls acquire the existing exclusive foreground voice lease. Late permission,
@@ -198,6 +242,14 @@ encrypted signals, purpose-bound PushKit registrations and the delivery outbox.
 Its manifest, rollback and environment schema contracts
 are aligned. Migration 315 is preserved. Rollback refuses live calls and never
 touches message/attachment tables.
+
+Before retiring the legacy message key, preserve the exact existing 32-byte
+navigation key under the independent, server-only `DIRECT_MESSAGE_ROUTE_KEY_V1`
+setting (base64). Existing `dm1` links then remain usable without message-key
+custody. An unset setting retains the legacy derivation; an explicitly invalid
+setting fails closed. This is a custody transition, not a navigation-key
+rotation, and does not qualify message migration. No live secrets are changed
+by this implementation.
 
 Review against `claude/hushh-infrastructure-analysis-7o991c`. Qualify on Dev before
 reviewed main-compatible promotion; do not import the whole pod delta as a calling

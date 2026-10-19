@@ -74,10 +74,12 @@ export class CallMedia {
     if (!peer) throw new Error("The call has ended.");
     await peer.setLocalDescription(kind === "offer" ? await peer.createOffer() : await peer.createAnswer());
     if (peer.iceGatheringState !== "complete") {
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>(resolve => {
         const cleanup = () => { clearTimeout(timer); peer.removeEventListener("icegatheringstatechange", changed); };
         const changed = () => { if (peer.iceGatheringState === "complete") { cleanup(); resolve(); } };
-        const timer = setTimeout(() => { cleanup(); reject(new Error("The calling relay could not be reached.")); }, 10_000);
+        // A failed alternate transport must not discard a working relay.
+        // Validate the gathered description below at the same bounded deadline.
+        const timer = setTimeout(() => { cleanup(); resolve(); }, 10_000);
         peer.addEventListener("icegatheringstatechange", changed);
         changed();
       });

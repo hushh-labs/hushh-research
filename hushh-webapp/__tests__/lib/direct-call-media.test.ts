@@ -15,6 +15,31 @@ function audio() { return { autoplay: false, play: vi.fn(async () => undefined),
 afterEach(() => { vi.useRealTimers(); });
 
 describe("foreground call media ownership", () => {
+  it.each([
+    ["relay", true],
+    ["", false],
+    ["relay\r\na=candidate:2 1 udp 1 192.0.2.2 5001 typ host", false],
+  ])("validates gathered candidates at the deadline even if another transport is pending: %s", async (candidate, accepted) => {
+    vi.useFakeTimers();
+    const events = new EventTarget();
+    const sdp = candidate ? `a=candidate:1 1 udp 1 192.0.2.1 5000 typ ${candidate}\r\n` : "";
+    const connection = Object.assign(events, {
+      addTrack: vi.fn(), close: vi.fn(), iceGatheringState: "gathering",
+      createOffer: async () => ({ type: "offer" }), setLocalDescription: async () => undefined,
+      localDescription: { toJSON: () => ({ type: "offer", sdp }) },
+    }) as unknown as RTCPeerConnection;
+    const captured = stream();
+    const media = new CallMedia({ capture: async () => captured.value, connect: () => connection, audio });
+    await media.open(config, vi.fn(), vi.fn());
+    const result = media.description("offer");
+    const assertion = accepted ? expect(result).resolves.toEqual({ type: "offer", sdp })
+      : expect(result).rejects.toThrow("private relay");
+    await vi.advanceTimersByTimeAsync(10_000);
+    await assertion;
+    media.stop();
+    expect(captured.track.stop).toHaveBeenCalledOnce();
+  });
+
   it("stops permission results that arrive after cancellation without creating a connection", async () => {
     let resolve!: (stream: MediaStream) => void;
     const capture = vi.fn(() => new Promise<MediaStream>(done => { resolve = done; }));

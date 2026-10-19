@@ -89,7 +89,9 @@ final class CallingMedia: NSObject, RTCPeerConnectionDelegate {
                 Task { @MainActor [weak self, weak peer] in
                     try? await Task.sleep(nanoseconds: 10_000_000_000)
                     guard let self, peer === self.connection, let pending = self.gathering else { return }
-                    self.gathering = nil; pending.resume(throwing: CallingError.unavailable)
+                    // An unavailable alternate transport must not discard a
+                    // working relay. The description is validated below.
+                    self.gathering = nil; pending.resume()
                 }
             }
         }
