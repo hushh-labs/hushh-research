@@ -72,7 +72,8 @@ latest projection. Failed withdrawal retains an identity-scoped metadata fence
 until exact native absence is read back. No route/business action is retried.
 The 216 bridge/component checks and typecheck pass. Their dock fixture now uses
 the actual shared portal instead of bypassing the authored active-editor seat.
-Corrected-candidate physical confirmation and final core remain pending.
+The corrected application-source core subsequently passes; bounded physical
+confirmation is recorded below, separately from whole-composition acceptance.
 
 Invite friends also has a confirmed presentation regression: its native
 route-workspace prototype flattens the team's dashboard into settings rows,
@@ -91,6 +92,28 @@ typography, scroll container, Back and Close. The standalone dashboard stays
 available separately. The real Profile row-click regression fails on the old
 route push; the corrected Profile/referral suites pass 37 checks. Physical
 qualification now exercises this nested pane rather than dashboard route tabs.
+
+Release qualification app `0871aa0993` (UAT-backed) and corrected runner
+`3255426ec1` pass the targeted Invite/Help/Privacy/Terms warm batch on iPhone
+in 93.402 seconds, with no reviewer mutations. Invite retains Copy/Share and
+native Back/Close inside Profile, returning to the same menu; Legal contents,
+document switching and authored Profile return pass. One WebView, the draft and
+session survive. The runner measures the owned full-window content plane, not
+an AX descendant's rectangle or Debug-only history fields. CSS box alignment
+has separate proof: the existing optimized WebKit pane fixture passes at phone,
+tablet and desktop widths (7.1 seconds), including its negative controls.
+These are bounded functional/layout checks, not transition-frame, accessibility
+or physical performance acceptance. The application core passes in 454 seconds;
+the subsequent test-only measurement correction passes its native Release build.
+The same installed app then passes ten warm background/resume cycles and an
+observed Control Center interruption in 150.385 seconds. Profile touch, the
+draft and the retained WebView recover after each boundary. Private result
+bundles are removed after extracting sanitized pass/fail metadata.
+
+Team UAT run `39303947189` independently completes healthy at main
+`cfcdb3618f`, with matching backend/frontend serving provenance and readiness.
+It does not deploy the local Invite friends repair. No matching TestFlight
+upload or new native-default admission is established by this checkpoint.
 
 This ordering repair does **not** implement shielded preparation of the replacement
 Profile/form/content-pane/chrome composition. That composition barrier remains
