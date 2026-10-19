@@ -596,7 +596,7 @@ article[data-actions-visible="true"] .messageActions {
   outline: none;
 }
 
-.messageActionButton:focus-visible {
+article[data-message-role] .messageActionButton:focus-visible {
   outline: 2px solid var(--muted-foreground);
   outline-offset: 1px;
 }
@@ -1644,7 +1644,8 @@ article[data-message-role="user"] .messageDeliveryState {
 .composer { --chat-accent: var(--chat-ios-accent); font-family: var(--font-app-body); max-width: none; margin-inline: auto; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .threadHeader, .inboxHeader, .messageList, .attachmentMenu { backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
 .voiceButton, .sendButton { width: 44px; height: 44px; box-shadow: none; }
-.messageActionButton { background: radial-gradient(circle, var(--chat-surface) 14px, transparent 15px); box-shadow: none; }
+/* Message controls retain their compact disc inside the shared emoji trigger. */
+article[data-message-role] .messageActions .messageActionButton { background: radial-gradient(circle, var(--chat-surface) 14px, transparent 15px); box-shadow: none; }
 .attachmentMenu { min-width: 160px; }
 .attachmentMenu [role="menuitem"] { min-height: 44px; gap: 8px; }
 .attachmentLimit { padding: 5px 8px 2px; color: var(--muted-foreground); font-size: 11px; }

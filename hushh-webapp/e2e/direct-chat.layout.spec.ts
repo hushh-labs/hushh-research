@@ -739,7 +739,12 @@ test.describe("compact message layout", () => {
         expect(rect.height).toBeGreaterThanOrEqual(44);
         expect(rect.x).toBeGreaterThanOrEqual(0);
         expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+        if (!(await touchMessageActions(page))) await button.hover();
         await expect(button).toHaveCSS("background-image", /14px.*15px/);
+        await page.keyboard.press("Tab");
+        await button.focus();
+        await expect(button).toHaveCSS("outline-style", "solid");
+        await expect(button).toHaveCSS("outline-width", "2px");
       }
     }
     await page.screenshot({ path: test.info().outputPath(`compact-message-controls-${width}.png`), animations: "disabled" });
