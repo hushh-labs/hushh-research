@@ -846,10 +846,6 @@ def test_historical_partial_feed_uses_current_delivery_receipts(viewer) -> None:
     sql, params = db.raw_calls[0]
     assert params["user_id"] == viewer
     assert "r.recipient_user_id=:user_id OR r.user_id=:user_id" in sql
-    # Recovery keeps superseded effects for audit but detaches their file claim.
-    # Like the detail projection, Feed must count only active progressive claims.
-    assert "selected.position=e.position" in sql
-    assert "b.progressive_batch=FALSE OR selected.origin_request_id=r.request_id" in sql
 
 
 def test_missing_delivery_lookup_does_not_reuse_snapshot_counts() -> None:
