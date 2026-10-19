@@ -62,21 +62,17 @@ struct HushhSessionPrivacyState {
         markAppActive() // This is an active-app failure, not a fabricated lifecycle event.
     }
 
-    @discardableResult
-    mutating func completeSessionValidation(
+    func canCompleteSessionValidation(
         generation requestedGeneration: Int,
         appIsActive: Bool
     ) -> Bool {
-        guard
-            presentationRetirements.isEmpty,
-            appIsActive,
-            shielded,
-            requestedGeneration > 0,
-            requestedGeneration == generation
-        else {
-            return false
-        }
+        presentationRetirements.isEmpty && appIsActive && shielded &&
+            requestedGeneration > 0 && requestedGeneration == generation
+    }
 
+    @discardableResult
+    mutating func completeSessionValidation(generation requestedGeneration: Int, appIsActive: Bool) -> Bool {
+        guard canCompleteSessionValidation(generation: requestedGeneration, appIsActive: appIsActive) else { return false }
         shielded = false
         cause = "inactive"
         return true
@@ -148,12 +144,14 @@ final class HushhSessionPrivacyShield: NSObject {
 
     private weak var hostView: UIView?
     private var overlayView: UIView?
+    private weak var visualCover: UIView?
     private var state = HushhSessionPrivacyState()
     private var documents = HushhSessionPrivacyDocumentState()
     private var lifecycleIsActive = false
     private var recoveryWorkItem: DispatchWorkItem?
     private weak var recoveryPanel: UIStackView?
     private weak var recoveryTitle: UILabel?
+    private var pendingRelease: (id: UUID, completion: (Bool) -> Void)?
     var onStateChanged: ((Snapshot, String) -> Void)?
     var reloadDocument: (() -> Void)?
 
@@ -163,6 +161,7 @@ final class HushhSessionPrivacyShield: NSObject {
         dispatchPrecondition(condition: .onQueue(.main))
 
         if self.hostView !== hostView {
+            cancelPendingRelease()
             overlayView?.removeFromSuperview()
             overlayView = nil
             self.hostView = hostView
@@ -179,6 +178,7 @@ final class HushhSessionPrivacyShield: NSObject {
 
         lifecycleIsActive = false
         state.protectForAppInactive()
+        cancelPendingRelease()
         cancelRecovery()
         installOverlayIfNeeded()
         hideRecoveryPanel()
@@ -189,6 +189,7 @@ final class HushhSessionPrivacyShield: NSObject {
         dispatchPrecondition(condition: .onQueue(.main))
         lifecycleIsActive = false
         state.markAppBackgrounded()
+        cancelPendingRelease()
         installOverlayIfNeeded()
         publishState()
     }
@@ -240,7 +241,9 @@ final class HushhSessionPrivacyShield: NSObject {
     /// content can be uncovered. This is process-local presentation ownership.
     func beginPresentationRetirement() -> UUID {
         dispatchPrecondition(condition: .onQueue(.main))
-        return state.beginPresentationRetirement()
+        let token = state.beginPresentationRetirement()
+        cancelPendingRelease()
+        return token
     }
 
     func completePresentationRetirement(_ token: UUID) {
@@ -256,41 +259,53 @@ final class HushhSessionPrivacyShield: NSObject {
         if state.shielded { installOverlayIfNeeded() }
     }
 
-    @discardableResult
     func completeSessionValidation(
         generation requestedGeneration: Int,
         documentId: String,
-        appIsActive: Bool
-    ) -> Bool {
+        appIsActive: Bool,
+        completion: @escaping (Bool) -> Void
+    ) {
         dispatchPrecondition(condition: .onQueue(.main))
 
-        guard documents.accepts(documentId), state.completeSessionValidation(
+        guard pendingRelease == nil, documents.accepts(documentId), state.canCompleteSessionValidation(
             generation: requestedGeneration,
             appIsActive: lifecycleIsActive && appIsActive
-        ) else {
-            return false
+        ), let overlay = overlayView, let visual = visualCover, overlay.superview != nil else {
+            completion(false); return
         }
 
-        cancelRecovery()
-        if let overlay = overlayView {
-            overlayView = nil
-            // State is already released; the fade is presentation only. A new
-            // inactive cycle installs a fresh opaque cover above this one.
-            overlay.isUserInteractionEnabled = false
-            overlay.accessibilityElementsHidden = true
-            UIView.animate(
-                withDuration: Self.releaseFadeDuration,
-                delay: 0,
-                options: [.beginFromCurrentState, .curveEaseOut],
-                animations: { overlay.alpha = 0 },
-                completion: { _ in overlay.removeFromSuperview() }
-            )
+        let release = UUID()
+        pendingRelease = (release, completion)
+        // Keep interaction/AX and privacy admission covered through the actual
+        // animation. A receipt must never announce release while its cover still
+        // intercepts touches. Revalidate at completion, not just at admission.
+        UIView.animate(withDuration: Self.releaseFadeDuration, delay: 0,
+            options: [.beginFromCurrentState, .curveEaseOut], animations: { visual.alpha = 0 }
+        ) { [weak self, weak overlay, weak visual] finished in
+            guard let self, self.pendingRelease?.id == release else { return }
+            guard finished, let overlay, let visual, self.overlayView === overlay, self.visualCover === visual,
+                  self.documents.accepts(documentId), self.state.canCompleteSessionValidation(
+                    generation: requestedGeneration, appIsActive: self.lifecycleIsActive && appIsActive
+                  ) else { self.cancelPendingRelease(); self.reassertCover(); return }
+            overlay.removeFromSuperview()
+            self.overlayView = nil
+            self.visualCover = nil
+            let released = self.state.completeSessionValidation(
+                generation: requestedGeneration, appIsActive: self.lifecycleIsActive && appIsActive)
+            self.pendingRelease = nil
+            if released { self.cancelRecovery() }
+            else { self.installOverlayIfNeeded() }
+            self.publishState()
+            completion(released)
         }
-        // Release is authoritative state for every presentation consumer, not
-        // only the caller awaiting its bridge Promise. Broadcast it through the
-        // same lifecycle owner so a delayed receipt cannot strand JS isolation.
-        publishState()
-        return true
+    }
+
+    private func cancelPendingRelease() {
+        guard let pending = pendingRelease else { return }
+        pendingRelease = nil
+        visualCover?.layer.removeAllAnimations()
+        visualCover?.alpha = 1
+        pending.completion(false)
     }
 
     private func publishState(action: String = "state") {
@@ -336,6 +351,7 @@ final class HushhSessionPrivacyShield: NSObject {
         // Firebase identity persists; the new JS runtime has no decrypted vault.
         state.restartSession()
         documents.restart()
+        cancelPendingRelease()
         cancelRecovery()
         // Retire sibling native presentation before a replacement document can configure it.
         publishState()
@@ -376,11 +392,20 @@ final class HushhSessionPrivacyShield: NSObject {
         overlay.translatesAutoresizingMaskIntoConstraints = false
         // Match LaunchScreen.storyboard exactly so the cover reads as the app
         // itself rather than a loading state.
-        overlay.backgroundColor = .systemBackground
-        overlay.isOpaque = true
+        // The full-window modal blocker never fades. Fade only its visual
+        // child, so UIKit cannot pass touches through a near-zero-alpha cover.
+        overlay.backgroundColor = .clear
+        overlay.isOpaque = false
         overlay.isUserInteractionEnabled = true
         overlay.accessibilityViewIsModal = true
         overlay.accessibilityIdentifier = Self.accessibilityIdentifier
+
+        let visual = UIView(frame: .zero)
+        visual.translatesAutoresizingMaskIntoConstraints = false
+        visual.backgroundColor = .systemBackground
+        visual.isOpaque = true
+        visualCover = visual
+        overlay.addSubview(visual)
 
         let splash = UIImageView(image: UIImage(named: "Splash"))
         splash.translatesAutoresizingMaskIntoConstraints = false
@@ -388,7 +413,7 @@ final class HushhSessionPrivacyShield: NSObject {
         splash.clipsToBounds = true
         splash.isAccessibilityElement = true
         splash.accessibilityLabel = "Hussh"
-        overlay.addSubview(splash)
+        visual.addSubview(splash)
 
         let title = UILabel(frame: .zero)
         title.translatesAutoresizingMaskIntoConstraints = false
@@ -432,10 +457,11 @@ final class HushhSessionPrivacyShield: NSObject {
         stack.spacing = 12
         stack.setCustomSpacing(20, after: detail)
         stack.backgroundColor = .systemBackground
+        stack.accessibilityIdentifier = "session-privacy-recovery"
         stack.isHidden = true
         recoveryPanel = stack
 
-        overlay.addSubview(stack)
+        visual.addSubview(stack)
         coverHost.addSubview(overlay)
         NSLayoutConstraint.activate([
             retry.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
@@ -444,6 +470,10 @@ final class HushhSessionPrivacyShield: NSObject {
             overlay.trailingAnchor.constraint(equalTo: coverHost.trailingAnchor),
             overlay.topAnchor.constraint(equalTo: coverHost.topAnchor),
             overlay.bottomAnchor.constraint(equalTo: coverHost.bottomAnchor),
+            visual.leadingAnchor.constraint(equalTo: overlay.leadingAnchor),
+            visual.trailingAnchor.constraint(equalTo: overlay.trailingAnchor),
+            visual.topAnchor.constraint(equalTo: overlay.topAnchor),
+            visual.bottomAnchor.constraint(equalTo: overlay.bottomAnchor),
             splash.leadingAnchor.constraint(equalTo: overlay.leadingAnchor),
             splash.trailingAnchor.constraint(equalTo: overlay.trailingAnchor),
             splash.topAnchor.constraint(equalTo: overlay.topAnchor),
@@ -500,15 +530,15 @@ public class HushhSessionPrivacyPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         onMain {
-            let released = HushhSessionPrivacyShield.shared.completeSessionValidation(
+            HushhSessionPrivacyShield.shared.completeSessionValidation(
                 generation: requestedGeneration,
                 documentId: documentId,
                 appIsActive: UIApplication.shared.applicationState == .active
-            )
-            let snapshot = HushhSessionPrivacyShield.shared.snapshot()
-            var payload = snapshot.payload
-            payload["released"] = released
-            call.resolve(payload)
+            ) { released in
+                var payload = HushhSessionPrivacyShield.shared.snapshot().payload
+                payload["released"] = released
+                call.resolve(payload)
+            }
         }
     }
 

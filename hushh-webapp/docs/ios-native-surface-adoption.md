@@ -16,6 +16,40 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Integrated preservation repair — 2026-10-19
+
+The ADK worktree includes main `7844363517`, including the team's bounded
+Vertex-readiness recovery and provider-usage changes. No CI policy or readiness
+gate is changed by this repair. The preservation reference remains pre-landing
+main `f7b77b6781`; it is not a reset target.
+
+| Inspected difference | Source evidence | Current disposition |
+|---|---|---|
+| Profile roster lost neutral outlines | ADK integration `95dfa163f7` replaced the pane's authored icon selection | Restored through `PROFILE_ICONS`; web and generated iOS assets share the existing geometry and accent layers. |
+| Nested Account/Security/connector rows lost approved artwork | `e6456b8315` replaced the pane-specific selections | Restored selectively; operation callbacks and provider logos are unchanged. Account name and Legal entries now select their exact authored native asset. |
+| Compact Chat header and inline History connectors | `c9236dfd84`/`e4c25b71b1` and `f7890fae39` | Intentional requested replacements, retained. |
+| Payment, Wallet and encrypted-answer protection | Pre-landing and integrated AST comparison of five affected payment/wallet services and routes | No lost protection established; no backend rewrite or restoration made. |
+
+This table is bounded audit evidence, not proof that every historical semantic
+difference is safe. The actual-roster regression replaces the former colored
+palette expectation; import boundaries remain enforced. Brand generation and
+typecheck pass. Physical acceptance of this candidate is not yet established.
+
+Privacy release also has an independently verified host-level ordering repair:
+the receipt and action admission wait for actual cover removal, not the start
+of its fade. A full-window modal touch blocker stays at alpha 1; only its visual
+child fades. Native host checks cover touch isolation, interruption, stale
+completion, pending popup retirement and the actual recovery deadline. The
+intermediate fading-blocker implementation fails the nearest regression; the
+corrected three-test host batch passes. The 53 focused frontend/bridge checks,
+479 Back checks, generated UI contracts and design/brand checks also pass.
+These are not physical acceptance or Release performance receipts.
+
+This ordering repair does **not** implement shielded preparation of the replacement
+Profile/form/content-pane/chrome composition. That composition barrier remains
+an explicit release/default-admission blocker; native qualification stays off in
+ordinary builds. Existing iPad and unsupported-wrapper fallbacks are unchanged.
+
 ### Bottom navigation scroll clearance — 2026-10-19
 
 Physical reproduction found a real clearance defect: the 83-point native tab

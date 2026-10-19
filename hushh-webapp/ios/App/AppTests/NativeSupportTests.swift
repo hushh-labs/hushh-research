@@ -574,8 +574,10 @@ final class NativeSupportTests: XCTestCase {
             XCTAssertEqual(artwork.base.renderingMode, originalArtwork.contains(id) ? .alwaysOriginal : .alwaysTemplate, id)
             XCTAssertEqual(artwork.accent != nil, accentedArtwork.contains(id), id)
         }
-        XCTAssertEqual(NativeProfileArtwork.resolve("account")?.colorHex, "#2563EB")
-        XCTAssertEqual(NativeProfileArtwork.resolve("vault-methods")?.colorHex, "#10B981")
+        XCTAssertNil(NativeProfileArtwork.resolve("account")?.colorHex, "Shared Profile outlines follow semantic foreground")
+        XCTAssertNil(NativeProfileArtwork.resolve("vault-methods")?.colorHex)
+        XCTAssertEqual(NativeProfileArtwork.resolve("vault-password")?.accentColorHex?.lowercased(), "#007aff")
+        XCTAssertNil(NativeProfileArtwork.resolve("account")?.accentColorHex, "Ordinary accent details follow the selected app accent")
         XCTAssertNotNil(NativeProfileArtwork.resolve("gemini"))
         XCTAssertNil(NativeProfileArtwork.resolve("privacy")?.colorHex, "Semantic foreground stays theme-aware")
         XCTAssertNil(NativeProfileArtwork.resolve("../../private"))
@@ -3344,8 +3346,15 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
-    func testPrivacyReleasePublishesTheCurrentStateToAllConsumers() {
+    func testPrivacyReleasePublishesTheCurrentStateToAllConsumers() async throws {
         let shield = HushhSessionPrivacyShield.shared
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let parent = UIViewController()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = parent
+        window.makeKeyAndVisible()
+        shield.attach(to: parent.view)
         let document = "public-privacy-release-\(UUID().uuidString)"
         shield.observeDocument(document)
         let previous = shield.onStateChanged
@@ -3361,26 +3370,104 @@ final class NativeSupportTests: XCTestCase {
         defer {
             shield.onStateChanged = previous
             NotificationCenter.default.removeObserver(observer)
+            window.isHidden = true
+            window.rootViewController = nil
+            if let host = previousWindow?.rootViewController?.view { shield.attach(to: host) }
+            previousWindow?.makeKeyAndVisible()
+        }
+        func release(_ generation: Int, documentId: String? = nil, active: Bool = true) async -> Bool {
+            let done = expectation(description: "Bounded release callback")
+            var result = false
+            shield.completeSessionValidation(generation: generation, documentId: documentId ?? document,
+                appIsActive: active) {
+                result = $0; done.fulfill()
+            }
+            await fulfillment(of: [done], timeout: 2)
+            return result
         }
         shield.protectForAppInactive()
         shield.markAppActive()
         let generation = shield.snapshot().generation
         let retirement = shield.beginPresentationRetirement()
-        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: true))
+        let blockedByRetirement = await release(generation)
+        XCTAssertFalse(blockedByRetirement)
         shield.completePresentationRetirement(retirement)
-        XCTAssertFalse(shield.completeSessionValidation(generation: generation - 1, documentId: document, appIsActive: true))
-        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: false))
-        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: "unobserved-document", appIsActive: true))
+        let stale = await release(generation - 1)
+        let inactive = await release(generation, active: false)
+        let unobserved = await release(generation, documentId: "unobserved-document")
+        XCTAssertFalse(stale)
+        XCTAssertFalse(inactive)
+        XCTAssertFalse(unobserved)
         XCTAssertTrue(releasedStates.isEmpty)
         XCTAssertEqual(nativeReleases, 0)
-        XCTAssertTrue(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: true))
+        let finished = expectation(description: "Actual privacy cover disappearance")
+        var released: Bool?
+        shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: true) {
+            released = $0; finished.fulfill()
+        }
+        XCTAssertTrue(shield.snapshot().shielded, "Animation admission is not disappearance")
+        XCTAssertNil(released)
+        XCTAssertEqual(nativeReleases, 0, "Actions must stay disabled throughout the fade")
+        let cover = try XCTUnwrap(window.subviews.first { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier })
+        XCTAssertEqual(cover.alpha, 1, "Only the visual child fades; the full-window touch blocker stays opaque to hit testing")
+        for point in [CGPoint(x: 5, y: 5), CGPoint(x: window.bounds.midX, y: window.bounds.midY),
+                      CGPoint(x: window.bounds.maxX - 5, y: window.bounds.maxY - 5)] {
+            let hit = window.hitTest(point, with: nil)
+            XCTAssertTrue(hit === cover || hit?.isDescendant(of: cover) == true,
+                "The visual fade must never expose underlying touch targets")
+        }
+        await fulfillment(of: [finished], timeout: 2)
+        XCTAssertEqual(released, true)
+        XCTAssertFalse(window.subviews.contains { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier })
         XCTAssertEqual(releasedStates.count, 1, "A Promise receipt alone does not release subscribed presentation consumers")
         XCTAssertEqual(nativeReleases, 1)
         XCTAssertEqual(releasedStates.first?.generation, generation)
         XCTAssertEqual(releasedStates.first?.appIsActive, true)
-        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: true))
+        let duplicate = await release(generation)
+        XCTAssertFalse(duplicate)
         XCTAssertEqual(releasedStates.count, 1, "Repeated acknowledgements must not publish another release")
         XCTAssertEqual(nativeReleases, 1)
+
+        // Negative control: a fresh inactive cycle must cancel a release that
+        // was admitted earlier, including its delayed animation completion.
+        shield.protectForAppInactive(); shield.markAppActive()
+        let interrupted = expectation(description: "Interrupted release is refused")
+        var interruptedResult: Bool?
+        shield.completeSessionValidation(generation: shield.snapshot().generation, documentId: document, appIsActive: true) {
+            interruptedResult = $0; interrupted.fulfill()
+        }
+        shield.protectForAppInactive()
+        await fulfillment(of: [interrupted], timeout: 2)
+        XCTAssertEqual(interruptedResult, false)
+        XCTAssertTrue(shield.snapshot().shielded)
+        XCTAssertEqual(nativeReleases, 1)
+        shield.markAppActive()
+        let recovered = await release(shield.snapshot().generation)
+        XCTAssertTrue(recovered)
+        XCTAssertEqual(nativeReleases, 2)
+
+        shield.protectForAppInactive(); shield.markAppActive()
+        let cancelledByPopup = expectation(description: "Popup retirement cancels release once")
+        var cancelledByPopupResult: Bool?
+        shield.completeSessionValidation(generation: shield.snapshot().generation, documentId: document, appIsActive: true) {
+            cancelledByPopupResult = $0; cancelledByPopup.fulfill()
+        }
+        let popup = shield.beginPresentationRetirement()
+        await fulfillment(of: [cancelledByPopup], timeout: 2)
+        XCTAssertEqual(cancelledByPopupResult, false)
+        XCTAssertTrue(shield.snapshot().shielded)
+        let recoveryVisible = expectation(description: "Interrupted release preserves the native escape path")
+        DispatchQueue.main.asyncAfter(deadline: .now() + HushhSessionPrivacyShield.recoveryDelay + 0.1) {
+            let recovery = window.subviews.flatMap(\.subviews).flatMap(\.subviews)
+                .first { $0.accessibilityIdentifier == "session-privacy-recovery" }
+            XCTAssertEqual(recovery?.isHidden, false)
+            recoveryVisible.fulfill()
+        }
+        await fulfillment(of: [recoveryVisible], timeout: HushhSessionPrivacyShield.recoveryDelay + 2)
+        shield.completePresentationRetirement(popup)
+        let afterPopup = await release(shield.snapshot().generation)
+        XCTAssertTrue(afterPopup)
+        XCTAssertEqual(nativeReleases, 3)
     }
 
     func testPrivacyCannotUncoverBeforeEveryOwnedPresenterRetires() {
