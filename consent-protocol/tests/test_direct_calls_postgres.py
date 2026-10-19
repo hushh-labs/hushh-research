@@ -26,6 +26,33 @@ ROOT = Path(__file__).resolve().parents[1]
 CONVERSATION = "00000000-0000-4000-8000-000000000001"
 
 
+def prepare_call_schema(engine):
+    with engine.begin() as conn:
+        conn.exec_driver_sql("""
+          CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY,public_person_ref UUID);
+          CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY,display_name TEXT);
+          CREATE TABLE trusted_devices(device_id TEXT PRIMARY KEY,user_id TEXT,
+            device_public_key TEXT,status TEXT DEFAULT 'active',UNIQUE(user_id,device_id));
+          CREATE TABLE connections(user_a_id TEXT,user_b_id TEXT,status TEXT,PRIMARY KEY(user_a_id,user_b_id));
+          CREATE TABLE conversations(id UUID PRIMARY KEY,participant_a_user_id TEXT,participant_b_user_id TEXT,
+            UNIQUE(participant_a_user_id,participant_b_user_id));
+          CREATE TABLE direct_message_blocks(blocker_user_id TEXT,blocked_user_id TEXT);
+          INSERT INTO actor_profiles VALUES('alice','00000000-0000-4000-8000-000000000010'),('bob','00000000-0000-4000-8000-000000000020');
+          INSERT INTO actor_identity_cache VALUES('alice','Synthetic Alice'),('bob','Synthetic Bob');
+          INSERT INTO connections VALUES('alice','bob','active');
+          INSERT INTO conversations VALUES('00000000-0000-4000-8000-000000000001','alice','bob');
+        """)
+        source = (ROOT / "db/migrations/264_direct_messages.sql").read_text(encoding="utf-8")
+        start = source.index(
+            "CREATE OR REPLACE FUNCTION public.require_active_direct_message_connection("
+        )
+        conn.exec_driver_sql(source[start : source.index("$$;", start) + 3])
+    migration = (ROOT / "db/migrations/407_direct_calls.sql").read_text(encoding="utf-8")
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.exec_driver_sql(migration)
+        conn.exec_driver_sql(migration)
+
+
 @pytest.fixture
 def calls(monkeypatch):
     value = os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
@@ -39,30 +66,7 @@ def calls(monkeypatch):
         conn.exec_driver_sql(f'CREATE DATABASE "{name}"')
     engine = create_engine(url.set(database=name), pool_size=3, max_overflow=0)
     try:
-        with engine.begin() as conn:
-            conn.exec_driver_sql("""
-              CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY,public_person_ref UUID);
-              CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY,display_name TEXT);
-              CREATE TABLE trusted_devices(device_id TEXT PRIMARY KEY,user_id TEXT,
-                device_public_key TEXT,status TEXT DEFAULT 'active',UNIQUE(user_id,device_id));
-              CREATE TABLE connections(user_a_id TEXT,user_b_id TEXT,status TEXT,PRIMARY KEY(user_a_id,user_b_id));
-              CREATE TABLE conversations(id UUID PRIMARY KEY,participant_a_user_id TEXT,participant_b_user_id TEXT,
-                UNIQUE(participant_a_user_id,participant_b_user_id));
-              CREATE TABLE direct_message_blocks(blocker_user_id TEXT,blocked_user_id TEXT);
-              INSERT INTO actor_profiles VALUES('alice','00000000-0000-4000-8000-000000000010'),('bob','00000000-0000-4000-8000-000000000020');
-              INSERT INTO actor_identity_cache VALUES('alice','Synthetic Alice'),('bob','Synthetic Bob');
-              INSERT INTO connections VALUES('alice','bob','active');
-              INSERT INTO conversations VALUES('00000000-0000-4000-8000-000000000001','alice','bob');
-            """)
-            source = (ROOT / "db/migrations/264_direct_messages.sql").read_text(encoding="utf-8")
-            start = source.index(
-                "CREATE OR REPLACE FUNCTION public.require_active_direct_message_connection("
-            )
-            conn.exec_driver_sql(source[start : source.index("$$;", start) + 3])
-        migration = (ROOT / "db/migrations/407_direct_calls.sql").read_text(encoding="utf-8")
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.exec_driver_sql(migration)
-            conn.exec_driver_sql(migration)
+        prepare_call_schema(engine)
         keys = {}
         for owner, device in [
             ("alice", "tdv_alice"),

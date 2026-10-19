@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import limiter
-from api.routes.one.messages import PrivateMessageRoute
+from api.routes.one.private_message_route import PrivateMessageRoute
 from hushh_mcp.services.direct_call_policy import CallError
 from hushh_mcp.services.direct_calls_service import DirectCallsService
 
