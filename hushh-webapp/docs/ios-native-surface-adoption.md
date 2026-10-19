@@ -16,6 +16,24 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### App haptics and shared cancellation checkpoint — 2026-10-19
+
+The actual native Preferences switch completes two changes and restores its
+initial device-local value on app `4ca8c78c63`, runner `b6ed027608` (83.811 seconds,
+including provider-editor cancellation and Voice return). The reported broken
+screen is not reproduced: XCTest activation recovers the base interface, and
+no full-window privacy cover is present. Sonner is not established as its cause.
+
+A separate shared lease defect is reproduced: an interrupted, unconfirmed
+row/Back/Close choice loses its cancellation receipt, so React's correct negative
+settlement quarantines the pane. History, Profile and agent-profile share this
+owner. Bounded, single-use cancellation receipts now acknowledge absence without
+confirming an operation; owner/privacy changes discard them. The nearest native
+host regression fails before the fix, then passes on iPhone, including privacy
+reordering and protection for a newer pending choice. Confirmed operations retain
+their existing settlement authority. This does not prove the original visual
+failure or qualify native release. Ordinary Release/TestFlight defaults stay OFF.
+
 ### Combined physical checkpoint — 2026-10-19
 
 Installed iPhone candidate `4ca8c78c63` is signed Release 1.4.1 (69), with

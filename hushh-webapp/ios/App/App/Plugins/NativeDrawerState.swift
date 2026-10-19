@@ -379,6 +379,10 @@ struct NativeDrawerLease {
     private var terminalEnabled = false
     private var settlesBack = false
     private var pendingSettlements: [Int: String] = [:]
+    // Invalidating a gesture revokes choice authority immediately, but React
+    // must still acknowledge that exact cancellation. These bounded receipts
+    // cannot confirm a choice, authorize an effect, or report success.
+    private var cancelledChoices: [Int: (privacy: Int, action: String)] = [:]
     private var confirmedRowEffects: [Int: (row: String?, update: Int, interaction: Int)] = [:]
     private(set) var interactionGeneration = 1
     private var emitted: [Int: (update: Int, interaction: Int, action: String, row: String?, text: String?)] = [:]
@@ -394,11 +398,15 @@ struct NativeDrawerLease {
             latestRevision = projection.revision
             document = projection.documentId
             identity = projection.identity
-            sequence = 0; updateSequence = 0; consumed = 0; emitted.removeAll(); pendingSettlements.removeAll(); confirmedRowEffects.removeAll()
+            sequence = 0; updateSequence = 0; consumed = 0; emitted.removeAll(); pendingSettlements.removeAll(); confirmedRowEffects.removeAll(); cancelledChoices.removeAll()
             terminalUpdateFloor = 0
             backUpdateFloor = 0; backBoundary = nil
         }
         guard projection.updateSequence > updateSequence else { return false }
+        if privacyGeneration != projection.privacyGeneration {
+            cancelledChoices.removeAll()
+            emitted.removeAll()
+        }
         if terminalUpdateFloor == 0 || terminalOpen != projection.open || terminalEnabled != projection.enabled ||
             privacyGeneration != projection.privacyGeneration {
             terminalUpdateFloor = projection.updateSequence
@@ -417,6 +425,11 @@ struct NativeDrawerLease {
     }
     mutating func invalidateInteractions() {
         interactionGeneration += 1
+        for (sequence, choice) in emitted where ["row", "close", "back", "root", "ancestor"].contains(choice.action) {
+            cancelledChoices[sequence] = (privacyGeneration, choice.action)
+        }
+        let oldestAllowed = sequence - 128
+        cancelledChoices = cancelledChoices.filter { $0.key > oldestAllowed }
         emitted.removeAll()
         confirmedRowEffects.removeAll()
     }
@@ -464,10 +477,14 @@ struct NativeDrawerLease {
         self.identity == identity && privacyGeneration == privacy && pendingSettlements[sequence] != nil
     }
     func isCloseSettlement(sequence: Int) -> Bool {
-        pendingSettlements[sequence] == "close" || emitted[sequence]?.action == "close"
+        pendingSettlements[sequence] == "close" || emitted[sequence]?.action == "close" || cancelledChoices[sequence]?.action == "close"
     }
     mutating func settle(identity: NativeDrawerIdentity, privacy: Int, sequence: Int, success: Bool) -> Bool {
         guard self.identity == identity, privacyGeneration == privacy else { return false }
+        if !success, cancelledChoices[sequence]?.privacy == privacy {
+            cancelledChoices.removeValue(forKey: sequence)
+            return true
+        }
         let confirmed = pendingSettlements[sequence] != nil
         let unconfirmed = emitted[sequence]?.action == "row" || emitted[sequence]?.action == "close" || emitted[sequence]?.action == "back" || emitted[sequence]?.action == "root" || emitted[sequence]?.action == "ancestor"
         guard confirmed || !success && unconfirmed else { return false }
@@ -493,6 +510,7 @@ struct NativeDrawerLease {
         emitted.removeAll()
         pendingSettlements.removeAll()
         confirmedRowEffects.removeAll()
+        cancelledChoices.removeAll()
         return true
     }
 }

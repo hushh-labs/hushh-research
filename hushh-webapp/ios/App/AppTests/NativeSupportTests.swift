@@ -791,6 +791,7 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(lease.settle(identity: state.identity, privacy: 0, sequence: sequence, success: true))
     }
 
+    @MainActor
     func testPrivateNativeDrawerRejectsStaleOwnersAndConsumesOnlyEmittedChoices() {
         var lease = NativeDrawerLease()
         let state = privateDrawerState()
@@ -832,10 +833,37 @@ final class NativeSupportTests: XCTestCase {
         var moving = NativeDrawerLease()
         XCTAssertTrue(moving.apply(state))
         let emitted = try! XCTUnwrap(moving.emit(action: "row", row: "row-handle", state: state))
+        var crossedPrivacy = moving
         moving.invalidateInteractions()
         XCTAssertFalse(moving.confirm(identity: state.identity, update: 1, privacy: 0, sequence: emitted,
             interaction: 1, action: "row", row: "row-handle", allowed: true),
             "A closing drag invalidates a pending row action even before React updates")
+        XCTAssertFalse(moving.settle(identity: state.identity, privacy: 0, sequence: emitted, success: true),
+            "Cancelling presentation never confirms or authorizes the operation")
+        XCTAssertFalse(moving.settle(identity: state.identity, privacy: 1, sequence: emitted, success: false))
+        let wrongOwner = NativeDrawerIdentity(documentId: state.documentId, ownerEpoch: "another-owner",
+            ownerGeneration: state.ownerGeneration, revision: state.revision, family: state.family)
+        XCTAssertFalse(moving.settle(identity: wrongOwner, privacy: 0, sequence: emitted, success: false))
+        var nextPrivacy = moving
+        let newPrivacy = privateDrawerState(update: 2, privacy: 1)
+        XCTAssertTrue(nextPrivacy.apply(newPrivacy))
+        XCTAssertFalse(nextPrivacy.settle(identity: state.identity, privacy: 1, sequence: emitted, success: false),
+            "A cancellation from an older privacy generation is not current bookkeeping")
+        XCTAssertTrue(crossedPrivacy.apply(newPrivacy))
+        crossedPrivacy.invalidateInteractions()
+        XCTAssertFalse(crossedPrivacy.settle(identity: state.identity, privacy: 1, sequence: emitted, success: false),
+            "Invalidation cannot relabel an old emitted choice with a new privacy generation")
+        XCTAssertTrue(moving.settle(identity: state.identity, privacy: 0, sequence: emitted, success: false),
+            "An exact cancelled intent must acknowledge absence without quarantining the whole pane")
+        XCTAssertFalse(moving.settle(identity: state.identity, privacy: 0, sequence: emitted, success: false),
+            "Cancellation acknowledgement is consumed once")
+        let nextSequence = try! XCTUnwrap(moving.emit(action: "row", row: "row-handle", state: state))
+        let currentModel = NativeDrawerModel(state)
+        currentModel.pendingSequence = nextSequence
+        currentModel.choicePending = true
+        currentModel.settle(sequence: emitted, success: false)
+        XCTAssertEqual(currentModel.pendingSequence, nextSequence)
+        XCTAssertTrue(currentModel.choicePending, "An old cancellation cannot clear a newer choice")
         var cancelledPreparation = NativeDrawerLease()
         XCTAssertTrue(cancelledPreparation.retire(state.identity))
         XCTAssertFalse(cancelledPreparation.apply(state), "A lost apply cannot resurrect a cancelled private body")
