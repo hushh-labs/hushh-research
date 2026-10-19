@@ -111,11 +111,39 @@ fills a candidate or substitutes an identity decision. Repair preserves owner
 authority, the final-report time/slot reserve and every charged usage receipt;
 insufficient time pauses the slice without another search.
 
-The final Azure report schema limits section kinds to topics with observed,
-candidate-compatible search receipts. All twenty coverage rows remain present.
-Each section's citation enum uses the same eligible-source projection as the
-original receipt validator: selected-candidate anchors and observed coverage
-for that exact candidate and topic, intersected with received sources. Other
+The existing provisional extraction receives the selected candidate's label and
+owned anchors, not merely its ID. Compilation receives the selected assessment,
+validated selected-candidate finding batches and their admitted source metadata.
+Unpartitioned discovery notes and other candidates are withheld from this model
+input; their complete checkpoint and returned research remain intact. Selected
+anchors still permit reporting when optional batches fail or skip. This reduces
+contamination; receipt validation does not independently prove semantic attribution.
+
+Azure assessment requires a connected model-declared reciprocal-link graph over
+all distinct URLs owned by the selected candidate, including orphan owned anchors.
+One exact URL is valid without an edge. The host never chooses or splits people;
+a missing chain receives the existing charged model correction. The same guard
+checks restored work. This validates declared linkage, not page contents. Unlinked
+results remain in the full research record and cannot supply typed findings.
+Correction receives the disconnected receipt-reference groups, never a host-selected
+person. When received bridges are absent, the model can select one supported page
+for review and leave other discoveries as separate leads in the retained research.
+
+Identity assessment/repair uses medium reasoning with an 8,192-token ceiling.
+Only final compilation/repair uses high reasoning. Other stages keep low effort,
+and every call retains the existing 90-second outer cap. The SDK deadline matches
+that cap; planner and provisional limits remain shorter. Optional sections contain
+positive personal findings, with no placeholder facts or minimum count. Empty
+uncertain reports still fail the unchanged public contract.
+
+The provider report schema excludes coverage: the existing host ledger authors
+all twenty rows before unchanged full report validation. The final schema limits
+section kinds to topics with observed, candidate-compatible search receipts.
+All twenty public coverage rows remain present.
+Each section's citation enum projects the original receipt rules for that exact
+candidate and topic, intersected with selected-candidate owned-anchor sources.
+The final host validator receives that same narrowed catalog, including on repair;
+a received, observed coverage lead alone cannot become a selected-person citation. Other
 namesake pages cannot supply citations merely because search returned them.
 When native topic specializations exceed Azure's schema budget, one shared
 shape carries the eligible citation union instead. Evidence is never truncated;

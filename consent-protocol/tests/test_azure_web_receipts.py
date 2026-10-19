@@ -179,7 +179,7 @@ def test_completed_page_retrieval_accepts_explicit_zero_bing_queries(action, cou
     assert len(receipts.sources) == 1
 
 
-@pytest.mark.parametrize("action", ["open_page", "find_in_page", "search"])
+@pytest.mark.parametrize("action", ["open_page", "find_in_page", "search", "unknown"])
 def test_page_retrieval_still_requires_explicit_billing_and_search_cannot_claim_zero(action):
     raw = response()
     raw["output"][1]["action"] = {"type": action}

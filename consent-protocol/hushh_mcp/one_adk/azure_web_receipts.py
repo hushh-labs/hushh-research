@@ -108,13 +108,17 @@ def extract_azure_web_receipts(response: Mapping[str, Any]) -> AzureWebReceipts:
         raise ValueError("Azure response must be a mapping")
     output = _bounded_list(response.get("output"), limit=MAX_OUTPUT_ITEMS, name="output")
     count = _request_count(response)
-    actions = [
-        item.get("action", {}).get("type")
+    completed_calls = [
+        item
         for item in output
         if isinstance(item, Mapping)
         and item.get("type") == "web_search_call"
         and item.get("status") == "completed"
-        and isinstance(item.get("action"), Mapping)
+    ]
+    actions = [
+        item["action"].get("type")
+        for item in completed_calls
+        if isinstance(item.get("action"), Mapping)
     ]
     completed_retrieval = any(
         isinstance(action, str) and action in {"search", "open_page", "find_in_page"}
@@ -122,7 +126,7 @@ def extract_azure_web_receipts(response: Mapping[str, Any]) -> AzureWebReceipts:
     )
     # Opening/finding in an existing page can explicitly bill zero Bing queries.
     # An actual search still requires a positive count; missing usage stays unknown.
-    if completed_retrieval and (count is None or ("search" in actions and count == 0)):
+    if completed_calls and (count is None or ("search" in actions and count == 0)):
         raise ValueError("Completed Azure web retrieval has no valid billable request count")
     if response.get("status") != "completed" or not completed_retrieval:
         return AzureWebReceipts(False, "", (), count or 0)

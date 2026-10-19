@@ -232,6 +232,12 @@ class FakeGateway:
                 value["anchors"][0]["candidate_id"] = "c2"
             return value
         if purpose == "provisional_findings":
+            selected = payload["selected_candidate"]
+            assert selected["candidate"]["id"] == payload["candidate_id"]
+            assert selected["anchors"]
+            assert all(
+                row["candidate_id"] == payload["candidate_id"] for row in selected["anchors"]
+            )
             assert max_output_tokens <= 2048
             assert payload["eligible_sources"] == [{"ref": "s1", "title": "Public bio", "url": URL}]
             if payload["attempt_id"] != 1:
@@ -395,6 +401,10 @@ async def test_azure_runner_discards_invalid_provisional_batch_and_still_reports
     assert result["report"]["match_status"] == "uncertain"
     assert validated_facts_from_work(snapshots[-1]) == []
     assert snapshots[-1]["finding_attempts"]["1"]["state"] == "unavailable"
+    projected = gateway.report_requests[0]["payload"]["research_history"]
+    assert projected["finding_batches"] == []
+    assert projected["assessment"]["anchors"]  # Selected anchors still permit a report.
+    assert "answer" not in projected["attempts"]["1"]
     assert charges == [1, *range(MODEL_FIRST, MODEL_FIRST + 5)]
 
 
@@ -458,6 +468,7 @@ async def test_report_schema_matches_observed_topics_and_repairs_without_researc
 
     accepted = _cap_unverified_contact(assessment())["identity"]
     valid = report(accepted)
+    valid.pop("coverage")  # Provider reports facts; the host owns all coverage rows.
     invalid = copy.deepcopy(valid)
     if defect == "topic":
         invalid["sections"][0]["kind"] = "travel"
@@ -466,7 +477,47 @@ async def test_report_schema_matches_observed_topics_and_repairs_without_researc
     else:
         invalid["sections"][0]["facts"][0]["sources"][0]["ref"] = "s2"
     charges, snapshots = [], []
-    gateway = FakeGateway(charges=charges, snapshots=snapshots, report_results=[invalid, valid])
+    accepted_assessment = assessment()
+    accepted_assessment["candidates"].append(
+        {
+            "id": "c2",
+            "label": "UNSELECTED_CANDIDATE",
+            "anchor_ids": ["a2"],
+            "blocking_conflicts": [],
+        }
+    )
+    accepted_assessment["anchors"].append(
+        {
+            **accepted_assessment["anchors"][0],
+            "id": "a2",
+            "candidate_id": "c2",
+            "source_refs": ["s2"],
+            "assertion": "UNSELECTED_ANCHOR",
+        }
+    )
+
+    class MixedDiscoveryGateway(FakeGateway):
+        async def search(self, request):
+            raw = await super().search(request)
+            text = raw["output"][1]["content"][0]
+            text["text"] += " RAW_UNPARTITIONED_DISCOVERY"
+            text["annotations"].append(
+                {
+                    "type": "url_citation",
+                    "start_index": 11,
+                    "end_index": 20,
+                    "title": "UNSELECTED_SOURCE",
+                    "url": "https://example.test/namesake-only",
+                }
+            )
+            return raw
+
+    gateway = MixedDiscoveryGateway(
+        charges=charges,
+        snapshots=snapshots,
+        report_results=[invalid, valid],
+        assessment_results=[accepted_assessment],
+    )
 
     async def charge(slots):
         charges.extend(slots)
@@ -489,6 +540,23 @@ async def test_report_schema_matches_observed_topics_and_repairs_without_researc
     assert gateway.calls.count("search") == 1
     assert gateway.calls[-2:] == ["world_model_report", "world_model_report_repair"]
     original, repair = gateway.report_requests
+    projected = original["payload"]["research_history"]
+    serialized = json.dumps(projected)
+    for marker in (
+        "UNSELECTED_CANDIDATE",
+        "UNSELECTED_ANCHOR",
+        "UNSELECTED_SOURCE",
+        "RAW_UNPARTITIONED_DISCOVERY",
+    ):
+        assert marker not in serialized
+    assert set(projected["sources"]) == {"s1"}
+    assert "RAW_UNPARTITIONED_DISCOVERY" in snapshots[-1]["attempts"]["1"]["answer"]
+    assert snapshots[-1]["assessment"]["candidates"][1]["label"] == "UNSELECTED_CANDIDATE"
+    assert result["research"]["candidates"][1]["label"] == "UNSELECTED_CANDIDATE"
+    assert "RAW_UNPARTITIONED_DISCOVERY" in result["grounded_answers"][0]["answer"]
+    assert "coverage" not in original["schema"]["properties"]
+    assert "coverage" not in original["schema"]["required"]
+    assert len(result["research"]["coverage"]) == len(TOPICS)
     validate(valid, original["schema"])
     with pytest.raises(ValidationError):
         validate(invalid, original["schema"])
@@ -544,6 +612,7 @@ def test_deep_report_schema_fits_azure_budgets_without_truncating_citations(dist
     eligible = sorted({ref for rows in sources.values() for ref in rows})
     assert native["$defs"]["ProfileSourceRef"]["properties"]["ref"]["enum"] == eligible
     value = report(_cap_unverified_contact(assessment())["identity"])
+    value.pop("coverage")
     validate(value, native)
     value["sections"][0]["facts"][0]["sources"][0]["ref"] = "s9999"
     with pytest.raises(ValidationError):
@@ -631,6 +700,7 @@ async def test_resumed_report_at_fourteenth_model_call_repairs_without_search_re
     work = copy.deepcopy(snapshots[-1])
     accepted = _cap_unverified_contact(assessment())["identity"]
     valid = report(accepted)
+    valid.pop("coverage")  # Provider reports facts; the host owns all coverage rows.
     invalid = copy.deepcopy(valid)
     invalid["sections"][0]["kind"] = "travel"
     charges.clear()
@@ -991,17 +1061,36 @@ async def test_azure_runner_refuses_contact_seed_for_review_candidate_coverage()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("defect", ["missing_selection", "schema_bound"])
+@pytest.mark.parametrize("defect", ["missing_selection", "schema_bound", "unbridged_profiles"])
 async def test_azure_runner_repairs_invalid_identity_without_repeating_search(defect):
     invalid = assessment()
     if defect == "missing_selection":
         invalid["identity"].update(
             state="ambiguous", selected_candidate_id=None, supporting_anchor_ids=[]
         )
+    elif defect == "unbridged_profiles":
+        invalid["anchors"].append({**invalid["anchors"][0], "id": "a2", "source_refs": ["s2"]})
+        invalid["candidates"][0]["anchor_ids"].append("a2")
     else:
         invalid["candidates"][0]["label"] = "x" * 601
     charges, snapshots = [], []
-    gateway = FakeGateway(
+
+    class IdentityGateway(FakeGateway):
+        async def search(self, request):
+            raw = await super().search(request)
+            if defect == "unbridged_profiles":
+                raw["output"][1]["content"][0]["annotations"].append(
+                    {
+                        "type": "url_citation",
+                        "start_index": 11,
+                        "end_index": 20,
+                        "title": "Other public profile",
+                        "url": "https://example.test/unlinked-profile",
+                    }
+                )
+            return raw
+
+    gateway = IdentityGateway(
         charges=charges,
         snapshots=snapshots,
         assessment_results=[invalid, assessment()],
@@ -1041,6 +1130,12 @@ async def test_azure_runner_repairs_invalid_identity_without_repeating_search(de
     assert repaired["validation_errors"] == [
         {"path": [], "type": "value_error"}
         if defect == "missing_selection"
+        else {
+            "path": ["candidates"],
+            "type": "missing_received_profile_bridge",
+            "disconnected_source_groups": [["s1"], ["s2"]],
+        }
+        if defect == "unbridged_profiles"
         else {"path": ["candidates", 0, "label"], "type": "string_too_long"}
     ]
     assert "usage_records" not in repaired["research_history"]
@@ -1050,6 +1145,160 @@ async def test_azure_runner_repairs_invalid_identity_without_repeating_search(de
         or snapshot["assessment"]["identity"]["selected_candidate_id"] == "c1"
         for snapshot in snapshots
     )
+
+
+@pytest.mark.parametrize(
+    "bridge", ["connected", "same_url", "orphan", "foreign", "partial", "self_link"]
+)
+def test_selected_candidate_sources_require_received_link_connections(bridge):
+    from hushh_mcp.one_adk.world_model_azure import (
+        _cap_unverified_contact,
+        _validate_candidate_sources,
+    )
+    from hushh_mcp.one_adk.world_model_contracts import IdentityAssessment
+
+    value = _cap_unverified_contact(assessment())
+    value["anchors"].append({**value["anchors"][0], "id": "a2", "source_refs": ["s2"]})
+    # a2 is intentionally omitted from candidate.anchor_ids: it still owns sources.
+    receipts = {
+        "s1": {"url": URL},
+        "s2": {"url": URL if bridge in {"same_url", "self_link"} else "https://example.test/other"},
+    }
+    if bridge in {"connected", "foreign", "partial", "self_link"}:
+        value["anchors"].append(
+            {
+                **value["anchors"][0],
+                "id": "a3",
+                "kind": "reciprocal_link",
+                "source_refs": ["s1", "s2"],
+            }
+        )
+    if bridge == "foreign":
+        value["anchors"][-1]["candidate_id"] = "c2"
+        value["candidates"].append(
+            {"id": "c2", "label": "Other person", "anchor_ids": ["a3"], "blocking_conflicts": []}
+        )
+    if bridge == "partial":
+        value["anchors"].append({**value["anchors"][0], "id": "a4", "source_refs": ["s3"]})
+        receipts["s3"] = {"url": "https://example.test/disconnected"}
+    accepted = IdentityAssessment.model_validate(value).validate_evidence(
+        identity=IDENTITY, source_refs=set(receipts)
+    )
+    if bridge in {"connected", "same_url"}:
+        assert _validate_candidate_sources(accepted, receipts) is accepted
+    else:
+        with pytest.raises(ValueError):
+            _validate_candidate_sources(accepted, receipts)
+
+
+def test_report_projection_keeps_unanchored_coverage_as_a_lead_not_a_finding():
+    from hushh_mcp.one_adk.world_model_azure import _cap_unverified_contact, _report_history
+    from hushh_mcp.one_adk.world_model_contracts import IdentityAssessment
+
+    accepted = IdentityAssessment.model_validate(_cap_unverified_contact(assessment()))
+    work = {
+        "sources": {
+            "s1": {"title": "Public bio", "url": URL},
+            "s2": {"title": "UNLINKED_SOURCE", "url": "https://example.test/unlinked"},
+        },
+        "attempts": {
+            "1": {
+                "plan": {
+                    "purpose": "coverage",
+                    "candidate_id": "c1",
+                    "seed_fields": ["full_name"],
+                    "anchor_ids": ["a1"],
+                    "topics": ["career"],
+                    "question": "Public work",
+                },
+                "observed": True,
+                "source_refs": ["s2"],
+            }
+        },
+        "finding_batches": [
+            {
+                "candidate_id": "c1",
+                "attempt_id": 1,
+                "topic": "career",
+                "facts": [
+                    {
+                        "statement": "UNLINKED_CLAIM",
+                        "confidence": "supported",
+                        "sources": [{"ref": "s2", "title": "UNLINKED_SOURCE"}],
+                    }
+                ],
+            }
+        ],
+    }
+    before = copy.deepcopy(work)
+    projected = _report_history(work, accepted)
+    assert projected["finding_batches"] == []
+    assert set(projected["sources"]) == {"s1"}
+    assert "UNLINKED" not in json.dumps(projected)
+    assert work == before
+
+
+@pytest.mark.asyncio
+async def test_final_report_rejects_observed_coverage_outside_owned_candidate_sources():
+    from hushh_mcp.one_adk.world_model_azure import _cap_unverified_contact
+
+    valid = report(_cap_unverified_contact(assessment())["identity"])
+    invalid = copy.deepcopy(valid)
+    invalid["sections"][0]["facts"][0]["sources"][0]["ref"] = "s2"
+    charges, snapshots = [], []
+
+    class CoverageGateway(FakeGateway):
+        async def search(self, request):
+            raw = await super().search(request)
+            if self.calls.count("search") == 2:
+                raw["output"][1]["content"][0]["annotations"].append(
+                    {
+                        "type": "url_citation",
+                        "start_index": 11,
+                        "end_index": 20,
+                        "title": "Unlinked coverage lead",
+                        "url": "https://example.test/unlinked",
+                    }
+                )
+            return raw
+
+        async def plan(self, payload):
+            if self.calls.count("search") == 2:
+                self.calls.append("plan")
+                return {"action": "finish", "plan": None}
+            return await super().plan(payload)
+
+    gateway = CoverageGateway(
+        charges=charges,
+        snapshots=snapshots,
+        coverage_plan=True,
+        report_results=[invalid, valid],
+    )
+
+    async def charge(slots):
+        charges.extend(slots)
+
+    async def progress(work):
+        snapshots.append(copy.deepcopy(work))
+
+    result = await run_world_model_azure(
+        identity=IDENTITY,
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106 - synthetic test authority
+        require_access=AsyncMock(),
+        on_attempts_start=charge,
+        on_progress=progress,
+        owner_decisions={"rejected": ["An unrelated claim"]},
+        gateway=gateway,
+    )
+    assert result["status"] == "offered"
+    assert gateway.calls.count("search") == 2
+    assert snapshots[-1]["attempts"]["2"]["observed"] is True
+    assert "s2" in snapshots[-1]["attempts"]["2"]["source_refs"]
+    assert gateway.calls[-2:] == ["world_model_report", "world_model_report_repair"]
+    assert set(gateway.report_requests[0]["payload"]["research_history"]["sources"]) == {"s1"}
+    assert result["report"]["sections"][0]["facts"][0]["sources"][0]["url"] == URL
+    assert len(charges) == len(set(charges))
 
 
 @pytest.mark.asyncio
@@ -1495,6 +1744,7 @@ async def test_azure_gateway_bounds_web_search_reasoning_and_sdk_retries():
     client = await gateway._client(gateway.primary_endpoint, gateway.primary_token_supplier)
     try:
         assert client.max_retries == 0
+        assert client.timeout == 90.0
     finally:
         await client.close()
 
@@ -1642,7 +1892,11 @@ async def test_native_schema_preserves_resolvable_refs_and_host_bounds(contract)
     gateway._client = AsyncMock(return_value=Client())
     assert (
         await gateway.structured(
-            purpose=contract,
+            purpose={
+                "assessment": "identity_assessment",
+                "findings": "provisional_findings",
+                "report": "world_model_report",
+            }[contract],
             instruction="Synthetic evaluation",
             payload={},
             schema=schema,
@@ -1650,6 +1904,13 @@ async def test_native_schema_preserves_resolvable_refs_and_host_bounds(contract)
         )
         == value
     )
+    assert create.call_args.kwargs["reasoning"] == {
+        "effort": "high"
+        if contract == "report"
+        else "medium"
+        if contract == "assessment"
+        else "low"
+    }
     native = create.call_args.kwargs["text"]["format"]["schema"]
     Draft202012Validator(native).validate({"result": value})
     assert "$defs" not in native["properties"]["result"]

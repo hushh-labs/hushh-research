@@ -212,13 +212,15 @@ def test_report_cannot_borrow_citation_from_ineligible_coverage(defect):
         },
     )
     model = WorldModelReport.model_validate(value)
+    provider_value = copy.deepcopy(value)
+    provider_value.pop("coverage")  # The existing host ledger authors public coverage.
     args = (accepted, attempts, refs)
     if defect is None:
-        validate(value, schema)
+        validate(provider_value, schema)
         assert model.validate_receipts(*args).sections[0].facts[0].sources[0].ref == "s2"
     else:
         with pytest.raises(ValidationError):
-            validate(value, schema)
+            validate(provider_value, schema)
         with pytest.raises(ValueError, match="unreceived source"):
             model.validate_receipts(*args)
 
