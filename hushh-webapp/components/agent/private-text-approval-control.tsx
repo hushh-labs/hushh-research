@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PRIVATE_TEXT_DISCLOSURE } from "@/lib/legal/private-text-disclosure";
+import { resolveAppEnvironment } from "@/lib/app-env";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { PrivateTextApprovalService, isPrivateTextApprovalConflict, type PrivateTextApproval } from "@/lib/services/private-text-approval-service";
@@ -16,6 +17,7 @@ type Owner = Pick<User, "uid" | "getIdToken">;
 
 /** Owner changes remount the approval state; no receipt lives in browser storage. */
 export function PrivateTextApprovalControl({ user }: { user: Owner }) {
+  if (resolveAppEnvironment() !== "uat") return null;
   return <OwnerPrivateTextApproval key={user.uid} user={user} />;
 }
 

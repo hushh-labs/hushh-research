@@ -19,8 +19,14 @@ async function review() { fireEvent.click(await screen.findByRole("button", { na
 const accept = () => fireEvent.click(screen.getByRole("checkbox"));
 const approve = () => fireEvent.click(screen.getByRole("button", { name: "Approve private text processing" }));
 describe("owner-scoped private Azure acknowledgment", () => {
-  beforeEach(() => { vi.resetAllMocks(); mocks.get.mockResolvedValue(denied); mocks.promise.mockImplementation((operation: Promise<unknown>) => { void operation.catch(() => {}); return "notice"; }); });
-  afterEach(cleanup);
+  beforeEach(() => { vi.resetAllMocks(); vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat"); mocks.get.mockResolvedValue(denied); mocks.promise.mockImplementation((operation: Promise<unknown>) => { void operation.catch(() => {}); return "notice"; }); });
+  afterEach(() => { cleanup(); vi.unstubAllEnvs(); });
+  it("never requests or displays the UAT pilot outside UAT", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+    render(<PrivateTextApprovalControl user={owner()} />);
+    expect(mocks.get).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Review Azure text pilot" })).not.toBeInTheDocument();
+  });
   it("requires acknowledgment and waits for persistence for approval and revocation", async () => {
     const saving = deferred<PrivateTextApproval>(); mocks.set.mockReturnValueOnce(saving.promise);
     render(<PrivateTextApprovalControl user={owner()} />); await review();
