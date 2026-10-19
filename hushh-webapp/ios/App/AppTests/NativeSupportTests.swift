@@ -563,7 +563,9 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(Set(NativeProfileArtwork.ids).count, NativeProfileArtwork.ids.count)
         let originalArtwork: Set<String> = ["gemini", "connector-gmail", "connector-google-drive",
             "connector-calendar", "connector-hubspot", "connector-instagram", "connector-linkedin"]
-        let accentedArtwork: Set<String> = ["payouts", "request-pricing", "my-data", "world-model", "accent",
+        let accentedArtwork: Set<String> = ["account", "payouts", "request-pricing", "my-data", "world-model",
+            "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms", "sign-out",
+            "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "vault-methods", "vault-password", "accent",
             "payout-receipt", "payout-warning", "payout-progress", "payout-review"]
         for id in NativeProfileArtwork.ids {
             let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")

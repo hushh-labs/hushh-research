@@ -1214,7 +1214,7 @@ struct NativeSettingsRowLabel: View {
                             .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(artwork.colorHex) ?? .label))
                         if let accent = artwork.accent {
                             Image(uiImage: accent).resizable()
-                                .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(accentHex) ?? .label))
+                                .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(artwork.accentColorHex ?? accentHex) ?? .label))
                         }
                     }.frame(width: artwork.base.size.width, height: artwork.base.size.height)
                         .frame(width: 32, height: 32).accessibilityHidden(true)
@@ -1477,7 +1477,7 @@ struct NativeProfileChoiceMenu: UIViewRepresentable {
                 width: icon.size.width, height: icon.size.height)
             configuration.image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).image { _ in
                 icon.draw(in: iconFrame)
-                artwork.accent?.withTintColor(HushhNativeControlAppearance.color(state.accentHex) ?? .label,
+                artwork.accent?.withTintColor(HushhNativeControlAppearance.color(artwork.accentColorHex ?? state.accentHex) ?? .label,
                     renderingMode: .alwaysOriginal).draw(in: iconFrame)
             }.withRenderingMode(.alwaysOriginal)
         } else if let symbol = row.symbol { configuration.image = UIImage(systemName: symbol) }

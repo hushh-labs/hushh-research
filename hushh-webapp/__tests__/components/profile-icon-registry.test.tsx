@@ -3,15 +3,7 @@ import { afterEach, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { XIcon, PlusIcon, ShieldIcon, WalletIcon, Key, KeyRound, KeyIcon, AccentedKeyIcon } from "@/components/icons";
-import {
-  AccountProfileIcon,
-  DevicesProfileIcon,
-  InviteFriendsProfileIcon,
-  PreferencesProfileIcon,
-  SecurityProfileIcon,
-  SignOutProfileIcon,
-  SupportProfileIcon,
-} from "@/components/icons/agents";
+import { PROFILE_MENU_GROUPS } from "@/components/profile/profile-menu-model";
 import * as RowIcons from "@/components/icons/agents/row-icons";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import { GiftIcon } from "@/components/icons/ui/detail-icons";
@@ -53,30 +45,16 @@ it("crossfades canonical menu/close icons with reduced-motion support", () => {
   expect(container.querySelectorAll("svg")[1]).toHaveClass("opacity-100", "motion-reduce:transition-none");
 });
 
-it("keeps Profile settings on their semantic outline icon set", () => {
-  const { container } = render(
-    <>
-      <AccountProfileIcon />
-      <PreferencesProfileIcon />
-      <SecurityProfileIcon />
-      <DevicesProfileIcon />
-      <InviteFriendsProfileIcon />
-      <SupportProfileIcon />
-      <SignOutProfileIcon />
-    </>,
-  );
+it("keeps the actual shared Profile roster neutral with authored accent details", () => {
+  const entries = PROFILE_MENU_GROUPS.flatMap(group => [...group.entries]);
+  const { container } = render(<>{entries.map(({ id, icon: Icon }) => <Icon key={id} />)}</>);
   const icons = [...container.querySelectorAll("svg")];
-  expect(icons).toHaveLength(7);
-  expect(icons.map((icon) => icon.getAttribute("fill"))).toEqual([
-    "#2563EB",
-    "#8B5CF6",
-    "#10B981",
-    "#6366F1",
-    "#8B5CF6",
-    "#0284C7",
-    "#EF4444",
-  ]);
-  for (const icon of icons) {
+  expect(icons).toHaveLength(entries.length);
+  for (const [index, icon] of icons.entries()) {
+    expect(icon.getAttribute("fill"), entries[index].id).not.toMatch(/^#/);
+    if (entries[index].id !== "developer-tools") {
+      expect(icon.querySelector(".profile-pane-icon-accent, .profile-pane-icon-accent-fill, .profile-account-icon-accent"), entries[index].id).not.toBeNull();
+    }
     expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
   }
 });
