@@ -338,7 +338,7 @@ export function CircleMemberActionsMenu({
             if (!next) setSheetConfirmingRemove(false);
           }}
         >
-          <DrawerContent
+          <DrawerContent data-profile-type-scale="circles"
             data-testid={MEMBER_ACTIONS_SHEET_TESTID}
             className={
               sheetConfirmingRemove
@@ -520,7 +520,7 @@ export function CircleMemberActionsMenu({
             <TriggerIcon size={24} />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent
+        <DropdownMenuContent data-profile-type-scale="circles"
           data-testid={MEMBER_ACTIONS_MENU_TESTID}
           aria-label={menuLabel}
           side={CIRCLE_MEMBER_ACTIONS_MENU_SIDE}
@@ -581,7 +581,7 @@ export function CircleMemberActionsMenu({
           open={confirmRemoveOpen}
           onOpenChange={setConfirmRemoveOpen}
         >
-          <AlertDialogContent size="sm">
+          <AlertDialogContent data-profile-type-scale="circles" size="sm">
             <AlertDialogHeader>
               <AlertDialogTitle>
                 {memberRemoveConfirmTitle(displayName)}

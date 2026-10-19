@@ -28,6 +28,7 @@ import path from "node:path";
 import { afterEach, it, vi } from "vitest";
 
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
+import { FeedDriveProgressRow } from "@/components/feed/feed-drive-progress-row";
 import { FeedRow } from "@/components/feed/feed-row";
 import { SettingsGroup, SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
 import {
@@ -78,6 +79,7 @@ const ROWS: FeedActionable[] = [
   CONSENT_REQUEST_ROW,
   {
     id: "extend",
+    phoneActions: [{ key: "review", label: "Review", tone: "primary", run: () => {} }],
     person: { displayName: "JHUMMA KUMARI", photoUrl: null },
     title: "JHUMMA KUMARI",
     description: "Requesting 4 hours more of your live location.",
@@ -105,6 +107,7 @@ const ROWS: FeedActionable[] = [
   },
   {
     id: "checkin",
+    phoneActions: [{ key: "review", label: "Review", tone: "primary", run: () => {} }],
     onSelect: () => {},
     title: "Smirthika Dharmalingam",
     description: "Safety check-in",
@@ -115,6 +118,29 @@ const ROWS: FeedActionable[] = [
     actions: [
       { key: "deny", label: "Deny", tone: "danger", confirm: true, run: () => {} },
       { key: "approve", label: "Approve 1 hour", tone: "primary", run: () => {} },
+    ],
+  },
+  {
+    id: "circle-invite", title: "Priya Nair", description: "Invited you to Family Circle.",
+    displayTimestamp: Date.parse("2026-08-17T02:34:00Z"), sortAt: 0,
+    icon: MapPin, iconTone: "orange",
+    phoneActions: [{ key: "review", label: "Review", tone: "primary", run: () => {} }],
+    actions: [
+      { key: "decline", label: "Decline", tone: "ghost", confirm: true, run: () => {} },
+      { key: "accept", label: "Accept", tone: "primary", run: () => {} },
+    ],
+  },
+  {
+    id: "android-connection", title: "A very long connection requester", description: "Wants to connect",
+    sortAt: 0, icon: MapPin, iconTone: "orange",
+    phoneActions: [
+      { key: "report", label: "Report", tone: "danger", confirm: true, run: () => {} },
+      { key: "review", label: "Review", tone: "primary", run: () => {} },
+    ],
+    actions: [
+      { key: "report", label: "Report", tone: "danger", confirm: true, run: () => {} },
+      { key: "decline", label: "Decline", tone: "ghost", confirm: true, run: () => {} },
+      { key: "confirm", label: "Confirm", tone: "primary", run: () => {} },
     ],
   },
 ];
@@ -128,6 +154,10 @@ it("captures the Needs you rows", () => {
     <SettingsPresentationProvider density="compact">
       <SettingsGroup title="Needs you" separatorInset>
         {ROWS.map((item) => <FeedActionableRow key={item.id} item={item} />)}
+      </SettingsGroup>
+      <SettingsGroup title="In progress" separatorInset>
+        <FeedDriveProgressRow item={{ id: "queued", title: "Waiting to start", description: "Request allowed. The Drive search starts soon.", href: "/one/consents", requestedAt: 1786934040000, waiting: true }} />
+        <FeedDriveProgressRow item={{ id: "unavailable", title: "Documents unavailable", description: "Estimate $1 · Couldn’t verify documents", href: "/one/consents", requestedAt: 1786934040000 }} />
       </SettingsGroup>
       <SettingsGroup title="Today" separatorInset>
         {["Manish Malhotra", "Aparna", "Very Long Contact Name Without Truncating Identity"].map((name, index) => (

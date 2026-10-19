@@ -149,11 +149,13 @@ export function CreateCirclePeopleBody({
   } = model;
   return (
     <section
+      data-profile-type-scale="circles"
       className="motion-step-enter flex min-h-0 flex-1 flex-col gap-3"
       aria-labelledby="create-circle-people-heading"
     >
       <header className="shrink-0 space-y-1 pr-6">
         <h2
+          data-profile-role="dialog-title"
           id="create-circle-people-heading"
           tabIndex={-1}
           ref={headingRef}
@@ -161,7 +163,7 @@ export function CreateCirclePeopleBody({
         >
           Add people
         </h2>
-        <p className="text-[15px] text-muted-foreground">
+        <p data-profile-role="description" className="text-[15px] text-muted-foreground">
           Step 2 of 2 · Choose people for {circleName}, or add them later.
         </p>
       </header>
@@ -170,7 +172,7 @@ export function CreateCirclePeopleBody({
         onChange={changeQuery}
         placeholder="Search people"
       />
-      <p role="status" className="shrink-0 text-sm text-muted-foreground">
+      <p data-profile-role="description" role="status" className="shrink-0 text-sm text-muted-foreground">
         {selected.length} selected
         {limit > 0
           ? ` · Choose up to ${limit} people`
@@ -179,7 +181,7 @@ export function CreateCirclePeopleBody({
             : ""}
       </p>
       {loading && page === 1 ? (
-        <p
+        <p data-profile-role="description"
           role="status"
           className="py-8 text-center text-sm text-muted-foreground"
         >

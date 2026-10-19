@@ -970,7 +970,7 @@ export function ConnectCirclesTab({
   };
 
   return (
-    <div className="space-y-4" data-testid="connect-circles-tab">
+    <div className="space-y-4" data-profile-type-scale="circles" data-testid="connect-circles-tab">
       {vaultOwnerToken ? (
         <>
           <label className={styles.circleSearch}>

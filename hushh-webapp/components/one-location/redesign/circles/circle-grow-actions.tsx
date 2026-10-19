@@ -277,6 +277,7 @@ export function CircleInvitePeopleSheet({
       }}
     >
       <SheetContent
+        data-profile-type-scale="circles"
         side="bottom"
         data-circle-invite-picker
         // The primitive lifts above the native keyboard. Keep only the results
@@ -314,7 +315,7 @@ export function CircleInvitePeopleSheet({
               </div>
             ) : loadError ? (
               <div className="space-y-3 rounded-2xl bg-muted/45 p-4">
-                <p className="text-sm text-muted-foreground">{loadError}</p>
+                <p data-profile-role="description" className="text-sm text-muted-foreground">{loadError}</p>
                 <Button
                   type="button"
                   variant="outline"

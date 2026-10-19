@@ -1034,6 +1034,7 @@ describe("named Circle flows", () => {
     fireEvent.click(screen.getByRole("button", { name: "Review Circle" }));
 
     expect(await screen.findByText("Meena Family")).toBeTruthy();
+    expect(screen.queryByText("You're already in this Circle.")).toBeNull();
     expect(screen.queryByText(/current and future Circle members/i)).toBeNull();
     expect(screen.getByText(/Location and SMS stay private/i)).toBeTruthy();
     expect(onResolve).toHaveBeenCalledWith("2345-6789-ABCD");
@@ -1079,6 +1080,7 @@ describe("named Circle flows", () => {
 
     expect(await screen.findByRole("button", { name: "Open Circle" })).toBeTruthy();
     expect(screen.getByText("Meena · 1 member")).toBeTruthy();
+    expect(screen.getByText("You're already in this Circle.")).toBeTruthy();
 
     // "Use Another Code" asks first so an accidental tap cannot wipe the
     // reviewed preview. Answering Yes runs the same clear-and-refocus flow.
@@ -1910,6 +1912,7 @@ describe("named Circle flows", () => {
     );
 
     expect(await screen.findByText("Meena Family")).toBeTruthy();
+    expect(screen.queryByText("You're already in this Circle.")).toBeNull();
     expect(screen.queryByLabelText("Circle name")).toBeNull();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 
@@ -1968,6 +1971,7 @@ describe("named Circle flows", () => {
     render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
 
     expect(await screen.findByText("Meena Family")).toBeTruthy();
+    expect(screen.queryByText("You're already in this Circle.")).toBeNull();
     expect(screen.queryByLabelText("Circle name")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     const save = await screen.findByRole("button", { name: "Save" });

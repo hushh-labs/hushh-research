@@ -122,7 +122,7 @@ async function buildStylesheet(candidates: string[]): Promise<string> {
 
   // The app's own @font-face rules cannot load over file:// and, sharing a
   // family name with the working one, stop it satisfying fonts.check.
-  return stripAppFontFaces(compiler.build(candidates));
+  return stripAppFontFaces((await import("lightningcss")).transform({ code: Buffer.from(compiler.build(candidates)), minify: true }).code.toString());
 }
 
 /**
@@ -988,11 +988,13 @@ test.describe("Circle roster row", () => {
           await expect(sheet).toHaveCSS("padding-right", "24px");
           await expect(sheet.locator('[data-slot="avatar"]')).toHaveCSS("width", "48px");
           await expect(sheet.locator('[data-slot="avatar"]')).toHaveCSS("height", "48px");
-          await expect(sheet.locator('[data-slot="drawer-title"]')).toHaveCSS("font-weight", "700");
+          await expect(sheet.locator('[data-slot="drawer-title"]')).toHaveCSS("font-weight", "600");
+          await expect(sheet.locator('[data-slot="drawer-title"]')).toHaveCSS("font-size", "15px");
           const menu = sheet.getByRole("menu");
           await expect(menu).toHaveCSS("border-radius", "20px");
           const share = page.getByRole("menuitem", { name: "Share location" });
           await expect(share).toHaveCSS("height", "52px");
+          await expect(share).toHaveCSS("font-size", "12px");
           const colors = await share.locator("svg").evaluate(svg => ({
             outline: getComputedStyle(svg.querySelector("path")!).stroke,
             accent: getComputedStyle(svg.querySelector(".profile-pane-icon-accent")!).stroke,
@@ -1235,7 +1237,7 @@ test.describe("Circle detail responsive layout", () => {
     test(`keeps the complete Circle title and Edit action visible at ${width}px`, async ({
       page,
     }) => {
-      const body = `<div data-detail-header class="${CIRCLE_DETAIL_HEADER_CLASSNAME}">
+      const body = `<div data-profile-type-scale="circles" data-detail-header class="${CIRCLE_DETAIL_HEADER_CLASSNAME}">
   <div class="${CIRCLE_DETAIL_HEADER_COPY_CLASSNAME}">
     <header><h1 data-circle-title class="ui-text-page-title">Trusted Family and Emergency Circle Featherstonehaugh-Rajendran</h1></header>
   </div>
@@ -1273,6 +1275,8 @@ test.describe("Circle detail responsive layout", () => {
         };
       });
 
+      await expect(page.locator('[data-circle-title]')).toHaveCSS("font-size", "20px");
+      await expect(page.locator('[data-edit]')).toHaveCSS("font-size", "12px");
       expect(result.titleScrollWidth).toBeLessThanOrEqual(
         result.titleClientWidth + 1,
       );
