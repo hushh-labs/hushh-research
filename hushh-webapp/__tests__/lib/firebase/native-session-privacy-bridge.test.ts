@@ -150,4 +150,35 @@ describe("native privacy bridge state validation", () => {
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(mocks.interactionFeedback).not.toHaveBeenCalled();
   });
+
+  it("does not lose confirmed release when another consumer receives the same lifecycle event", async () => {
+    mocks.getState.mockResolvedValue(active);
+    await getNativeSessionPrivacyState();
+    await subscribeNativeSessionPrivacy(vi.fn());
+    await subscribeNativeSessionPrivacy(vi.fn());
+    let resolveCompletion!: (value: typeof active & { released: boolean }) => void;
+    mocks.completeSessionValidation.mockReturnValueOnce(new Promise(resolve => { resolveCompletion = resolve; }));
+    const pendingRelease = completeNativeSessionPrivacyValidation(active.generation);
+    // Each component registers a Capacitor listener. A duplicate delivery is
+    // not a new inactive cycle and must not discard the sole release receipt.
+    mocks.addListener.mock.calls.at(-1)![1]({ ...active, action: "state" });
+    const released = { ...active, shielded: false, released: true };
+    resolveCompletion(released);
+    await pendingRelease;
+    expect(nativePrivacyObservation().state).toEqual(released);
+  });
+
+  it("returns the current lifecycle to a reader superseded by an inactive event", async () => {
+    mocks.getState.mockResolvedValue({ ...active, shielded: false });
+    await getNativeSessionPrivacyState();
+    await subscribeNativeSessionPrivacy(vi.fn());
+    let resolveRead!: (value: typeof active) => void;
+    mocks.getState.mockReturnValueOnce(new Promise(resolve => { resolveRead = resolve; }));
+    const oldRead = getNativeSessionPrivacyState();
+    const interrupted = { ...active, generation: 4, appIsActive: false, action: "state" };
+    mocks.addListener.mock.calls.at(-1)![1](interrupted);
+    resolveRead({ ...active, shielded: false });
+    expect(await oldRead).toEqual(interrupted);
+    expect(nativePrivacyObservation().state).toEqual(interrupted);
+  });
 });

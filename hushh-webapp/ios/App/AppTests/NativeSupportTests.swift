@@ -3334,6 +3334,46 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(model.confirm(actions[1]))
     }
 
+    @MainActor
+    func testPrivacyReleasePublishesTheCurrentStateToAllConsumers() {
+        let shield = HushhSessionPrivacyShield.shared
+        let document = "public-privacy-release-\(UUID().uuidString)"
+        shield.observeDocument(document)
+        let previous = shield.onStateChanged
+        var releasedStates: [HushhSessionPrivacyShield.Snapshot] = []
+        shield.onStateChanged = { state, action in
+            previous?(state, action)
+            if !state.shielded { releasedStates.append(state) }
+        }
+        var nativeReleases = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: HushhSessionPrivacyShield.presentationDidChange, object: shield, queue: .main
+        ) { _ in if !shield.snapshot().shielded { nativeReleases += 1 } }
+        defer {
+            shield.onStateChanged = previous
+            NotificationCenter.default.removeObserver(observer)
+        }
+        shield.protectForAppInactive()
+        shield.markAppActive()
+        let generation = shield.snapshot().generation
+        let retirement = shield.beginPresentationRetirement()
+        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: true))
+        shield.completePresentationRetirement(retirement)
+        XCTAssertFalse(shield.completeSessionValidation(generation: generation - 1, documentId: document, appIsActive: true))
+        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: false))
+        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: "unobserved-document", appIsActive: true))
+        XCTAssertTrue(releasedStates.isEmpty)
+        XCTAssertEqual(nativeReleases, 0)
+        XCTAssertTrue(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: true))
+        XCTAssertEqual(releasedStates.count, 1, "A Promise receipt alone does not release subscribed presentation consumers")
+        XCTAssertEqual(nativeReleases, 1)
+        XCTAssertEqual(releasedStates.first?.generation, generation)
+        XCTAssertEqual(releasedStates.first?.appIsActive, true)
+        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: true))
+        XCTAssertEqual(releasedStates.count, 1, "Repeated acknowledgements must not publish another release")
+        XCTAssertEqual(nativeReleases, 1)
+    }
+
     func testPrivacyCannotUncoverBeforeEveryOwnedPresenterRetires() {
         var state = HushhSessionPrivacyState()
         let normal = state.beginPresentationRetirement()

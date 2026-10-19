@@ -16,6 +16,20 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Resume release ordering repair — 2026-10-18
+
+The shared bridge previously counted duplicate lifecycle deliveries as new
+boundaries, which could discard the sole confirmed release observation. A stale
+read also returned obsolete active state despite fencing its cached observation.
+The nearest regressions fail on both old paths. Identical deliveries now preserve
+the epoch; superseded readers receive the current observation. iOS broadcasts
+confirmed release to all privacy consumers, retaining the same native notification
+and exact-document/generation/active-app/retirement checks. No action is replayed
+or interaction force-enabled. An installed-candidate ten-cycle resume journey
+and native host verification remain pending; the existing two-cycle physical
+baseline passed but did not reproduce the intermittent reported freeze. This
+bounded ordering fix does not close the staged-reconstruction gate below.
+
 ### Current candidate and Memory owner boundary — 2026-10-18
 
 Native Profile now reads its URL, query and sanitized visited-parent metadata

@@ -286,7 +286,10 @@ final class HushhSessionPrivacyShield: NSObject {
                 completion: { _ in overlay.removeFromSuperview() }
             )
         }
-        NotificationCenter.default.post(name: Self.presentationDidChange, object: self)
+        // Release is authoritative state for every presentation consumer, not
+        // only the caller awaiting its bridge Promise. Broadcast it through the
+        // same lifecycle owner so a delayed receipt cannot strand JS isolation.
+        publishState()
         return true
     }
 
