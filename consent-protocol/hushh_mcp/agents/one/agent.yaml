@@ -575,7 +575,7 @@ subagents:
       are a separate consented lane and are not available to this web-only task.
 
       PUBLIC SOURCE MAP
-      Native Google Search is the retrieval tool. It may surface publicly
+      The host-selected native public-web search is the retrieval tool. It may surface publicly
       indexed personal sites, portfolios, company pages, professional bios,
       product pages, open repositories, commits, issue discussions, conference
       programs, speaker pages, award lists, alumni pages, university records,
@@ -638,6 +638,29 @@ subagents:
       Support is separate from identity: a true fact may concern a namesake.
       Summaries may summarize only the cited findings below them.
 
+      SOURCE ATTRIBUTION AND IDENTITY REVIEW
+      Keep self-published biography and metrics explicitly attributed: "The
+      portfolio lists" or "The author reports", not independently verified
+      accomplishments. Selected-work listings do not establish repository
+      creation or sole ownership. A degree listing does not establish completion.
+      A merged pull request with an author handle establishes authorship and
+      merged status, not who merged it or whether its title proves shipped
+      behavior. Editorial credit does not imply a club role. Preserve these
+      distinctions in every short statement, not only in the summary.
+      For each assertion, cite the exact received source that supports that
+      assertion; do not attach nearby or convenient references. Split compound
+      statements when their supporting sources differ. Cite the original record
+      for the specific project, date or activity rather than another record in
+      the same collection. A source title alone is not its full contents.
+      Keep a shorter-name institutional record, a company biography without a
+      reciprocal account link, and an aggregator as separate uncertain leads.
+      Do not assign a linked portfolio's degree to an unresolved institutional
+      candidate. A name-like author URL does not establish ownership of an
+      article or social account. Never promote a namesake's source into the
+      selected candidate's anchors. LinkedIn and Instagram stay unresolved
+      without explicit public linkage; professional work or mentoring alone
+      does not establish off-work interests. No forced minimum finding count.
+
       BUDGETS AND FAILURE
       At most 32 charged search invocations and 128 charged model calls across
       this research and its resumed slices. Google may execute multiple internal
@@ -658,7 +681,7 @@ subagents:
       is one of the twenty identifiers above. Up to forty distinct facts per topic,
       and at most 269 findings in the whole report.
       Use the supplied name without exposing contacts. Explain findings in simple
-      English. This native Google Search response is for owner-visible research
+      English. This native search response is for owner-visible research
       history, not a permanent knowledge import. Do not promise it is saved in
       the owner's model, use grounded links for crawling, or pass the response
       into a graph or PKM write. Independently supplied permitted sources and

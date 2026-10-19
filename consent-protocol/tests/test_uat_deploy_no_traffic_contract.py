@@ -11,10 +11,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import httpx
 import pytest
 import yaml
-from openai import APITimeoutError
 
 from hushh_mcp.managed_ai_config import load_profile
 
@@ -276,56 +274,83 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
             assert not invoked
 
 
-@pytest.mark.parametrize(("timeouts", "should_pass"), [(1, True), (2, False)])
-def test_azure_pwm_phi_probe_retries_one_timeout_but_never_waives_a_second(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    timeouts: int,
-    should_pass: bool,
-) -> None:
+def test_azure_pwm_probe_loads_production_contracts_without_application_secrets():
+    script = REPO_ROOT / "consent-protocol/scripts/verify_azure_pwm_runtime.py"
+    code = (
+        "import importlib.util; "
+        f"spec=importlib.util.spec_from_file_location('probe', {str(script)!r}); "
+        "module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); "
+        "module._initialize_synthetic_runtime(); "
+        "values, schemas=module._production_contract_examples(); "
+        "assert set(values) == set(schemas) == {'assessment','finding','report','planner'}"
+    )
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key
+        not in {
+            "APP_SIGNING_KEY",
+            "VAULT_DATA_KEY",
+            "DATABASE_URL",
+            "DB_CONNECTION_STRING",
+        }
+    }
+    environment["ENVIRONMENT"] = "uat"
+    result = subprocess.run(  # noqa: S603 - fixed probe import, no external input or credentials
+        [sys.executable, "-c", code],
+        env=environment,
+        cwd=script.parent.parent,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("defect", [None, "wrong_attribution", "missing_case", "wrong_contract"])
+def test_azure_pwm_primary_probe_requires_actual_attribution_decisions(monkeypatch, capsys, defect):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk import world_model_azure
+
     script = REPO_ROOT / "consent-protocol/scripts/verify_azure_pwm_runtime.py"
     spec = importlib.util.spec_from_file_location("azure_pwm_runtime_probe", script)
-    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    calls = 0
-
-    class FakeClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        @property
-        def chat(self):
-            return SimpleNamespace(completions=SimpleNamespace(create=self.create))
-
-        async def create(self, **_kwargs):
-            nonlocal calls
-            calls += 1
-            if calls <= timeouts:
-                raise APITimeoutError(request=httpx.Request("POST", "https://example.test"))
-            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))])
-
-    monkeypatch.setattr(module, "AsyncOpenAI", lambda **_kwargs: FakeClient())
-    config = {"phi_endpoint": "https://example.test/", "phi_deployment": "synthetic-phi"}
-    if should_pass:
-        asyncio.run(module._probe_phi(config, "synthetic-token"))
+    rows = [
+        {"case_id": key, "supported": expected} for key, _, _, expected in module._ATTRIBUTION_CASES
+    ]
+    if defect == "wrong_attribution":
+        rows[0]["supported"] = True
+    elif defect == "missing_case":
+        rows.pop()
+    examples, _schemas = module._production_contract_examples()
+    if defect == "wrong_contract":
+        examples["planner"]["action"] = "search"
+    structured = AsyncMock(return_value={"decisions": rows, **examples})
+    monkeypatch.setattr(
+        world_model_azure,
+        "AzurePwmGateway",
+        lambda **kwargs: SimpleNamespace(structured=structured),
+    )
+    config = {
+        "primary_endpoint": "https://synthetic.openai.azure.com/openai/v1/",
+        "primary_deployment": "synthetic-primary",
+    }
+    if defect:
+        with pytest.raises(RuntimeError, match="evaluation failed"):
+            asyncio.run(module._probe_primary(config, lambda: "synthetic"))
     else:
-        with pytest.raises(APITimeoutError):
-            asyncio.run(module._probe_phi(config, "synthetic-token"))
-    assert calls == 2
-    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert [event["result"] for event in events] == (
-        ["start", "timeout", "start", "ok"]
-        if should_pass
-        else ["start", "timeout", "start", "timeout"]
-    )
-    assert all(
-        set(event) == {"azure_pwm_runtime_probe_stage", "result", "elapsed_ms", "attempt"}
-        for event in events
-    )
+        asyncio.run(module._probe_primary(config, lambda: "synthetic"))
+        event = json.loads(capsys.readouterr().out)
+        assert event["azure_pwm_attribution_cases"] == 6
+        assert event["azure_pwm_production_contracts"] == 4
+        assert len(event["policy_sha256"]) == 64
+    structured.assert_awaited_once()
+    request = structured.call_args.kwargs
+    assert request["purpose"] == "source_attribution_evaluation"
+    assert len(request["payload"]["cases"]) == 6
+    assert all("supported" not in case for case in request["payload"]["cases"])
 
 
 def test_uat_drive_worker_uses_the_evaluated_fleet_model() -> None:

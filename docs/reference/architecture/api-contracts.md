@@ -956,6 +956,24 @@ Items carry an opaque `scopeRef` (repeated as `scope`, matching the proposal car
 credentials, keys, tokens, protocol namespaces) never appear, here or in any
 other person-to-person catalog, and are refused again at request creation.
 
+### Personal World Model research
+
+`POST /api/one/world-model/ensure` starts/resumes the existing owner-bound research
+job after setup and unlock. The backend resolves fresh authenticated name,
+verified email and canonical verified phone when available; at least one verified
+contact is required. `POST /api/one/world-model/research` retains its strict
+`{name,email?,phone_number?}` compatibility body and rejects identifiers that do
+not match that owner. It is not an arbitrary-person lookup endpoint.
+
+UAT's Azure GPT-5 mini adapter uses native Bing receipts and strict structured
+output behind the same routes. Fresh `pwm-azure-bing-v1` consent remains required.
+`GET /api/one/world-model/jobs/stream` retains `progress`, cumulative validated
+`partial`, `ping` and terminal `result` events with private/no-store headers.
+Status and stream reads recheck authority before releasing checkpoint findings.
+Reports remain view-only (`pkm_written:false`); source and identity review precede
+the owner's existing encrypted memory save. See the [PWM contract](../one/personal-world-model.md)
+and [stream implementation](../streaming/streaming-implementation-guide.md).
+
 ### One Runtime Configuration
 
 | Method | Path                               | Auth            | Description                                                                                                                                                                                                                                                                                                               |

@@ -986,3 +986,13 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   candidate membership, conflict conditions and topic receipt checks validate
   model output; they do not choose queries or generate replacement interpretations.
 - Scope and exact prompt: [Personal World Model KT](../../../docs/reference/one/personal-world-model.md).
+- Azure UAT: GPT-5 mini owns planning, candidate assessment, attribution and report
+  meaning using that same manifest. Adapter instructions select the execution
+  stage and conservative citation-only identity boundary; native JSON schema and
+  host validation reject malformed or unreceived evidence. Candidate/source ID
+  namespaces and observed-attempt gates enforce evidence provenance, not meaning.
+  The policy fingerprint includes active stage instructions and transport bounds,
+  invalidating old drafts while preserving paid-attempt accounting. The existing
+  no-traffic candidate probe evaluates six synthetic attribution cases and the
+  production output schemas through the real primary gateway. Live owner precision and nonprofessional/social
+  coverage remain separate quality questions; no claim count proves them.
