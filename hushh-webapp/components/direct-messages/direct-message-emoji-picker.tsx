@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/popover";
 import catalogue from "@/lib/circle-chat/emoji-reactions.generated.json";
 import { cn } from "@/lib/utils";
+import { Smiley } from "@phosphor-icons/react";
 
 import styles from "./direct-message-emoji-picker.module.css";
 
@@ -153,7 +154,11 @@ export function DirectMessageEmojiPicker({
     grid.current?.scrollTo?.(0, 0);
   }, [activeCategory, query, open]);
 
-  useEffect(() => { setOpen(false); }, [dismissSignal, setOpen]);
+  useEffect(() => {
+    // Controlled reaction pickers already follow the owning message's state.
+    // Only an explicit owner/route dismissal signal should reset this picker.
+    if (dismissSignal !== undefined) setOpen(false);
+  }, [dismissSignal, setOpen]);
 
   useEffect(() => {
     setRecent(readRecentEmojis());
@@ -210,7 +215,7 @@ export function DirectMessageEmojiPicker({
           data-compact={compact || undefined}
           disabled={disabled}
         >
-          <span aria-hidden="true">{triggerIcon ?? "☺"}</span>
+          <span aria-hidden="true">{triggerIcon ?? <Smiley className="h-5 w-5" weight="regular" />}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent
