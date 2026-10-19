@@ -105,6 +105,22 @@ def test_provider_relationship_projection_rejects_unbounded_or_malformed_facts(e
         rest._project_page({"files": [source]}, [source])
 
 
+def test_provider_relationship_projection_ignores_blank_optional_identity_fields():
+    # Drive can return sharingUser.displayName as an empty string on a valid
+    # files.list page. One such row must not fail the whole owner's search.
+    source = {
+        "id": FILE_ID,
+        "name": "Plan.pdf",
+        "mimeType": "application/pdf",
+        "version": "42",
+        "owners": [{"displayName": "", "emailAddress": "owner@example.invalid"}],
+        "sharingUser": {"displayName": ""},
+    }
+    projected = rest._project_page({"files": [source]}, [source])["files"][0]
+    assert projected["owners"] == [{"emailAddress": "owner@example.invalid"}]
+    assert "sharingUser" not in projected
+
+
 def test_the_mcp_query_dialect_becomes_drive_rest_q():
     assert rest.rest_query("(title contains 'bank' or fullText contains 'bank')") == (
         "((name contains 'bank' or fullText contains 'bank')) and trashed = false"

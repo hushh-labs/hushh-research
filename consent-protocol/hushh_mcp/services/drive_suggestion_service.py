@@ -15,6 +15,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
@@ -284,17 +285,29 @@ class LiveSearchPlan(BaseModel):
             self.semantic_query is not None and self.semantic_query.status == "input_required"
         )
         if self.subject_complete is False and not unresolved:
-            raise ValueError("requested search subject is incomplete")
+            raise PydanticCustomError(
+                "drive_subject_incomplete", "requested search subject is incomplete"
+            )
         if self.subject_scope == "specific_records" and not (
             self.terms or self.exact_title or self.semantic_query is not None
         ):
-            raise ValueError("specific records require a search subject")
+            raise PydanticCustomError(
+                "drive_specific_subject_missing", "specific records require a search subject"
+            )
         if self.subject_scope == "metadata_listing" and (self.terms or self.exact_title):
-            raise ValueError("metadata listing cannot also name a search subject")
+            raise PydanticCustomError(
+                "drive_metadata_subject_conflict",
+                "metadata listing cannot also name a search subject",
+            )
         if self.term_groups and [group[0] for group in self.term_groups] != self.terms:
-            raise ValueError("search concept canonical terms must match terms in order")
+            raise PydanticCustomError(
+                "drive_term_group_canonical_mismatch",
+                "search concept canonical terms must match terms in order",
+            )
         if self.result_limit is not None and self.sort != "recent":
-            raise ValueError("a bounded file count requires recent ordering")
+            raise PydanticCustomError(
+                "drive_count_requires_recent_sort", "a bounded file count requires recent ordering"
+            )
         dated = self.date_from is not None or self.date_to is not None
         if not (
             self.terms
@@ -306,11 +319,19 @@ class LiveSearchPlan(BaseModel):
             or self.sort == "recent"
             or self.semantic_query is not None
         ):
-            raise ValueError("search terms, a file type, a date range or a recent listing required")
+            raise PydanticCustomError(
+                "drive_search_boundary_missing",
+                "search terms, a file type, a date range or a recent listing required",
+            )
         if (self.relative_days is not None or dated) and self.time_intent != "file_activity":
-            raise ValueError("a file date range requires explicit file activity intent")
+            raise PydanticCustomError(
+                "drive_date_requires_file_activity",
+                "a file date range requires explicit file activity intent",
+            )
         if self.relative_days is not None and dated:
-            raise ValueError("use either relative days or calendar dates")
+            raise PydanticCustomError(
+                "drive_mixed_date_filters", "use either relative days or calendar dates"
+            )
         if dated:
             # Explicit ranges are checked as written; only an open "since" is bounded later.
             start = date.fromisoformat(self.date_from or self.date_to or "")
@@ -318,7 +339,9 @@ class LiveSearchPlan(BaseModel):
             if self.date_to is not None and (
                 end < start or (end - start).days >= MAX_DATE_RANGE_DAYS
             ):
-                raise ValueError("the calendar date range is invalid")
+                raise PydanticCustomError(
+                    "drive_calendar_range_invalid", "the calendar date range is invalid"
+                )
         return self
 
     def search_term_groups(self) -> list[list[str]]:
@@ -433,9 +456,15 @@ class SemanticLiveSearchModelPlan(LiveSearchModelPlan):
     def semantic_subject(self):
         if self.semantic_query.status == "ready":
             if self.subject_complete is not True:
-                raise ValueError("ready semantic plan requires a complete subject audit")
+                raise PydanticCustomError(
+                    "drive_semantic_subject_incomplete",
+                    "ready semantic plan requires a complete subject audit",
+                )
             if (self.subject_scope == "metadata_listing") != self.semantic_query.metadata_listing:
-                raise ValueError("semantic and compatibility subject scopes disagree")
+                raise PydanticCustomError(
+                    "drive_semantic_scope_mismatch",
+                    "semantic and compatibility subject scopes disagree",
+                )
         return self
 
 

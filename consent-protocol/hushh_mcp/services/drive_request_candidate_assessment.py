@@ -214,7 +214,7 @@ async def assess_request_candidates(
         or isinstance(read_timeout_seconds, bool)
         or not 0 < read_timeout_seconds <= 55
         or isinstance(assessment_timeout_seconds, bool)
-        or not 0 < assessment_timeout_seconds <= 60
+        or not 0 < assessment_timeout_seconds <= 75
         or total_timeout_seconds is not None
         and (
             isinstance(total_timeout_seconds, bool)

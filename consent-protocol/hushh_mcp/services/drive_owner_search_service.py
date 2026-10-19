@@ -2671,7 +2671,7 @@ class DriveOwnerSearchService:
             read_candidate=read,
             require_current=current,
             policy_version=policy,
-            assessment_timeout_seconds=60,
+            assessment_timeout_seconds=75,
             total_timeout_seconds=85,
         )
         await current()

@@ -642,6 +642,26 @@ async def test_confirmed_transient_request_failure_retries_the_identical_prompt(
     assert observation["decision"] == "verified_match"
 
 
+async def test_local_first_attempt_timeout_retries_same_request_within_shared_deadline(monkeypatch):
+    from hushh_mcp.services import drive_request_package_assessment as module
+
+    monkeypatch.setattr(module, "REQUEST_ASSESSMENT_TIMEOUT_SECONDS", 0.08)
+    monkeypatch.setattr(module, "REQUEST_FIRST_ATTEMPT_TIMEOUT_SECONDS", 0.01)
+    prompts = []
+
+    async def interpreter(*, prompt, user_id):
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            await asyncio.Event().wait()
+        return answer(json.loads(prompt)["retrieved_documents"])
+
+    (observation,) = await assess_request_candidates(
+        **setup(assessor=partial(assess_request_document_batch, interpreter=interpreter))
+    )
+    assert len(prompts) == 2 and prompts[0] == prompts[1]
+    assert observation["decision"] == "verified_match"
+
+
 @pytest.mark.parametrize(
     "error", [ValueError("configuration failure"), TimeoutError(), PermissionError()]
 )
@@ -661,7 +681,8 @@ async def test_request_retry_loop_has_one_deadline_including_backoff(monkeypatch
     class ProviderThrottled(Exception):
         code = 429
 
-    monkeypatch.setattr(module, "ASSESSMENT_TIMEOUT_SECONDS", 0.02)
+    monkeypatch.setattr(module, "REQUEST_ASSESSMENT_TIMEOUT_SECONDS", 0.02)
+    monkeypatch.setattr(module, "REQUEST_FIRST_ATTEMPT_TIMEOUT_SECONDS", 0.01)
     calls, timeout_limits, cancelled = [], [], asyncio.Event()
     actual_timeout = asyncio.timeout
 
@@ -688,7 +709,7 @@ async def test_request_retry_loop_has_one_deadline_including_backoff(monkeypatch
     assert len(calls) == (2 if stage == "correction" else 1)
     # Read, outer model budget, then one shared request-assessor deadline.
     # A fresh deadline per attempt would spend more than the reserved slice.
-    assert timeout_limits == [55, 30, 0.02]
+    assert timeout_limits == [55, 30, 0.02, 0.01]
     assert cancelled.is_set() == (stage == "correction")
     assert observation["decision"] == "unavailable"
     assert observation["code"] == "assessment_unavailable"
