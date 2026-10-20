@@ -35,7 +35,7 @@ export function NativeAccentChoice({ value, owner, context, eligible }: {
       className="flex h-11 w-[138px] max-w-full shrink-0 items-center justify-center [&>div]:w-full">
       <Select value={value} onValueChange={(next) => { if (next === "blue" || next === "gold") writeAccent(next); }}>
         <SelectTrigger ref={trigger} aria-label="App accent color"
-          className={cn(SHELL_ICON_BUTTON_CLASSNAME, "group/accent h-11 w-full justify-between gap-2 border-0 !bg-transparent px-3 !shadow-none data-[size=default]:h-11 [&>svg]:relative [&>svg]:z-10")}>
+          className={cn(SHELL_ICON_BUTTON_CLASSNAME, "group/accent h-11 w-full justify-between gap-1 border-0 !bg-transparent px-2 !shadow-none data-[size=default]:h-11 [&>svg]:relative [&>svg]:z-10")}>
           {/* Match Appearance's 36px visual track inside the same 44px target. */}
           <span aria-hidden data-slot="accent-control-surface"
             className={cn(SHELL_ICON_BUTTON_CLASSNAME, "pointer-events-none absolute inset-x-0 inset-y-1 h-auto w-full group-hover/accent:bg-[color:var(--app-shell-surface-bg-hover)]")}>

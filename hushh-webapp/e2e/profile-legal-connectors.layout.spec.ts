@@ -171,6 +171,8 @@ test("Profile header, Preferences and body follow one whole-panel pull without r
   await page.getByRole("option", { name: "Molten Gold", exact: true }).click();
   await expect(accentChoice).toContainText("Molten Gold");
   const label = accentChoice.getByText("Molten Gold", { exact: true });
+  // Linux's product face is wider; reserve space beyond the local font metric.
+  await label.evaluate(node => { (node as HTMLElement).style.letterSpacing = "0.03em"; });
   expect(await label.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   await accentChoice.click();
   await page.getByRole("option", { name: "Blue", exact: true }).click();
