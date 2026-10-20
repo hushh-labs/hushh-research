@@ -459,6 +459,36 @@ async def test_phone_fallback_claim_lock_rejects_a_number_bound_to_another_owner
 
 
 @pytest.mark.asyncio
+async def test_audience_projection_excludes_tombstoned_owner_after_canonical_barriers():
+    from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
+
+    conn = SimpleNamespace(execute=AsyncMock(), fetch=AsyncMock())
+
+    async def tombstones(query, hashes, **_):
+        # Any deletion that was already in flight must commit before this read.
+        assert [call.args[1:] for call in conn.execute.call_args_list] == [
+            ("active", 171),
+            ("retired", 171),
+            ("active", 198),
+            ("retired", 198),
+        ]
+        assert "account_deletion_tombstones" in query
+        assert account_deletion_user_hash("retired") in hashes
+        return [{"user_id_hash": account_deletion_user_hash("retired")}]
+
+    conn.fetch.side_effect = tombstones
+    active = await audience.AccountDeletionLifecycleService.active_projection_user_ids(
+        conn, user_ids=["retired", "active", "active"]
+    )
+    assert active == {"active"}
+    with pytest.raises(ValueError, match="bound"):
+        await audience.AccountDeletionLifecycleService.active_projection_user_ids(
+            conn, user_ids=[str(n) for n in range(51)]
+        )
+    assert conn.fetch.call_count == 1
+
+
+@pytest.mark.asyncio
 async def test_audience_live_page_excludes_deleted_accounts_and_never_serializes_provider_records(
     monkeypatch,
 ):
