@@ -287,6 +287,14 @@ function statusCopy(input: {
       title: "Nothing to review right now",
       body: "We’ll check public pages again in a few days.",
     };
+  // Reviewed statements can all be duplicates or unsuitable without changing
+  // the separately assessed identity result.
+  if (result.status === "offered" && result.report.match_status !== "no_match")
+    return {
+      kind: "nothing",
+      title: "No new details to review",
+      body: "We checked the public findings and found no new personal details to offer.",
+    };
   // Only an offered report with no statements at all. People with the owner's
   // name may have turned up without any of them confirmed as the owner.
   const namesakes = result.status === "offered" ? result.research.candidates.length : 0;
