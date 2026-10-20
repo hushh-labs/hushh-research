@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { vi, test, expect, beforeEach } from "vitest";
 import { CircleChatMessage, type OpenChatMessage } from "../circle-chat-message";
 import { ChatSharedFile } from "../circle-chat-media";
+import { CircleMembershipEventPill } from "../circle-chat-system-event";
 
 const api = vi.hoisted(() => ({ react: vi.fn(), image: vi.fn() }));
 vi.mock("@/lib/services/circle-chat-service", () => ({ CircleChatService: api }));
@@ -13,6 +14,24 @@ const message: OpenChatMessage = {
   envelope: {} as OpenChatMessage["envelope"], content: { text: "Hello" }, failed: false, reactions: [],
 };
 beforeEach(() => { api.react.mockReset(); api.image.mockReset(); window.localStorage.clear(); });
+
+test("hides contact-only Circle sender, reply and membership labels without changing identity targets", () => {
+  const target = { ...message, id: "original", senderName: "member@example.test", content: { text: "Quoted body" } };
+  const onJump = vi.fn();
+  const view = render(<>
+    <CircleChatMessage message={{ ...message, senderName: "98******10", replyToMessageId: target.id }}
+      replyTarget={target} onJump={onJump} session={session} visible layoutBlocked={false}
+      scrollRoot={{ current: null }} onMediaError={() => {}} onViewerChange={() => {}} />
+    <CircleMembershipEventPill events={[{ id: "event-1", kind: "member_joined", subjectName: "member@example.test", actorName: "98******10", createdAt: message.createdAt }]} />
+  </>);
+  expect(view.container).not.toHaveTextContent("member@example.test");
+  expect(view.container).not.toHaveTextContent("98******10");
+  expect(screen.getByText("Hello")).toBeTruthy();
+  // Distinct raw identities must not collapse into a self-join after redaction.
+  expect(screen.getByText("Hussh member added Hussh member")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "View original message from Hussh member" }));
+  expect(onJump).toHaveBeenCalledExactlyOnceWith(target);
+});
 
 test("touch actions wait for a stationary hold, cancel on scroll, and retain quick reactions", async () => {
   api.react.mockResolvedValue({ messageId: message.id, reactions: [{ emoji: "❤️", count: 1, reactedByViewer: true }] });

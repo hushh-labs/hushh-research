@@ -443,7 +443,7 @@ export function CircleInvitePeopleSheet({
                         icon={Send}
                         // Awaiting acceptance is PENDING, not an action.
                         iconTone="orange"
-                        title={invite.inviteeDisplayName || "One connection"}
+                        title={connectPersonName({ displayName: invite.inviteeDisplayName }, "One connection")}
                         description="Waiting for them to join"
                         trailing={
                           <Button

@@ -511,7 +511,7 @@ export function CirclesSection({
                     {invite.circleName}
                   </p>
                   <p className={MUTED_TEXT}>
-                    Invited by {invite.inviterDisplayName}
+                    Invited by {connectPersonName({ displayName: invite.inviterDisplayName })}
                   </p>
                 </div>
                 <FlowActionGroup
@@ -1158,7 +1158,7 @@ export function JoinCircleFlow({
                 {preview.name}
               </p>
               <p className="text-[14px] leading-5 text-[color:var(--app-secondary-label)]">
-                {preview.ownerDisplayName} ·{" "}
+                {connectPersonName({ displayName: preview.ownerDisplayName })} ·{" "}
                 {preview.memberCount === 1
                   ? "1 member"
                   : `${preview.memberCount} members`}
@@ -3125,15 +3125,14 @@ export function CircleDetailFlow({
                               leading={
                                 <ConnectionPersonAvatar
                                   label={
-                                    invite.inviteeDisplayName ||
-                                    "One connection"
+                                    connectPersonName({ displayName: invite.inviteeDisplayName }, "One connection")
                                   }
                                   photoUrl={invite.inviteePhotoUrl}
                                   size="list"
                                 />
                               }
                               title={
-                                invite.inviteeDisplayName || "One connection"
+                                connectPersonName({ displayName: invite.inviteeDisplayName }, "One connection")
                               }
                               description="Waiting"
                               trailing={
