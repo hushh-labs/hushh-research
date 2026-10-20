@@ -190,6 +190,33 @@ class AccountDeletionLifecycleService:
                 )
 
     @staticmethod
+    async def active_projection_user_ids(conn, *, user_ids: Iterable[str]) -> set[str]:
+        """Hold the canonical deletion barriers for one bounded private read page.
+
+        The caller owns an asyncpg READ COMMITTED transaction and its deadlines.
+        Read the tombstones only after any exclusive deletion has committed.
+        No profile, identity or enrollment is created by this projection.
+        """
+        normalized = AccountDeletionLifecycleService._normalize_user_ids(user_ids)
+        if len(normalized) > 50:
+            raise ValueError("projection page exceeds lifecycle bound")
+        for namespace in (_CONNECTION_GRAPH_LOCK_NAMESPACE, _ACCOUNT_LIFECYCLE_LOCK_NAMESPACE):
+            for user_id in normalized:
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock_shared(hashtextextended($1, $2))",
+                    user_id,
+                    namespace,
+                )
+        hashes = {account_deletion_user_hash(uid): uid for uid in normalized}
+        deleted = await conn.fetch(
+            "SELECT user_id_hash FROM account_deletion_tombstones WHERE user_id_hash=ANY($1::text[])",
+            list(hashes),
+            timeout=5,
+        )
+        retired = {row["user_id_hash"] for row in deleted}
+        return {uid for digest, uid in hashes.items() if digest not in retired}
+
+    @staticmethod
     def _normalize_user_ids(user_ids: Iterable[str]) -> tuple[str, ...]:
         normalized_user_ids = tuple(
             sorted(

@@ -11,17 +11,19 @@ HELPER = Path(__file__).resolve().parents[2] / "deploy/plg/bind_secrets.sh"
 
 
 @pytest.mark.parametrize(
-    ("profile", "state", "expected"),
+    ("profile", "state", "audience", "expected"),
     [
-        ("production", "ENABLED", 2),
-        ("production", "DISABLED", 0),
-        ("production", "", 0),
-        ("production", "error", 0),
-        ("uat", "ENABLED", 0),
-        ("dev", "ENABLED", 0),
+        ("production", "ENABLED", "DISABLED", 2),
+        ("production", "DISABLED", "DISABLED", 0),
+        ("production", "", "DISABLED", 0),
+        ("production", "error", "DISABLED", 0),
+        ("production", "DISABLED", "ENABLED", 1),
+        ("production", "ENABLED", "ENABLED", 3),
+        ("uat", "ENABLED", "ENABLED", 0),
+        ("dev", "ENABLED", "ENABLED", 0),
     ],
 )
-def test_binding_pair_requires_enabled_versions_in_production(profile, state, expected):
+def test_binding_pair_requires_enabled_versions_in_production(profile, state, audience, expected):
     bash = shutil.which("bash")
     if os.name == "nt":
         candidate = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
@@ -36,6 +38,8 @@ gcloud() {
   if [[ "$*" == *'--secret=ONE_PLG_EXPORT_ACCOUNT_IDS'* ]]; then
     [[ "$PLG_TEST_SECOND_STATE" != error ]] || return 1
     printf '%s\n' "$PLG_TEST_SECOND_STATE"
+  elif [[ "$*" == *'--secret=ONE_PLG_AUDIENCE_SECRET'* ]]; then
+    printf '%s\n' "$PLG_TEST_AUDIENCE_STATE"
   else
     printf '%s\n' ENABLED
   fi
@@ -44,15 +48,19 @@ source "$1" "$2" test-project
 """
     result = subprocess.run(  # noqa: S603 -- fixed helper and synthetic CLI, no cloud access
         [bash, "-c", script, "plg-bindings", HELPER.as_posix(), profile],
-        env={**os.environ, "PLG_TEST_SECOND_STATE": state},
+        env={**os.environ, "PLG_TEST_SECOND_STATE": state, "PLG_TEST_AUDIENCE_STATE": audience},
         capture_output=True,
         text=True,
         timeout=10,
         check=True,
     )
     assert len(result.stdout.splitlines()) == expected
-    if expected:
-        assert result.stdout.splitlines() == [
+    bindings = []
+    if profile == "production" and state == "ENABLED":
+        bindings += [
             "ONE_PLG_EXPORT_SECRET:ONE_PLG_EXPORT_SECRET",
             "ONE_PLG_EXPORT_ACCOUNT_IDS:ONE_PLG_EXPORT_ACCOUNT_IDS",
         ]
+    if profile == "production" and audience == "ENABLED":
+        bindings += ["ONE_PLG_AUDIENCE_SECRET:ONE_PLG_AUDIENCE_SECRET"]
+    assert result.stdout.splitlines() == bindings
