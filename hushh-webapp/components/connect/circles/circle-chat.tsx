@@ -28,6 +28,7 @@ import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-me
 import { CircleMembershipEventPill, groupCircleMembershipEvents } from "./circle-chat-system-event";
 import { requestAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
 import { ROUTES } from "@/lib/navigation/routes";
+import { connectPersonName } from "@/lib/connections/person-label";
 
 const unavailable = (error: unknown) => error instanceof ApiError &&
   ([401, 403, 423].includes(error.status) || apiErrorCode(error) === "CIRCLE_CHAT_UNAVAILABLE");
@@ -670,7 +671,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     {jumping ? <p role="status" className="text-sm text-muted-foreground">Loading messages…</p> : null}
     {reply ? <div className="flex min-w-0 items-center gap-2 rounded-lg border-l-2 border-primary bg-muted/50 px-3 py-2" aria-label="Replying to message">
-      <div className="min-w-0 flex-1 text-sm"><p className="font-semibold"><bdi>{reply.senderName}</bdi></p><p dir="auto" className="line-clamp-2 break-words">{messages.find((item) => item.id === reply.id)?.content?.text ?? reply.content?.text ?? "Attachment"}</p></div>
+      <div className="min-w-0 flex-1 text-sm"><p className="font-semibold"><bdi>{connectPersonName({ displayName: reply.senderName })}</bdi></p><p dir="auto" className="line-clamp-2 break-words">{messages.find((item) => item.id === reply.id)?.content?.text ?? reply.content?.text ?? "Attachment"}</p></div>
       <Button variant="ghost" size="icon" className="size-11 shrink-0" aria-label="Cancel reply" disabled={sending || Boolean(pending)} onClick={() => setReply(null)}><X aria-hidden="true" className="size-4" /></Button>
     </div> : null}
     {file && !outgoing ? file.type.startsWith("image/") ? <ImageAttachmentPreview key={`${file.name}:${file.lastModified}`} file={file} disabled={sending || Boolean(pending)} onThumbnail={(previewFile, thumbnail) => { if (previewFile === file) thumbnailRef.current = { file: previewFile, thumbnail }; }} onValidity={(previewFile, valid) => { if (previewFile === file) setValidFile(valid ? previewFile : null); }} onRemove={() => { setFile(null); setValidFile(null); thumbnailRef.current = null; if (fileInput.current) fileInput.current.value = ""; }} />

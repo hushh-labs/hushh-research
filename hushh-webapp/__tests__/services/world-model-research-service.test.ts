@@ -135,6 +135,16 @@ it("accepts a deep PWM draft with scored evidence but rejects padded duplicates"
   expect(pwmReportSchema.safeParse(report).success).toBe(true);
   expect(pwmReportSchema.safeParse({
     ...report,
+    match_status: "uncertain",
+    summary: "No new personal findings remain after review.",
+    sections: [],
+  }).success).toBe(true);
+  expect(pwmReportSchema.safeParse({
+    ...report,
+    match_status: "no_match",
+  }).success).toBe(false);
+  expect(pwmReportSchema.safeParse({
+    ...report,
     sections: sections.map((section, index) => index === 6
       ? { ...section, facts: [...section.facts, section.facts[0]] }
       : section),

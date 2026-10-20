@@ -176,7 +176,7 @@ describe("CircleInvitePeopleSheet", () => {
           inviterUserId: "owner-user",
           inviterDisplayName: "Owner",
           inviteeUserId: "pending-user",
-          inviteeDisplayName: "Pending Friend",
+          inviteeDisplayName: "member@example.test",
           status: "pending",
         },
       ],
@@ -195,7 +195,8 @@ describe("CircleInvitePeopleSheet", () => {
       />,
     );
 
-    expect(await screen.findByText("Pending Friend")).toBeTruthy();
+    expect(await screen.findByText("One connection")).toBeTruthy();
+    expect(screen.queryByText("member@example.test")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     await waitFor(() =>

@@ -1155,6 +1155,92 @@ async def test_old_progressive_bulk_notice_cannot_duplicate_request_event():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", ["declined", "cancelled", "context_unavailable", "pending"])
+async def test_worker_releases_closed_request_search_without_discarding_live_work(
+    request_bulk, sharing, monkeypatch, scenario
+):
+    from tests.services.test_drive_owner_search_postgres import create
+
+    _membership(sharing, "active")
+    await DriveLivePreferences(db=sharing.db).set_background(
+        user_id="owner", enabled=True, confirmed=True
+    )
+    request = await _request(sharing)
+    request_id = request["requestId"]
+    await sharing.request_bulk_context(user_id="owner", request_id=request_id, start=True)
+    job_id = _auto_job(request_bulk, request_id=request_id)
+    if scenario != "pending":
+        # Short drains must check authority even while content assessment waits.
+        with sharing.db.engine.begin() as connection:
+            envelope = connection.execute(
+                text("SELECT checkpoint_envelope FROM drive_owner_search_jobs WHERE job_id=:job"),
+                {"job": job_id},
+            ).scalar_one()
+            checkpoint = request_bulk._open(
+                envelope, user_id="owner", resource_id=job_id, purpose="owner-search-checkpoint"
+            )
+            checkpoint["semantic_pending"] = [{"id": "synthetic-pending-file"}]
+            connection.execute(
+                text(
+                    "UPDATE drive_owner_search_jobs SET checkpoint_envelope=CAST(:value AS jsonb) WHERE job_id=:job"
+                ),
+                {
+                    "job": job_id,
+                    "value": request_bulk._seal(
+                        checkpoint,
+                        user_id="owner",
+                        resource_id=job_id,
+                        purpose="owner-search-checkpoint",
+                    ),
+                },
+            )
+    if scenario in {"declined", "cancelled"}:
+        await sharing.decline_or_cancel(
+            user_id="owner" if scenario == "declined" else "recipient",
+            request_id=request_id,
+            revision=request["revision"],
+            decision=scenario,
+        )
+    context_lookup = None
+    if scenario == "context_unavailable":
+        context_lookup = AsyncMock(side_effect=OSError("Synthetic temporary lookup failure"))
+        monkeypatch.setattr(sharing, "request_bulk_context", context_lookup)
+    before = rows(sharing, "drive_owner_search_jobs")[0]
+    store = DriveOwnerSearchStore(db=sharing.db)
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    service._page = AsyncMock(side_effect=DriveReadError("provider_unavailable", retryable=True))
+    auto = DriveTrustedAutoService(sharing=sharing, bulk=request_bulk, wake=AsyncMock())
+    await DriveOwnerSearchWorker(service, trusted_auto=auto).run(max_jobs=1, deadline_seconds=5)
+    after = rows(sharing, "drive_owner_search_jobs")[0]
+    assert after["checkpoint_envelope"] == before["checkpoint_envelope"]
+    assert after["matched"] == before["matched"] == 1
+    with sharing.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_owner_search_results WHERE job_id=:job"),
+                {"job": job_id},
+            ).scalar_one()
+            == 1
+        )
+    assert after["lease_id"] is None and after["lease_expires_at"] is None
+    if scenario in {"declined", "cancelled"}:
+        service._page.assert_not_awaited()
+        assert after["status"] == "failed"
+        assert await store.due() == []
+        next_job, created = await create(store)
+        assert created and next_job["jobId"] != job_id
+    else:
+        assert after["status"] == "queued"
+        with pytest.raises(DriveReadError, match="search_in_progress"):
+            await create(store)
+        if context_lookup is not None:
+            context_lookup.assert_awaited_once()
+            service._page.assert_not_awaited()
+        else:
+            service._page.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("revocation", "expected"),
     [
