@@ -8,6 +8,7 @@ flowchart LR
   index --> profile["Profile and nested management"]
   index --> feed["Feed and decisions"]
   index --> mail["Mail: setup, Overview, KYC and Receipts"]
+  index --> calendar["Calendar: setup, Schedule, Invitations and Insights"]
   index --> nav["Shared navigation and typography"]
   connect --> person["Person profile and requests"]
   profile --> memory["Memory and World Model"]
@@ -33,6 +34,7 @@ owning implementation.
 | Referrals | [Referrals](./referrals.md): You, individual/Circle rankings, reward claims, every Circle Wars enrollment/create step, rules, native differences |
 | Feed | [Feed](./feed.md): history, every actionable family, payment/file-access sheets, briefing, notification controls and downstream destinations |
 | Mail | [Mail subagent](./mail.md): setup and OAuth, Overview/KYC/Receipts, exact copy and every CTA branch, private drafts and reviewed Send, mailbox/voice handoffs, API and response-field provenance, encrypted device snapshots, phone/desktop geometry and typography |
+| Calendar | [Calendar subagent](./calendar.md): onboarding and OAuth, Schedule/Invitations/Insights, every authored CTA and response branch, API fields and authority, conversation and recipient handoffs, phone/desktop geometry and fonts |
 | Navigation | [Shared navigation](./navigation.md): top bar, bottom tabs, contextual rails, Profile entry, Back and native admission |
 | Font schema | [Typography](./typography.md): when to use each semantic role, Profile home/detail scale, nav and Feed differences, CSS precedence and native limits |
 
@@ -137,3 +139,8 @@ The Mail contract is independently inspected at
 `5a894a2adf3e80b5a6d20acb46a4d97eccf54b75` on 21 October 2026. Its coverage and
 verification limits are recorded in that contract; it does not restamp the
 other contracts or certify live provider/device behavior.
+
+The Calendar contract is independently inspected at
+`49b175bdc4bf636ede1b2353f4c493496a94c9cc` on 21 October 2026. Its entry,
+CTA/copy, API/authority, responsive-layout and typography evidence has its own
+verification section; this addition does not restamp the other contracts.
