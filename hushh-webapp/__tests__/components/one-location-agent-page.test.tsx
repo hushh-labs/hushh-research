@@ -7665,7 +7665,7 @@ describe("OneLocationAgentPage", () => {
     const proceed = within(sheet).getByRole("link", {
       name: "Proceed to connections",
     });
-    expect(proceed).toHaveAttribute("href", "/one/connect?tab=all");
+    expect(proceed).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
     proceed.addEventListener("click", (event) => event.preventDefault(), {
       once: true,
     });
@@ -7755,7 +7755,7 @@ describe("OneLocationAgentPage", () => {
     expect(within(results).getByText("Connected now")).toBeTruthy();
     expect(
       within(results).getByRole("link", { name: "Proceed to connections" }),
-    ).toHaveAttribute("href", "/one/connect?tab=all");
+    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
     expect(
       within(results).queryByRole("button", {
         name: "Choose Google account",
@@ -8606,7 +8606,7 @@ describe("OneLocationAgentPage", () => {
       within(updatedSheet).getByRole("link", {
         name: "Proceed to connections",
       }),
-    ).toHaveAttribute("href", "/one/connect?tab=all");
+    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
     expect(
       within(updatedSheet).queryByRole("button", { name: "Sync again" }),
     ).toBeNull();

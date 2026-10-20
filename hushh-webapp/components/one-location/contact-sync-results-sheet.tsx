@@ -30,8 +30,8 @@ import { CONTACT_SYNC_MAX_LOOKUPS } from "@/lib/marketplace/contact-matching";
 import { cn } from "@/lib/utils";
 import type { GoogleContactSyncController } from "@/lib/contacts/use-google-contact-sync-session";
 import { googleContactSyncSummary } from "@/lib/contacts/google-contact-sync-summary";
-import { ROUTES } from "@/lib/navigation/routes";
 import { connectPersonName } from "@/lib/connections/person-label";
+import { CONNECT_CONNECTIONS_LIST_HREF } from "@/lib/navigation/connect-routes";
 
 const MATCH_PAGE_SIZE = 100;
 
@@ -62,6 +62,7 @@ export function ContactSyncResultsSheet({
   onSyncAgain,
   onInvite,
   onRequestConnection,
+  onViewConnections,
   takeover = false,
   invitations,
   googleSync,
@@ -73,6 +74,7 @@ export function ContactSyncResultsSheet({
   onSyncAgain: () => void | Promise<void>;
   onInvite: () => void | Promise<void>;
   onRequestConnection: (userId: string) => Promise<void>;
+  onViewConnections?: () => void;
   /** Use the existing Location onboarding layer for its nested results. */
   takeover?: boolean;
   invitations?: ContactInvitationController;
@@ -447,8 +449,8 @@ export function ContactSyncResultsSheet({
             className="w-full max-w-[244px]"
           >
             <Link
-              href={`${ROUTES.CONNECT}?tab=all`}
-              onClick={() => onOpenChange(false)}
+              href={CONNECT_CONNECTIONS_LIST_HREF}
+              onClick={() => { onOpenChange(false); onViewConnections?.(); }}
             >
               Proceed to connections
             </Link>

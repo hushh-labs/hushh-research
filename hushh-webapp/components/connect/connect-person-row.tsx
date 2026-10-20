@@ -118,13 +118,15 @@ export function ConnectDirectoryPersonRow({
   person,
   ...props
 }: Omit<ComponentProps<typeof ConnectPersonRow>, "title" | "description"> & {
-  person: ConnectPersonIdentity;
+  person: ConnectPersonIdentity & Partial<Pick<DirectoryPerson, "relationship">>;
 }) {
   return (
     <ConnectPersonRow
       {...props}
       title={connectPersonName(person)}
-      description={undefined}
+      description={person.relationship === "pending_outgoing"
+        ? "Request sent"
+        : person.relationship === "pending_incoming" ? "Wants to connect" : undefined}
     />
   );
 }

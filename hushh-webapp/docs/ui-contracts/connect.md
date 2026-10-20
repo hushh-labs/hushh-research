@@ -1,15 +1,14 @@
 # Connect UI Contract
 
-Status: current product and UI reference, checked against source revision
-`cfcdb3618` on 20 October 2026. Owner: frontend architecture. Classification:
+Status: current product and UI reference, updated for the v14 presentation
+integration on 20 October 2026. Owner: frontend architecture. Classification:
 `canonical`, package-local. This contract describes the reachable Connect
 experience: what each surface shows, what each CTA does, and how a person
-returns. It records existing behavior; it does not introduce new permissions,
-routes, or actions.
+returns. It records existing behavior; it does not introduce new service permissions or change mutation semantics.
 
 Connect has two top-level tabs: **Connections** and **Circles**. Connections
 finds and manages relationships. Circles groups people, manages membership,
-and hosts eligible group conversations. The six starter rows are templates;
+and hosts eligible group conversations. The six optional circle ideas are templates;
 saved circles and joined memberships come from the current account.
 
 ## Visual Map
@@ -18,14 +17,15 @@ saved circles and joined memberships come from the current account.
 flowchart TD
   connect["Connect"] --> connections["Connections"]
   connect --> circles["Circles"]
-  connections --> people["My connections and People or RIAs"]
+  connections --> people["Find people: People or RIAs"]
+  connections --> savedPeople["My connections: independent search"]
   connections --> contacts["Sync contacts and invite"]
   connections --> nearby["Around you"]
   people --> profile["Person profile"]
   people --> request["Request, cancel, respond or remove"]
   nearby --> directories["Advisors, Insurance and Places"]
   directories --> nearbyDetail["Detail sheet or dialog"]
-  circles --> starters["Six starters"]
+  circles --> starters["Collapsed optional circle ideas"]
   circles --> saved["Owned and joined circles"]
   circles --> create["Create: details then people"]
   circles --> join["Code then review then join"]
@@ -43,7 +43,7 @@ flowchart TD
 | Claim | Classification | Current contract |
 | --- | --- | --- |
 | Connect has Connections and Circles | `already_exists` | Two route-backed tabs; tapping or swiping selects the same surface. |
-| There are six circles | `already_exists` for the starter catalog | The badge is the number of starter templates, not saved circles, joined circles, members, or a maximum. |
+| There are six circles | `already_exists` for the starter catalog | The catalog contains six templates; owned/joined counts describe actual saved circles. Neither number is a maximum. |
 | A person has joined three circles | `needs_verification` | Valid as an account example only. The joined list is dynamic; it can contain zero, three, or another count. |
 | A circle name defines a permission | `wrong_direction` | Names and decorative icons do not grant access. Membership and separate sharing decisions retain their own authority. |
 | Creating or joining starts location sharing | `wrong_direction` | Circle management belongs to Connect. Location and SMS actions have separate flows and guards. |
@@ -64,10 +64,9 @@ are not invented as additional Connect pages.
 
 | Surface | Entry or URL | Presentation and return |
 | --- | --- | --- |
-| Connections | `/one/connect` or `/one/connect?tab=all` | Default tab. Shell Back follows the authored section origin, with `/one` as its default parent. |
-| Circles | `/one/connect?tab=circles` | Starter discovery and saved lists on the same page. |
+| Connections | `/one/connect` or `/one/connect?tab=all` | Find people by default; `view=connections` is the shared contact-results entry to My connections. Shell Back follows the authored section origin, with `/one` as its default parent. |
+| Circles | `/one/connect?tab=circles` | Saved lists first, collapsed optional circle ideas below. |
 | Create a Circle | Circles plus `action=create-circle` | Focused full-page form; shell Back returns to the Circles list. |
-| Custom circle | **Custom circle** on discovery | Same creation form in a dialog over the list. |
 | Join a Circle | Circles plus `action=join-circle` | Full-page code/review flow; optional `code` prefills and reviews, never auto-joins. |
 | Circle detail | Circles plus `action=circle-detail&circleId=<id>` | Saved circle; `circleSetup=1` requests first-member setup, `circleChat=1` requests Chat. |
 | Exact person review | `/one/connect?reviewPerson=<id>` | Opens the current person's capability review, without automatically sending. Incoming requests can redirect to Consent Center. |
@@ -76,7 +75,9 @@ are not invented as additional Connect pages.
 | Shared circle invitation | `/circle/join?code=<code>` | Guest or authenticated preview, then protected Connect handoff. |
 | Old Connect settings link | `/one/connect/settings` | Redirects to canonical Gemini preferences in Profile. |
 
-People, RIAs, and Around you are local directory modes inside Connections;
+Find people is the default local view, with My connections adjacent. Each keeps
+its own search. Accepted-roster search uses the existing paged service, with the existing People/all or verified-RIA audience, and never overwrites the cached browse page.
+People, RIAs, and Around you are local directory modes inside Find people;
 they are not three additional top-level tabs. Search uses `q` plus the
 existing query/session restoration. Unknown outer tabs resolve to Connections.
 Unknown circle actions, or detail without a circle ID, render the list.
@@ -85,25 +86,25 @@ Authority stays in [route constants and builders](../../lib/navigation/routes.ts
 [Connect route helpers](../../lib/navigation/connect-routes.ts),
 [tab registry](../../lib/navigation/top-shell-tabs.ts), and the authored
 [route layout contract](../../lib/navigation/app-route-layout.contract.json).
-This document is not a second executable route or action catalog.
+This document is not a second executable route or action catalog. Voice navigation follows the split: Find people opens discovery; My connections opens the accepted roster. The exact-revision capability evolution entry rejects an unfinished navigation step authored against the old combined People view, so it is reassessed against the visible view. Relationship and consent actions retain their existing semantics.
 
 ## Connections
 
-### My connections and directory
+### Find people and My connections
 
 | Control or state | Result and product boundary |
 | --- | --- |
-| **My connections (N) / My RIAs (N)** disclosure | Expands/collapses the accepted-connections list; does not disconnect anyone. Loaded counts are server totals, not the current page's length. People groups From contacts / Other connections; RIAs filters the roster. |
-| **Refresh contacts** beside My connections | Refreshes the accepted-connections list. This is distinct from address-book **Sync contacts**. Busy disables duplicate refresh. |
+| **Find people / My connections N** | Adjacent local views; discovery opens first. My connections shows accepted relationships, grouped From contacts / Other connections, with its own paged search. Selecting RIAs retains the existing verified-adviser scope, My RIAs count and fail-closed empty state. Switching views does not change relationships or write history. |
+| **Refresh** in My connections (accessible label Refresh contacts) | Refreshes the accepted-connections list. This is distinct from address-book **Sync contacts**. Busy disables duplicate refresh. |
 | Accepted person's identity row | Opens the shared person profile when a public reference exists. |
 | Message icon on an accepted connection | Enters private messages through the shared navigation owner. |
-| Remove control in My connections | Opens **Remove connection?**; **Cancel** keeps it, **Remove** commits removal. |
+| **Options → Remove connection** in My connections | Opens **Remove connection?**; **Cancel** keeps it, **Remove** commits removal. |
 | **Load more connections** | Reads another accepted-connections page; preserves the current list. |
 | **Could not refresh connections** | Retains useful rows and offers tap-to-retry. Initial pending load uses placeholder rows. |
 | Directory selector **People / RIAs / Around you** | Changes the local discovery mode. RIAs filters the person directory to verified investment-adviser profiles. Around you opens the nearby directory subtree. |
 | **Search people / Clear search** | Updates the directory query after 300 ms; searches the directory, not My connections. Query survives remount in session storage. Searching does not send requests. |
 | Person name/avatar | Profile handoff when a public reference exists; the trailing relationship action remains separate. |
-| Directory identity information | Names only in person rows and voice result/confirmation cards; no email, phone number or masked contact caption. Contact values used as missing-name fallbacks become “Hussh member”. Search by email or phone remains supported. Mutual counts/previews remain a separate inline supplement. |
+| Directory identity information | Names in person rows and voice result/confirmation cards; no email, phone number or masked contact caption. Contact values used as missing-name fallbacks become “Hussh member”. Existing pending-request status and connected-date context remain. Search by email or phone remains supported. Mutual counts/previews remain a separate inline supplement. |
 | **Connect** | Sends a no-scope connection request for that exact directory person. Ordinary directory taps do not first open a scope-selection dialog. |
 | **Cancel** on outgoing request | Withdraws the still-pending request; busy feedback remains in the same action slot. |
 | **Respond** on incoming request | Opens pending Consent Center review; does not accept merely by navigating. |
@@ -122,8 +123,8 @@ information. Source: [Connect page](../../app/connect/page-client.tsx) and
 
 Both lists use [ConnectPersonRow](../../components/connect/connect-person-row.tsx)
 in one column at every width. Identity buttons and actions are siblings; names
-and supporting text wrap. Avatars are 26px within a 30px well; relationship
-pills are 32px within 44px targets, with 44px Message/Remove icon controls.
+and supporting text wrap. Avatars are 36px; rows are 72px on desktop and 70px on phones; relationship
+actions use 44px targets, including Message and Options icon controls.
 
 The special **Send connection requests** sheet exposes selected people and
 Remove, **Ask from them** capability checkboxes per person, and the caller's
@@ -248,37 +249,38 @@ does not author a new URL.
 
 ## Circles
 
-### Six starters
+### Optional circle ideas
 
-Display order is fixed; membership is not. Source:
+Ideas are collapsed below actual circles and hidden while the circle list is
+being searched. Hide/Restore hidden affects templates only, never a circle or
+membership. The existing starter catalog and mutation owner are retained. Source:
 [starter definitions](../../components/connect/circle-discovery.ts),
 [discovery card](../../components/connect/circle-discovery-card.tsx), and
 [starter actions](../../components/connect/living-connections.tsx).
 
-| Order and label | Default saved identity | Setup effect |
+| Template | Default saved identity | Setup effect |
 | --- | --- | --- |
-| 1. SMS | Product-managed SMS Circle | Ensures the SMS system roster. A custom circle with the same name is not that roster. |
-| 2. Location | Location Circle, kind `other` | Creates a named group; location sharing still requires a later action. |
-| 3. Family | Family Circle, kind `family` | Creates a named group. |
-| 4. Finance | Finance Circle, kind `other` | Creates a named group; no financial access is granted by its name. |
-| 5. Investor | Investor Circle, kind `other` | Creates a named group; no investment permission is granted. |
-| 6. Business | Business Circle, kind `other` | Creates a named group; no company-information permission is granted. |
+| SMS | Product-managed SMS Circle | Ensures the SMS system roster. A custom circle with the same name is not that roster. |
+| Location | Location Circle, kind `other` | Creates a named group; location sharing still requires a later action. |
+| Family | Family Circle, kind `family` | Creates a named group. |
+| Finance | Finance Circle, kind `other` | Creates a named group; no financial access is granted by its name. |
+| Investor | Investor Circle, kind `other` | Creates a named group; no investment permission is granted. |
+| Business | Business Circle, kind `other` | Creates a named group; no company-information permission is granted. |
 
-Each row shows **Setup** or **Open**. Setup creates only after a tap, then
-opens the saved detail; non-SMS setup carries first-member intent. Open reuses
-an existing owner-matched circle. Matching uses the current name/kind for
+Selecting an idea creates only after a tap, then opens the saved detail;
+non-SMS setup carries first-member intent. Ideas already matched to an owned
+circle are omitted because the actual circle is listed above. Matching uses the current name/kind for
 ordinary starters and system identity for SMS. Joined circles do not satisfy
 an owned starter; renamed/custom circles stay in the saved list even when they
 no longer match a starter.
 
 | Discovery control/state | Result |
 | --- | --- |
-| **Custom circle** | Opens creation dialog over the list. |
-| **Setup / Open** | Creates or opens the corresponding owned circle. Disabled while loading, failed, or another starter is creating; one in-flight guard prevents duplicate rapid creates. |
+| **Create circle** in Your circles | Opens the existing full-page creation flow. |
+| Idea row | Creates the corresponding missing owned circle. Disabled while loading, failed, or another idea is creating; the existing in-flight guard prevents duplicate rapid creates. |
+| **Hide / Restore hidden** | Changes only the optional template list in the current owner session. |
 | **Retry circles** | Reloads failed circle summary. |
 | **Finish setting up One** | Enters account setup when no vault exists. |
-| **Find people to connect with / N connections** | Switches to Connections, People mode. On summary failure with no rows, becomes **Retry connections**. |
-| **Your Trusted Circle** | Opens the owner's Trusted system circle if present. It is separate from the six starter rows. |
 
 ### Owned and joined lists
 
@@ -293,15 +295,15 @@ is a sample account state, not a required fixture or product limit.
 | --- | --- |
 | **Create circle** | Opens the full-page creation route state. |
 | **Join with code** | Opens code entry. |
-| Circle tile, including its avatar/chevron region | One button opens that saved circle. Avatar clusters preview real members; the plus/overflow artwork is not a separate action. |
-| Empty starter **Find people** | Opens Connections. |
+| **Circle name** search | Filters the already-authorized owned and joined summaries. |
+| Circle name/chevron | Opens that saved circle. Rows show the actual count and product description without avatar clusters. |
+| **Options → Delete / Leave circle**, or left swipe | Swipe reveals only. The same shared confirmation precedes the existing mutation, with a fresh server-capability read. System/Trusted circles never expose Delete. Missing authority fails closed. |
 | **Circles are unavailable** | Tappable retry row; **Loading circles…** is a disabled status row. |
 | No vault | **Finish setting up One**, rather than an unusable unlock action. |
 
 Counts include the owner. Named circles with only their owner can say **No
 members yet**. Trusted explains **People you add yourself**; SMS explains its
-delivery relationship. Avatar clusters are bounded previews, not the roster
-or the circle's maximum capacity. Rendering may ensure the owner's empty
+delivery relationship. Rendering may ensure the owner's empty
 Trusted container once per unlock session; it does not copy all connections
 into Trusted. Account/vault changes must not display the previous account's
 summary. Mutation events and visible-pane repair reads refresh the list.
@@ -360,7 +362,7 @@ and [route](../../../consent-protocol/api/routes/one/location.py).
 ### Circle detail and membership
 
 Source: [CircleDetailFlow and roster](../../components/one-location/redesign/circles/named-circle-flows.tsx),
-[inline member panel](../../components/connect/circles/living-circle-panel.tsx),
+[member picker](../../components/connect/circles/living-circle-panel.tsx),
 [member action menu](../../components/one-location/redesign/circles/circle-member-actions-menu.tsx),
 and [Connect service adapter](../../components/connect/circles/connect-circle-actions.ts).
 
@@ -375,13 +377,10 @@ editing. Trusted/SMS do not show chat or photo editing; Trusted hides Edit.
 | **Chat / Members / View members** | Changes detail's local view. First-member setup can hold Chat disabled while alone; after setup **Open chat** enters it. |
 | **Edit** | Owner except Trusted: rename sheet, **Circle name**, **Cancel / Save**; nonempty changed 1–80-character name, Enter saves, busy blocks dismissal. |
 | **Change circle photo** | Owner ordinary circle: **Choose photo**, local **Remove photo**, **Cancel**, **Save photo**. Only Save commits the draft. |
-| Member/owner orbit profile | Opens a profile only when a public reference exists; ordinary group center and empty slots are decorative. |
-| **See all / Show less** | Expands/collapses eligible connections. Expanded view offers **Search connections**. |
-| Candidate **Add / Selected**, or drag-to-select | Changes local selection only; cannot exceed remaining capacity or 20 per mutation. |
-| **Add N person/people** | Commits the selected membership batch. **Retry / Load more connections / Find people** recover or extend the picker. |
-| Owner drag-member-to-remove | Immediately calls removal after drop; currently no confirmation. This differs from roster removal. |
-| **Search members / Load more members** | Filters/pages the roster. Search appears with at least eight members or an active query. |
-| Roster **Connect / Cancel / Respond** | Connect enters exact-person capability review; Cancel withdraws outgoing request; Respond opens pending consent review. Existing connections do not get a dead Connect button. |
+| **Add people** | Opens the shared sheet with an immediate search and explicit connection checkboxes. Selection stays local and cannot exceed remaining capacity or 20 per mutation. |
+| Picker **Add people** | Commits the same existing atomic membership batch. The sheet closes only after acknowledgment; failures retain valid choices. **Retry / Load more connections** recover or extend the list. No orbit or drag instructions are shown. |
+| **Search members / Load more members** | Filters/pages the roster. Connect always shows member search above the roster heading. |
+| Roster **Connect / Cancel / Respond** | Connect sends the existing exact no-scope request; Cancel withdraws outgoing request; Respond opens pending consent review. Existing connections do not get a dead Connect button. |
 | **Actions for [name] → Message** | Only for an accepted connection with a public reference; private-message handoff. |
 | **Share location** | Only for a verified/location-ready other member; enters Location circle detail, not immediate per-person sharing. |
 | **View profile** in phone member menu | Available with public reference when an actions menu otherwise exists. Desktop menu currently lacks this item. |
@@ -390,9 +389,9 @@ editing. Trusted/SMS do not show chat or photo editing; Trusted hides Edit.
 | **Replace code** | Capability-gated confirmation; **Cancel / Replace code**. Successful rotation invalidates the previous code. A member who cannot rotate sees owner-help copy. |
 | **Delete circle / Leave circle** | Capability-gated confirmation with Cancel and destructive commit. Success returns to list with replace; failure stays recoverable. |
 
-Connect uses the inline living-member experience. Older shared **Add people**
-sheets, pending-invite cancellation lists, and **Proceed to SMS** are not
-reachable controls in this caller. A membership/remote removal that invalidates
+Connect presents the roster and an explicit Add people sheet backed by the
+existing membership-selection/save handlers. Pending-invite cancellation lists
+and Proceed to SMS remain outside this caller. A membership/remote removal that invalidates
 the open circle returns to the list rather than retaining a dead detail.
 
 ### Circle chat and media
@@ -471,9 +470,8 @@ features:
 | Finding | Consequence for future changes |
 | --- | --- |
 | Multi-select directory UI is present, but selection mode is never enabled by the ordinary current UI. | Do not promise a tappable Select-many flow. Explicit person/capability review remains reachable. |
-| Local voice/action prose still describes a People tab and an Around you tab. | Current visual top-level tabs are Connections/Circles; People/Around you are nested modes. Update the owning action contract when reconciling that prose. |
-| My connections removal confirms; profile removal and owner orbit drag removal currently commit directly. | A future consistency fix must preserve server authority and separately review destructive confirmation behavior. |
-| Phone roster profile menu returns with Location context; orbit profiles use Connect context. Desktop roster menu lacks View profile. | Do not claim symmetric profile navigation across these controls. |
+| My connections and circle roster removal confirm; profile removal currently commits directly. | A future consistency fix must preserve server authority and separately review destructive confirmation behavior. |
+| Phone roster profile menu returns with Location context. Desktop roster menu lacks View profile. | Do not claim symmetric profile navigation across these controls. |
 | Profile scope-tree parent Back is local; the inspected profile/tree does not register a corresponding feature Back layer. | Do not claim shell/system Back unwinds that tree; prove that behavior before changing its navigation contract. |
 | Share location enters Location circle detail and does not retain a member-specific target. | Do not describe the CTA as immediately sharing with the selected person. |
 | Places initially says Use a ZIP although its field accepts an area/postcode. | This is current copy; the provider supports the wider field contract. |
