@@ -2757,10 +2757,12 @@ describe("Connect — the phone-width geometry QA reported", () => {
       name: "Cancel your request to Smirthika Dharmalingam",
     });
     expect(cancel.textContent).toBe("Cancel");
-    // A 44px target holding a compact 32px pill, with the label taking Profile's
-    // action typography.
+    // Keep the visible label in the action pill; rendered geometry is covered
+    // by the browser layout pack.
     expect(cancel.className).toContain("!h-11");
-    expect(cancel.querySelector('span[class*="h-8"]')).not.toBeNull();
+    expect(
+      cancel.querySelector('[data-slot="connect-row-action-pill"]'),
+    ).toHaveTextContent("Cancel");
     expect(cancel.getAttribute("data-profile-role")).toBe("action");
     expect(screen.queryByText("Cancel request")).toBeNull();
 
