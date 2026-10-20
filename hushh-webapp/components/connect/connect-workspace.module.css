@@ -598,27 +598,6 @@
   --type-compact-button-label-weight: 550;
   --type-compact-button-label-line: 19px;
 }
-.pickerSheet {
-  --foundation-title3-size: 20px;
-  --foundation-title3-weight: 600;
-  --foundation-title3-line: 28px;
-  --type-input-value-size: 16px;
-  --type-input-value-line: 23px;
-  --type-compact-button-label-size: 13px;
-  --type-compact-button-label-weight: 550;
-  --type-compact-button-label-line: 21px;
-}
-.picker {
-  --type-input-value-line: 23px;
-}
-.pickerName {
-  font-size: 14px;
-  font-weight: 550;
-  line-height: 21px;
-}
-.picker footer button {
-  --type-compact-button-label-weight: 650;
-}
 @media (max-width: 620px) {
   .utilityAction,
   .utilityLabel {

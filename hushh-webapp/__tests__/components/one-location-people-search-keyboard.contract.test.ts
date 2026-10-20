@@ -1,16 +1,18 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createElement } from "react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { SheetSearch } from "@/components/app-ui/sheet-parts";
+import { PersonSearchInput } from "@/components/one-location/redesign/selectors";
 
 /**
  * The Location people-search surfaces on a real iPhone.
  *
- * These are all keyboard-and-webview behaviours, so jsdom cannot observe them:
- * `--kb-height` is set by the native keyboard inset manager, and autocorrect
- * and `enterKeyHint` are keyboard features with no DOM effect to assert. What
- * IS assertable, and what actually regressed, is whether the source still says
- * the thing that makes the phone behave — so these pin the source.
+ * Real keyboard/safe-area geometry is covered by circle-invite-picker.layout.
+ * These architecture guards keep both callers on that shared sizing seam;
+ * DOM cases exercise the keyboard attributes and handlers on both controls.
  */
 
 const read = (relativePath: string) =>
@@ -23,29 +25,14 @@ const CIRCLE_GROW_SHEET =
 const PICKER_SHEETS = [NAMED_CIRCLE_SHEET, CIRCLE_GROW_SHEET];
 
 describe("Location people-search keyboard contract", () => {
-  it("keeps the keyboard height inside the named Circle sheet's max-height", () => {
-    const source = read(NAMED_CIRCLE_SHEET);
-
-    // SheetContent lifts above the keyboard. This cap shrinks with it so the
-    // title and search field stay on screen.
-    expect(source).toContain("max-h-[calc(88dvh-var(--kb-height,0px))]");
+  it.each(PICKER_SHEETS)("uses the browser-verified shared keyboard sizing (%s)", (path) => {
+    const source = read(path);
+    expect(source).toContain("<AdaptiveSheetContent");
+    expect(source).toContain("taskSurfaceStyles.people");
     expect(source).not.toContain("max-h-[88dvh]");
-  });
-
-  it("uses the shared keyboard-safe height cap for the Circle grow sheet", () => {
-    const source = read(CIRCLE_GROW_SHEET);
-    const layout = read("components/connections/contact-sheet-layout.ts");
-
-    // The shared cap leaves room for the keyboard and top safe area while
-    // retaining the 88dvh cap when the keyboard is closed.
-    expect(source).toContain(
-      'import { CONTACT_SHEET_MAX_HEIGHT_CLASSNAME } from "@/components/connections/contact-sheet-layout"',
+    expect(read("lib/morphy-ux/ui/task-surfaces.module.css")).toContain(
+      "height: calc(85dvh - var(--kb-height, 0px))",
     );
-    expect(source).toContain(", CONTACT_SHEET_MAX_HEIGHT_CLASSNAME)}");
-    expect(layout).toContain(
-      '"max-h-[min(88dvh,calc(100dvh-var(--kb-height,0px)-var(--app-safe-area-top-effective,0px)-1rem))]"',
-    );
-    expect(source).not.toContain("max-h-[88dvh]");
   });
 
   it.each(PICKER_SHEETS)(
@@ -59,30 +46,49 @@ describe("Location people-search keyboard contract", () => {
   );
 });
 
-describe("PersonSearchInput on a phone keyboard", () => {
-  const source = read("components/one-location/redesign/selectors.tsx");
+afterEach(() => { cleanup(); vi.clearAllTimers(); vi.useRealTimers(); });
+
+describe.each([
+  ["PersonSearchInput", () => createElement(PersonSearchInput, { value: "", onChange: vi.fn() })],
+  ["SheetSearch", () => createElement(SheetSearch, { value: "", onValueChange: vi.fn() })],
+] as const)("%s on a phone keyboard", (_name, control) => {
 
   it("stops iOS rewriting the name as it is typed", () => {
     // A surname is not a dictionary word. Autocorrect substitutes one mid-search
     // and the list jumps to the wrong people, or empties, while the person
     // watches their own typing change under them.
-    expect(source).toContain('autoCorrect="off"');
-    expect(source).toContain('autoCapitalize="none"');
-    expect(source).toContain("spellCheck={false}");
+    render(control());
+    const input = screen.getByRole("searchbox");
+    expect(input).toHaveAttribute("autocorrect", "off");
+    expect(input).toHaveAttribute("autocapitalize", "none");
+    expect(input).toHaveAttribute("spellcheck", "false");
   });
 
   it("gives the return key a job, and closes the keyboard with it", () => {
     // Without this the key reads "return", does nothing at all, and the
     // keyboard stays parked over the results the person is trying to read.
-    expect(source).toContain('enterKeyHint="search"');
-    expect(source).toContain("event.currentTarget.blur()");
+    vi.useFakeTimers();
+    render(control());
+    const input = screen.getByRole("searchbox");
+    input.focus();
+    expect(input).toHaveAttribute("enterkeyhint", "search");
+    const result = fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+    expect(result).toBe(false);
+    expect(input).not.toHaveFocus();
   });
 
   it("scrolls itself out from behind the keyboard when tapped", () => {
     // On a small iPhone the field otherwise sits behind the keyboard and the
     // person types blind. The delay is what lets the keyboard finish animating,
     // so the measurement is taken against the shrunken viewport.
-    expect(source).toContain("scrollIntoView(");
-    expect(source).toContain('block: "center"');
+    vi.useFakeTimers();
+    render(control());
+    const input = screen.getByRole("searchbox");
+    const scrollIntoView = vi.fn();
+    input.scrollIntoView = scrollIntoView;
+    input.focus();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(250);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "center", behavior: "smooth" });
   });
 });
