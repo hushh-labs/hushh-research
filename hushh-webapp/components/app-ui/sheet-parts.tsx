@@ -4,6 +4,7 @@ import * as React from "react";
 import { Search, X } from "@/components/icons";
 import { Checkbox } from "@/components/ui/checkbox";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
+import { SEARCH_INPUT_KEYBOARD_PROPS } from "./search-input-keyboard";
 import { cn } from "@/lib/utils";
 import styles from "./sheet-parts.module.css";
 
@@ -16,7 +17,7 @@ export function SheetSearch({ value, onValueChange, label = "Search connections"
   return (
     <InputGroup className={cn(styles.search, className)}>
       <InputGroupAddon><Search aria-hidden="true" className="size-4" /></InputGroupAddon>
-      <InputGroupInput {...props} ref={inputRef} type="search" value={value} aria-label={label}
+      <InputGroupInput {...SEARCH_INPUT_KEYBOARD_PROPS} {...props} ref={inputRef} type="search" value={value} aria-label={label}
         onChange={event => onValueChange(event.target.value)} />
       {value ? <InputGroupAddon align="inline-end">
         <InputGroupButton size="icon-sm" className={styles.clear} disabled={props.disabled} aria-label="Clear search"

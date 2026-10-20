@@ -102,7 +102,8 @@ for (const viewport of [
     await expect(dialog).toBeVisible();
     await awaitProductFont(page);
     await expect(dialog.getByText("Connected person 1", { exact: true })).toBeVisible();
-    await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+    // Content arriving during entry can cancel an animation; both states settle before measurement.
+    await page.evaluate(() => Promise.allSettled(document.getAnimations().map((animation) => animation.finished)));
     expect(errors).toEqual([]);
     const measure = () => page.evaluate(() => {
       const sheet = document.querySelector<HTMLElement>("[data-circle-invite-picker]")!;
@@ -154,7 +155,7 @@ for (const theme of ["light", "dark"]) {
     await page.addScriptTag({ content: script });
     const dialog = page.getByRole("dialog", { name: "Add people to Trusted" });
     await expect(dialog).toBeVisible();
-    await page.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished)));
+    await page.evaluate(() => Promise.allSettled(document.getAnimations().map(animation => animation.finished)));
     const geometry = await dialog.evaluate(node => {
       const rect = node.getBoundingClientRect();
       const style = getComputedStyle(node);
@@ -189,13 +190,44 @@ for (const theme of ["light", "dark"]) {
   });
 }
 
+for (const viewport of [
+  { width: 320, height: 568, keyboard: 260 },
+  { width: 393, height: 852, keyboard: 336 },
+]) test(`Living picker preserves phone search and action above the keyboard: ${viewport.width}`, async ({ page }) => {
+  await page.setViewportSize(viewport);
+  await page.setContent(`<html data-fixture="living" class="native-ios native-keyboard-inset kb-open" style="--kb-height:${viewport.keyboard}px;--app-safe-area-top-effective:59px"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
+  await page.addScriptTag({ content: script });
+  const dialog = page.getByRole("dialog", { name: "Add people", exact: true });
+  await expect(dialog).toBeVisible();
+  await page.evaluate(() => Promise.allSettled(document.getAnimations().map(animation => animation.finished)));
+  const bounds = await dialog.boundingBox();
+  expect(bounds!.y).toBeGreaterThanOrEqual(59 - 0.5);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height - viewport.keyboard + 0.5);
+  const input = dialog.getByRole("searchbox");
+  await expect(input).toHaveAttribute("autocorrect", "off");
+  await expect(input).toHaveAttribute("autocapitalize", "none");
+  await expect(input).toHaveAttribute("spellcheck", "false");
+  await expect(input).toHaveAttribute("enterkeyhint", "search");
+  await input.focus();
+  await expect(input).toBeInViewport();
+  await input.fill("Connected person 40");
+  await input.press("Enter");
+  await expect(input).not.toBeFocused();
+  await dialog.getByRole("checkbox", { name: "Add Connected person 40 to Family", exact: true }).check();
+  const action = dialog.getByRole("button", { name: "Add people", exact: true });
+  await expect(action).toBeEnabled();
+  await expect(action).toBeInViewport();
+  expect((await action.boundingBox())!.y + (await action.boundingBox())!.height)
+    .toBeLessThanOrEqual(viewport.height - viewport.keyboard + 0.5);
+});
+
 test("Selected view keeps the frame stable and enlarged confirmations remain reachable", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 393, height: 852 });
   await page.setContent(`<html data-fixture="living"><head><style>${css}</style></head><body><main>Previous screen</main><div id="root"></div></body></html>`);
   await page.addScriptTag({ content: script });
   const dialog = page.getByRole("dialog", { name: "Add people", exact: true });
   await expect(dialog).toBeVisible();
-  await page.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished)));
+  await page.evaluate(() => Promise.allSettled(document.getAnimations().map(animation => animation.finished)));
   const before = await dialog.boundingBox();
   await dialog.getByRole("checkbox", { name: "Add Connected person 1 to Family", exact: true }).click();
   await dialog.getByRole("tab", { name: "Selected (1)" }).click();
@@ -295,7 +327,7 @@ test("Adaptive task frame stays inside native reserved chrome after CSS optimiza
   await page.addScriptTag({ content: script });
   const dialog = page.getByRole("dialog", { name: "Add people to Trusted" });
   await expect(dialog).toBeVisible();
-  await page.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished)));
+  await page.evaluate(() => Promise.allSettled(document.getAnimations().map(animation => animation.finished)));
   const frame = await dialog.boundingBox();
   expect(frame!.y).toBeGreaterThanOrEqual(120);
   expect(frame!.y + frame!.height).toBeLessThanOrEqual(668);

@@ -148,7 +148,7 @@ retry, owner/session invalidation and Back contracts remain authoritative.
 | --- | --- |
 | Open a task | Opaque foreground, shared blurred/dimmed background; optimized-CSS light/dark checks in `e2e/circle-invite-picker.layout.spec.ts`. Android keeps its platform scrim fallback. |
 | Add people | All connections and Selected views share the current controlled query. Selected reads the existing selection map across pages; unchecking a saved off-page selection changes no relationship until the existing Add action succeeds. Covered in named-circle-flows tests. |
-| Search, clear, resize | Clear restores search focus; selection and the input node survive the 768px boundary. The picker height stays stable across All/Selected, loading and empty states. |
+| Search, clear, resize | Clear restores search focus; selection and the input node survive the 768px boundary. Page and sheet searches share phone keyboard defaults: no autocorrect/capitalization/spellcheck, Search Return dismisses the keyboard, and focus scrolls after its animation. DOM tests cover both controls; the picker height stays stable across All/Selected, loading and empty states. |
 | Keyboard or enlarged text | Normal frames keep search/footer outside the scrolling results. Constrained frames scroll completely, leaving the final action reachable. Optimized WebKit fixture covers keyboard/safe-top seats and long confirmation text. |
 | Cancel, Escape, retry or confirm | Existing callbacks, busy locks, nested Back layers, validation, mutation and failure recovery remain in the owning flow tests. |
 
