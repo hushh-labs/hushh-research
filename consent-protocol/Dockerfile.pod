@@ -55,7 +55,7 @@ RUN python -m compileall -q .
 RUN useradd --system --uid 10001 --home-dir /app appuser
 # gunicorn's control server writes a runtime dir under CWD/HOME; the code tree is
 # root-owned + read-only for the runtime user, so give it one writable path.
-RUN mkdir -p /app/.gunicorn && chown 10001:10001 /app/.gunicorn
+RUN mkdir -p /app/.gunicorn && chown 10001:10001 /app/.gunicorn && chmod 0700 /app/.gunicorn
 USER 10001
 EXPOSE 8080
 # Slim pod entrypoint: agent + storage + enforcement only (no consent control plane).
@@ -80,4 +80,4 @@ EXPOSE 8080
 # `--preload` would share the parent's imports but not fix it: post-fork state
 # still diverges, and the storage engine would still have two writers. One worker
 # is the honest expression of the invariant the rest of the system already assumes.
-CMD ["sh", "-c", "exec gunicorn pod_server:app -w 1 -k uvicorn.workers.UvicornWorker --timeout 120 -b 0.0.0.0:${PORT:-8080}"]
+CMD ["sh", "-c", "umask 077; exec gunicorn pod_server:app -w 1 -k uvicorn.workers.UvicornWorker --timeout 120 -b 0.0.0.0:${PORT:-8080}"]

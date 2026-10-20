@@ -66,13 +66,10 @@ logger = logging.getLogger(__name__)
 #: Where the derived index lives. A tmpfs path on Cloud Run, which is correct:
 #: the index is disposable and the log is the record.
 _SQLITE_PATH_ENV = "POD_PKM_SQLITE_PATH"
-# Both linters flag a hardcoded /tmp path, and here it is the correct one.
-# Cloud Run's /tmp is a per-instance in-memory tmpfs, not a shared
-# multi-tenant directory, so the symlink and predictable-name attacks
-# CWE-377 describes have no second party to come from. The index is derived,
-# disposable, and rebuilt from the sealed log; putting it on a durable disk
-# would be the actual defect, since it would outlive the process that sealed it.
-_DEFAULT_SQLITE_PATH = "/tmp/pod-pkm.sqlite3"  # noqa: S108  # nosec B108
+# Browser is a separate process identity in the same pod. The derived index
+# includes plaintext summaries, so even disposable SQLite/WAL need a private
+# directory. Recovery remains the sealed log, not a persistent local disk.
+_DEFAULT_SQLITE_PATH = "/tmp/hussh-pod-private/pkm.sqlite3"  # noqa: S108  # nosec B108
 
 #: Ships dark, like every other pod capability. Off means the hub keeps pushing
 #: `pkmContext` exactly as it does today, so enabling this is a decision rather
@@ -191,9 +188,10 @@ async def _initialize_pod_pkm_store(owner: str, *, log: Any) -> Optional[Any]:
 
     started = time.monotonic()
     try:
+        from hushh_mcp.services.pod_pkm_file import prepare_index_path
         from hushh_mcp.services.pod_pkm_store import PodPkmStore  # noqa: PLC0415
 
-        path = sqlite_path()
+        path = prepare_index_path(sqlite_path())
         store = await PodPkmStore.rebuild(commit_log, path, owner_user_id=owner)
     except PodLogFenced:
         raise
@@ -258,7 +256,9 @@ async def local_grounding(owner_user_id: str, *, log: Any = None) -> Optional[st
     import json  # noqa: PLC0415
     import sqlite3  # noqa: PLC0415
 
-    path = sqlite_path()
+    if _STATS is None:
+        return None
+    path = _STATS.sqlite_path
     try:
         conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     except Exception:  # noqa: BLE001 - no index file yet is not a fault

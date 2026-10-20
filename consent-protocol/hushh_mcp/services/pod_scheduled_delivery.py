@@ -18,21 +18,19 @@ class GcpScheduledDelivery:
         self.store, self.clock = store, clock
 
     def require_ready(self) -> None:
-        from hushh_mcp.services.pod_files.library import FilesRefused
-        from hushh_mcp.services.pod_files.model_binding import organization_model_binding
         from hushh_mcp.services.pod_platform import workload_platform
+        from hushh_mcp.services.pod_worker_binding import WorkerBindingRefused, gcp_worker_binding
 
         if workload_platform() != "gcp":
             # A delayed Azure Queue message must not be mistaken for a proven
             # scale-to-zero timer. No polling/always-awake fallback is installed.
             raise ScheduleRefused("SCHEDULE_CLOUD_DELIVERY_UNQUALIFIED")
-        if os.getenv("POD_FILES_ENABLED", "").lower() not in {"1", "true"}:
-            raise ScheduleRefused("SCHEDULE_CAPABILITY_UNAVAILABLE")
         try:
-            # Canonical owner-project queue, exact worker identity, and selected
-            # model policy; a well-shaped foreign queue is still refused.
-            organization_model_binding()
-        except FilesRefused:
+            # Delivery authorizes identifiers, not model processing. The actual
+            # capability rechecks its selected model and information grants.
+            # Keep the exact owner-project queue/worker checks for every task.
+            gcp_worker_binding()
+        except WorkerBindingRefused:
             raise ScheduleRefused("SCHEDULE_DELIVERY_NOT_CONFIGURED") from None
         if not re.fullmatch(
             r"projects/[a-z][a-z0-9-]+/locations/[a-z0-9-]+/queues/[a-zA-Z0-9_-]+",

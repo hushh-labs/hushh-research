@@ -948,6 +948,7 @@ tests/test_pod_mode.py
 tests/test_pod_model_diagnostic.py
 tests/test_pod_observability_contract.py
 tests/test_pod_parity_probe.py
+tests/test_pod_pkm_file.py
 tests/test_pod_pkm_resolver.py
 tests/test_pod_reconcile.py
 tests/test_pod_relay.py

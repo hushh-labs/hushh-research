@@ -269,3 +269,36 @@ async def test_schedule_cancel_stays_pending_until_active_work_has_settled(sched
     assert (await running)["state"] == "cancelled"
     world.permit.release.assert_awaited_once()
     world.capability.run.assert_awaited_once()
+
+
+def test_schedule_delivery_is_model_independent_but_refuses_a_foreign_queue(monkeypatch):
+    from hushh_mcp.services.pod_files import model_binding
+    from hushh_mcp.services.pod_files.provisioning import coordinates
+    from hushh_mcp.services.pod_scheduled_delivery import GcpScheduledDelivery
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused
+
+    names = coordinates("synthetic-owner", "owner-project", "us-central1")
+    settings = {
+        "K_SERVICE": "synthetic-pod",
+        "HUSSH_ID": "synthetic-owner",
+        "HUSSH_POD_USER_ADC_ENABLED": "true",
+        "HUSSH_POD_KMS_KEY": "projects/owner-project/locations/us-central1/keyRings/owner/cryptoKeys/pod",
+        "POD_FILES_TASK_QUEUE": names["queue"],
+        "POD_FILES_WORKER_SERVICE_ACCOUNT": names["worker"],
+        "POD_FILES_ENABLED": "false",
+    }
+    for name, value in settings.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("CONTAINER_APP_NAME", raising=False)
+
+    def no_model_for_clock_delivery():
+        pytest.fail("Publishing a metadata-only wake must not resolve a Files model")
+
+    monkeypatch.setattr(model_binding, "organization_model_binding", no_model_for_clock_delivery)
+    delivery = GcpScheduledDelivery(None)
+    delivery.require_ready()
+    monkeypatch.setenv(
+        "POD_FILES_TASK_QUEUE", names["queue"].replace("owner-project", "foreign-project")
+    )
+    with pytest.raises(ScheduleRefused, match="SCHEDULE_DELIVERY_NOT_CONFIGURED"):
+        delivery.require_ready()

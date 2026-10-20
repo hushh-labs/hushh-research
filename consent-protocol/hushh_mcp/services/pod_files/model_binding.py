@@ -13,8 +13,8 @@ from hushh_mcp.runtime_providers.factory import (
     ManagedGeminiRuntimeBinding,
 )
 from hushh_mcp.services.pod_files.library import FilesRefused
-from hushh_mcp.services.pod_files.provisioning import coordinates
 from hushh_mcp.services.pod_platform import workload_platform
+from hushh_mcp.services.pod_worker_binding import WorkerBindingRefused, gcp_worker_binding
 
 
 @dataclass(frozen=True)
@@ -49,25 +49,16 @@ def organization_model_binding() -> ManagedGeminiRuntimeBinding | AzureOrganizat
         if not topology or not os.getenv("HUSSH_ID") or not os.getenv("AZURE_CLIENT_ID"):
             raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503)
         return AzureOrganizationBinding(topology.deployment)
-    key = re.fullmatch(
-        r"projects/([a-z][a-z0-9-]{4,61}[a-z0-9])/locations/([a-z]+-[a-z]+[0-9]+)/"
-        r"keyRings/[A-Za-z0-9_-]+/cryptoKeys/[A-Za-z0-9_-]+",
-        os.getenv("HUSSH_POD_KMS_KEY", ""),
-    )
-    owner = os.getenv("HUSSH_ID", "")
-    if (
-        not key
-        or not owner
-        or os.getenv("HUSSH_POD_USER_ADC_ENABLED", "").lower() not in {"1", "true"}
-    ):
-        raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503)
-    project, region = key.groups()
-    names = coordinates(owner, project, region)
-    if (
-        os.getenv("POD_FILES_TASK_QUEUE") != names["queue"]
-        or os.getenv("POD_FILES_WORKER_SERVICE_ACCOUNT") != names["worker"]
-    ):
-        raise FilesRefused("FILES_BACKGROUND_NOT_CONFIGURED", 503)
+    try:
+        worker = gcp_worker_binding()
+    except WorkerBindingRefused as exc:
+        code = (
+            "FILES_BACKGROUND_NOT_CONFIGURED"
+            if exc.code == "POD_WORKER_DELIVERY_NOT_CONFIGURED"
+            else "FILES_MODEL_UNAVAILABLE"
+        )
+        raise FilesRefused(code, 503) from None
+    project = worker.project
     try:
         binding = ManagedGeminiRuntimeBinding.from_environment()
     except (ValueError, RuntimeError):
