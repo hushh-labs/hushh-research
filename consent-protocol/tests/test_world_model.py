@@ -609,6 +609,18 @@ def test_owner_decisions_body_is_optional_bounded_and_forwarded(monkeypatch):
     assert ensure.await_args.kwargs == {"owner_decisions": decisions}
     assert client.post("/api/one/world-model/jobs", json=body).status_code == 202
     start.assert_awaited_once_with("owner", "fixture", inputs={"owner_decisions": decisions})
+    assert (
+        client.post("/api/one/world-model/jobs", json={**body, "refresh": True}).status_code == 202
+    )
+    assert start.await_args.kwargs == {
+        "inputs": {"owner_decisions": decisions},
+        "refresh_completed": True,
+    }
+    assert (
+        client.post("/api/one/world-model/ensure", json={**body, "refresh": True}).status_code
+        == 422
+    )
+    assert client.post("/api/one/world-model/jobs", json={"refresh": "true"}).status_code == 422
     for invalid in [
         {**body, "user_id": "other"},
         {"owner_decisions": {**decisions, "inferred": []}},
@@ -618,7 +630,7 @@ def test_owner_decisions_body_is_optional_bounded_and_forwarded(monkeypatch):
     ]:
         for path in ("ensure", "jobs"):
             assert client.post(f"/api/one/world-model/{path}", json=invalid).status_code == 422
-    assert ensure.await_count == 2 and start.await_count == 1
+    assert ensure.await_count == 2 and start.await_count == 2
 
 
 @pytest.mark.parametrize(

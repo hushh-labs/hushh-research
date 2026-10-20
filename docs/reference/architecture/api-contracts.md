@@ -1167,6 +1167,14 @@ other person-to-person catalog, and are refused again at request creation.
 
 ### Personal World Model research
 
+Explicit “Check for updates” sends `refresh:true` only to
+`POST /api/one/world-model/jobs`. It starts a new discovery from a completed,
+same-identity draft, with new evidence/usage budgets while retaining the three
+starts-per-hour limit, consent checks, provider breaker and atomic claim.
+Pending work coalesces and paused/unavailable work retains its existing resume
+and cooldown behavior. Ordinary starts keep their idempotent reuse behavior;
+`/ensure` rejects the refresh field and never implicitly buys a new discovery.
+
 `POST /api/one/world-model/ensure` starts/resumes the existing owner-bound research
 job after setup and unlock. The backend resolves fresh authenticated name,
 verified email and canonical verified phone when available; at least one verified

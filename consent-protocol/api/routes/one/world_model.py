@@ -45,6 +45,12 @@ class PreparationInput(BaseModel):
     owner_decisions: OwnerDecisions | None = None
 
 
+class RefreshPreparationInput(PreparationInput):
+    """Explicit owner refresh; automatic ensure retains its reuse contract."""
+
+    refresh: bool = Field(default=False, strict=True)
+
+
 def decisions(body: PreparationInput | None):
     return body.owner_decisions.model_dump() if body and body.owner_decisions else None
 
@@ -55,15 +61,19 @@ def research_response(result, status_code):
     return JSONResponse(payload, status_code=status_code, headers=headers)
 
 
-async def operation(token, start, owner_decisions=None):
+async def operation(token, start, owner_decisions=None, refresh=False):
     try:
-        if owner_decisions is not None:
-            inputs = {"owner_decisions": owner_decisions}
-            result = await world_model_jobs.start(*owner(token), inputs=inputs)
-        else:
-            result = await (world_model_jobs.start if start else world_model_jobs.status)(
-                *owner(token)
+        if start:
+            kwargs = (
+                {"inputs": {"owner_decisions": owner_decisions}}
+                if owner_decisions is not None
+                else {}
             )
+            if refresh:
+                kwargs["refresh_completed"] = True
+            result = await world_model_jobs.start(*owner(token), **kwargs)
+        else:
+            result = await world_model_jobs.status(*owner(token))
         return research_response(result, status_code=202 if result["status"] == "pending" else 200)
     except PermissionError:
         raise HTTPException(403, "Unlock your vault to continue.") from None
@@ -77,10 +87,10 @@ async def operation(token, start, owner_decisions=None):
 @limiter.limit("20/hour")
 async def start(
     request: Request,
-    body: PreparationInput | None = None,
+    body: RefreshPreparationInput | None = None,
     token: dict = Depends(require_vault_owner_chat_key),
 ):
-    return await operation(token, True, decisions(body))
+    return await operation(token, True, decisions(body), refresh=bool(body and body.refresh))
 
 
 @router.get("/jobs")

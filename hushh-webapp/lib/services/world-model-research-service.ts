@@ -597,8 +597,9 @@ async function step(
         input,
         path,
         method,
-        method === "POST" && input.ownerDecisions
-          ? { owner_decisions: input.ownerDecisions }
+        method === "POST" && (input.ownerDecisions || path === "jobs")
+          ? { ...(input.ownerDecisions ? { owner_decisions: input.ownerDecisions } : {}),
+              ...(path === "jobs" ? { refresh: true } : {}) }
           : undefined,
       ),
     );

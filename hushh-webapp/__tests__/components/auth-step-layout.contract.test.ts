@@ -20,7 +20,8 @@ const settlement = vi.hoisted(() => {
     requiredCookie: vi.fn(), flowCookie: vi.fn(),
     router: { push: vi.fn(), replace: vi.fn() },
     progress: { registerSteps: vi.fn(), completeStep: vi.fn(), reset: vi.fn() },
-    native: { enabled: false, autoReviewerLogin: false },
+    mint: vi.fn(), customSignIn: vi.fn(), reviewMode: false, reviewerTrigger: null as null | (() => void),
+    native: { enabled: false, autoReviewerLogin: false, expectedUserId: "reviewer", reviewerSessionPassphrase: "mint-only", vaultPassphrase: null },
     auth: { user: null, loading: false, sessionVerificationRequired: false,
       retrySessionVerification: vi.fn(), signOut: vi.fn(),
       beginPostAuthSettlement: begin, completePostAuthSettlement: complete },
@@ -33,12 +34,14 @@ vi.mock("@/lib/services/auth-service", () => ({ AuthService: {
   canRequestInitialGoogleContacts: () => true,
   signInWithGoogle: settlement.signIn,
   getCurrentUser: () => settlement.currentUser,
+  signInWithCustomToken: settlement.customSignIn,
 } }));
 vi.mock("@/lib/services/initial-contacts-onboarding-service", () => ({ InitialContactsOnboardingService: { begin: settlement.contacts } }));
 vi.mock("@/lib/services/legal-acceptance-service", () => ({ LegalAcceptanceService: { recordSignInAcceptance: settlement.legal } }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: {
   emailAuthRequest: async () => ({ enabled: false }),
-  getAppReviewModeConfig: async () => ({ enabled: false }), notifyFirstWelcome: settlement.notify,
+  getAppReviewModeConfig: async () => ({ enabled: settlement.reviewMode }), notifyFirstWelcome: settlement.notify,
+  createAppReviewModeSession: settlement.mint,
 } }));
 vi.mock("@/lib/services/post-auth-route-service", () => ({ PostAuthRouteService: { resolveAfterLogin: settlement.route } }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: { syncOnboardingJourney: settlement.journey } }));
@@ -61,7 +64,14 @@ vi.mock("@/lib/morphy-ux/ui/hushh-mark", () => ({ HushhMark: () => null }));
 vi.mock("@/components/app-ui/hushh-loader", () => ({ HushhLoader: () => null }));
 vi.mock("@/components/auth/session-verification-recovery", () => ({ SessionVerificationRecovery: () => null }));
 vi.mock("@/components/onboarding/OnboardingHeroBackground", () => ({ OnboardingHeroBackground: () => null }));
-vi.mock("@/components/app-ui/native-test-beacon", () => ({ NativeTestBeacon: () => null }));
+vi.mock("@/components/app-ui/native-test-beacon", () => ({ NativeTestBeacon: (props: {
+  attachToBridge: (bridge: { triggerReviewerLogin?: () => void }) => void,
+}) => {
+  const bridge: { triggerReviewerLogin?: () => void } = {};
+  props.attachToBridge(bridge);
+  settlement.reviewerTrigger = bridge.triggerReviewerLogin ?? null;
+  return null;
+} }));
 vi.mock("@/components/onboarding/EnterpriseSsoSection", () => ({ EnterpriseSsoSection: () => null }));
 vi.mock("@/components/onboarding/AuthProviderButton", () => ({
   AuthProviderButton: (props: { label: string; onClick: () => void; disabled?: boolean }) =>
@@ -69,8 +79,56 @@ vi.mock("@/components/onboarding/AuthProviderButton", () => ({
 }));
 
 describe("AuthStep committed provider settlement", () => {
-  beforeEach(() => { vi.clearAllMocks(); settlement.currentUser = null; });
+  beforeEach(() => {
+    vi.clearAllMocks(); settlement.currentUser = null;
+    settlement.native.enabled = false; settlement.native.autoReviewerLogin = false;
+    settlement.reviewMode = false;
+    settlement.auth.user = null;
+  });
   afterEach(cleanup);
+
+  it("leaves mint-only reviewer authentication to bootstrap, including tap and bridge triggers", async () => {
+    settlement.native.enabled = true;
+    settlement.native.autoReviewerLogin = true;
+    const view = render(createElement(AuthStep, { redirectPath: "/one" }));
+    const button = await screen.findByRole("button", { name: "Continue as Reviewer" });
+    expect(button).toBeDisabled();
+    await act(async () => { fireEvent.click(button); settlement.reviewerTrigger?.(); });
+    expect(settlement.mint).not.toHaveBeenCalled();
+    expect(settlement.customSignIn).not.toHaveBeenCalled();
+
+    const user = { uid: "reviewer", getIdToken: vi.fn().mockResolvedValue("firebase-token") };
+    settlement.currentUser = user;
+    Object.assign(settlement.auth, { user });
+    await act(async () => { view.rerender(createElement(AuthStep, { redirectPath: "/one" })); });
+    expect(settlement.route).toHaveBeenCalledTimes(1);
+    expect(settlement.router.replace).toHaveBeenCalledExactlyOnceWith("/one/setup");
+    expect(settlement.mint).not.toHaveBeenCalled();
+  });
+
+  it("retains the explicit reviewer bridge action when automatic authentication is disabled", async () => {
+    settlement.native.enabled = true;
+    settlement.reviewMode = true;
+    settlement.mint.mockResolvedValueOnce({ token: "test-custom-token" });
+    const user = { uid: "reviewer", getIdToken: vi.fn().mockResolvedValue("firebase-token") };
+    settlement.currentUser = user;
+    settlement.customSignIn.mockResolvedValueOnce({ user });
+    await act(async () => { render(createElement(AuthStep, { redirectPath: "/one" })); });
+    await act(async () => { settlement.reviewerTrigger?.(); });
+    expect(settlement.mint).toHaveBeenCalledTimes(1);
+    expect(settlement.customSignIn).toHaveBeenCalledExactlyOnceWith("test-custom-token");
+  });
+
+  it("refuses a captured manual trigger after automatic auth takes ownership before rerender", async () => {
+    settlement.reviewMode = true;
+    await act(async () => { render(createElement(AuthStep, { redirectPath: "/one" })); });
+    const trigger = settlement.reviewerTrigger;
+    settlement.native.enabled = true;
+    settlement.native.autoReviewerLogin = true;
+    await act(async () => { trigger?.(); });
+    expect(settlement.mint).not.toHaveBeenCalled();
+    expect(settlement.customSignIn).not.toHaveBeenCalled();
+  });
 
   it.each(["unmounted-resolve", "unmounted-reject", "changed-resolve", "changed-reject"])(
     "does not navigate or write route cookies after a pending resolver loses authority (%s)", async (scenario) => {

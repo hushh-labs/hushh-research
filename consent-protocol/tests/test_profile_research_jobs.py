@@ -190,6 +190,42 @@ async def test_low_confidence_is_reused_without_research_but_still_rechecks_owne
     assert (await restored.status("owner", "fixture-token"))["status"] == "disabled"
 
 
+@pytest.mark.parametrize("terminal", ["offered", "low_confidence"])
+async def test_explicit_completed_refresh_gets_new_discovery_but_retains_hourly_limit(terminal):
+    clock = [10_000.0]
+    offer = AsyncMock(return_value={**RESULT, "status": terminal})
+    instance = manager(offer=offer, clock=lambda: clock[0])
+    await instance.start("owner", "fixture-token")
+    await settle(instance)
+    prior = copy.deepcopy(instance.store.rows["owner"])
+    prior["attempted_combinations"] = [1, 2]
+    prior["work"] = {"old_evidence": True}
+    instance.store.rows["owner"] = copy.deepcopy(prior)
+    assert (await instance.start("owner", "fixture-token"))["status"] == terminal
+    assert offer.await_count == 1
+
+    clock[0] += 60
+    assert (await instance.start("owner", "fixture-token", refresh_completed=True))[
+        "status"
+    ] == "pending"
+    fresh = instance.store.rows["owner"]
+    assert fresh["job_id"] != prior["job_id"]
+    assert fresh["attempted_combinations"] == [] and "work" not in fresh
+    assert fresh["discovery_started_at"] == clock[0]
+    assert fresh["starts"] == prior["starts"]
+    # A second click while pending coalesces, including the refresh flag.
+    assert (await instance.start("owner", "fixture-token", refresh_completed=True))[
+        "status"
+    ] == "pending"
+    await settle(instance)
+    assert offer.await_count == 2
+    assert len(instance.store.rows["owner"]["starts"]) == 2
+    instance.store.rows["owner"]["starts"].append(clock[0] - 1)
+    refused = await instance.start("owner", "fixture-token", refresh_completed=True)
+    assert refused["status"] == "unavailable" and refused["retry_after_s"] > 0
+    assert offer.await_count == 2
+
+
 async def test_single_failed_search_is_terminal_across_remount_and_cooldown():
     from hushh_mcp.one_adk.profile_research import run_profile_discovery
 
