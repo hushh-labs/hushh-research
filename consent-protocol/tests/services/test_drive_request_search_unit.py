@@ -2666,7 +2666,10 @@ async def test_semantic_unavailable_preserves_pending_candidate_for_retry(monkey
 
 
 @pytest.mark.asyncio
-async def test_semantic_permanent_unavailable_marks_partial_coverage_and_continues(monkeypatch):
+async def test_semantic_permanent_unavailable_marks_partial_coverage_and_continues(
+    monkeypatch, caplog
+):
+    caplog.set_level("INFO", logger="drive_owner_search")
     service, _ = _real_rest_service(monkeypatch, lambda *_: pytest.fail("discovery repeated"))
     checkpoint = _semantic_checkpoint("Ember Vale")
     unavailable = _provider_file("unsupported", "Archived document", version="9")
@@ -2694,11 +2697,20 @@ async def test_semantic_permanent_unavailable_marks_partial_coverage_and_continu
     assert not incomplete and not done and files == []
     assert updated["semantic_coverage_incomplete"] is True
     assert updated["coverage_counts"]["unavailableCandidateCount"] == 1
+    assert updated["semantic_outcome_counts"] == {"unavailable:unsupported_format": 1}
     assert [item["id"] for item in updated["semantic_pending"]] == ["supported"]
     job["checkpoint"] = updated
     updated, files, incomplete, done = await service._page(job)
     assert done and not incomplete and files == []
     assert updated["coverage_counts"]["contentExcludedCount"] == 1
+    assert updated["semantic_outcome_counts"] == {
+        "unavailable:unsupported_format": 1,
+        "excluded:content_excluded": 1,
+    }
+    assert "decision=unavailable reason=unsupported_format position=1" in caplog.text
+    assert "decision=excluded reason=content_excluded position=2" in caplog.text
+    assert "Archived document" not in caplog.text
+    assert "Agreement with another person." not in caplog.text
     assert reads == ["supported"]
 
     # The source may complete and stream verified files. The separate coverage

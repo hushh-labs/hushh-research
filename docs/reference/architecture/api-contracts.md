@@ -1114,7 +1114,12 @@ receipts remain unknown. The Next.js proxy forwards this private header; the
 strict JSON and SSE event bodies remain unchanged. Prices are not part of this
 receipt and any currency calculation is an estimate at the stated rates.
 Reports remain view-only (`pkm_written:false`); source and identity review precede
-the owner's existing encrypted memory save. See the [PWM contract](../one/personal-world-model.md)
+the owner's existing encrypted memory save. A final model review selects existing
+fact IDs without rewriting their statements or citations. It may return an empty
+matched/uncertain report when no new statements remain; the assessed identity is
+preserved. `no_match` still forbids findings. Backend and shared web/native JavaScript
+decoders use this same rule; no SSE event or credential boundary changes.
+See the [PWM contract](../one/personal-world-model.md)
 and [stream implementation](../streaming/streaming-implementation-guide.md).
 
 ### One Runtime Configuration
@@ -2737,6 +2742,20 @@ thread visible again. A dismissal also covers older rows in the same displayed
 Consent bundle. A Drive outcome dismissal also hides earlier outcome rows for
 that same request; its decision, progress, and payment entries remain visible.
 Account deletion removes its Feed rows and hide state.
+
+A historical Drive outcome with request status `partial` receives live,
+participant-scoped receipt counts in metadata: `current_delivery_total_count`,
+`current_delivery_confirmed_count` (`succeeded` plus `preexisting`) and
+`current_delivery_pending_count` (queued, dispatching or unknown). These counts
+cover approved batches for that request and recipient. They describe recorded
+permission outcomes, not a new check of the current Google ACL. Missing or
+inconsistent counts use neutral copy; a request-level `partial` alone never
+establishes a sharing failure. The request detail uses aggregate delivery counts,
+so a successful latest batch cannot conceal an earlier failed batch. Confirmed
+delivery does not establish exhaustive search coverage or authorize unverified
+candidates. The proxy and native HTTP transport pass these additive fields;
+older servers safely omit them.
+
 
 ### SSE (Server-Sent Events)
 

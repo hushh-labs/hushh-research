@@ -1,6 +1,7 @@
 "use client";
 
 import { BadgeCheck } from "@/components/icons";
+import { ContactSourceBadge } from "./contact-source-badge";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
@@ -74,6 +75,7 @@ export function ConnectionPersonAvatar({
   photoUrl,
   label,
   verified = false,
+  fromContacts = false,
   size = "comfortable",
   className,
   fallbackClassName,
@@ -82,6 +84,7 @@ export function ConnectionPersonAvatar({
   photoUrl?: string | null;
   label: string;
   verified?: boolean;
+  fromContacts?: boolean;
   /**
    * Match the row it sits in. `compact` inside a `SettingsRow density="compact"`,
    * so the separator inset the row already draws lands on the text.
@@ -95,7 +98,7 @@ export function ConnectionPersonAvatar({
     <Avatar
       key={photoUrl?.trim() || "initials"}
       className={cn(
-        "relative shrink-0",
+        "relative shrink-0 overflow-visible",
         AVATAR_SIZE_CLASSNAME[size],
         className,
       )}
@@ -109,6 +112,7 @@ export function ConnectionPersonAvatar({
           src={photoUrl.trim()}
           alt=""
           referrerPolicy="no-referrer"
+          className="rounded-full"
         />
       ) : null}
       <AvatarFallback
@@ -120,7 +124,8 @@ export function ConnectionPersonAvatar({
       {verified ? (
         <span
           className={cn(
-            "absolute -right-0.5 -bottom-0.5 z-10 inline-flex items-center justify-center rounded-full bg-background",
+            "absolute -right-0.5 z-10 inline-flex items-center justify-center rounded-full bg-background",
+            fromContacts ? "-top-0.5" : "-bottom-0.5",
             AVATAR_BADGE_CLASSNAME[size],
           )}
           aria-label="Verified advisor"
@@ -133,6 +138,9 @@ export function ConnectionPersonAvatar({
             aria-hidden="true"
           />
         </span>
+      ) : null}
+      {fromContacts ? (
+        <ContactSourceBadge className="absolute -bottom-0.5 -right-0.5 z-10 size-3 rounded-sm bg-background ring-2 ring-background" />
       ) : null}
     </Avatar>
   );

@@ -15,13 +15,13 @@ describe("compact person row", () => {
       <ConnectPersonRow
         leading={<span>TP</span>}
         title="Test Person"
-        description="t***@example.com"
+        description="Connected 28 Sep"
         openLabel="Open Test Person's profile"
         onOpen={open}
         trailing={<button onClick={connect}>Connect</button>}
       />,
     );
-    expect(screen.getByText("t***@example.com")).toBeVisible();
+    expect(screen.getByText("Connected 28 Sep")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     expect(connect).toHaveBeenCalledOnce();
     expect(open).not.toHaveBeenCalled();
@@ -74,13 +74,13 @@ describe("mutual connections line", () => {
         onOpen={openPerson}
         supplement={
           <DirectoryMutualLine
-            person={{ ...person, mutualConnectionCount: 1, mutualConnectionPreview: { displayName: "Alex", photoUrl: "https://example.com/alex.png", publicPersonRef: "person_alex" } }}
+            person={{ ...person, mutualConnectionCount: 1, mutualConnectionPreview: { displayName: "98******10", photoUrl: "https://example.com/alex.png", publicPersonRef: "person_alex" } }}
             onOpenMutual={openMutual}
           />
         }
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Open mutual connection Alex's profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open mutual connection Hussh member's profile" }));
     expect(openMutual).toHaveBeenCalledOnce();
     expect(openPerson).not.toHaveBeenCalled();
     expect(screen.getByTestId("mutual-connection")).toHaveTextContent("Mutual connection");

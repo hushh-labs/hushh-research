@@ -12,6 +12,7 @@ from hushh_mcp.one_adk.world_model_contracts import (
     FindingBatch,
     IdentityAssessment,
     WorldModelReport,
+    eligible_report_sources,
     validated_facts_from_work,
 )
 
@@ -30,6 +31,22 @@ def test_owner_decisions_accept_full_draft_but_bound_the_request():
     assert len(OwnerDecisions.model_validate({"rejected": rows}).rejected) == 269
     with pytest.raises(ValueError):
         OwnerDecisions.model_validate({"rejected": [*rows, "extra"]})
+
+
+@pytest.mark.parametrize("state", ["owner_linked", "candidate_for_review", "ambiguous"])
+def test_reviewed_empty_report_preserves_identity_instead_of_manufacturing_a_fact(state):
+    identity = {**assessment()["identity"], "state": state}
+    value = report(identity)
+    value["match_status"] = "matched" if state == "owner_linked" else "uncertain"
+    value["sections"] = []
+    accepted = WorldModelReport.model_validate(value)
+    assert accepted.identity.state == state
+    assert accepted.sections == []
+    # No-match still cannot carry a personal finding.
+    invalid = report({**identity, "state": "no_match"})
+    invalid["match_status"] = "no_match"
+    with pytest.raises(ValueError, match="no-match report"):
+        WorldModelReport.model_validate(invalid)
 
 
 def assessment():
@@ -174,23 +191,52 @@ def test_identity_search_cannot_cite_an_unanchored_namesake_source():
         )
 
 
-@pytest.mark.parametrize("observed", [False, True])
-def test_report_cannot_borrow_citation_from_unobserved_coverage(observed):
+@pytest.mark.parametrize(
+    "defect", [None, "unobserved", "other_candidate", "other_topic", "unreceived"]
+)
+def test_report_cannot_borrow_citation_from_ineligible_coverage(defect):
+    from jsonschema import ValidationError, validate
+
+    from hushh_mcp.one_adk.world_model_azure import _report_schema, _topic_attempts
+
     value = report(assessment()["identity"])
     value["sections"][0]["facts"][0]["sources"] = [{"title": "Other result", "ref": "s2"}]
     attempts = {
         "1": {"plan": copy.deepcopy(PLAN), "observed": True, "source_refs": ["s1"]},
         "2": {
             "plan": {**copy.deepcopy(PLAN), "purpose": "coverage", "candidate_id": "c1"},
-            "observed": observed,
+            "observed": defect != "unobserved",
             "source_refs": ["s2"],
         },
     }
+    if defect == "other_candidate":
+        attempts["2"]["plan"]["candidate_id"] = "c2"
+    if defect == "other_topic":
+        attempts["2"]["plan"]["topics"] = ["education"]
+        value["coverage"][TOPICS.index("education")]["status"] = "checked_no_findings"
+    accepted = IdentityAssessment.model_validate(assessment())
+    refs = {"s1"} if defect == "unreceived" else {"s1", "s2"}
+    topics = {
+        topic: [index for index in indices if attempts[str(index)]["observed"]]
+        for topic, indices in _topic_attempts(accepted, attempts).items()
+    }
+    schema = _report_schema(
+        topics,
+        {
+            topic: sorted(eligible & refs)
+            for topic, eligible in eligible_report_sources(accepted, attempts).items()
+        },
+    )
     model = WorldModelReport.model_validate(value)
-    args = (IdentityAssessment.model_validate(assessment()), attempts, {"s1", "s2"})
-    if observed:
+    provider_value = copy.deepcopy(value)
+    provider_value.pop("coverage")  # The existing host ledger authors public coverage.
+    args = (accepted, attempts, refs)
+    if defect is None:
+        validate(provider_value, schema)
         assert model.validate_receipts(*args).sections[0].facts[0].sources[0].ref == "s2"
     else:
+        with pytest.raises(ValidationError):
+            validate(provider_value, schema)
         with pytest.raises(ValueError, match="unreceived source"):
             model.validate_receipts(*args)
 
@@ -236,6 +282,18 @@ def test_provisional_facts_need_selected_candidate_observed_plan_and_received_ci
     facts = validated_facts_from_work(work)
     assert len(facts) == 1 and facts[0]["sources"] == [work["sources"]["s1"]]
     assert facts[0]["id"].startswith("p")
+    coverage = copy.deepcopy(work)
+    coverage["attempts"]["1"]["plan"].update(purpose="coverage", candidate_id="c1")
+    for anchor in coverage["assessment"]["anchors"]:
+        anchor["source_refs"] = ["s2"]
+    # Vertex's original observed-coverage contract remains unchanged.
+    assert len(validated_facts_from_work(coverage)) == 1
+    # Azure cannot keep old provisional claims after c1 moves to a different page.
+    coverage["azure_work_version"] = 1
+    assert validated_facts_from_work(coverage) == []
+    for anchor in coverage["assessment"]["anchors"]:
+        anchor["source_refs"] = ["s1"]
+    assert len(validated_facts_from_work(coverage)) == 1
     for defect in ("candidate", "unobserved", "topic", "source", "unanchored_identity"):
         invalid = copy.deepcopy(work)
         batch = invalid["finding_batches"][0]

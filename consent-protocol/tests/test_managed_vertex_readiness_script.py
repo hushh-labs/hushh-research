@@ -338,6 +338,57 @@ async def test_probe_recovery_requires_success_and_preserves_hard_failures(monke
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("warmup_seconds", "recovery_succeeds"), [(30, True), (30, False), (99, True)]
+)
+async def test_gateway_timeout_recovery_requires_positive_reply_and_remaining_budget(
+    monkeypatch, warmup_seconds, recovery_succeeds
+):
+    from google.genai.errors import ServerError
+
+    spec = importlib.util.spec_from_file_location("gateway_probe_recovery_test", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    now = [float(warmup_seconds)]
+    starts = []
+    receipts = {}
+    durations = [0.902, 0.744, 0.899, 2.794, 56.612, 0.161]
+    gateway_error = ServerError(504, {"error": {"message": "Synthetic gateway timeout"}})
+
+    async def sleep(delay):
+        now[0] += delay
+
+    async def probe(index):
+        starts.append((index, now[0]))
+        is_recovery = sum(i == index for i, _ in starts) > 1
+        now[0] += 0.9 if is_recovery and recovery_succeeds else durations[index]
+        if index == 4 and not (is_recovery and recovery_succeeds):
+            raise gateway_error
+
+    monkeypatch.setattr(module, "monotonic", lambda: now[0])
+    monkeypatch.setattr(module.asyncio, "sleep", sleep)
+    outcomes = await module._run_paced_probes(
+        [(str(i), lambda i=i: probe(i)) for i in range(6)],
+        attempts=receipts,
+        deadline=330,
+    )
+    assert [i for i, _ in starts[:6]] == list(range(6))
+    assert all(error is None for i, error in enumerate(outcomes) if i != 4)
+    assert now[0] < 330
+    if warmup_seconds == 99:
+        assert len(starts) == 6
+        assert outcomes[4] is gateway_error
+        assert receipts["4"][-1]["dispatched"] is False
+    else:
+        assert [i for i, _ in starts] == [0, 1, 2, 3, 4, 5, 4]
+        assert starts[-1][1] == pytest.approx(236.612)
+        assert (outcomes[4] is None) is recovery_succeeds
+        assert [r["ok"] for r in receipts["4"]] == [False, recovery_succeeds]
+        assert all(r["dispatched"] is True for r in receipts["4"])
+    assert all(r.get("resource_exhausted") is False for r in receipts["4"] if not r["ok"])
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("later_hard_failure", [False, True])
 async def test_recovery_budget_preserves_later_verdicts_and_does_not_overschedule(
     monkeypatch, later_hard_failure

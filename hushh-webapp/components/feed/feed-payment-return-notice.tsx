@@ -135,7 +135,7 @@ export function FeedPaymentReturnNotice() {
                     ? "Payment is processing. We'll update your request when it's confirmed."
                     : "Checking payment status…";
   return (
-    <div role="status" aria-live="polite" data-testid="feed-payment-return" className="mx-4 mb-3 rounded-xl bg-accent/[0.06] px-4 py-3 text-sm">
+    <div data-profile-role="description" role="status" aria-live="polite" data-testid="feed-payment-return" className="mx-4 mb-3 rounded-xl bg-accent/[0.06] px-4 py-3 text-sm">
       {message}
     </div>
   );
