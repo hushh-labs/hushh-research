@@ -1,0 +1,19 @@
+.search.search { height: 44px; min-height: 44px; border-radius: var(--app-input-radius); background: var(--app-neutral-fill); box-shadow: none; }
+.search input { height: 42px; min-height: 0; font-size: var(--type-input-value-size, 16px); line-height: 22px; }
+.search input::-webkit-search-cancel-button { display: none; }
+.clear.clear { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+.count { font-size: 12px; line-height: 18px; color: var(--app-secondary-label); }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; margin-inline-start: auto; }
+.actions > button { width: auto; min-height: 44px; }
+.person { display: flex; align-items: center; min-height: 64px; gap: 12px; padding: 12px 8px; border-bottom: 1px solid var(--app-card-border-standard); border-radius: 10px; cursor: pointer; }
+.person[data-selected="true"] { background: var(--app-accent-surface); }
+.person[data-disabled="true"] { opacity: .55; cursor: default; }
+.personLabel { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.personName { display: block; font-size: 14px; line-height: 21px; font-weight: 550; }
+.personDetail { display: block; font-size: 12px; line-height: 18px; color: var(--app-secondary-label); }
+.check.check { width: 20px; height: 20px; border-radius: 50%; }
+@media (hover: hover) { .person:not([data-disabled="true"]):hover { background: var(--app-neutral-fill); } }
+
+.check[data-state="checked"] { border-color: var(--app-accent); background: var(--app-accent); color: var(--app-accent-fg); }
+.tabs.tabs :global([role="tab"]) { min-height: 44px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; }
+.tabs.tabs :global([role="tab"][aria-selected="true"]) { border-bottom-color: var(--app-accent); }

@@ -24,7 +24,6 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
-  AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
@@ -34,11 +33,12 @@ import {
 import {
   SheetClose,
   Sheet,
-  SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { AdaptiveSheetContent, TaskSurfaceBody, TaskSurfaceToolbar, TaskSurfaceFooter, TaskAlertDialogContent, useTaskSurfacePresentation, taskSurfaceStyles } from "@/lib/morphy-ux/ui/task-surfaces";
+import { SheetCount, SheetSearch } from "@/components/app-ui/sheet-parts";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { SectionLabel, TrailingValue } from "@/components/app-ui/typography";
@@ -81,14 +81,9 @@ import {
 } from "@/components/one-location/redesign/circles/circle-member-row-layout";
 import { CircleMemberActionsMenu } from "@/components/one-location/redesign/circles/circle-member-actions-menu";
 import {
-  CIRCLE_ADD_PEOPLE_HEADER_CLASSNAME,
-  CIRCLE_SHEET_BODY_CLASSNAME,
   CIRCLE_SHEET_CTA_CLASSNAME,
   CIRCLE_SHEET_FIRST_GROUP_HEADING_CLASSNAME,
-  CIRCLE_SHEET_HEADER_CLASSNAME,
   CIRCLE_SHEET_NEXT_GROUP_HEADING_CLASSNAME,
-  CIRCLE_SHEET_SCROLL_AREA_CLASSNAME,
-  CIRCLE_SHEET_SCROLL_BODY_CLASSNAME,
 } from "@/components/one-location/redesign/circles/circle-sheet-layout";
 import type {
   OneLocationCircleDetail,
@@ -120,12 +115,10 @@ import { ConnectionPersonAvatar } from "@/components/connections/connection-pers
 import { LivingCirclePanel } from "@/components/connect/circles/living-circle-panel";
 import { CirclePhotoEditor } from "@/components/connect/circles/circle-photo-editor";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { ActionMenu } from "@/components/app-ui/action-menu";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { cn } from "@/lib/utils";
-import connectWorkspaceStyles from "@/components/connect/connect-workspace.module.css";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { CreateCirclePeopleBody, useCreateCirclePeopleModel, type CirclePeoplePageLoader } from "./create-circle-people-step";
 import {
@@ -760,12 +753,17 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
   const { name, setName, setNameRequirementActive, setNameFocused, kind, setKind, nameInputRef, step, savedCircle,
     saving, nameMissing, canSubmit, nameHelpId, showNameError, nameHelpText, submit, people, peopleProps, busy, showCircleType } = model;
 
+  const inTaskSurface = useTaskSurfacePresentation();
+  const Body = inTaskSurface ? TaskSurfaceBody : "div";
+  const Footer = inTaskSurface ? TaskSurfaceFooter : "div";
+
   return (
-    <div data-profile-type-scale={step === "people" ? "circles" : undefined} data-testid="one-location-create-circle-flow" data-circle-create-step={step} className={step === "people" ? "flex min-h-0 flex-1 flex-col" : undefined}>
+    <div data-profile-type-scale={!inTaskSurface && step === "people" ? "circles" : undefined} data-testid="one-location-create-circle-flow" data-circle-create-step={step} className={inTaskSurface && step === "details" ? "contents" : step === "people" ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {savedCircle ? <div hidden={step !== "people"} className={step === "people" ? "flex min-h-0 flex-1 flex-col" : undefined}>
         <CreateCirclePeopleBody {...peopleProps} model={people} />
       </div> : null}
-      <div hidden={step !== "details"} className="space-y-5">
+      <div hidden={step !== "details"} className={inTaskSurface ? taskSurfaceStyles.createDetails : "space-y-5"}>
+      <Body className="space-y-5">
       <h1 className="sr-only">Create a Circle</h1>
 
       <p className="text-[15px] leading-6 text-[color:var(--app-secondary-label)]">
@@ -795,7 +793,7 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
           spellCheck
           placeholder="Family, close friends, project team"
           className={cn(
-            "h-[52px] w-full rounded-[14px] border border-transparent bg-[color:var(--app-card-surface-default-solid)] px-4 text-[17px] leading-[22px] shadow-[var(--app-card-shadow-standard)] outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:shadow-none",
+            inTaskSurface ? INPUT_CLASSNAME : "h-[52px] w-full rounded-[14px] border border-transparent bg-[color:var(--app-card-surface-default-solid)] px-4 text-[17px] leading-[22px] shadow-[var(--app-card-shadow-standard)] outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:shadow-none",
             showNameError && "ring-2 ring-[#FF3B30]/35 focus:ring-[#FF3B30]/35",
           )}
         />
@@ -824,7 +822,7 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
           <div
             role="radiogroup"
             aria-labelledby="one-location-create-circle-kind-label"
-            className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-3"
+            className={inTaskSurface ? "grid grid-cols-1 gap-2" : "grid grid-cols-1 gap-2 min-[360px]:grid-cols-3"}
             onKeyDown={(event) => {
               const currentIndex = CIRCLE_KIND_OPTIONS.findIndex(
                 (option) => option.value === kind,
@@ -869,7 +867,7 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
                     if (nameMissing) setNameRequirementActive(true);
                   }}
                   className={cn(
-                    "flex h-12 items-center justify-center gap-1.5 rounded-[14px] border px-3 text-[15px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+                    inTaskSurface ? "flex min-h-12 items-center justify-start gap-2 rounded-[14px] border px-3 py-3 text-[14px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]" : "flex h-12 items-center justify-center gap-1.5 rounded-[14px] border px-3 text-[15px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
                     selected
                       ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-primary-label)]"
                       : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
@@ -884,18 +882,19 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
         </div>
       ) : null}
 
-      <div className={CIRCLE_SHEET_CTA_CLASSNAME}>
+      </Body>
+      <Footer className={inTaskSurface ? undefined : CIRCLE_SHEET_CTA_CLASSNAME}>
         <Button
           type="button"
           size="prominent"
           disabled={!canSubmit}
           isLoading={busy || saving}
           onClick={() => void submit()}
-          className={cn("w-full", BLOCKED_CTA)}
+          className={cn(inTaskSurface ? "ml-auto w-auto" : "w-full", BLOCKED_CTA)}
         >
           {busy || saving ? "Saving…" : "Next"}
         </Button>
-      </div>
+      </Footer>
       </div>
     </div>
   );
@@ -1246,7 +1245,7 @@ export function JoinCircleFlow({
         open={discardPreviewConfirmOpen}
         onOpenChange={setDiscardPreviewConfirmOpen}
       >
-        <AlertDialogContent data-profile-type-scale="circles" size="sm">
+        <TaskAlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>Use another code?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -1260,7 +1259,7 @@ export function JoinCircleFlow({
               Yes
             </AlertDialogAction>
           </AlertDialogFooter>
-        </AlertDialogContent>
+        </TaskAlertDialogContent>
       </AlertDialog>
     </div>
   );
@@ -2277,11 +2276,11 @@ export function CircleDetailFlow({
   const toggleInlineConnection = (userId: string) => {
     if (!canInviteMembers || peopleSubmitInFlightRef.current) return;
     const person = eligibleConnections.find((candidate) => candidate.userId === userId);
-    if (!person) return;
     setSelectedConnections((current) => {
+      if (!current.has(userId) && !person) return current;
       const next = new Map(current);
       if (next.has(userId)) next.delete(userId);
-      else if (next.size < selectionLimit) next.set(userId, person);
+      else if (person && next.size < selectionLimit) next.set(userId, person);
       return next;
     });
   };
@@ -2546,7 +2545,7 @@ export function CircleDetailFlow({
               if (open) openPeopleSheet();
               else { setPeopleSheetOpen(false); peopleRequestRef.current += 1; setPeopleSearch(""); setSelectedConnections(new Map()); }
             }}>
-              <SheetContent side="bottom" dragDismiss={false} className={cn(connectWorkspaceStyles.pickerSheet, "mx-auto flex max-h-[calc(85dvh-var(--kb-height,0px))] w-full flex-col overflow-hidden rounded-t-[24px] sm:max-w-lg")}>
+              <AdaptiveSheetContent dragDismiss={false} className={taskSurfaceStyles.people}>
                 <SheetHeader><SheetTitle>Add people</SheetTitle><SheetDescription>Select connections to add to {circle.name}.</SheetDescription></SheetHeader>
             <LivingCirclePanel
               key={circle.id}
@@ -2563,6 +2562,7 @@ export function CircleDetailFlow({
               loading={peopleLoading}
               error={peopleLoadError}
               selectedUserIds={new Set(selectedConnections.keys())}
+              selectedPeople={[...selectedConnections.values()]}
               submitting={peopleSubmitting}
               onAdd={toggleInlineConnection}
               onSubmit={() => void addInlineConnections()}
@@ -2574,7 +2574,7 @@ export function CircleDetailFlow({
               onLoadMore={() => void loadEligibleConnections({ page: peoplePage + 1, append: true, query: peopleSearch })}
               onRetry={() => void loadEligibleConnections({ page: 1, query: peopleSearch })}
             />
-              </SheetContent>
+              </AdaptiveSheetContent>
             </Sheet>
           ) : null}
 
@@ -2588,15 +2588,14 @@ export function CircleDetailFlow({
                 if (!open && circle) setCircleName(circle.name);
               }}
             >
-              <SheetContent data-profile-type-scale="circles"
-                side="bottom"
+              <AdaptiveSheetContent
+                contentDragDismiss
                 aria-describedby={undefined}
-                className="mx-auto w-full rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-lg sm:px-6"
               >
-                <SheetHeader className={CIRCLE_SHEET_HEADER_CLASSNAME}>
+                <SheetHeader>
                   <SheetTitle>Rename Circle</SheetTitle>
                 </SheetHeader>
-                <div className={CIRCLE_SHEET_BODY_CLASSNAME}>
+                <TaskSurfaceBody>
                   <label className="block space-y-2">
                     <span data-profile-role="label" className="text-[15px] font-semibold leading-5 text-foreground">
                       Circle name
@@ -2633,10 +2632,11 @@ export function CircleDetailFlow({
                   {circleNameDirty && trimmedCircleName.length < 1 ? (
                     <p data-profile-role="description" className="text-sm text-destructive">Enter a name.</p>
                   ) : null}
+                </TaskSurfaceBody>
+                <TaskSurfaceFooter>
                   <FlowActionGroup
-                    stacked
                     separateSecondary={false}
-                    className={cn(CIRCLE_SHEET_CTA_CLASSNAME, "[&>div]:gap-1.5")}
+                    className={taskSurfaceStyles.actionGroup}
                     secondary={
                       <Button
                         type="button"
@@ -2654,7 +2654,7 @@ export function CircleDetailFlow({
                     primary={
                       <Button
                         type="button"
-                        size="prominent"
+                        size="compact"
                         disabled={!canSaveCircleName}
                         isLoading={savingName}
                         onClick={() => void renameCircle()}
@@ -2665,8 +2665,8 @@ export function CircleDetailFlow({
                       </Button>
                     }
                   />
-                </div>
-              </SheetContent>
+                </TaskSurfaceFooter>
+              </AdaptiveSheetContent>
             </Sheet>
           ) : null}
 
@@ -2732,8 +2732,8 @@ export function CircleDetailFlow({
                 }
               }}
             >
-              <SheetContent data-profile-type-scale="circles"
-                side="bottom"
+              <AdaptiveSheetContent
+                contentDragDismiss
                 aria-describedby={undefined}
                 onEscapeKeyDown={(event) => {
                   if (replaceCodeConfirmOpen) event.preventDefault();
@@ -2744,9 +2744,8 @@ export function CircleDetailFlow({
                 onPointerDownOutside={(event) => {
                   if (replaceCodeConfirmOpen) event.preventDefault();
                 }}
-                className="mx-auto w-full rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-lg sm:px-6"
               >
-                <SheetHeader className={CIRCLE_SHEET_HEADER_CLASSNAME}>
+                <SheetHeader>
                   <SheetTitle>Invite code</SheetTitle>
                   {!inviteCode && !inviteCodeNeedsOwnerRotation ? (
                     <SheetDescription>
@@ -2755,8 +2754,9 @@ export function CircleDetailFlow({
                   ) : null}
                 </SheetHeader>
                 {inviteCode ? (
-                  <div className={CIRCLE_SHEET_BODY_CLASSNAME}>
-                    <div className="rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] p-5 text-center shadow-[var(--app-card-shadow-standard)]">
+                  <Fragment>
+                  <TaskSurfaceBody className="space-y-4">
+                    <div className="rounded-2xl bg-[color:var(--app-neutral-fill)] p-5 text-center">
                       <p data-profile-role="name" className="break-all font-mono text-2xl font-bold tracking-[0.12em] text-foreground">
                         {inviteCode.code}
                       </p>
@@ -2764,15 +2764,16 @@ export function CircleDetailFlow({
                         Joining does not share location.
                       </p>
                     </div>
+                  </TaskSurfaceBody>
+                  <TaskSurfaceFooter>
                     <FlowActionGroup
-                      stacked
                       separateSecondary={false}
-                      className={CIRCLE_SHEET_CTA_CLASSNAME}
+                      className={taskSurfaceStyles.actionGroup}
                       secondary={
                         <Button
                           type="button"
                           variant="outline"
-                          size="prominent"
+                          size="compact"
                           disabled={busy}
                           onClick={() => void copyInviteCode(inviteCode.code)}
                         >
@@ -2783,7 +2784,7 @@ export function CircleDetailFlow({
                       primary={
                         <Button
                           type="button"
-                          size="prominent"
+                          size="compact"
                           disabled={busy}
                           onClick={() =>
                             void onShareCode(circle, inviteCode.code)
@@ -2807,32 +2808,28 @@ export function CircleDetailFlow({
                         ) : undefined
                       }
                     />
-                  </div>
+                  </TaskSurfaceFooter>
+                  </Fragment>
                 ) : inviteCodeNeedsOwnerRotation && !canRotateInviteCode ? (
-                  <div
-                    className={cn(
-                      CIRCLE_SHEET_BODY_CLASSNAME,
-                      "rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--app-card-shadow-standard)]",
-                    )}
-                  >
+                  <TaskSurfaceBody>
                     <p data-profile-role="name" className="text-[17px] font-semibold leading-[22px] text-foreground">
                       Invite code unavailable
                     </p>
                     <p data-profile-role="description" className={cn(MUTED_TEXT, "mt-1")}>
                       Ask the Circle owner for a new code.
                     </p>
-                  </div>
+                  </TaskSurfaceBody>
                 ) : (
-                  <div className={CIRCLE_SHEET_BODY_CLASSNAME}>
+                  <TaskSurfaceFooter>
                     <FlowActionGroup
-                      stacked
                       separateSecondary={false}
+                      className={taskSurfaceStyles.actionGroup}
                       secondary={
-                        <div className={CIRCLE_SHEET_CTA_CLASSNAME}>
+                        <div>
                           <Button
                             type="button"
                             variant="ghost"
-                            size="prominent"
+                            size="compact"
                             className="w-full justify-center"
                             onClick={() => setInviteCodeSheetOpen(false)}
                           >
@@ -2841,10 +2838,10 @@ export function CircleDetailFlow({
                         </div>
                       }
                       primary={
-                        <div className={CIRCLE_SHEET_CTA_CLASSNAME}>
+                        <div>
                           <Button
                             type="button"
-                            size="prominent"
+                            size="compact"
                             className="w-full justify-center"
                             disabled={busy}
                             isLoading={busy}
@@ -2857,9 +2854,9 @@ export function CircleDetailFlow({
                         </div>
                       }
                     />
-                  </div>
+                  </TaskSurfaceFooter>
                 )}
-              </SheetContent>
+              </AdaptiveSheetContent>
             </Sheet>
           ) : null}
 
@@ -2868,7 +2865,7 @@ export function CircleDetailFlow({
               open={replaceCodeConfirmOpen}
               onOpenChange={setReplaceCodeConfirmOpen}
             >
-              <AlertDialogContent data-profile-type-scale="circles"
+              <TaskAlertDialogContent
                 size="sm"
                 overlayClassName="z-[713]"
                 className="z-[714]"
@@ -2888,7 +2885,7 @@ export function CircleDetailFlow({
                     Replace code
                   </AlertDialogAction>
                 </AlertDialogFooter>
-              </AlertDialogContent>
+              </TaskAlertDialogContent>
             </AlertDialog>
           ) : null}
 
@@ -2909,23 +2906,9 @@ export function CircleDetailFlow({
               }
             }}
           >
-            <SheetContent data-profile-type-scale="circles"
-              side="bottom"
-              // Swiping down through the results is how a phone scrolls a list
-              // back up. Left on, it drags the sheet away instead and can close
-              // it outright, losing the query and every person already ticked.
-              dragDismiss={false}
-              // The keyboard height MUST stay in this max-height. SheetContent's
-              // default is `max-h-[calc(85dvh-var(--kb-height,0px))]` paired with
-              // `bottom-[var(--kb-height,0px)]`: the sheet lifts above the
-              // keyboard and shrinks by the same amount. A bare dvh max-height
-              // wins the tailwind-merge and drops only the shrink — so the sheet
-              // still lifts, and the title and the search field the person just
-              // tapped slide off the top of the screen. They then type into a
-              // field they cannot see.
-              className="mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
+            <AdaptiveSheetContent size="lg" dragDismiss={false} className={taskSurfaceStyles.people}
             >
-              <SheetHeader className={CIRCLE_ADD_PEOPLE_HEADER_CLASSNAME}>
+              <SheetHeader>
                 <SheetTitle>Add people</SheetTitle>
                 <SheetDescription
                   aria-live={isSmsCircle ? "polite" : undefined}
@@ -2941,22 +2924,10 @@ export function CircleDetailFlow({
                 </SheetDescription>
               </SheetHeader>
 
-              <div className={CIRCLE_SHEET_SCROLL_BODY_CLASSNAME}>
-                <label className="relative block">
-                  <span className="sr-only">Search connections</span>
-                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    value={peopleSearch}
-                    onChange={(event) => setPeopleSearch(event.target.value)}
-                    placeholder="Search people"
-                    className={cn(
-                      LOCATION_SEARCH_INPUT_CLASSNAME,
-                      "h-12 rounded-full bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70",
-                    )}
-                  />
-                </label>
+              <div className="contents">
+                <TaskSurfaceToolbar><SheetSearch value={peopleSearch} onValueChange={setPeopleSearch} placeholder="Search people" /></TaskSurfaceToolbar>
 
-                <div className={CIRCLE_SHEET_SCROLL_AREA_CLASSNAME}>
+                <TaskSurfaceBody>
                   {peopleLoading ? (
                     <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="h-5 w-5 animate-spin" />
@@ -3131,11 +3102,13 @@ export function CircleDetailFlow({
                       ) : null}
                     </div>
                   )}
-                </div>
+                </TaskSurfaceBody>
 
+                <TaskSurfaceFooter>
+                <SheetCount>{selectedConnections.size} selected</SheetCount>
                 <Button
                   type="button"
-                  size="prominent"
+                  size="compact"
                   disabled={
                     !canInviteMembers ||
                     !selectedConnections.size ||
@@ -3145,7 +3118,7 @@ export function CircleDetailFlow({
                   }
                   isLoading={peopleSubmitting}
                   onClick={() => void sendMemberInvites()}
-                  className={cn("w-full shrink-0", BLOCKED_CTA)}
+                  className={BLOCKED_CTA}
                 >
                   {selectedConnections.size
                     ? `Add ${selectedConnections.size} ${
@@ -3153,8 +3126,9 @@ export function CircleDetailFlow({
                       }`
                     : "Add people"}
                 </Button>
+                </TaskSurfaceFooter>
               </div>
-            </SheetContent>
+            </AdaptiveSheetContent>
             </Sheet>
           ) : null}
 
@@ -3321,7 +3295,7 @@ export function CircleDetailFlow({
                   Delete circle
                 </Button>
               </AlertDialogTrigger>
-              <AlertDialogContent data-profile-type-scale="circles">
+              <TaskAlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete “{circle.name}”?</AlertDialogTitle>
                   <AlertDialogDescription>
@@ -3342,7 +3316,7 @@ export function CircleDetailFlow({
                     Delete Circle
                   </AlertDialogAction>
                 </AlertDialogFooter>
-              </AlertDialogContent>
+              </TaskAlertDialogContent>
             </AlertDialog>
           ) : canLeaveCircle ? (
             <div
@@ -3365,7 +3339,7 @@ export function CircleDetailFlow({
                     Leave circle
                   </Button>
                 </AlertDialogTrigger>
-                <AlertDialogContent data-profile-type-scale="circles">
+                <TaskAlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>Leave “{circle.name}”?</AlertDialogTitle>
                     <AlertDialogDescription>
@@ -3386,7 +3360,7 @@ export function CircleDetailFlow({
                       Leave Circle
                     </AlertDialogAction>
                   </AlertDialogFooter>
-                </AlertDialogContent>
+                </TaskAlertDialogContent>
               </AlertDialog>
             </div>
           ) : null}

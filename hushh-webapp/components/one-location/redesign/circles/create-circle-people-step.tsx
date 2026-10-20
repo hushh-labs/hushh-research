@@ -1,5 +1,7 @@
 "use client";
 
+import { TaskSurfaceHeader, TaskSurfaceToolbar, TaskSurfaceBody, TaskSurfaceFooter, useTaskSurfacePresentation, taskSurfaceStyles } from "@/lib/morphy-ux/ui/task-surfaces";
+import { SheetSearch } from "@/components/app-ui/sheet-parts";
 import { connectPersonName } from "@/lib/connections/person-label";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -149,13 +151,18 @@ export function CreateCirclePeopleBody({
     retry,
     more,
   } = model;
+  const inTaskSurface = useTaskSurfacePresentation();
+  const Header = inTaskSurface ? TaskSurfaceHeader : "header";
+  const Toolbar = inTaskSurface ? TaskSurfaceToolbar : "div";
+  const Body = inTaskSurface ? TaskSurfaceBody : "div";
+  const Footer = inTaskSurface ? TaskSurfaceFooter : "footer";
   return (
     <section
-      data-profile-type-scale="circles"
-      className="motion-step-enter flex min-h-0 flex-1 flex-col gap-3"
+      data-profile-type-scale={inTaskSurface ? undefined : "circles"}
+      className={inTaskSurface ? "contents" : "motion-step-enter flex min-h-0 flex-1 flex-col gap-3"}
       aria-labelledby="create-circle-people-heading"
     >
-      <header className="shrink-0 space-y-1 pr-6">
+      <Header className={inTaskSurface ? undefined : "shrink-0 space-y-1 pr-6"}>
         <h2
           data-profile-role="dialog-title"
           id="create-circle-people-heading"
@@ -168,12 +175,13 @@ export function CreateCirclePeopleBody({
         <p data-profile-role="description" className="text-[15px] text-muted-foreground">
           Step 2 of 2 · Choose people for {circleName}, or add them later.
         </p>
-      </header>
-      <PersonSearchInput
+      </Header>
+      <Toolbar className={inTaskSurface ? undefined : "contents"}>
+      {inTaskSurface ? <SheetSearch value={query} onValueChange={changeQuery} placeholder="Search people" /> : (      <PersonSearchInput
         value={query}
         onChange={changeQuery}
         placeholder="Search people"
-      />
+      />) }
       <p data-profile-role="description" role="status" className="shrink-0 text-sm text-muted-foreground">
         {selected.length} selected
         {limit > 0
@@ -182,6 +190,8 @@ export function CreateCirclePeopleBody({
             ? " · This Circle is full"
             : ""}
       </p>
+      </Toolbar>
+      <Body className={inTaskSurface ? undefined : "contents"}>
       {loading && page === 1 ? (
         <p data-profile-role="description"
           role="status"
@@ -238,11 +248,12 @@ export function CreateCirclePeopleBody({
           {loading ? "Loading…" : "Load more contacts"}
         </Button>
       ) : null}
-      <footer className="flex shrink-0 flex-col gap-1 pt-2">
+      </Body>
+      <Footer className={inTaskSurface ? taskSurfaceStyles.createPeopleFooter : "flex shrink-0 flex-col gap-1 pt-2"}>
         <Button
           type="button"
           size="prominent"
-          className={`w-full rounded-full ${BLOCKED_CTA}`}
+          className={`${inTaskSurface ? "w-auto" : "w-full"} rounded-full ${BLOCKED_CTA}`}
           disabled={
             saving || loading || !selected.length || selected.length > limit
           }
@@ -274,7 +285,7 @@ export function CreateCirclePeopleBody({
             Add people later
           </Button>
         </div>
-      </footer>
+      </Footer>
     </section>
   );
 }
