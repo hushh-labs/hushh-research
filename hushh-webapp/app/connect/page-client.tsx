@@ -2393,6 +2393,7 @@ export default function ConnectPageClient() {
   });
   useLocalOnboardingActionHandler("connect.open_connections", () => {
     selectSurface("all");
+    setTab("people");
     setConnectionView("connections");
     return { status: "succeeded", summary: "My connections opened." };
   });

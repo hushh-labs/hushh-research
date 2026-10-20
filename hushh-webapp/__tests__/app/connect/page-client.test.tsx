@@ -3478,6 +3478,33 @@ describe("My connections before the first page answers", () => {
 });
 
 
+describe("Connect saved-roster voice navigation", () => {
+  it("keeps the existing my-connections phrase on the complete People roster after RIA browsing", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    chooseDirectory("RIAs");
+    await waitFor(() =>
+      expect(mocks.listConnectionsPage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ audience: "ria" })
+      )
+    );
+    const handler = resolveLocalOnboardingHandler("connect.open_connections");
+    expect(handler).not.toBeNull();
+    await act(async () => {
+      await handler!({}, { directiveId: "open-saved" });
+    });
+    expect(screen.getByRole("tab", { name: /My connections/ })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    await waitFor(() =>
+      expect(mocks.listConnectionsPage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ audience: "all" })
+      )
+    );
+  });
+});
+
 describe("Connect saved search isolation", () => {
   it("discards a previous query's late page without replacing the browse count or cache", async () => {
     const latePage = deferred<TestConnectionPage>();
