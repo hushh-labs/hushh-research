@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 365,
+  "expected_migration_version": 366,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -1960,7 +1960,8 @@
       "source",
       "phase",
       "observed_at",
-      "expires_at"
+      "expires_at",
+      "operation_key"
     ],
     "one_referral_activity_days": [
       "user_id",

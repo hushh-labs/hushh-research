@@ -615,6 +615,41 @@ class ActorIdentityService:
                 timestamp = timestamp.replace(tzinfo=timezone.utc)
         return datetime.now(timezone.utc) - timestamp >= _IDENTITY_STALE_AFTER
 
+    @staticmethod
+    async def read_provider_phone_fallbacks(conn, *, candidates: dict[str, str]) -> dict[str, str]:
+        """Read-only Firebase fallback; never replace a present canonical row.
+
+        Call after lifecycle barriers and before identity row locks. The shared
+        claim lock uses the existing writer's exact key/namespace and prevents a
+        stale provider number from being projected during a verified transfer.
+        These candidates must come from current Firebase records, not a client.
+        """
+        if len(candidates) > 50:
+            raise ValueError("identity projection exceeds page bound")
+        valid = {
+            uid: phone
+            for uid, phone in candidates.items()
+            if re.fullmatch(r"\+[1-9][0-9]{6,14}", phone)
+        }
+        if not valid:
+            return {}
+        for phone in sorted(set(valid.values())):
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))",
+                f"actor_identity_phone_claim:{phone}",
+            )
+        bindings = await conn.fetch(
+            "SELECT user_id,phone_number FROM actor_identity_cache "
+            "WHERE phone_verified=TRUE AND phone_number=ANY($1::text[])",
+            sorted(set(valid.values())),
+            timeout=5,
+        )
+        return {
+            uid: phone
+            for uid, phone in valid.items()
+            if not any(row["phone_number"] == phone and row["user_id"] != uid for row in bindings)
+        }
+
     async def get_many(self, user_ids: Iterable[str], *, conn=None) -> dict[str, dict[str, Any]]:
         """Read identities; a caller-owned transaction retains authority until commit."""
         normalized_ids = [str(user_id or "").strip() for user_id in user_ids]
