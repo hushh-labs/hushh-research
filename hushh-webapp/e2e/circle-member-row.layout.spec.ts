@@ -1005,14 +1005,23 @@ test.describe("Circle roster row", () => {
           await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
           const sheetGeometry = await sheet.evaluate((element) => {
             const menu = element.querySelector<HTMLElement>('[role="menu"]')!;
+            const body = element.querySelector<HTMLElement>('[data-task-region="body"]')!;
             const cancel = [...element.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === "Cancel")!;
             const handle = element.firstElementChild!;
+            const bodyBox = body.getBoundingClientRect();
+            const bodyStyle = getComputedStyle(body);
             const menuBox = menu.getBoundingClientRect();
             const cancelBox = cancel.getBoundingClientRect();
             return {
               overflow: element.scrollWidth > element.clientWidth,
+              bodyLeft: bodyBox.left,
+              bodyRight: bodyBox.right,
               menuLeft: menuBox.left,
               menuRight: menuBox.right,
+              // Classic scrollbars consume the stable gutter; overlay
+              // scrollbars do not. Controls align within the content seat.
+              contentLeft: bodyBox.left + body.clientLeft + parseFloat(bodyStyle.paddingLeft),
+              contentRight: bodyBox.left + body.clientLeft + body.clientWidth - parseFloat(bodyStyle.paddingRight),
               cancelLeft: cancelBox.left,
               cancelRight: cancelBox.right,
               cancelBottom: cancelBox.bottom,
@@ -1021,10 +1030,13 @@ test.describe("Circle roster row", () => {
             };
           });
           expect(sheetGeometry.overflow).toBe(false);
-          expect(sheetGeometry.menuLeft).toBe(16);
-          expect(sheetGeometry.menuRight).toBe(width - 16);
+          expect(sheetGeometry.bodyLeft).toBe(0);
+          expect(sheetGeometry.bodyRight).toBe(width);
+          expect(sheetGeometry.menuLeft).toBe(sheetGeometry.contentLeft);
+          expect(sheetGeometry.menuRight).toBe(sheetGeometry.contentRight);
           expect(sheetGeometry.cancelRight - sheetGeometry.cancelLeft).toBeCloseTo(244, 0);
-          expect((sheetGeometry.cancelLeft + sheetGeometry.cancelRight) / 2).toBeCloseTo(width / 2, 0);
+          expect((sheetGeometry.cancelLeft + sheetGeometry.cancelRight) / 2)
+            .toBeCloseTo((sheetGeometry.contentLeft + sheetGeometry.contentRight) / 2, 0);
           expect(sheetGeometry.cancelBottom).toBeLessThanOrEqual(844 - 16);
           expect(sheetGeometry.handleHeight).toBe(4);
           expect(sheetGeometry.font).toContain("Plus Jakarta Sans");
