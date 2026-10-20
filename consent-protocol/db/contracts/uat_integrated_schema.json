@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 366,
+  "expected_migration_version": 367,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -1568,7 +1568,8 @@
       "candidate_scopes",
       "attachment_review_required",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "reply_send_action_id"
     ],
     "google_calendar_action_proposals": [
       "proposal_id",
@@ -2464,6 +2465,15 @@
       "observed_at",
       "expires_at",
       "operation_key"
+    ],
+    "one_product_value_receipts": [
+      "effect_id",
+      "user_id",
+      "generation",
+      "agent_id",
+      "proof",
+      "occurred_at",
+      "expires_at"
     ],
     "one_referral_activity_days": [
       "user_id",

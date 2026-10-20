@@ -17,14 +17,16 @@ from api.routes.one import plg
 from hushh_mcp.hushh_adk import product_activity as sdk
 from hushh_mcp.services import plg_audience as audience
 from hushh_mcp.services import plg_evidence as evidence
+from hushh_mcp.services import plg_outcomes as outcomes
 from hushh_mcp.services import product_activity as sink
+from hushh_mcp.services.pkm_mutation_contracts import derive_pkm_mutation_commit_id
 from hushh_mcp.services.plg_catalog import activity_catalog
 
 SECRET = "test-only-plg-export-signature-key-with-32-characters"
 NOW = datetime.now(timezone.utc)
 ACCOUNT = {"accountId": "pilot-account", "journey": "memory", "since": NOW.isoformat()}
 PLAN = "pkm_plan_abcdefghijkl"
-COMMIT = evidence.derive_pkm_mutation_commit_id(
+COMMIT = derive_pkm_mutation_commit_id(
     user_id=ACCOUNT["accountId"], domain="home_projects", plan_id=PLAN
 )
 
@@ -94,8 +96,18 @@ def test_validation_and_provider_errors_never_echo_identifiers_or_private_detail
 @pytest.mark.asyncio
 async def test_projection_bounds_owner_and_window_and_carries_deletion_without_content(monkeypatch):
     class Connection:
+        execute = AsyncMock()
+
+        def transaction(self, **_):
+            return Acquire()
+
         async def fetch(self, query, *args, **kwargs):
             assert args == (ACCOUNT["accountId"], NOW, NOW)
+            if (
+                "FROM pkm_domain_commits" not in query
+                and "FROM gmail_owner_send_actions" not in query
+            ):
+                return []
             return [
                 {
                     "action_id": COMMIT,
@@ -106,6 +118,9 @@ async def test_projection_bounds_owner_and_window_and_carries_deletion_without_c
                     "authorization_mode": "owner_confirmed",
                 }
             ]
+
+        async def fetchval(self, *_args, **_kwargs):
+            return False
 
     class Acquire:
         async def __aenter__(self):
@@ -119,7 +134,11 @@ async def test_projection_bounds_owner_and_window_and_carries_deletion_without_c
             return Acquire()
 
     monkeypatch.setattr(evidence, "get_pool", AsyncMock(return_value=Pool()))
-    monkeypatch.setattr(evidence.AccountDeletionLifecycleService, "is_tombstoned", lambda _: False)
+    monkeypatch.setattr(
+        evidence.AccountDeletionLifecycleService,
+        "active_projection_user_ids",
+        AsyncMock(return_value={ACCOUNT["accountId"]}),
+    )
     request = evidence.PilotRequest.model_validate({"accounts": [ACCOUNT]})
     result = await evidence.snapshot(request, {ACCOUNT["accountId"]}, NOW)
     assert result["retainedOnly"] is True
@@ -136,12 +155,17 @@ async def test_projection_bounds_owner_and_window_and_carries_deletion_without_c
     assert {row["agentId"] for row in account["verified"]} == {
         "agent_personal_information",
         "agent_email",
+        "agent_one",
     }
     assert account["activity"]["enabled"] is False
     assert "PRIVATE_CONTENT" not in json.dumps(expanded)
     with pytest.raises(ValueError):
         await evidence.snapshot(request, {"another-owner"}, NOW)
-    monkeypatch.setattr(evidence.AccountDeletionLifecycleService, "is_tombstoned", lambda _: True)
+    monkeypatch.setattr(
+        evidence.AccountDeletionLifecycleService,
+        "active_projection_user_ids",
+        AsyncMock(return_value=set()),
+    )
     result = await evidence.snapshot(request, {ACCOUNT["accountId"]}, NOW)
     assert result["accounts"][0]["deleted"] is True
     assert result["accounts"][0]["tasks"] == []
@@ -215,6 +239,11 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
     assert {a["id"] for a in catalog["agents"]} == {a["id"] for a in registry["agents"]}
     assert {a["capability_id"] for a in graph["actions"]} <= {a["id"] for a in catalog["actions"]}
     assert {a["agentId"] for a in catalog["actions"]} <= {a["id"] for a in catalog["agents"]}
+    assert {a["id"] for a in catalog["agents"] if a["public"]} == set(outcomes.DEFINITIONS)
+    assert all(
+        a["outcome"]["status"] == ("supported" if a["public"] else "internal")
+        for a in catalog["agents"]
+    )
     gateway = json.loads(
         generated_contract_path("kai", "kai-action-gateway.vnext.json").read_text()
     )
@@ -555,7 +584,20 @@ async def test_audience_live_page_excludes_deleted_accounts_and_never_serializes
         async def __aexit__(self, *_):
             pass
 
-    conn = SimpleNamespace(execute=AsyncMock(), fetch=AsyncMock(return_value=[]))
+    conn = SimpleNamespace(
+        execute=AsyncMock(),
+        fetch=AsyncMock(return_value=[]),
+        fetchval=AsyncMock(return_value=False),
+    )
+
+    async def source_page(query, *args, **_):
+        if "owners.user_id AS _plg_user_id" in query:
+            assert args[0] == ["active"]  # Tombstoned identities never reach the outcome query.
+            if "AS capped" in query:
+                return [{"_plg_user_id": "active", "capped": False}]
+        return []
+
+    conn.fetch.side_effect = source_page
     conn.transaction = lambda **_: Context(None)
     monkeypatch.setattr(
         audience,
@@ -578,7 +620,8 @@ async def test_audience_live_page_excludes_deleted_accounts_and_never_serializes
     assert result["scanned"] == 2 and result["excluded"] == 1
     assert [r["accountId"] for r in result["rows"]] == ["active"]
     assert result["rows"][0]["identity"]["phoneNumber"] == "+919876543210"
-    assert result["rows"][0]["verified"]["supported"] is False
+    assert result["rows"][0]["verified"]["supported"] is True
+    assert result["rows"][0]["verified"]["count"] == 0
     assert "PRIVATE_HASH" not in json.dumps(result)
     assert result["campaignEnrollmentChanged"] is False and result["nextCursor"]
 
@@ -598,3 +641,193 @@ def test_all_registered_collection_remains_explicit_and_production_only(monkeypa
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
     monkeypatch.setenv("ONE_PLG_ACTIVITY_ENABLED", "false")
     assert not sink.enabled_for("new-account")
+
+
+@pytest.mark.asyncio
+async def test_domain_outcomes_classify_saved_artifacts_and_deduplicate_shared_one_effects():
+    uid = ACCOUNT["accountId"]
+    commits = []
+    for domain, writer in [
+        ("financial", "kai_analysis_completion"),
+        ("professional", "career_resume_owner_review"),
+        ("wallet", "wallet_card_owner_review"),
+        ("home_projects", "memory_owner_review"),
+    ]:
+        commits.append(
+            {
+                "action_id": derive_pkm_mutation_commit_id(
+                    user_id=uid, domain=domain, plan_id=PLAN
+                ),
+                "occurred_at": NOW,
+                "domain": domain,
+                "plan_id": PLAN,
+                "authorization_mode": "owner_confirmed",
+                "writer_id": writer,
+            }
+        )
+    # Incorrect provenance and a plan/commit mismatch must not count even with a positive SDK return.
+    invalid = [
+        {**commits[0], "authorization_mode": "owner_auto_save_policy"},
+        {**commits[0], "action_id": "unbound-commit"},
+    ]
+    fixtures = {
+        outcomes.MEMORY_SQL.replace("LIMIT 101", "LIMIT 1001"): commits + invalid,
+        outcomes.WALLET_SQL: [{"action_id": commits[2]["action_id"]}],
+        outcomes.MAIL_SQL.replace("LIMIT 101", "LIMIT 1001"): [
+            {"action_id": "mail-effect", "occurred_at": NOW}
+        ],
+        outcomes.KYC_SQL: [{"action_id": "mail-effect", "occurred_at": NOW}],
+        **{
+            sql: [{"action_id": name, "occurred_at": NOW}]
+            for name, sql in [
+                ("calendar", outcomes.CALENDAR_SQL),
+                ("nav", outcomes.NAV_SQL),
+                ("location-command", outcomes.LOCATION_SQL),
+                ("location-direct", outcomes.LOCATION_DIRECT_SQL),
+                ("document", outcomes.DOCUMENTS_SQL),
+                ("crm", outcomes.CRM_SQL),
+            ]
+        },
+    }
+    calls = []
+
+    async def fetch(query, *args, **_):
+        assert args == (uid, NOW, NOW)
+        calls.append(query)
+        return fixtures[query]
+
+    conn = SimpleNamespace(fetch=fetch, fetchval=AsyncMock(return_value=False))
+    cache = {}
+    expected = {
+        "agent_personal_information": 4,
+        "agent_email": 1,
+        "agent_kai": 1,
+        "agent_career": 1,
+        "agent_wallet": 1,
+        "agent_kyc": 1,
+        "agent_calendar": 1,
+        "agent_nav": 1,
+        "agent_location": 2,
+        "agent_documents": 1,
+        "agent_connected_systems": 1,
+        "agent_one": 11,
+    }
+    for agent, count in expected.items():
+        effects, limited = await outcomes.value_effects(conn, uid, agent, NOW, NOW, cache)
+        assert len(effects) == count, agent
+        assert not limited
+    assert len(calls) == len(fixtures)  # No repeated source scans for a multi-agent snapshot.
+    unknown = await outcomes.value_summary(conn, uid, "agent_memory_merge", NOW, NOW)
+    assert unknown == {
+        "supported": False,
+        "proof": None,
+        "count": 0,
+        "lastAt": None,
+        "limited": False,
+    }
+    conn.fetchval.return_value = True
+    capped = await outcomes.value_summary(conn, uid, "agent_calendar", NOW, NOW)
+    assert capped["supported"] and capped["limited"] and capped["count"] == 1
+
+    # A full default audience page must not multiply eleven sources by 25 owners.
+    owners = [uid, "owner' OR 1=1 --", *[f"page-owner-{n}" for n in range(23)]]
+    batch_calls = []
+
+    async def batch_fetch(query, ids, since, now, **_):
+        assert ids == owners and since == now == NOW
+        assert owners[1] not in query  # Identity values are bound, never SQL source.
+        batch_calls.append(query)
+        if "AS capped" in query:
+            return [{"_plg_user_id": owner, "capped": owner == uid} for owner in owners]
+        source = next(q for q in fixtures if q.replace("$1", "owners.user_id") in query)
+        rows = [{"_plg_user_id": uid, **row} for row in fixtures[source]]
+        if source == outcomes.MAIL_SQL.replace("LIMIT 101", "LIMIT 1001"):
+            rows.append({"_plg_user_id": owners[1], "action_id": "mail-effect", "occurred_at": NOW})
+        return rows
+
+    batch_conn = SimpleNamespace(fetch=batch_fetch)
+    summaries = await outcomes.value_summaries(batch_conn, owners, "agent_one", NOW, NOW)
+    assert len(batch_calls) == 11
+    assert summaries[uid]["count"] == 11 and summaries[uid]["limited"]
+    assert summaries[owners[1]]["count"] == 1 and not summaries[owners[1]]["limited"]
+    assert all(summaries[owner]["count"] == 0 for owner in owners[2:])
+    assert all(row["proof"] == "one.distinct_domain_effects.v1" for row in summaries.values())
+    internal = await outcomes.value_summaries(batch_conn, owners, "agent_memory_merge", NOW, NOW)
+    assert not any(row["supported"] for row in internal.values()) and len(batch_calls) == 11
+    with pytest.raises(ValueError, match="bound"):
+        await outcomes.value_summaries(batch_conn, [*owners, "overflow"], "agent_one", NOW, NOW)
+    with pytest.raises(ValueError, match="incomplete"):
+        await outcomes.value_summaries(
+            SimpleNamespace(fetch=AsyncMock(return_value=[])), owners, "agent_one", NOW, NOW
+        )
+
+
+@pytest.mark.asyncio
+async def test_value_epoch_is_pinned_before_effect_and_measurement_failure_is_optional(monkeypatch):
+    from hushh_mcp.services import product_value_receipts as values
+
+    generation = ["old-generation"]
+    monkeypatch.setattr(
+        values.product_activity, "admission", lambda _: {"generation": generation[0]}
+    )
+    pinned = await values.capture_value_epoch("owner")
+    generation[0] = "reset-generation"
+    calls = []
+    monkeypatch.setattr(values, "_calendar_receipt", lambda *args: calls.append(args) or True)
+    await values.record_calendar_effect(
+        user_id="owner", kind="proposal", source_id="proposal", generation=pinned
+    )
+    assert calls == [("owner", "proposal", "proposal", "old-generation")]
+    await values.record_calendar_effect(
+        user_id="owner", kind="proposal", source_id="proposal", generation=None
+    )
+    assert len(calls) == 1
+    monkeypatch.setattr(
+        values,
+        "_calendar_receipt",
+        lambda *_: (_ for _ in ()).throw(RuntimeError("private db failure")),
+    )
+    assert (
+        await values.record_calendar_effect(
+            user_id="owner", kind="proposal", source_id="proposal", generation=pinned
+        )
+        is None
+    )
+
+
+def test_slow_measurement_checkout_cannot_stall_product_or_build_an_unbounded_queue(monkeypatch):
+    import threading
+
+    from hushh_mcp.services import product_value_receipts as values
+
+    release = threading.Event()
+    started = []
+    pending = []
+    submit = values._submit
+
+    def track(callback):
+        future = submit(callback)
+        if future:
+            pending.append(future)
+        return future
+
+    def slow_admission(uid):
+        started.append(uid)
+        release.wait(5)
+        return {"generation": "late-generation"}
+
+    monkeypatch.setattr(values.product_activity, "admission", slow_admission)
+    monkeypatch.setattr(values, "_submit", track)
+    try:
+        for _ in range(4):
+            before = time.monotonic()
+            assert values.capture_value_epoch_sync("owner") is None
+            assert time.monotonic() - before < 1
+        before = time.monotonic()
+        assert values.capture_value_epoch_sync("capacity-exceeded") is None
+        assert time.monotonic() - before < 0.5
+        assert started == ["owner"] * 4
+    finally:
+        release.set()
+        for future in pending:
+            future.result(timeout=2)

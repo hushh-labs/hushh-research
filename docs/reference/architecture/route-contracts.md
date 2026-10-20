@@ -384,7 +384,8 @@ interaction. File cards retain authenticated download/share actions; legacy
 video files remain downloadable without video-message UI. Quoted previews have
 a blue accent, at most two lines, and fetch older history before scrolling to
 the original without replacing live updates. The message composer projects into
-the existing centered Agent Dock above navigation; both panes reserve the full
+the existing viewport-centered Agent Dock above navigation, using the same
+width cap and safe-area insets as other pages. Both panes reserve the full
 dock height, while keyboard lift reserves only navigation and outer insets.
 Every bubble shows its timestamp beside the existing delivery status. The inbox
 keeps the message-shaped dock visible, with typing and sending disabled until a
