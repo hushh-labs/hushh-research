@@ -144,21 +144,27 @@ class DriveTrustedAutoService:
         request_id = await self.sharing.trusted_request_for_job(user_id=user_id, job_id=job_id)
         if request_id is None:
             return None
-        context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
-        require_current = (
-            (
-                lambda: self.sharing.package_preparation_authority(
-                    user_id=user_id, request_id=request_id
-                )
-            )
-            if context.get("agentPackageRequired")
-            else self._authority(user_id, request_id)
-        )
+        require_current = None
         dates_checked = False
 
         async def guarded():
-            nonlocal dates_checked
+            nonlocal dates_checked, require_current
             try:
+                if require_current is None:
+                    # Resolve request state after run_one claims the job so a
+                    # closed request reaches its lease-release error boundary.
+                    context = await self.sharing.request_bulk_context(
+                        user_id=user_id, request_id=request_id
+                    )
+                    require_current = (
+                        (
+                            lambda: self.sharing.package_preparation_authority(
+                                user_id=user_id, request_id=request_id
+                            )
+                        )
+                        if context.get("agentPackageRequired")
+                        else self._authority(user_id, request_id)
+                    )
                 await require_current()
                 if not dates_checked:
                     context = await self.sharing.request_bulk_context(
