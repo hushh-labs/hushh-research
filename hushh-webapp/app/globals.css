@@ -7759,17 +7759,11 @@ html.dark:has([data-direct-message-page]) [data-app-bottom-shell] {
   --accent: var(--chat-ios-accent);
 }
 
-/* Messages is a split workspace on desktop. The shared dock remains one
-   column, aligned to the conversation rather than the whole viewport. */
+/* Messages reserves the centered shared dock inside both split panes. */
 @media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
   html:has([data-direct-message-page]) [data-app-scroll-root] {
-    /* The desktop workspace reserves dock space inside the conversation. */
+    /* The workspace panes reserve the measured dock, avoiding double padding. */
     padding-bottom: 0;
-  }
-  html:has([data-direct-message-page]) [data-messages-dock] {
-    inset-inline-start: var(--app-messages-sidebar-width);
-    --app-bottom-shell-max-width: none;
-    --app-bottom-shell-inline-inset: 16px;
   }
 }
 

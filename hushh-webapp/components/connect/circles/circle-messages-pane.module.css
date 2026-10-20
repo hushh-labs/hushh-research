@@ -35,10 +35,7 @@
 .empty a { color: var(--chat-accent); font-weight: 600; }
 .notice { padding: 20px; font-size: 13px; color: var(--chat-muted); }
 @media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
-  .list {
-    align-self: start;
-    height: max(0px, calc(100% - var(--direct-message-keyboard-inset, 0px)));
-  }
+  .list,
   .thread {
     align-self: start;
     height: max(0px, calc(100% - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset, 0px) + var(--direct-message-dock-height, 0px) + var(--direct-message-dock-clearance, 0px)))));

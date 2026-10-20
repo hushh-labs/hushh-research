@@ -26,8 +26,7 @@ export type BottomShellModel = {
   navigationHidden: boolean;
   /** Chat owns this same bar as its composer, including active voice controls. */
   agentBarHidden?: boolean;
-  /** Messages reserves the complete dock above its transcript and aligns the
-   * shared column to its tablet/desktop conversation pane. */
+  /** Messages reserves the complete centered dock above its lists and transcript. */
   includeComposerHeight?: boolean;
   /** An immersive route owns the full viewport and has no persistent chrome. */
   hidden?: boolean;
