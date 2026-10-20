@@ -93,7 +93,7 @@ for (const dark of [false, true]) {
       await page.setViewportSize({ width, height: 1100 });
       await page.goto(await buildFixture(dark));
       await awaitProductFont(page);
-      const rows = page.locator('[data-row-layout="settings"][data-testid^="feed-actionable-"], [data-row-layout="settings"][data-testid^="feed-drive-progress-"], [data-testid="feed-row"]');
+      const rows = page.locator('[data-row-layout="settings"][data-testid^="feed-actionable-"]:not([data-testid^="feed-actionable-sms-emergency:"]), [data-row-layout="settings"][data-testid^="feed-drive-progress-"], [data-testid="feed-row"]');
       await expect(rows).toHaveCount(16);
       for (const heading of await page.locator('[data-slot="settings-group-heading"]').all()) {
         await expect(heading).toHaveCSS("font-size", "10px");
@@ -159,6 +159,22 @@ for (const dark of [false, true]) {
       }
       await expect(page.locator('[data-testid="feed-actionable-android-connection"]').getByRole("button", { name: /^Report/ })).toBeVisible();
       await expect(page.locator("button button, button a, a button")).toHaveCount(0);
+      const sms = page.getByTestId("feed-sms-alert-group");
+      await expect(sms.locator("summary")).toContainText("3 recent SMS alerts · 1 active");
+      await expect(sms.locator("summary time")).toBeVisible();
+      await sms.locator("summary").focus();
+      await page.keyboard.press("Enter");
+      await expect(sms).toHaveAttribute("open", "");
+      await expect(sms.getByRole("link", { name: /Emergency SMS · Active/ })).toBeVisible();
+      const sentTimes = sms.locator('[data-testid^="feed-actionable-sms-emergency:"] time');
+      await expect(sentTimes).toHaveCount(3);
+      for (const stamp of await sentTimes.all()) {
+        await expect(stamp).toBeVisible();
+        const box = await stamp.boundingBox();
+        expect(box!.x).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
       if (width === 393 || width === 1280) {
         await page.screenshot({ path: testInfo.outputPath("feed-rows.png"), fullPage: true });
       }

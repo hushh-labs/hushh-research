@@ -648,6 +648,31 @@ describe("named Circle flows", () => {
     expect(props.onInviteConnections).toHaveBeenCalledExactlyOnceWith("family", ["Asha"]);
   });
 
+  it("can search and remove an off-page selection from the Selected view without inviting", async () => {
+    const asha = { connectionId: "c-asha", userId: "asha", displayName: "Asha" };
+    const jordan = { connectionId: "c-jordan", userId: "jordan", displayName: "Jordan" };
+    const props = detailProps(async () => circle("family", "Family"));
+    props.onLoadEligibleConnections = vi.fn(async () => ({ eligibleConnections: [asha], pendingInvites: [], remainingCapacity: 3 }));
+    const loadPage = vi.fn(async (_id: string, options: { query?: string }) => ({
+      eligibleConnections: options.query ? [jordan] : [asha], pendingInvites: [],
+      remainingCapacity: 3, page: 1, hasMore: false, totalCount: 1,
+    }));
+    render(<CircleDetailFlow circleId="family" livingCircleExperience {...props} onLoadEligibleConnectionsPage={loadPage} />);
+    await openCirclePeoplePicker();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Add Asha to Family" }));
+    const search = screen.getByRole("searchbox", { name: "Search connections to add" });
+    fireEvent.change(search, { target: { value: "Jordan" } });
+    await screen.findByRole("checkbox", { name: "Add Jordan to Family" });
+    fireEvent.click(screen.getByRole("tab", { name: "Selected (1)" }));
+    expect(screen.queryByRole("checkbox", { name: "Add Asha to Family" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(search).toHaveFocus();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Add Asha to Family" }));
+    expect(screen.getByRole("tab", { name: "Selected (0)" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Add people", exact: true })).toBeDisabled();
+    expect(props.onInviteConnections).not.toHaveBeenCalled();
+  });
+
   it("reaches later eligible connections through inline expansion, pagination, and search", async () => {
     const firstPage = Array.from({ length: 7 }, (_, index) => ({
       connectionId: `connection-${index + 1}`,
@@ -1930,15 +1955,7 @@ describe("named Circle flows", () => {
       "focus-visible:border-[color:var(--app-accent)]",
     );
     expect(input.className).not.toContain("focus-visible:ring-[3px]");
-    const renameSheet = screen.getByRole("dialog", { name: "Rename Circle" });
-    const saveAction = within(renameSheet).getByRole("button", { name: "Save" });
-    const actionGroup = saveAction.closest('[data-ui-role="flow-actions"]');
-    const cancelAction = within(renameSheet)
-      .getByRole("button", { name: "Cancel" })
-      .closest('[data-action-priority="secondary"]');
-    expect(actionGroup).toHaveClass("max-w-[244px]", "[&>div]:gap-1.5");
-    expect(saveAction).toHaveClass("h-[50px]");
-    expect(cancelAction).not.toHaveClass("border-t", "pt-2");
+
 
     // Only an empty name blocks the write; one character is a name.
     fireEvent.change(input, { target: { value: "   " } });
@@ -2400,55 +2417,7 @@ describe("named Circle flows", () => {
     ).toBeTruthy();
   });
 
-  // Reported on the Add people sheet: "extra space between the section is
-  // bad", "search bahut jyada neeche aa raha", "divs truncated bhi dikh rahe
-  // hain". None of that gap was written here -- it was SheetContent's `gap-4`,
-  // SheetHeader's `p-4`, the body's `mt-4` and SettingsGroup's `mt-7`, four
-  // sensible defaults stacking. Asserted on the rendered classes rather than
-  // measured, because jsdom has no layout: what regressed was which owner's
-  // default is in force, and that is exactly what these read back.
-  it("does not stack four owners' default spacing above the Add people list", async () => {
-    render(
-      <CircleDetailFlow
-        circleId="circle-1"
-        {...detailProps(async () => circle("circle-1", "Family"))}
-        onLoadEligibleConnections={vi.fn(async () => ({
-          eligibleConnections: [
-            { userId: "conn-1", displayName: "Asha Meena" },
-            { userId: "conn-2", displayName: "Neel Shah" },
-          ],
-          pendingInvites: [],
-          remainingCapacity: 5,
-        }))}
-      />,
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
-    const sheet = await screen.findByRole("dialog", { name: "Add people" });
-
-    // The header stops adding a second inset on top of the sheet's own, so
-    // the title lines up with the search field instead of sitting inboard of
-    // it, and stops adding 16px under a description the gap already spaced.
-    const header = sheet.querySelector('[data-slot="sheet-header"]');
-    expect(header?.className).toContain("p-0");
-    expect(header?.className).toContain("pt-5");
-    expect(header?.className).not.toContain("p-4");
-
-    const group = await screen.findByTestId(
-      "one-location-circle-eligible-connections",
-    );
-    const headingBlock = group
-      .querySelector('[data-slot="settings-group-heading"]')
-      ?.closest("section > div");
-    expect(headingBlock?.className).toContain("mt-0");
-    expect(headingBlock?.className).not.toContain("mt-7");
-
-    // And the list is still the thing that scrolls, so the "Add N people"
-    // button cannot be pushed off the bottom by a long roster.
-    const scroller = sheet.querySelector(".overflow-y-auto.overscroll-contain");
-    expect(scroller).not.toBeNull();
-    expect(scroller?.contains(group)).toBe(true);
-  });
+  // Sheet spacing and reachability are measured by circle-invite-picker.layout.spec.ts.
 
   it("scopes quick actions to the row's own member and hides actions that don't apply", async () => {
     const onShareWithMember = vi.fn();

@@ -718,6 +718,38 @@ Rules:
    it must not repeat that identity block, title, subtitle, or implementation
    diagnostics in a nested card.
 
+### Task surface anatomy
+
+`lib/morphy-ux/ui/task-surfaces.tsx` composes the stock Sheet, Drawer, Dialog
+and AlertDialog families. Those primitives retain focus, open state, gestures,
+Back handling, native isolation, motion and portal ownership. New task layouts
+use shared header, toolbar, scrolling body and footer regions; features supply
+controlled content and existing action callbacks. `components/app-ui/sheet-parts`
+provides search, counts and controlled person rows using the existing controls.
+Use the canonical SegmentedTabs for local views.
+
+The task canvas is opaque in both themes. The previous screen is obscured by
+the existing shared blurred/dimmed scrim; do not replace it with a dim-only
+artifact overlay or put glass on the foreground. Native Android retains its
+measured blur-free fallback, credential gates retain their opaque backdrop,
+and non-modal map surfaces retain their explicit overlay policy.
+
+Task corners are 24px, insets are 16px on phones and 24px from 768px, titles
+are 20/28 semibold, descriptions 14/20, and controls have 44px targets. People
+rows use 36px avatars and 20px selection marks. `AdaptiveSheetContent` explicitly
+opts a bottom Sheet into desktop centering at 768px without remounting the
+form; ordinary anchored sheets retain their side. People pickers opt into a
+stable bounded height. Small forms remain content-sized. Keyboard/native
+seats cap the frame; short or enlarged-content tasks scroll the whole frame
+with reachable actions rather than clipping the body. Footer safe-area
+padding is applied once. Existing drag options must be passed through;
+inner-scroll pickers keep their existing drag opt-out.
+
+AdaptiveDetailSurface adopts this anatomy for its Sheet and desktop Dialog
+presentations; its default phone fullscreen Drawer transport remains owned
+by that component. Reference examples do not authorize new routes, mutations,
+relationship semantics, navigation chrome or a parallel overlay implementation.
+
 ## Activity And Notification Contract
 
 The dropdown-based `ActivityInbox` this section used to specify no longer exists.

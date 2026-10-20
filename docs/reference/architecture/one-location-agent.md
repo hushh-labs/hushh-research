@@ -257,6 +257,15 @@ owner/link metadata plus the attached public location snapshot.
   separately materialize a mutual One Network connection. Claiming never
   creates a live location grant, exposes private owner profile data, or requests
   location permission.
+  The preview's primary action is **Accept invitation**, with short guidance
+  when phone verification or vault unlock is needed. Token invitations retain
+  their return destination through login, phone verification, setup and unlock.
+  Explicit invitation verification remains available to established accounts:
+  their exemption from first-run phone onboarding must not redirect them back
+  before they can verify the phone required by the claim endpoint. An unknown
+  identity offers Retry. Optional phone-based discovery does not interrupt this
+  invitation continuation. Masked inviter phone suffixes use one nonbreaking
+  bullet mask, including labels without a display name.
 - Named Circles are a separate durable metadata graph backed by
   `one_location_circles`, `one_location_circle_memberships`, and
   `one_location_circle_invite_codes`. The user's confirmed Join action on a

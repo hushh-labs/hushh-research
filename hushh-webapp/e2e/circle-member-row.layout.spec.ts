@@ -974,19 +974,21 @@ test.describe("Circle roster row", () => {
           }
           await expect(sheet).toContainText(owner ? "Owner" : "Connected");
           await expect(sheet).toHaveCSS("background-color", "rgb(255, 255, 255)");
-          await expect(sheet).toHaveCSS("border-top-left-radius", "28px");
-          await expect(sheet).toHaveCSS("border-top-right-radius", "28px");
-          await expect(sheet).toHaveCSS("padding-left", "24px");
-          await expect(sheet).toHaveCSS("padding-right", "24px");
+          await expect(sheet).toHaveCSS("border-top-left-radius", "24px");
+          await expect(sheet).toHaveCSS("border-top-right-radius", "24px");
+          await expect(sheet).toHaveCSS("padding-left", "0px");
+          await expect(sheet).toHaveCSS("padding-right", "0px");
+          await expect(sheet.locator('[data-task-region="body"]')).toHaveCSS("padding-left", "16px");
+          await expect(sheet.locator('[data-task-region="body"]')).toHaveCSS("padding-right", "16px");
           await expect(sheet.locator('[data-slot="avatar"]')).toHaveCSS("width", "48px");
           await expect(sheet.locator('[data-slot="avatar"]')).toHaveCSS("height", "48px");
           await expect(sheet.locator('[data-slot="drawer-title"]')).toHaveCSS("font-weight", "600");
-          await expect(sheet.locator('[data-slot="drawer-title"]')).toHaveCSS("font-size", "15px");
+          await expect(sheet.locator('[data-slot="drawer-title"]')).toHaveCSS("font-size", "20px");
           const menu = sheet.getByRole("menu");
           await expect(menu).toHaveCSS("border-radius", "20px");
           const share = page.getByRole("menuitem", { name: "Share location" });
           await expect(share).toHaveCSS("height", "52px");
-          await expect(share).toHaveCSS("font-size", "12px");
+          await expect(share).toHaveCSS("font-size", "17px");
           const colors = await share.locator("svg").evaluate(svg => ({
             outline: getComputedStyle(svg.querySelector("path")!).stroke,
             accent: getComputedStyle(svg.querySelector(".profile-pane-icon-accent")!).stroke,
@@ -1003,14 +1005,23 @@ test.describe("Circle roster row", () => {
           await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
           const sheetGeometry = await sheet.evaluate((element) => {
             const menu = element.querySelector<HTMLElement>('[role="menu"]')!;
+            const body = element.querySelector<HTMLElement>('[data-task-region="body"]')!;
             const cancel = [...element.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === "Cancel")!;
             const handle = element.firstElementChild!;
+            const bodyBox = body.getBoundingClientRect();
+            const bodyStyle = getComputedStyle(body);
             const menuBox = menu.getBoundingClientRect();
             const cancelBox = cancel.getBoundingClientRect();
             return {
               overflow: element.scrollWidth > element.clientWidth,
+              bodyLeft: bodyBox.left,
+              bodyRight: bodyBox.right,
               menuLeft: menuBox.left,
               menuRight: menuBox.right,
+              // Classic scrollbars consume the stable gutter; overlay
+              // scrollbars do not. Controls align within the content seat.
+              contentLeft: bodyBox.left + body.clientLeft + parseFloat(bodyStyle.paddingLeft),
+              contentRight: bodyBox.left + body.clientLeft + body.clientWidth - parseFloat(bodyStyle.paddingRight),
               cancelLeft: cancelBox.left,
               cancelRight: cancelBox.right,
               cancelBottom: cancelBox.bottom,
@@ -1019,12 +1030,15 @@ test.describe("Circle roster row", () => {
             };
           });
           expect(sheetGeometry.overflow).toBe(false);
-          expect(sheetGeometry.menuLeft).toBe(24);
-          expect(sheetGeometry.menuRight).toBe(width - 24);
+          expect(sheetGeometry.bodyLeft).toBe(0);
+          expect(sheetGeometry.bodyRight).toBe(width);
+          expect(sheetGeometry.menuLeft).toBe(sheetGeometry.contentLeft);
+          expect(sheetGeometry.menuRight).toBe(sheetGeometry.contentRight);
           expect(sheetGeometry.cancelRight - sheetGeometry.cancelLeft).toBeCloseTo(244, 0);
-          expect((sheetGeometry.cancelLeft + sheetGeometry.cancelRight) / 2).toBeCloseTo(width / 2, 0);
-          expect(sheetGeometry.cancelBottom).toBeLessThanOrEqual(844 - 24);
-          expect(sheetGeometry.handleHeight).toBe(6);
+          expect((sheetGeometry.cancelLeft + sheetGeometry.cancelRight) / 2)
+            .toBeCloseTo((sheetGeometry.contentLeft + sheetGeometry.contentRight) / 2, 0);
+          expect(sheetGeometry.cancelBottom).toBeLessThanOrEqual(844 - 16);
+          expect(sheetGeometry.handleHeight).toBe(4);
           expect(sheetGeometry.font).toContain("Plus Jakarta Sans");
 
           const sheetBox = (

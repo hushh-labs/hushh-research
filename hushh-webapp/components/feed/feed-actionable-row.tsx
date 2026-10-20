@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { FeedSmsSentTime } from "@/components/feed/feed-sms-sent-time";
 import { DirectMessageLink } from "@/components/direct-messages/direct-message-link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Loader2, X } from "@/components/icons";
@@ -390,11 +391,17 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
     layout: "settings",
     density: "compact",
     leading,
-    title: <FeedRowMetadata title={item.title} description={item.description} indicator={indicator} />,
-    ariaLabel: [item.title, item.description].filter(Boolean).join(". "),
-    textOverflow: "truncate",
+    title: item.smsEmergency ? (
+      <span className="block min-w-0 space-y-0.5 py-1">
+        <span data-profile-role="name" className="block whitespace-normal [overflow-wrap:anywhere]">{item.title}</span>
+        <span data-profile-role="description" data-slot="feed-event-description" className="flex items-center gap-1.5 whitespace-normal text-muted-foreground">{indicator}{item.description}</span>
+        <FeedSmsSentTime timestamp={item.displayTimestamp} />
+      </span>
+    ) : <FeedRowMetadata title={item.title} description={item.description} indicator={indicator} />,
+    ariaLabel: item.smsEmergency ? undefined : [item.title, item.description].filter(Boolean).join(". "),
+    textOverflow: item.smsEmergency ? "wrap" : "truncate",
     trailing: <>
-      <FeedRowTimestamp timestamp={item.displayTimestamp} />
+      {!item.smsEmergency ? <FeedRowTimestamp timestamp={item.displayTimestamp} /> : null}
       <ActionButtons actions={item.actions} phoneActions={item.phoneActions} compact />
     </>,
     trailingInteractive: hasActions,
@@ -414,7 +421,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
         <NavigationLink
           href={item.href}
           prefetch={false}
-          aria-label={[item.title, item.description].filter(Boolean).join(". ")}
+          aria-label={item.smsEmergency ? undefined : [item.title, item.description].filter(Boolean).join(". ")}
         />
       </SettingsRow>
     ) : (

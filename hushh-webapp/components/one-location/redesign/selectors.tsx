@@ -32,6 +32,7 @@ import {
 } from "@/components/app-ui/typography";
 import { cn } from "@/lib/utils";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
+import { SEARCH_INPUT_KEYBOARD_PROPS } from "@/components/app-ui/search-input-keyboard";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
@@ -534,35 +535,7 @@ export function PersonSearchInput({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         data-voice-control-id={voiceControlId}
-        // A name is not a dictionary word. Left on, iOS autocorrect rewrites an
-        // uncommon surname mid-search and the list jumps to the wrong people or
-        // empties, with the user watching their own typing change under them.
-        // Autocapitalise is off for the same reason a search box is not a name
-        // field: matching is case-insensitive, and a forced capital is one more
-        // thing the keyboard did that the person did not ask for.
-        autoCorrect="off"
-        autoCapitalize="none"
-        spellCheck={false}
-        enterKeyHint="search"
-        onKeyDown={(event) => {
-          // iOS soft-keyboard "return" must dismiss the keyboard; blurring the
-          // field is what actually closes it in the Capacitor webview (there is
-          // no form submit here). Without this the key reads "return", does
-          // nothing, and the keyboard stays over the results being read.
-          if (event.key === "Enter") {
-            event.preventDefault();
-            event.currentTarget.blur();
-          }
-        }}
-        onFocus={(event) => {
-          // Tapping this field on a small iPhone otherwise leaves it sitting
-          // behind the keyboard, so the person types blind. The delay lets the
-          // keyboard animate in, so the shrunken viewport is what gets measured.
-          const field = event.currentTarget;
-          window.setTimeout(() => {
-            field.scrollIntoView({ block: "center", behavior: "smooth" });
-          }, 250);
-        }}
+        {...SEARCH_INPUT_KEYBOARD_PROPS}
         className={cn(LOCATION_SEARCH_INPUT_CLASSNAME, "pr-12")}
       />
       <SearchClearButton

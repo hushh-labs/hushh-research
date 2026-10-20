@@ -28,6 +28,8 @@ import path from "node:path";
 import { afterEach, it, vi } from "vitest";
 
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
+import { FeedSmsAlertGroup } from "@/components/feed/feed-sms-alert-group";
+import { groupFeedSmsAlerts } from "@/lib/feed/feed-sms-grouping";
 import { FeedDriveProgressRow } from "@/components/feed/feed-drive-progress-row";
 import { FeedRow } from "@/components/feed/feed-row";
 import { SettingsGroup, SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
@@ -154,6 +156,21 @@ it("captures the Needs you rows", () => {
     <SettingsPresentationProvider density="compact">
       <SettingsGroup title="Needs you" separatorInset>
         {ROWS.map((item) => <FeedActionableRow key={item.id} item={item} />)}
+      </SettingsGroup>
+      <SettingsGroup title="Live" separatorInset>
+        {groupFeedSmsAlerts([0, 1, 2].map((index) => ({
+          id: "sms-emergency:incident-" + index,
+          smsEmergency: { senderId: "sms-sender" },
+          person: { displayName: "A contact with a very long display name", photoUrl: null },
+          title: "A contact with a very long display name",
+          description: index === 0 ? "Emergency SMS · Active" : index === 1 ? "Emergency SMS · Revoked" : "Emergency SMS · Expired",
+          emphasis: index === 0 ? "emergency" as const : undefined,
+          href: index === 0 ? "/one/location?grantId=incident-0&open=1&section=shared" : null,
+          chevron: index === 0,
+          displayTimestamp: Date.parse("2026-08-17T03:04:00Z") - index * 86400000,
+          sortAt: 3 - index,
+          icon: MapPin, iconTone: "capability" as const, actions: [],
+        }))).map((group) => <FeedSmsAlertGroup key={group.id} group={group} />)}
       </SettingsGroup>
       <SettingsGroup title="In progress" separatorInset>
         <FeedDriveProgressRow item={{ id: "queued", title: "Waiting to start", description: "Request allowed. The Drive search starts soon.", href: "/one/consents", requestedAt: 1786934040000, waiting: true }} />
