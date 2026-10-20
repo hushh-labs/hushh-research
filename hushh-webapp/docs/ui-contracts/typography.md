@@ -1,7 +1,7 @@
 # Profile, Navigation, and Feed Typography Contract
 
 Status: current source-backed usage map, checked against revision
-`fd22c14a9` on 20 October 2026. Owner: frontend design system. Classification:
+`296d7769c83176739e4db8d3ad549b0521894f52` on 20 October 2026. Owner: frontend design system. Classification:
 `canonical`, package-local. This answers **when to use what** in these product
 surfaces. The existing [design system](../../../docs/reference/quality/design-system.md)
 and executable tokens remain authoritative; this page does not introduce a
@@ -15,7 +15,7 @@ flowchart TD
   role --> context["Owning presentation context"]
   context --> profile["Profile home or nested detail"]
   context --> nav["Shared navigation"]
-  context --> feed["Needs you or other Feed rows"]
+  context --> feed["Whole Feed page context"]
   profile --> css["Resolved CSS and inherited tokens"]
   nav --> css
   feed --> css
@@ -161,45 +161,71 @@ names are meaningful only within that context.
 | Dialog footer label | 12 / inherited line / 600 |
 
 The value `"page"` additionally restyles the shared top-bar title/breadcrumb
-to 20/23/600 while mounted. Connect and To-do use it. Feed Needs you uses an
-empty value and leaves the shell title alone. Agents roster and the
+to20/23/600 while mounted. The whole Feed page and To-do use it.
+Connect has its own `data-connect-type-scale="page"`, described below. Agents roster and the
 remove-connection dialog also opt in locally. Chat uses `"chat"` for its
 authored welcome context and preserves its separate 16px composer rule.
 Source: [context definitions](../../app/globals.css).
 
-## Feed: section-specific schema
+## Current Connect and Feed context schema
 
-Only **Needs you** opts into the Profile detail scale. Other Feed sections
-retain their own compact rows. A small timestamp is metadata, not the schema
-for the title or the action.
+At the checked revision **Connect owns `data-connect-type-scale="page"`** and
+workspace tokens. **The whole Feed AppPageShell has
+`data-profile-type-scale="page"`**. Older CSS comments naming Connect and only
+Feed Needs you lag these executable callers. Follow imports and winning CSS,
+not those comments or an isolated fixture's absent context.
 
-| Placement | Size / line height | Weight and use |
-| --- | --- | --- |
-| Needs you name | 13 / 15.86 | 400 |
-| Needs you explanation | 12 / 15.6 | 400 |
-| Needs you action | 12 / 15.6 | 500; full actionable target remains |
-| History title | 13 / 16.25; 12.5 / 15.625 at ≤360px | Read 400, unread 600 |
-| History description | 11 / 14.85; 10 / 13.5 at ≤360px | Supporting line |
-| Live emergency title | Compact person-row default 16 / 21 | 400; actual emergency rows disable compact Feed layout |
-| Live emergency description | 13 / 18 | 400; outside Profile opt-in |
-| Ordinary compact Coming up title | Authored 13 / 16 | 500 |
-| Ordinary compact actionable description | Authored 11 / 15 | Supporting line |
-| History timestamp | 10 / 12.5 | Hidden below 521px |
-| Compact actionable timestamp | 10px / inherited line height | Hidden below 521px |
-| Noncompact Live/Needs you metadata time | 12 / 16 | No mobile-hide class in FeedRowMetadata |
-| Compact section label | 14 / 18 | 600, subject to scoped group-label overrides |
-| Empty/error heading | 17 / 22 | 600 |
-| Empty/error explanation | 13 / 18 | 400 |
+| Surface/role | Current source-derived resolution and use |
+| --- | --- |
+| Connect row |14/21/550; Settings title slot consumes workspace tokens. Not Profile's13px rule. |
+| Connect description |12/18/400. |
+| Connect section |14/22/600; source-group headings explicitly12/18/600. |
+| Connect form label |15/22/550. |
+| Connect input |14/22/400; workspace token16px at≤620. |
+| Connect action |Explicit action role12/18/550; utility controls13/21/550→12≤620. |
+| Connect person layout |Settings slots; identity and actions siblings;36avatar/min72 desktop/70≤620; one column. |
+| Connect remove Dialog |Portalled explicit empty Profile type scope; its own dialog scale, not inherited workspace tokens. |
+| Feed top-bar title |Page context20/23/600. |
+| Feed name/history/actionable/Live |13/15.86/400 through explicit name role. Live emergency emphasis changes pulse/color, not a larger noncompact font. |
+| Feed description/time |12/15.6/400. Timestamp remains visible on phones; current component has no old below521 hide class. |
+| Feed action |12/15.6/500, shared compact target44. |
+| Feed group heading |10/14/600,.02em. |
+| Feed error/empty |Explicit name/description roles13/15.86 and12/15.6, not old17px generic heading. |
+| Feed unread |Generic slot requests600, but more-specific page Profile name rule requests400 and wins. Marker and accessible `Unread:` still distinguish unread. No claim of600 computed emphasis from isolated row fixture. |
+| Ordinary Feed row track |Single inline name/description track with truncation; trailing time/action. SMS incidents are the explicit exception: wrapped sender/status/original sent time, no separate trailing timestamp. Sender groups use inline details/summary with counts and latest sent time. |
+| Feed removal Dialog |Portalled explicit `data-profile-type-scale="feed"` activates its own dialog roles. |
 
-History overrides inherited row-label tokens, so the winning generic row slot
-rule resolves to 13px, rather than its ordinary 17px default. **Needs you**
-instead uses explicit Profile role overrides. Live emergencies use the larger
-person-row treatment; an ordinary compact fixture named "live" does not
-prove emergency-row metrics. Any emergency row action outside the opt-in
-retains the shared compact button's 15/20/650 label. Sources:
-[Feed composition](../../components/feed/feed-page.tsx),
-[history row](../../components/feed/feed-row.tsx),
-[actionable row](../../components/feed/feed-actionable-row.tsx).
+Sources: [Connect root](../../app/connect/page-client.tsx),
+[workspace tokens](../../components/connect/connect-workspace.module.css),
+[person row](../../components/connect/connect-person-row.tsx),
+[Feed root](../../components/feed/feed-page.tsx),
+[metadata](../../components/feed/feed-row-metadata.tsx),
+[history](../../components/feed/feed-row.tsx),
+[actionable](../../components/feed/feed-actionable-row.tsx),
+[Profile selectors](../../app/globals.css).
+
+## Rendering pipeline and every local branch
+
+Typography has **no business API or mutation**. Component props→emitted tag/
+class/data-ui-role→global role tokens→density/context→winning CSS. Same-origin
+WOFF2 GETs are asset downloads, not a font-choice API. Appearance/accent/writing
+preferences are real [Profile](./profile.md) operations with separate persistence.
+No Save/Yes/No/Cancel transaction exists for choosing a semantic text component.
+
+`SemanticText` publishes role hooks; SettingsRow also publishes title,
+description and trailing slots. String/number trailing values are wrapped in
+explicit TrailingValue; inherited12px slot does not erase its direct15px rule.
+ReactNode trailing props retain their own component. Compact semantics require
+the owning density context. Portals need explicit matching type scope; global
+html tokens alone do not make every portal a Profile Dialog.
+
+The six same-origin font faces are normal/italic400/600/700. Google font
+preconnect hints in root layout are not an active external stylesheet/font API.
+Requested550/650 are CSS weights, not separate shipped files. MediumRowLabel
+uses strong body; SupportingText aliases subtitle; Footnote aliases helper;
+StatusText is13/18/600; IdentityName emits h1 and does not automatically style
+every person's name. Native adapters use OS typography; exported maxFontScale
+metadata alone does not prove caps are enforced.
 
 ## Navigation and button schema
 
@@ -255,9 +281,10 @@ Existing production-component fixtures provide bounded computed-style proof:
 [Connectors](../../e2e/profile-legal-connectors.layout.spec.ts).
 Profile-scale is not currently in the WebKit admission list; this change ran
 it in Chromium. The other listed fixtures have existing WebKit admission.
-The change passed 19 Profile-scale checks in Chromium, 26 Feed-row checks
-across Chromium/WebKit, and four focused nested-Profile/Connector scale checks
-across both engines. These do not certify every route, native Dynamic Type,
+Earlier contract work recorded19 Profile-scale checks in Chromium,26
+Feed-row checks across Chromium/WebKit and four focused nested-Profile/Connector
+checks. Those historical results are not fresh full-context proof for the
+current3ff Feed/Connect overrides. These do not certify every route, native Dynamic Type,
 VoiceOver, OS font fallback, or real account state.
 
 Known source debt: explanatory comments in `tokens/surfaces.ts` cite older

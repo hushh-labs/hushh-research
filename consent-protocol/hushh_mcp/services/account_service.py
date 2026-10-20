@@ -20,7 +20,10 @@ from hushh_mcp.services.account_deletion_provider_cleanup import (
     release_provider_grants_after_erasure,
     snapshot_provider_credentials_in_transaction,
 )
-from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+from hushh_mcp.services.connection_graph_service import (
+    list_connection_graph_viewer_ids,
+    lock_connection_graph_users,
+)
 from hushh_mcp.services.hushh_tech_uat_database_attestation import (
     UAT_DATABASE_ATTESTATION_SQL,
     UAT_INSTANCE,
@@ -2058,6 +2061,7 @@ class AccountService:
         }
 
         provider_credentials = ProviderCredentialSnapshot(user_id=user_id)
+        graph_viewer_ids: set[str] = set()
         try:
             with get_db_connection() as conn:
                 if backend_only:
@@ -2104,6 +2108,15 @@ class AccountService:
                         table_exists=lambda table_name: self._table_exists(conn, table_name),
                     )
                 self._clear_external_connector_data(conn, user_id, results, permanent=True)
+                # The graph writer barrier is held here. Capture survivors
+                # before deleting edges/memberships, then wake them only after
+                # the erasure transaction has successfully committed.
+                graph_viewer_ids = list_connection_graph_viewer_ids(
+                    conn,
+                    user_id=user_id,
+                    include_pending_requests=True,
+                    table_exists=lambda table_name: self._table_exists(conn, table_name),
+                )
                 self._clear_live_memory_source_journal(conn, user_id, results, permanent=True)
                 self._delete_optional_user_tables(
                     conn,
@@ -2425,6 +2438,13 @@ class AccountService:
 
         # Outside the erasure try-block on purpose: the deletion has committed,
         # and releasing provider grants is bounded best effort that never raises.
+        if graph_viewer_ids:
+            try:
+                from hushh_mcp.services.connections_service import _notify_connection_graph_changed
+
+                _notify_connection_graph_changed(user_ids=graph_viewer_ids)
+            except Exception:  # a failed doorbell cannot undo committed erasure
+                logger.warning("account.graph_sync_failed", exc_info=True)
         results["provider_grant_release"] = (
             {"status": "preserved_backend_only"}
             if backend_only

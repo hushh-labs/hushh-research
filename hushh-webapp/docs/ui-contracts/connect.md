@@ -1,7 +1,7 @@
 # Connect UI Contract
 
-Status: current product and UI reference, updated for the v14 presentation
-integration on 20 October 2026. Owner: frontend architecture. Classification:
+Status: current product and UI reference, checked against source revision
+`3ff2620b48567177dce5c667e77a70203e4a8c35` on 20 October 2026. Owner: frontend architecture. Classification:
 `canonical`, package-local. This contract describes the reachable Connect
 experience: what each surface shows, what each CTA does, and how a person
 returns. It records existing behavior; it does not introduce new service permissions or change mutation semantics.
@@ -196,6 +196,11 @@ that invitations were sent.
 
 ### Person profile handoff
 
+The complete [Person profile UI contract](./person-profile.md) owns viewport
+and phone/desktop sizing, effective fonts, every local request dialog/sheet,
+catalog, grants, and history. The table here preserves Connect's immediate
+handoff boundary.
+
 The shared [person profile](../../components/connections/person-profile-page.tsx)
 can display relationship state, public details, capabilities, shared records,
 and request controls. Availability depends on that person's published catalog,
@@ -337,7 +342,7 @@ and [its people step](../../components/one-location/redesign/circles/create-circ
 | Details: **Circle name** | Required trimmed name, 1–80 characters. |
 | **Circle type** | Family, Friends, Other; default Family. These are not the six starter labels. |
 | **Next / Saving…** | Persists the circle, then opens the people step. Failure keeps the form available for retry. |
-| People: **Search contacts** | Searches eligible existing connections; selection survives paging. |
+| People: **Search people** | Searches eligible existing connections; selection survives paging. |
 | Person **Add / selected toggle** | Changes the local batch, bounded by remaining capacity and at most 20 per mutation. |
 | **Add N person/people** | Commits membership changes, then opens saved detail. Failed addition preserves the selection. |
 | **Try again / Load more contacts** | Recovers or pages the eligible-person list. |
@@ -396,11 +401,11 @@ editing. Trusted/SMS do not show chat or photo editing; Trusted hides Edit.
 | **Edit** | Owner except Trusted: rename sheet, **Circle name**, **Cancel / Save**; nonempty changed 1–80-character name, Enter saves, busy blocks dismissal. |
 | **Change circle photo** | Owner ordinary circle: **Choose photo**, local **Remove photo**, **Cancel**, **Save photo**. Only Save commits the draft. |
 | **Add people** | Opens the shared sheet with an immediate search and explicit connection checkboxes. Selection stays local and cannot exceed remaining capacity or 20 per mutation. |
-| Picker **Add people** | Commits the same existing atomic membership batch. The sheet closes only after acknowledgment; failures retain valid choices. **Retry / Load more connections** recover or extend the list. No orbit or drag instructions are shown. |
+| Picker **Add people** | Commits the same existing atomic membership batch. The sheet closes only after acknowledgment; detail-picker failures clear all choices before reloading eligibility (Create’s people-step failure retains selection). **Retry / Load more connections** recover or extend the list. No orbit or drag instructions are shown. |
 | **Search members / Load more members** | Filters/pages the roster. Connect always shows member search above the roster heading. |
 | Roster **Connect / Cancel / Respond** | Connect sends the existing exact no-scope request; Cancel withdraws outgoing request; Respond opens pending consent review. Existing connections do not get a dead Connect button. |
 | **Actions for [name] → Message** | Only for an accepted connection with a public reference; private-message handoff. |
-| **Share location** | Only for a verified/location-ready other member; enters Location circle detail, not immediate per-person sharing. |
+| **Share location** | Only for another member with `secureLocationReady`; enters Location circle detail, not immediate per-person sharing. |
 | **View profile** in phone member menu | Available with public reference when an actions menu otherwise exists. Desktop menu currently lacks this item. |
 | Owner **Remove from Circle** | Opens **Cancel / Remove** confirmation, then commits removal. |
 | **Invite code** | Opens code sheet. No active code: **Cancel / Create code**. Active: **Copy code / Copied**, **Share invite**. Sharing uses the existing native/web share and clipboard fallback. |
@@ -471,14 +476,262 @@ removals remain separate.
    retry. Counts and avatar previews are real summaries; decorative
    overflow/empty artwork is not another membership or permission claim.
 
-Connect explicitly opts into the shared Profile type scale through
-`data-profile-type-scale="page"`; its removal dialog opts into the same scale.
+Connect owns its workspace type scale through
+`data-connect-type-scale="page"`; its removal dialog separately opts into Profile scale.
 Use the shared compact row composition and semantic typography rather than
 inventing a parallel type ladder. Plus Jakarta Sans, hierarchy, colors, touch
 targets, and action sizing remain owned by the
 [design system](../../../docs/reference/quality/design-system.md).
 The shared top bar owns the single Connect title; the existing tab/search
 bands and focused circle flow own their authored layout.
+
+## Per-row read and mutation contract
+
+This section makes the preceding interaction inventory executable to review.
+`F` means current Firebase bearer; `V` means current vault-owner bearer.
+Header values, owner keys and encrypted message material stay in memory.
+Paths beginning `/api/one` use the existing
+[One proxy](../../app/api/one/[...path]/route.ts), or its admitted native
+transport to the same backend owner. JSON bodies below are field names,
+not example private account contents. List rows share their parent request;
+clicking each row does not invent another list request.
+
+### People, accepted connections and exact-person review
+
+The [Connect page](../../app/connect/page-client.tsx) owns the current query,
+selection and relationship projection. Backend owners are
+[connections](../../../consent-protocol/api/routes/one/connections.py) and
+[private-message route tokens](../../../consent-protocol/api/routes/one/messages.py).
+
+| Row/control | Wire and response fields feeding the UI | Commit, failure and negative branch |
+| --- | --- | --- |
+| People/RIAs search/list | F GET `/api/one/connections/directory?page=1&limit=20`, optional `query` trimmed and `audience=ria`; `items[]:{userId,publicPersonRef,displayName,photoUrl,relationship,isRia,mutualConnectionCount,mutualConnectionPreview}`, `page,hasMore,totalCount` |300ms search; query-scoped session restoration. Identity/photo/relationship/mutual preview project these exact fields. Next page dedupes `userId`; sentinel root margin240px plus manual fallback. Opening mode menu alone no call; selecting a mode changes its reader. |
+| My connections/My RIAs | F GET `/api/one/connections?page=1&limit=50&audience=all\|ria`, optional `query`; items `connectionId,userId,publicPersonRef,displayName,photoUrl,createdAt,isRia,connectedFromContacts`; `page,hasMore,totalCount,audience` | Separate search snapshot; browse cache retained (search rows are not written into it); dedupe `connectionId`. `connectedFromContacts` groups From contacts / Other connections; `createdAt` supplies local connected date. Refresh retries this resource, not contact sync. |
+| Outgoing cancel map | F GET `/api/one/connections/requests?direction=outgoing` | `items[].counterpartUserId,id` resolve the exact pending request; failure does not block directory/roster. |
+| Identity/avatar/mutual person | No API on click; authored public-person route | Requires `publicPersonRef`; absent reference is inert. Person page starts its own documented reads. |
+| Message | F POST `/api/one/messages/route-token`, `{personRef}`→`token` | Navigate `/one/messages?token=<opaque>` through route builder. Failure `This conversation could not be opened. Try again.` Never put a real token in documentation. |
+| Connect | F POST `/api/one/connections/requests`, `{addressee_user_id,requested_scope_handles:[],offered_scope_handles:[]}` | `message` omitted, including contact override. Require returned `{request}` to be pending; requester identity determines outgoing/incoming. Store request ID and update relationship/cache. `Connection request sent`; incoming race `This person already asked to connect. Review their request.` Invalid state `The request state changed. Refresh Connect before trying again.`; fallback `Failed to send request.` |
+| Cancel outgoing | F POST `/api/one/connections/requests/<requestId>/cancel`, no body | Acknowledgement removes outgoing state, updates caches/Circles; `Connection request cancelled`; failure `Failed to cancel connection request.` Does not mean removing an accepted relationship. |
+| Respond | No mutation; pending Consent Center navigation (ordinary Respond does not supply requestId) | Acceptance belongs to Consent Center. Merely opening it does not accept. |
+| Options → Remove → Cancel/outside/Escape | No DELETE | Opens target-specific AlertDialog, leaves relationship unchanged. Busy removal blocks dismissal. |
+| Options → Remove → Remove | F DELETE `/api/one/connections/<connectionId>` | After acknowledgement reread roster/update directory/Circle/graph caches; `Connection removed` or `Failed to remove connection`. Confirmation closes in finally even on error. Backend revokes proposal-bound access and related graph state as detailed in [Person Profile](./person-profile.md); independent grants retain their own owner. |
+| Exact-person review entry | F GET `/api/one/connections/<userId>/context`→`person,request`; F GET `/api/one/connections/<userId>/scope-catalog`→`counterpartUserId,items,offerableItems` | Incoming opens consent review; connected/outgoing current-state feedback. Catalog concurrency3. Opening review does not send. |
+| Ask from them / Offer now / remove selected | No API | Local scoped selections. Removing last selected person closes. Normal UI cannot enable the retained bulk-selection banner. |
+| Send requests | Same POST requests per person, selected requested/offered handles, concurrency3, cap10 people | Failed people remain; successes removed. Busy blocks close; Cancel before send makes no POST and removes `reviewPerson`. Partial/incoming outcomes are reported separately; no all-or-nothing batch promise or invented client idempotency key. |
+| Invite them to One | Platform share, no relationship mutation | Title `Join me on One`, text `Join me on One so we can connect.`, dialog `Invite to One`. Clipboard fallback `Invite link copied.`; cancel quiet; `This browser cannot share links.` / `Could not share the invite.` |
+
+| People surface | Exact authored copy |
+| --- | --- |
+| Search/modes | `Name, email or phone`; `People`; `RIAs`; `Around you`; `Find people`; `My connections {N}`; `My RIAs {N}`; `{N} connections`; `{N} RIAs`; `From contacts`; `Other connections`; `Connected {D Mon}` |
+| Discovery loading/rate delay | `Finding people…`; `People are taking a moment` / `Advisors are taking a moment`; `We'll keep trying and show everyone here as soon as they're ready.` No Retry in that delay state. |
+| Unavailable | `People are unavailable` / `Advisors are unavailable`; fallback `Failed to load people`; `Try again` |
+| Empty/query | `No one matches "{query}"`; `Try their full name.` / `Try People, or their full name.`; `No people yet` / `No advisors yet`; `Find by name, email or phone.`; `Invite them to One`; `Share an invite link with them.` |
+| Relationship/paging | `Connect`; `Sending...`; `Cancel`; `Respond`; `Connected`; `Request sent`; `Wants to connect`; `Loading…`; `Load more people`; `Retry loading people`; `Load more connections`; fallback `Hussh member` |
+| Roster error/empty | `Could not refresh connections`; `Your list may be out of date. Tap to retry.`; `No matches found`; `No RIAs yet`; `No connections yet` |
+| Remove confirmation | `Remove connection?`; `Remove {name} from your connections?`; `Cancel`; `Remove`; `Removing…` |
+| Exact-person review | `Send connection requests`; `Start safe. Add sharing only if you choose.`; `Selected people`; `Remove`; `Connection access`; `Checking what they can share…`; `Ask from them`; `Optional. Each person can decline.`; `Offer now`; `Offered to everyone selected. They approve first.`; `No access yet`; `These only send requests.`; `Checking…`; `Send requests`; `Sending…`; `Cancel` |
+| Review result | `Sent {N} connection requests.`; incoming-count review and failed-count notices; `Couldn't send. Try again.`; `Already asked.` Dynamic counts/plurals come from the current result formatter, not additional endpoints. |
+
+### Circles: read projection and every write boundary
+
+Current Circle management uses [Location service](../../lib/one-location/service.ts),
+[mounted detail](../../components/one-location/redesign/circles/named-circle-flows.tsx) and the backend
+[Location route family](../../../consent-protocol/api/routes/one/location.py).
+All calls in this table use V. The names “invite” and “eligible” alone do not
+prove that a pending invitation, location share or notification was created.
+
+| Entry/CTA | Request → response projection | Affirmative/negative, cache and failure semantics |
+| --- | --- | --- |
+| First unlocked Circles load | POST `/api/one/location/circles/trusted?summaryOnly=true`, then GET `/api/one/location/circles` | Ensures empty Trusted container only; does not bulk-copy connections. Lists/counts derive from current owner/membership, not the six optional ideas. |
+| Open detail | GET `/circles/<id>/overview` and GET `/circles/<id>/members?page=1&limit=50`, optional `query`, under `/api/one/location` | Overview `circle` projects name/photo/count/role/system kind/active code/rotation/capabilities. Members `items,page,hasMore,totalCount` feed rows. Search250ms; current-query fences; paginate dedupe user ID. |
+| Create → Next | POST `/api/one/location/circles`, `{name,kind}`→`circle` | Circle **already saved before Add people**. No caller idempotency key. Closing later does not delete it. Back then changed Next PATCHes same saved ID; unchanged details make no call. |
+| Rename → Save | PATCH `/api/one/location/circles/<id>`, `{name}`→`circle` | Valid changed name1–80; Cancel restores draft/no PATCH. Create details update can send `{name,kind}`. |
+| Add people load/search/page | GET `/api/one/location/circles/<id>/eligible-connections?page=1&limit=50[&query=…]` | `eligibleConnections,pendingInvites,remainingCapacity,page,hasMore,totalCount`; controlled query and selected map retain off-page selection. All connections / Selected switches are local. Limit min20/capacity. |
+| Add people → confirm | POST `/api/one/location/circle-member-invites`, `{circleId,inviteeUserIds}` | `added,skipped,skippedReasons,invites:[]`: current implementation adds direct memberships despite endpoint name. Busy blocks close; failure reconciles stale eligibility. `Added to the Circle.` / `{N} people added to the Circle.`; `Could not add them.` |
+| Add later / Cancel before Add | No membership POST | Existing created Circle stays saved; no automatic rollback. |
+| Create code / Replace code | POST `/api/one/location/circles/<id>/invite-code`, no body; replace adds `?rotate=true`→`inviteCode` | Replace confirmation Cancel no rotate. Confirm invalidates old code. Copy/Share use returned code locally/platform, no additional mutation. |
+| Review Circle | POST `/api/one/location/circle-codes/resolve`, `{code}` | Preview `name,ownerDisplayName,memberCount,alreadyMember`; valid linked code can auto-preview but never auto-join. |
+| Use Another Code → No | No API | Keeps code and preview. |
+| Use Another Code → Yes | No API | Clears code/resolved preview/error, focuses first code field. Neither branch leaves or joins anything. |
+| Join / Open Circle | POST `/api/one/location/circle-codes/join`, `{code}`→`circle,joined` | `You're in {name}.` / `You're already in {name}.`; route to detail. Location/SMS remain separate. |
+| Pending invite → Cancel | DELETE `/api/one/location/circle-member-invites/<inviteId>` | Reload membership/eligible readers; not connection cancellation. |
+| Member Remove | DELETE `/api/one/location/circles/<id>/members/<userId>`→`removed:true` | Phone confirmation within Drawer; Cancel returns actions. Desktop separate AlertDialog. Affects Circle shares, independent direct shares remain. |
+| Leave Circle | DELETE `/api/one/location/circles/<id>/members/me`→`left:true` | Cancel no call. List action first GETs fresh overview and rechecks capabilities; detail uses own current capability guards. |
+| Delete Circle | DELETE `/api/one/location/circles/<id>`→`deleted:true` | Same fresh list guard; owner/session changes reject action. No automatic recreation/Undo. |
+| Choose/Remove photo | No API until Save photo | Local draft; native photo-picker geometry/permission remain platform-owned. |
+| Save photo | PUT `/api/one/circles/<id>/photo`, `{photoUrl:<URL or null>}`→`circle` | Separate **non-Location** path. `Circle photo updated.` / `Circle photo removed.`; Cancel discards local draft. |
+| Chat/Members tabs; View members | No membership mutation | Local detail view, existing chat owner initializes only as mounted/eligible. |
+| Profile/Message member actions | Public-person route / F route-token POST above | Phone includes View profile; desktop menu omits it. |
+| Share location | Route `/one/location?action=circle-detail&circleId=<id>&view=people` | Callback does not retain selected member ID. No location share is created by clicking. |
+
+| Circle surface | Exact authored copy/branch |
+| --- | --- |
+| Lists | `Circle name`; `Search your and joined circles`; `Your circles {N}`; `Create circle`; `Joined circles {N}`; `Join with code`; `People you add yourself`; `Gets your SMS`; `You'll get their SMS`; `no one yet`; `{N} people`; `No members yet`; `1 person` |
+| Loading/empty | `Finish setting up One`; `Circles need your vault, which is created during setup.`; `Circles are unavailable`; `Tap to try again.`; `Loading circles…`; `No circles found`; `Try a different name.`; `No circles created yet.`; `Make a circle`; `Bring together people you choose.` |
+| List menu/confirm | `Options for {name}`; `Open circle`; `Delete circle`; `Leave circle`; `Delete {name}?` / `Leave {name}?`; `This removes the circle for everyone. This cannot be undone.` / `You will no longer be a member of this circle.`; `Cancel`; `Updating…` |
+| List mutation feedback | `Your permission to change this circle has changed.`; `Circle action cancelled. Return to your current account to try again.`; `Deleting circle…`; `Leaving circle…`; `Circle updated.`; `Could not update this circle.` |
+| Create details | `Create a Circle`; `Step 1 of 2 · Name your Circle, then add people now or later.`; `Circle name`; `Family, close friends, project team`; `Circle type`; `Family`; `Friends`; `Other`; `Next`; `Saving…`; `Enter a Circle name.`; `{N} / 80` |
+| Create people | `Add people`; `Step 2 of 2 · Choose people for {circleName}, or add them later.`; `Search people`; `{N} selected`; ` · Choose up to {N} people`; ` · This Circle is full`; `Loading contacts…`; `Could not load your contacts.`; `Try again`; `No contacts match that name.`; `No connections to add yet. You can add people later.`; `Loading…`; `Load more contacts`; `Add people`; `Add 1 person`; `Add {N} people`; `Back`; `Add people later`; `Could not add those people. Try again or add people later.` |
+| Join entry | `Join a Circle`; `Enter invite code`; placeholder `ABCD EFGH KMNP`; `Review Circle`; `Reviewing…`; `Paste from clipboard`; `You're already in this Circle.`; `Location and SMS stay private until you choose to share.` |
+| Replace preview | `Use another code?`; `Are you sure you don't want to join this circle and want to check another one? The preview will be cleared.`; `No`; `Yes` |
+| Join errors | `Enter a valid 12-character Circle invite code.`; `Clipboard access is unavailable. Touch and hold a code field to paste, or type the code.`; `That Circle code is invalid or no longer available.`; `Could not join this Circle.` |
+| Detail/add | `Chat`; `Members`; `View members`; `All connections`; `Selected ({N})`; `Loading connections…`; `Retry`; `Load more connections`; `This circle is full.`; `No people selected.`; `No matching connections.`; `No connections available to add.`; `Select connections to add to {name}.`; `{N} selected`; `Add people`; `Adding people…`; `Search members`; `{N} people`; `{N} matches`; `No members found`; `Try a different name.`; `Load more members`; `Could not load more members.` |
+| Member captions/actions | `You · Owner`; `You`; `Owner`; `Connected`; `Location setup needed`; `Actions for {name}`; `View profile`; `Message`; `Share location`; `Remove from Circle`; `Cancel` |
+| Member confirmation | `Remove {name}?`; `Circle shares with {name} will stop. Direct shares stay unchanged.`; `Remove`; `Cancel`; `Could not remove this member.` |
+| Detail delete/leave | `Delete “{name}”?`; `This removes the Circle for everyone. Circle shares will stop. Direct shares stay unchanged.`; `Delete Circle`; `Leave “{name}”?`; `Circle shares with you will stop. Direct shares stay unchanged.`; `Leave Circle`; `Cancel`; `Could not delete this Circle.`; `Could not leave this Circle.` |
+| Invite code | `Invite`; `Invite code`; `Ready`; `Create`; `Create a code to invite someone to this Circle.`; `Cancel`; `Create code`; `Joining does not share location.`; `Copy code`; `Copied`; `Share invite`; `Replace code`; `Replace invite code?`; `The current code will stop working.`; `Invite code unavailable`; `Ask the Circle owner for a new code.` |
+| Photo | `Circle photo`; `Choose a photo for your circle.`; `Choose photo`; `Opening photos…`; `Remove photo`; `Cancel`; `Save photo`; `That photo couldn’t be selected. Try again.`; `Couldn’t open your photos. Try again.`; `Circle photo wasn’t saved. Try again.` |
+
+### Contact privacy, Google sync, results and invitation handoff
+
+[Sync](../../lib/contacts/use-contact-sync.ts),
+[Google session](../../lib/contacts/use-google-contact-sync-session.ts),
+[invitation hook](../../lib/contacts/use-contact-invitations.ts),
+[invitation adapter](../../lib/services/contact-invitations-service.ts),
+[native invitations](../../lib/capacitor/invitations.ts) and
+[invitation sheet](../../components/connections/contact-invitation-sheet.tsx)
+own distinct authority boundaries. No raw address book is uploaded by this
+sync contract.
+
+| Stage/CTA | Wire/projection | Effect and opposite/unknown branch |
+| --- | --- | --- |
+| Privacy check | F GET `/api/iam/contact-discoverability` | `user_id,contact_discoverable,stored_contact_discoverable,contact_sync_consent_enabled_at,contact_sync_consent_rule_version,contact_sync_consent_contract_version,contact_sync_preference_state,contact_sync_match_policy_version,directory_visible,iam_schema_ready`. Validate same owner and expected `contact_directory_auto_connect_v2`; IAM proxy30s policy, not persona cache. |
+| Keep private / Allow contact matching | F POST same path, `{enabled,consent_version:"contact_find_auto_connect_v1"}` with version only when true | Saves privacy only. **Tap Sync contacts again**; saving never silently opens address-book sync. Private preference still permits checking own book. Busy hides close. |
+| Google contact selection | Google OAuth contacts-only token, then GET `https://people.googleapis.com/v1/people/me/connections` | `personFields` names/phone numbers and conditional email addresses, pageSize1000, `sources=READ_SOURCE_TYPE_CONTACT`, optional `pageToken`. `connections[].resourceName,names[].displayName,phoneNumbers[].canonicalForm/value,emailAddresses[].value,nextPageToken,totalPeople`. Max10pages/10,000. No persistent cache/sync token. Native/Google account screens have platform-owned copy. |
+| Match batches | F POST `/api/one/connections/contact-sync`, `{lookups:[{lookup_id,hash,last4}]}` | Max1000/batch,10,000 total; **no raw names, phone or email; Connect sends no context field**. Response `matches/items` entries `lookupId,userId,displayName,photoUrl,outcome`; `checkedLookupCount` must equal submitted; `indeterminateLookupIds`, optional outcome counts. May auto-create eligible connections through backend verified IAM matching. |
+| Match interruption/lost response | At most2 attempts (one retry); owner/session/abort fences | Unknown/unsubmitted people are not treated as unmatched/inviteable. Reconcile connections after uncertain outcome; local abort does not roll back completed batches. |
+| Results Show more | No API | Reveal100 more already matched local rows. Proceed to connections closes and selects accepted-roster view. |
+| Prepare invitation | F GET `/api/one/referrals/summary`→`link` | No recipient-send endpoint. Invitation selection is local; max15 destinations, native SMS phones or web email BCC. Reveal/search recipients locally. |
+| Review / Back / remove recipient | No API | Keeps local selection; duplicate destination rejected. Queue→review→selection Back; explicit X clears session. Busy external handoff blocks outside/Escape; explicit Close still calls finish and can close. |
+| Open Messages | Native `HushhInvitations` capability check SMS/max≥15, `composeSmsBatch({recipients,body})` | Opens one draft, possibly a group revealing numbers; user must send in Messages. Reopening warns about duplicates. `queued_or_sent` still does not prove delivery. |
+| Open email | `mailto` BCC+subject+body via external compose | User must inspect BCC and send. Validated HTTP invitation URL; body≤2000, URL≤8000. Does not prove app opened or email sent. |
+| Share link instead / Copy invitation | Platform Share / clipboard | No send endpoint. Share cancellation quiet; copied/share-sheet-open status does not mean sent. |
+
+| Contact state | Exact authored English copy |
+| --- | --- |
+| Privacy dialog | `Choose your contact privacy`; `Allow verified people who already have your verified phone number to find and automatically connect with you, or keep your profile private from contact matching.`; `Checking your current choice...`; `Try again`; `Keep private`; `Allow contact matching`; `After saving, tap Sync contacts again to choose which contacts to check.` |
+| Privacy saved | `Privacy preference ready. Tap Sync contacts again.`; `Contact matching is on. Tap Sync contacts again to check your contacts.`; `You will stay private. Tap Sync contacts again to check your contacts.` |
+| Privacy errors | `Sign in to check contact privacy.`; `Sign in to save contact privacy.`; `Contact privacy was returned for another account.`; `Could not check contact privacy.`; `Contact privacy choice was not recorded.`; `Could not save contact privacy.` |
+| OAuth/reading | `Connect Google Contacts`; `Choose the Google account where your contacts are saved. Keep One open; your results will appear here when you return.`; `Waiting for Google…`; `Checking your Google contacts`; `Reading saved contacts and checking phone numbers for matches.`; `Syncing contacts…` |
+| Cancel/failure | `Contact sync cancelled`; `No contacts were read. You can choose a Google account and try again.`; `Could not sync Google contacts`; `Choose Google account`; busy `Cancel`, idle `Close`. Retry label does not promise Google always forces its chooser. |
+| Partial/unknown | `A sync request may have completed even though its response was lost. We refreshed your connections; run contact sync again to confirm these results.`; `Sync paused before the next contact batch was checked.`; `{error} Remaining contacts were not checked.` |
+| Results | `Contact sync results`; `Contact details stay on your device.` / `Only eligible Hushh accounts are shown.`; `Read {N} saved Google contacts.`; `Check Google Contacts`; `Checked`; `Matched`; `Connected`; `No match`; unknown/unchecked/overflow/self-skip counts retain distinct outcomes. |
+| Result person | `Connected now`; `Already connected`; `Connection request required`; `Kept disconnected`; `Request sent`; `Showing {visible} of {total} matched people`; `Show more ({N})`; `Choose Google account`; `Check more`; `Sync again`; `Proceed to connections`; `Invite contacts` |
+| No eligible match | `No eligible contacts matched. ONE users need an exact verified phone match and must remain visible in the Connect directory. Explicit opt-outs and previous disconnects stay protected.` |
+| Empty Google book | `No saved Google contacts found`; `This Google account returned no saved contacts. Choose the account where your contacts are saved, or check Google Contacts. Contacts saved only on your phone are not included.` |
+| No usable phone | `No phone numbers to match`; `Your Google contacts were read, but none had a usable phone number. One matches verified phone numbers. You can still invite contacts with a mail address, or choose another Google account.` |
+| No matching account | `No matching One accounts found`; `Your Google contacts were checked using their phone numbers. A match requires a verified number and a discoverable One account. You can invite eligible contacts below or try another Google account.` |
+| Invitation stages | `Invite your contacts`; `Review invitations`; `Your invitation`; `Choose up to 15. Contact details stay on your device.`; `One message for all selected contacts.`; `Search contacts…`; `No match found`; `Not checked—mail only`; `No match does not necessarily mean they are not on One.`; `This destination is already selected.` |
+| Invitation controls | `Review {N} invitation(s)` with source pluralization; `Remove`; `Back to selection`; `Back to review`; `Done`; `Show more contacts`; `Share link instead`; `Copy invitation`; `Preparing invitation…`; `Retry invitation link`; `Message preview`; `Invitation message`; `Open Messages · {N} contacts`; `Open email · {N} contacts` |
+| Native disclosure | `Opens one Messages draft from your device’s messaging account. This may create a group: recipients can see each other’s numbers. Check recipients and tap Send there. Carrier charges may apply.` |
+| Web disclosure | `Opens one email draft with the selected addresses in BCC. Check BCC and send from your email account. Your email app must support BCC links.` |
+| Handoff outcomes | `Handed to Messages. Delivery is not confirmed.`; `Messages opened. Check all recipients and tap Send there. One cannot confirm sending or delivery.`; `Email draft requested. Check that all selected addresses are in BCC, then send in your email app. If nothing opened, copy the invitation.`; `Cancelled. Your selection is saved here; you can try again.`; `The message could not be handed off. Try again or copy the invitation.`; `Messages is unavailable or this app version does not support batch invitations. Update One or copy the invitation.` |
+| Share/copy/repeat | `Share sheet opened. Choose recipients there; sending and delivery are not confirmed.`; `Invitation copied. Paste it into your chosen conversation or email.`; `Before opening again, check your app to avoid sending the same invitation twice.` |
+
+### Nearby directories: every reader and detail handoff
+
+F reads use [advisors](../../../consent-protocol/api/routes/one/advisors.py),
+[insurance](../../../consent-protocol/api/routes/one/insurance_agents.py) and
+[places](../../../consent-protocol/api/routes/one/places.py). Shared location is
+obtained automatically only when already allowed; **Use location** is the
+explicit permission prompt. A postal search retains its own anchor. A hidden
+visited directory branch may stay mounted; hiding alone is not another read.
+
+| Control | Wire and response-to-row projection | No-call/retry boundary |
+| --- | --- | --- |
+| Advisors / Insurance search | POST `/api/one/advisors/search` or `/api/one/insurance-agents/search`, `{limit:10,offset:0 or nextOffset,radiusMi,lat,lng}` or `postalCode` instead of coordinates; lat/lng rounded6 decimals | `items,meta,attribution`; advisor `kind,id,crd,name,firmName,yearsExperience,hasDisclosures,advisorCount,advisorNames,distanceMiles,city,state,phone`; insurance also `products,website,address,hours,agencyType,tier`. `meta.grouped,hasMore,nextOffset,radiusAdjusted,radiusMi,cache` govern groups/pagination/radius/cached label. Radii5/10/25mi, default10. |
+| Advisor detail | GET `/api/one/advisors/<crd>` | `yearsExperience,firmCount,states,disclosureCount,office,reportUrl`; not exams/isBarred. Office/agency rows use existing fields, no invented profile endpoint. |
+| Places first sweep | POST `/api/one/places/stream`, Accept SSE, `{categories:[hotels_stays,food_drink,health,banking,shops,fitness_beauty,auto,transit,education,outdoors],radiusMi,limit:8,lat,lng}` or `postalCode` | `meta`→categories/radius/limit/attribution; `results:{category,items}`; `category_error:{category,message}`; heartbeat/done ignored. Fallback POST `/api/one/places/search` same body→`groups[{category,items}],failed[],meta`. Default5mi, choices1/5/15. |
+| Places detail | POST `/api/one/places/details`, `{placeId}` | `name,address,categoryLabel,phone,website,mapsUrl,weekdayDescriptions`; businessStatus not rendered here. |
+| Text search / Clear / category chips | No API,200ms local filtering | All local fields; Places one8/category sweep, interleaved by bucket rank with place-ID dedupe, no global distance sort or paging. Chips `All`, `Hotels`, `Food & drink`, `Health`, `Banking`, `Shops`, `Fitness & beauty`, `Auto`, `Transit`, `Education`, `Outdoors`. |
+| Show more / Try again | Advisors/Insurance nextOffset or failed reader; Places current sweep retry | Preserves useful rows; changing radius/location launches corresponding new reader. |
+| Call / website / Google Maps / BrokerCheck | `tel:` or external URL (`noopener`) | No One mutation. Provider/OS screen copy and size are not authored product geometry. |
+
+| Nearby surface | Exact authored copy |
+| --- | --- |
+| Admission/search | `Advisors near you`; `Agents near you`; `Places near you`; `See who's close by.`; `Use location`; `Locating…`; `Use a ZIP`; `Location is off`; `Search by zip instead.` / `Search by area or postcode instead.`; `ZIP` / `Area or postcode`; `Search` |
+| Local search/empty | `Search advisors or firms`; `Search agencies`; `Search places`; `No matches`; `Try a different name or firm.` / `Try a different name.` / `Try a different name or category.`; `Clear search`; `Nothing nearby`; `Try a US ZIP, or search a wider radius.` / `Try a wider radius, or another postcode.`; `Search within {N} mi` |
+| Refresh/paging | `Updating nearby…`; `Show more`; `Loading…`; `Try again`; Places `Finding more nearby…` |
+| Group/identity/detail | `Advisors`; `Offices`; `Agencies`; `Nearby`; fallbacks `Advisor`, `Office`, `Agency`; `Has disclosures`; `Experience`; `Firms`; `States`; `{N} disclosures on record`; `BrokerCheck report`; `Call`; `Advisors at this office`; `and {N} more`; `Visit agency`; `Visit website`; `Open in Google Maps` |
+| Errors | `Profile unavailable.`; `Could not load more details.` (no detail Retry); `Not available yet.`; `Advisors are unavailable right now.` / `Agents are unavailable right now.` / `Places are unavailable right now.`; `That location could not be read. Try an area or postcode.`; `Sign in to see advisors.`; `Sign in to see agents.`; `Sign in to see places nearby.`; `A location or a postal code is required.`; `That postal code could not be located.` |
+
+### Circle chat: encrypted requests, options and all negative branches
+
+[Chat](../../components/connect/circles/circle-chat.tsx),
+[message](../../components/connect/circles/circle-chat-message.tsx),
+[action Dialog](../../components/connect/circles/circle-chat-message-action-dialog.tsx),
+[media](../../components/connect/circles/circle-chat-media.tsx),
+[service](../../lib/services/circle-chat-service.ts) and backend
+[chat routes](../../../consent-protocol/api/routes/one/circle_chat.py) own this
+subsystem. V root `C=/api/one/circles/<id>/chat`; every suffix below is relative
+to C. Existing recipient-key bootstrap precedes encrypted communication.
+Backend ciphertext/envelopes remain encrypted; local decrypted render state
+and object URLs are not durable plaintext caches.
+
+| Control/read | Wire → response projection | Positive, negative and unknown behavior |
+| --- | --- | --- |
+| Initialize | GET C→`members,rosterVersion,unreadCount,latestSequence,muted,notificationDevices` | Circle detail renders static `Circle chat`, initially open/noncollapsible. No separate chat-lane toggle. |
+| Wait updates | GET `/wait?after=<sequence>` | `latestSequence,changed,readChanged,receiptsChanged,reactionsChanged,membershipChanged,photoChanged` trigger appropriate refresh.401/403/423 clears protected state/unavailable; reconnect retries current owner only. |
+| Current/earlier/window | GET `/messages`, only needed `before,after,receiptAfter,receiptThrough` query fields | `items,hasMore,receipts,replyTargets,reactionUpdates,events,senders`; Load earlier before first sequence. Go to latest scrolls locally unless viewing older window then reads latest. |
+| Send/Retry message | GET state, local seal, POST `/messages` with `SealedChatMessage` encrypted content/recipient envelopes, optional encrypted attachment/notificationPreviews→ChatMessage | Successful acknowledgement clears draft/reply/file. Unconfirmed retry reuses **same sealed message**, not another semantic send. Definite413/422/roster failure unlocks draft. Limits30/min,1000/day. |
+| Reply / Cancel reply | No API | Local composer target only. Quote View original scrolls loaded message or fetches window before sequence+1. |
+| Resolve selected originals | POST `/messages/resolve`, `{messageIds}`→`items` | Does not change message content. |
+| Refresh mutation state | POST `/messages/updates`, `{messageIds}`→`states[{id,revision,hidden,deletedForEveryoneAt}],unavailableIds` | Version/unavailable status determines options/current editor. |
+| Edit → Cancel | No PATCH | Dialog closes retaining original message; attachments are not separately removed. Busy blocks close. |
+| Edit → Save changes | PATCH `/messages/<id>`, `{ciphertext,iv,expectedRevision}` | Locally resealed edited text preserves attachment; revision guard.30/min edits/deletes. |
+| Delete → Cancel | No DELETE | Original/visibility unchanged; no automatic retry. |
+| Delete for me/everyone → Delete message | DELETE `/messages/<id>`, `{scope:"me" or "everyone",tombstone?:{ciphertext,iv,expectedRevision}}`→`items?`/`hiddenId?` | Hides for caller or tombstones for everyone. Recipients may have saved copies.404/409 `This message changed. Close and open it again.`; other `Couldn’t save this change. Check your connection and try again.` |
+| Reaction toggle | PUT or DELETE `/messages/<id>/reactions/<encodedEmoji>`→`messageId,reactions` | Optimistic UI rolls back on error `Reaction could not be saved. Try again.`;60/min. Opening reaction menu no call. |
+| Image/file open/retry | GET `/messages/<id>/image`→`ciphertext,iv`, local decrypt/Blob | Same encrypted attachment fetch for supported media; auto near-visible foreground images max2, Blob cleanup.120/min image reads. Viewer Close local/revokes resources, not server deletion. |
+| Old-key recovery | GET `/keys/<recipientKeyId>` | Encrypted backup; in-memory WeakMap cap8. No secret in route beyond declared public key ID. |
+| Mark read | POST `/read`, `{sequence}`→optional `chatBadgeCount,chatBadgeVersion` | Only foreground/visible/bottom with no feature/media overlay; cannot jump over undecryptable incoming. Clears matching Feed/notification attention through shared owner. |
+| Alerts switch | PUT `/preferences`, `{muted}`→`muted` | UI alerts inverse of muted;20/min. Permission/registration separately follows push owner. |
+| Attach/replace/remove local draft | No chat API until Send | JPEG/PNG/WebP/MP4/WebM/PDF/DOCX/text≤5MiB; text message≤4000. Native picker retains OS captions. Next proxy body bound9,000,000 bytes does not replace validation. |
+
+| Chat surface | Exact English copy/accessible control |
+| --- | --- |
+| Status/transcript | `Circle chat`; `Connecting chat…`; `You no longer have access to this circle chat.`; `Reconnect`; `Load earlier messages`; `Loading messages…`; `Start the conversation. Say hello or share a file.`; `Go to latest messages` |
+| Composer | `Message…`; `Attach photo, video, or document`; `Choose a file up to 5 MB.`; `Send message`; `Retry message`; `Reply`; `Cancel reply`; `View original message from {name}` |
+| Delivery/body | `Delivery is unconfirmed. Retry sends the same message safely.`; `This message was deleted.`; `This message could not be opened on this device.`; `Original message unavailable`; `Edited`; `Sending…`; `Delivery unconfirmed`; `Sent`; `Sent · Read by {N} of {M}`; `Seen by everyone` |
+| Options | Accessible `Message options`, **ChevronDown**, not three dots; quick `❤️ 😂 😮 😢 👍 🙏`; `More reactions…`; `Reply`; own `Edit`; `Delete for me`; own `Delete for everyone` |
+| Edit | `Edit message`; `Update the text. Attachments stay with the message.`; `Edit message text`; `Cancel`; `Save changes`; `Saving…` |
+| Delete | `Delete for everyone?`; `This removes the message from this chat for all members. Members may have already saved a copy.`; `Delete for you?`; `This removes the message from your chat. Other members will still see it.`; `Cancel`; `Delete message`; `Deleting…` |
+| Image | `Open shared image`; `Image couldn’t load`; `Retry image`; `Loading image…`; `Retry full image`; `Shared image`; `Close`; `Loading full image…`; `Full image couldn’t load. Retry from the chat.` |
+| Draft/media | `Attached image preview`; `Image ready to send`; `Choose another image`; `Remove attached image`; `Video ready to send`; `Document ready to send`; `Remove attached file`; `Open video`; `Reload video`; `Download document`; `File couldn’t load. Try again.` |
+| Device notifications | `Allow device notifications to hear new messages when you leave this chat.` / `Turn on`; granted `Reconnect notifications to receive message alerts.` / `Retry`; native denied `Allow notifications in device settings to get message alerts.` / `Open settings`; browser denied instructions have no dead permission CTA; quiet native `Device alerts or sounds are off. Enable them in notification settings to hear alerts.` |
+| System events | Actor/subject names project added/joined/left/removed/batch-membership events; display only, no request on render. Message text, names, dates, grouped names and provider errors are dynamic values, not a finite English enum. |
+
+## Spatial canvas: axes, anchors, breakpoints and layer order
+
+The origin `(0,0)` is each containing surface's content box, not the screenshot.
+For centered content `x=(viewport−effectiveWidth)/2`; a subsequent row's Y is
+previous row bottom+authored gap. Variable names/messages/text wrapping change
+Y. Browser zoom changes the CSS viewport; the 50% screenshot is not a new
+product breakpoint. All dimensions below are CSS pixels/source formulas,
+not a live measurement of that account.
+
+| Surface | X/Y/size/scroll | Z/anchor/responsiveness |
+| --- | --- | --- |
+| Connect workspace | `AppPageShell` and workspace are the same element. Reading shell consumes local `--app-shell-reading:728px`; workspace also max728 (the generic utility says720 but is not final CSS). Inner side24,20 at≤620,16 at≤350. Focused Create/Join cap560. | Current root `data-connect-type-scale="page"`, not Profile opt-in. Local roles resolve row14/21/550, description12/18, group14/22. |
+| Sticky hierarchy | Hub top shell mask; tabs top hub measured height; section +48; search +92 | z20/12/11/10. Disabled height≤560 or width≤280. These are measured layout dependencies, not fixed screen Y. |
+| Person row | One column; min72,70≤620; avatar36,32≤350; identity flexible then action siblings | Relationship target44high/min-width88→78≤620→72≤350. Message/Options44, glyph22/20. Long names wrap; buttons do not overlap identity. |
+| People/accepted Options |224wide/p4 | Portal aligned end, offset4, z10100; item anchors own trigger; opening no API. |
+| Directory selector | Web184wide,max viewport−24,radius18,p6 | Bottom/start offset6,collision16; native/local absolute left0/top100%+4,z30,radius14,p4. |
+| Circle row | grid `minmax(0,1fr) 44px 36px`; min84→82≤620; inline-start/end22/12→16/8≤620; vertical12 | Options208wide/p4,end+4,z10100. Swipe horizontally after>14px and1.4×vertical; clamp−92..0; release<−36 reveals92px action. Reveal does not delete. |
+| Circle member row | avatar40/flexible identity/actions,gap12,px8phone/16desktop; menu target44/glyph24 | Desktop menu side right,aligncenter,offset22,collision12,width280,max viewport−24,radius14,p4,item min52,px16/py12. Phone Drawer actions and in-place confirm replace menu. |
+| Add people / Rename / Invite | Real `AdaptiveSheetContent` on all sizes: phone fullwidth,bottom keyboard. ≥768 width viewport−48/cap variable; centered Y50%−keyboard/2,maxheight `max(96,min(760,100dvh−64−safeTop−safeBottom)−keyboard)` | Maintains mounted input/selection through breakpoint. This differs from AdaptiveDetailSurface's desktop TaskDialog. |
+| Add people fixed frame | Phone85dvh−keyboard; desktop min720/viewport−64−keyboard | Header/search/footer outside results scroller; All/Selected preserve frame. Constrained layout allows full frame scroll. |
+| Nearby detail | Phone Sheet fullwidth/max85dvh−keyboard; desktop TaskDialog max720/effective width viewport−32 | Authored viewport−24 utility loses to task module width. Shared task close top12/right task-pad−6; desktop sidepad24. |
+| Contact results/invites | Fullwidth/max2xl,radius24,cap `min(88dvh,viewport−keyboard−safeTop−16)` | Header/search/footer fixed; list inner scroll; result rows64/action max244; invite rows56 and controls48; footer includes safe bottom. |
+| Chat bubbles | Incoming left/avatar32,own right; max76%/36rem;≤959 min(84%,100%−actionSpace,36rem);≤767/no-hover removes action space | Desktop reactions44 at right+4/options44 right+48; own mirrors left. Hover/focus/menu show controls. ≤767/no-hover use1s nonmouse hold, cancel move>8px; contextmenu also opens. |
+| Chat options | Portal top; own alignend/peerstart; collision12,min13rem; emoji grid264 | z10100. Edit/delete shared Dialog content801/scrim800. |
+| Chat transcript/composer | Transcript min(36rem,max(10rem,50dvh−keyboard−preview)); sm48dvh. Composer p12,sm px20/py16,border-top | Latest local absolute above composer,z10. Shared image viewer max3xl/image70dvh. |
+| Global overlays | Sheet scrim711/content712; Dialog800/801; menu10100 | Replace-code explicit nested scrim713/content714. Local header/close layers sit within own stacking context, not arbitrary global3D coordinates. |
+
+Source dimensions come from the linked components, [workspace](../../app/connect/page-client.tsx),
+[task CSS](../../lib/morphy-ux/ui/task-surfaces.module.css) and their adjacent
+modules. UIKit/provider dialogs retain native measurements; browser CSS does
+not establish those frames.
 
 ## Current gaps and differences
 
