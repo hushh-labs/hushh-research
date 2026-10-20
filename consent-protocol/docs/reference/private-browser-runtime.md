@@ -24,6 +24,27 @@ The [Browser completion plan](../../../docs/future/personal-agent/browser-comple
 specifies the next native Gemini/Azure model adapters and headless/takeover
 qualification. Its target paths are not implemented capability claims.
 
+### Browser within One
+
+Browser is a capability owned by One. One delegates a website task to the
+existing `agent_computer_use` specialist; the owner can preview or take control
+of the same headless session. The product exposes browser pages, navigation and
+page input. It provides no operating-system desktop, shell or host-computer
+control. The existing identifier names the implementation; it does not broaden
+the capability into general Computer Use.
+
+Files transfers, selected PKM information, scheduled invocation, recovery and
+updates connect through their existing authorities. Browser ownership grants
+neither unrestricted access to the pod nor permission to bypass another tool's
+confirmation. Task state and lifecycle belong to the private agent even when
+execution uses a separate isolation boundary.
+
+Packaging Chromium in the pod's release is compatible with this product
+boundary. Packaging it in the key-holding process or container is not evidence
+of isolation. The current native adapters remain unqualified; assessing an
+integrated browser service must prove secret, workload-identity, network and
+process separation before changing their execution gates.
+
 ### Latest controlled qualification
 
 The working slice starts at `fd4770c16e`, including frozen main `f47a4832dbc`

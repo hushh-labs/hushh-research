@@ -16,6 +16,25 @@ keepalive. Cold response under thirty seconds is an optimization goal, not a rel
 gate. Reuse prior timings; after relevant changes, measure three cold and three warm
 turns per cloud without claiming a new percentile.
 
+## Product scope: Browser is One's capability
+
+One owns the browser task, progress, owner takeover, continuation and cleanup.
+The existing `agent_computer_use` specialist operates websites through ADK's
+computer-use tools; this release supplies no operating-system desktop or general
+computer control. Browser remains part of the owner's private-agent deployment
+and software-update lifecycle.
+
+Use the same browser session for autonomous work and responsive owner input.
+Connect downloads/uploads to Files, selected information to consented PKM
+exports, and scheduled browser work to the existing occurrence and review
+authorities. Each capability keeps its own grants and exact confirmations.
+
+Assess the proposed integrated browser service against those boundaries before
+choosing its packaging. A single image or service is not proof that a browser
+cannot reach the agent's keys, workload credentials or private endpoints.
+The native-only execution gate below remains the current approved baseline;
+this product clarification neither enables execution nor proves a replacement.
+
 ## Visual Context
 
 The [architecture index](../../reference/architecture/README.md) provides the
