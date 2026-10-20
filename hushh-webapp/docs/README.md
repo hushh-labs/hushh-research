@@ -40,7 +40,9 @@ Brand contract: [`docs/reference/operations/brand-and-compatibility-contract.md`
 | [one-location-now-and-map.md](./one-location-now-and-map.md) | One Location "now" surface and immersive map behavior |
 | [profile-management-design-rules.md](./profile-management-design-rules.md) | Guardrails for Profile IA, page navigation, and non-analytical summary usage |
 | [Connect UI contract](./ui-contracts/connect.md) | Connect pages, Connections and Circles CTAs, nested states, membership boundaries, and Back behavior |
+| [Person profile UI contract](./ui-contracts/person-profile.md) | Other-person profile, exact phone/desktop sizing, fonts, every request dialog/sheet, grants, packets and history |
 | [Profile UI contract](./ui-contracts/profile.md) | Profile pages/CTAs, nested Memory and Connectors contracts, account, money, preferences, security and provider boundaries |
+| [Referrals UI contract](./ui-contracts/referrals.md) | Referrals, rewards, rankings, Circle Wars enrollment and nested Circle creation |
 | [Feed UI contract](./ui-contracts/feed.md) | Feed rows/decisions, shared-file and price sheets, payment returns, history mutations and handoffs |
 | [Navigation contract](./ui-contracts/navigation.md) and [Font schema](./ui-contracts/typography.md) | Shared navigation CTAs and when to use each Profile, nav and Feed typography role |
 | [Product UI contracts](./ui-contracts/README.md) | Maintained product-surface contracts and their authoring requirements |
