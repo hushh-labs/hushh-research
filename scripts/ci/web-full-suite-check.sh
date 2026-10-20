@@ -50,7 +50,9 @@ if [ "$RUN_VERIFIERS" -eq 1 ]; then
   npm run verify:voice-gateway
   npm run verify:capability-graph
   npm run verify:surface-map
-  npm run verify:capacitor:static
+  # verify:voice-gateway already owns Siri. Preserve the standalone combined
+  # capacitor command while running its remaining parity verifier exactly once.
+  node ./scripts/native/verify-native-static-parity.mjs
   # The tri-flow signature check: TypeScript registerPlugin interfaces against
   # iOS CAPPluginMethod and Android @PluginMethod declarations, plus both
   # registration sites. It is the only gate that actually catches a method

@@ -27,86 +27,19 @@ import json
 import os
 import re
 import shlex
-import shutil
 import stat
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+from web_ci_lane_fixture import ROOT, _bash, _run
 from web_lane_topology_contract import assert_web_lane_topology
 
-ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/ci.yml"
 TARGETED = ROOT / "scripts/ci/web-targeted-check.sh"
 FULL_SUITE = ROOT / "scripts/ci/web-full-suite-check.sh"
 PACKAGE_JSON = ROOT / "hushh-webapp/package.json"
-
-
-def _bash() -> str:
-    # A Windows WSL shim named bash cannot run this Git Bash contract fixture.
-    if os.name == "nt":
-        git = shutil.which("git")
-        if git:
-            directory = Path(git).resolve().parent
-            for anchor in (directory, directory.parent, directory.parent.parent):
-                for candidate in (anchor / "bash.exe", anchor / "bin/bash.exe"):
-                    if candidate.is_file():
-                        return str(candidate)
-        raise RuntimeError(
-            "Git Bash is required to verify web lane partitioning on Windows"
-        )
-    return "bash"
-
-
-STUB_NPM = """#!/usr/bin/env bash
-if [ "${1:-}" = "run" ]; then
-  printf '%s\\n' "$*" >> "$NPM_STUB_LOG"
-fi
-exit 0
-"""
-
-
-
-def _run(script: Path, env_overrides: dict[str, str], *, stub_diagrams: bool = False) -> tuple[int, list[str], str]:
-    with tempfile.TemporaryDirectory() as tmp:
-        stub_dir = Path(tmp) / "bin"
-        stub_dir.mkdir()
-        npm = stub_dir / "npm"
-        npm.write_text(STUB_NPM, encoding="utf-8")
-        npm.chmod(npm.stat().st_mode | stat.S_IEXEC)
-        log = Path(tmp) / "npm.log"
-        log.touch()
-        if stub_diagrams:
-            node = stub_dir / "node"
-            real_node = shlex.quote(shutil.which("node") or "node")
-            node.write_text(
-                '#!/usr/bin/env bash\ncase "${1:-}" in\n'
-                '  scripts/verify-doc-diagrams.cjs|scripts/render-doc-mermaid.mjs)\n'
-                '    printf "%s\\n" "$1" >> "$NPM_STUB_LOG"; exit 0;;\n'
-                f'esac\nexec {real_node} "$@"\n', encoding="utf-8"
-            )
-            node.chmod(node.stat().st_mode | stat.S_IEXEC)
-        env = dict(os.environ)
-        env.update(
-            {
-                "PATH": f"{stub_dir}{os.pathsep}{env['PATH']}",
-                "NPM_STUB_LOG": str(log),
-                "WEB_CI_DEPS_INSTALLED": "1",
-                "HUSHH_WEB_TEST_MAX_WORKERS": "2",
-            }
-        )
-        env.update(env_overrides)
-        proc = subprocess.run(
-            [_bash(), str(script)],
-            cwd=ROOT,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        calls = [line for line in log.read_text(encoding="utf-8").splitlines() if line]
-        return proc.returncode, calls, proc.stdout + proc.stderr
 
 
 def _one_matching_file_per_pack() -> str:
@@ -218,6 +151,18 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
     for call in node:
         name = call.split()[1]
         assert not _reaches_playwright(name, scripts, set()), f"{name} needs a browser"
+
+    # Hosted Vitest replaces only its own cases, never the Node-only remainder.
+    analytics = "hushh-webapp/lib/observability/schema.ts"
+    remainder = ["scripts/observability/verify-android-scope.mjs",
+                 "scripts/testing/analytics-smoke-failure.test.mjs"]
+    for part, expected in (("all", remainder), ("node", remainder), ("browser", [])):
+        code, calls, output = _run(TARGETED, {
+            "WEB_TARGETED_PART": part, "WEB_TARGETED_CHANGED_FILES": analytics,
+            "WEB_TARGETED_FULL_SUITE_OWNED": "1",
+        })
+        assert code == 0, output[-2000:]
+        assert calls == expected, (part, calls)
 
 
 def test_agent_surface_layout_runs_once_without_losing_the_focused_gate() -> None:
@@ -334,6 +279,17 @@ def test_full_suite_shards_run_verifiers_once() -> None:
     assert code == 0, output[-2000:]
     verifiers = [call for call in unsharded if not call.startswith("run test:ci")]
     assert unsharded == [*verifiers, "run test:ci -- --maxWorkers=2"] and verifiers
+    scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
+
+    def siri_calls(name):
+        body = scripts[name]
+        return int("scripts/native/verify-siri-action-contract.mjs" in body) + sum(
+            siri_calls(child) for child in re.findall(r"npm run ([\w:.-]+)", body)
+        )
+
+    assert sum(siri_calls(call.split()[1]) for call in verifiers if call.startswith("run ")) == 1
+    assert verifiers.count("scripts/native/verify-native-static-parity.mjs") == 1
+    assert siri_calls("verify:capacitor:static") == 1  # focused command stays complete
 
     shard_calls: list[list[str]] = []
     for index in (1, 2, 3):

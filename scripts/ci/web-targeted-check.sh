@@ -245,7 +245,13 @@ if has_match '^(hushh-webapp/(app/one/feed/|app/providers\.tsx|components/(app-u
 fi
 
 if has_match '^hushh-webapp/(lib/(analytics|observability)|__tests__/services/observability-|scripts/testing/run-observability|scripts/testing/run-uat-analytics|components/.*/.*analytics)'; then
-  run_full_suite_check "analytics contract" npm run verify:analytics
+  if [ "${WEB_TARGETED_FULL_SUITE_OWNED:-0}" = "1" ]; then
+    # Vitest owns the unit cases, but does not collect these Node verifiers.
+    run_check "Android analytics scope" node scripts/observability/verify-android-scope.mjs
+    run_check "Analytics failure handling" node --test scripts/testing/analytics-smoke-failure.test.mjs
+  else
+    run_check "analytics contract" npm run verify:analytics
+  fi
   ran=1
 fi
 
