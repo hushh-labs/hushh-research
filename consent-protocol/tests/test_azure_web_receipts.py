@@ -130,13 +130,20 @@ def test_insecure_reference_fails_closed_instead_of_omitting_attribution():
     assert receipts.citations == ()
 
 
-@pytest.mark.parametrize("defect", ["no_call", "failed_call", "no_citation", "bad_range"])
+@pytest.mark.parametrize(
+    "defect",
+    ["no_call", "failed_call", "unknown_action", "invalid_action", "no_citation", "bad_range"],
+)
 def test_unattributed_or_unobserved_response_cannot_become_evidence(defect):
     raw = response()
     if defect == "no_call":
         raw["output"].pop(1)
     elif defect == "failed_call":
         raw["output"][1]["status"] = "failed"
+    elif defect == "unknown_action":
+        raw["output"][1]["action"] = {"type": "download"}
+    elif defect == "invalid_action":
+        raw["output"][1]["action"] = {"type": []}
     elif defect == "no_citation":
         raw["output"][2]["content"][0]["annotations"] = []
     else:
@@ -156,6 +163,39 @@ def test_completed_search_rejects_missing_or_invalid_billing_count(count):
         del raw["tool_usage"]
     else:
         raw["tool_usage"]["web_search"]["num_requests"] = count
+    with pytest.raises(ValueError, match="request count"):
+        extract_azure_web_receipts(raw)
+
+
+@pytest.mark.parametrize("action", ["open_page", "find_in_page"])
+@pytest.mark.parametrize("count", [0, 2])
+@pytest.mark.parametrize("empty_title", [False, True])
+def test_completed_page_retrieval_accepts_explicit_zero_bing_queries(action, count, empty_title):
+    raw = response()
+    raw["output"][1]["action"] = {"type": action, "url": "https://example.test/team/owner"}
+    raw["tool_usage"]["web_search"]["num_requests"] = count
+    if empty_title:
+        raw["output"][2]["content"][0]["annotations"][0]["title"] = ""
+    receipts = extract_azure_web_receipts(raw)
+    assert receipts.observed is True
+    assert receipts.num_requests == count
+    assert len(receipts.sources) == 1
+    if empty_title:
+        assert receipts.citations[0]["title"] == ""
+        assert receipts.sources[0].title == "Public page"
+
+
+@pytest.mark.parametrize("action", ["open_page", "find_in_page", "search", "unknown"])
+def test_page_retrieval_still_requires_explicit_billing_and_search_cannot_claim_zero(action):
+    raw = response()
+    raw["output"][1]["action"] = {"type": action}
+    del raw["tool_usage"]
+    with pytest.raises(ValueError, match="request count"):
+        extract_azure_web_receipts(raw)
+    raw["tool_usage"] = {"web_search": {"num_requests": 0}}
+    raw["output"].insert(
+        1, {"type": "web_search_call", "status": "completed", "action": {"type": "search"}}
+    )
     with pytest.raises(ValueError, match="request count"):
         extract_azure_web_receipts(raw)
 

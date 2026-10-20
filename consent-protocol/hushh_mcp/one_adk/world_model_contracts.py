@@ -254,12 +254,26 @@ def validated_facts_from_work(work: dict) -> list[dict]:
         return []
     result: list[dict] = []
     seen: set[str] = set()
+    azure_owned_refs = (
+        {
+            ref
+            for anchor in assessment.anchors
+            if anchor.candidate_id == assessment.identity.selected_candidate_id
+            for ref in anchor.source_refs
+        }
+        if "azure_work_version" in work
+        else None
+    )
     for raw in batches[:MAX_WORLD_MODEL_FACTS]:
         try:
             batch = FindingBatch.model_validate(raw).validate_receipts(
                 assessment, attempts, set(receipts)
             )
         except (TypeError, ValueError):
+            continue
+        if azure_owned_refs is not None and any(
+            source.ref not in azure_owned_refs for fact in batch.facts for source in fact.sources
+        ):
             continue
         for fact in batch.facts:
             identifier = finding_id(batch.candidate_id, batch.topic, fact.statement)
@@ -289,6 +303,29 @@ class WorldModelSection(ProfileSection[ProfileSourceRef]):
     )
 
 
+def eligible_report_sources(assessment: IdentityAssessment, attempts: dict) -> dict[str, set[str]]:
+    """Project assessed anchors and observed candidate coverage into citation receipts."""
+    candidate_id = assessment.identity.selected_candidate_id
+    selected_sources = {
+        ref
+        for anchor in assessment.anchors
+        if anchor.candidate_id == candidate_id
+        for ref in anchor.source_refs
+    }
+    eligible = {topic: set(selected_sources) for topic in TOPICS}
+    for row in attempts.values():
+        plan = QueryPlan.model_validate(row.get("plan"))
+        if (
+            plan.purpose == "coverage"
+            and row.get("observed") is True
+            and plan.candidate_id == candidate_id
+            and candidate_id is not None
+        ):
+            for topic in plan.topics:
+                eligible[topic].update(row["source_refs"])
+    return eligible
+
+
 class WorldModelReport(Contract):
     """A PWM-specific deep report without changing other profile report bounds."""
 
@@ -304,8 +341,8 @@ class WorldModelReport(Contract):
     def identity_contract(self):
         if len({section.kind for section in self.sections}) != len(self.sections):
             raise ValueError("Duplicate sections")
-        if (self.match_status == "no_match") != (len(self.sections) == 0):
-            raise ValueError("A report needs findings or an explicit no-match result")
+        if self.match_status == "no_match" and self.sections:
+            raise ValueError("A no-match report cannot contain findings")
         expected = {
             "owner_linked": "matched",
             "candidate_for_review": "uncertain",
@@ -339,12 +376,6 @@ class WorldModelReport(Contract):
             raise ValueError("Final report changed the assessed identity")
         findings = {section.kind for section in self.sections}
         candidate_id = assessment.identity.selected_candidate_id
-        selected_sources = {
-            ref
-            for anchor in assessment.anchors
-            if anchor.candidate_id == candidate_id
-            for ref in anchor.source_refs
-        }
         # Attempt numbers are execution receipts, not model judgements. Rebuild
         # their topic mapping from the sealed search plans so a report with a
         # mistaken number can still be offered without inventing evidence.
@@ -358,7 +389,7 @@ class WorldModelReport(Contract):
             except (TypeError, ValueError) as error:
                 raise ValueError("Invalid recorded search receipt") from error
             recorded[index] = {**row, "plan": plan}
-        topic_sources = {}
+        topic_sources = eligible_report_sources(assessment, recorded)
         for topic in self.coverage:
             # An explicit reference to another candidate remains a hard error.
             for index in topic.attempt_ids:
@@ -376,15 +407,6 @@ class WorldModelReport(Contract):
                 and row["plan"].candidate_id in {None, candidate_id}
             )
             rows = [recorded[index] for index in topic.attempt_ids]
-            topic_sources[topic.topic] = selected_sources | {
-                ref
-                for row in rows
-                if row["plan"].purpose == "coverage"
-                and row.get("observed") is True
-                and row["plan"].candidate_id == candidate_id
-                and candidate_id is not None
-                for ref in row["source_refs"]
-            }
             if topic.status in {"findings", "checked_no_findings"} and (
                 not rows or not any(row["observed"] for row in rows)
             ):
@@ -399,4 +421,19 @@ class WorldModelReport(Contract):
                     refs & topic_sources[section.kind]
                 ):
                     raise ValueError("Finding cites an unreceived source")
+        return self
+
+
+class FactReviewSelection(Contract):
+    """A model-owned subset of immutable, already cited report facts."""
+
+    kept_fact_ids: list[Annotated[str, Field(pattern=r"^f[1-9][0-9]{0,2}$")]] = Field(
+        max_length=MAX_WORLD_MODEL_FACTS
+    )
+    summary: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def distinct_fact_ids(self):
+        if len(set(self.kept_fact_ids)) != len(self.kept_fact_ids):
+            raise ValueError("Fact review repeats an ID")
         return self
