@@ -39,11 +39,13 @@ export function SheetPersonRow({ avatar, name, detail, checked, disabled, onChec
   avatar: React.ReactNode; name: string; detail?: string; checked: boolean; disabled?: boolean;
   onCheckedChange: (checked: boolean) => void; label: string;
 }) {
+  const detailId = React.useId();
   return <label className={styles.person} data-selected={checked} data-disabled={disabled || undefined}>
     {avatar}
     <span className={styles.personLabel}><span className={styles.personName} dir="auto">{name}</span>
-      {detail ? <span className={styles.personDetail} dir="auto">{detail}</span> : null}</span>
+      {detail ? <span id={detailId} className={styles.personDetail} dir="auto">{detail}</span> : null}</span>
     <Checkbox className={styles.check} checked={checked} disabled={disabled} aria-label={label}
+      aria-describedby={detail ? detailId : undefined}
       onCheckedChange={value => onCheckedChange(value === true)} />
   </label>;
 }

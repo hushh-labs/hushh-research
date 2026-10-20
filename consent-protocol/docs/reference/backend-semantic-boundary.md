@@ -1010,3 +1010,19 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   no-traffic candidate probe evaluates six synthetic attribution cases and the
   production output schemas through the real primary gateway. Live owner precision and nonprofessional/social
   coverage remain separate quality questions; no claim count proves them.
+
+### UAT Drive query-match delivery policy v2
+
+New UAT requester-origin automatic document requests seal policy version 2.
+The existing Documents planner remains the sole author of the complete typed
+search expression. The host compiles all supported predicates to Drive query
+syntax without substituting a successful model field or dropping a condition.
+This interaction delivers provider-search matches, so the document-content
+assessor stage is intentionally not applicable; it is recorded as such in
+`drive_query_matches_v1` provenance and closed operational telemetry. This is
+an explicit delivery-policy change, not a claimed successful or failed content
+assessment. No content-verification score, citation or fingerprint is invented.
+Provider-inexpressible content-period or account-relationship requests require
+clarification. Existing v1/package assessments and their byte-exact manifest
+policy hash remain unchanged. Permission, consent, date scope, payment and
+external-effect idempotency remain independently authoritative.

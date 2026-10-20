@@ -237,7 +237,7 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
 
 16. The canonical container tokens are:
 
-- `--app-shell-reading: 720px`
+- `--app-shell-reading: 54rem`
 - `--app-shell-agent: 55rem`
 - `--app-shell-standard: 90rem`
 - `--app-shell-expanded: 96rem`
@@ -421,6 +421,15 @@ Rules:
     at 12px. Verify computed fonts, line heights and insets in Chromium and
     WebKit; class-name checks cannot prove visual parity. Conversations, device
     authority and streaming state remain owned by their existing runtimes.
+13. One's browser and recovery Chat header retains the portrait above its name:
+    104px on desktop, 52–64px on phones. On the narrowest phones, shift it only
+    enough to avoid the existing 44px action targets. Keep the mode toggle
+    anchored across One/Puppy switches, the phone model picker in One's profile,
+    and coherent native chrome on its existing compact header reservation.
+    Circle selection rows show available connection date/time, contact source
+    and verified-advisor context without exposing contact strings. Missing
+    context says `Connection details unavailable`; identical metadata does not
+    establish a person's identity.
 
 ## Page Header Contract
 

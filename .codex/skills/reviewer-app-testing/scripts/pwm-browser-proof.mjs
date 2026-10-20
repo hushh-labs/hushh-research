@@ -2,10 +2,14 @@
 export function installPwmBrowserProof({ expectedUserId, expectedEmails }) {
   const nativeFetch = window.fetch.bind(window);
   const streams = [];
-  let report = null, usage = null, preferences = null, identityMatches = false, ownerHeaders = null;
+  let report = null, usage = null, preferences = null, ownerHeaders = null;
+  let lastResearchState = null;
+  const identity = { lookup_seen: false, http_ok: false, parse_ok: false,
+    uid_match: false, email_verified: false, expected_email_match: false };
   let decisionTime = null, researchPosts = 0;
   let generation = 0, watching = false, freshAcknowledged = false, previousDraft = null, preservation = null;
   let latestObservedDraft = null;
+  let identityGeneration = 0;
   let baseline = null, expectation = null, exportCode = "idle", armed = null;
   let baselineClaimed = false;
   const current = () => {
@@ -20,6 +24,12 @@ export function installPwmBrowserProof({ expectedUserId, expectedEmails }) {
     return keys.length === Object.keys(b).length && keys.every(key => Object.hasOwn(b, key) && equal(a[key], b[key]));
   };
   const result = (value, observedGeneration) => {
+    const statuses = ["pending", "paused", "offered", "saved", "unavailable", "consent_required", "insufficient_identity", "not_ready", "disabled"];
+    if (observedGeneration === generation && statuses.includes(value?.status)) {
+      lastResearchState = { status: value.status, restart_required: value.restart_required === true,
+        exhausted: value.research_exhausted === true,
+        retry_after_s: Number.isFinite(value.retry_after_s) && value.retry_after_s >= 0 ? value.retry_after_s : null };
+    }
     if (observedGeneration === generation && value?.status === "offered") latestObservedDraft = value.draft_id;
     if (observedGeneration === generation && freshAcknowledged && value?.status === "offered" && value.draft_id !== previousDraft) report = value;
   };
@@ -54,7 +64,7 @@ export function installPwmBrowserProof({ expectedUserId, expectedEmails }) {
     } catch { receipt.error = true; }
     finally { await reader.cancel().catch(() => undefined); }
   }
-  window.fetch = async (...args) => {
+  const observingFetch = async (...args) => {
     const url = new URL(args[0] instanceof Request ? args[0].url : String(args[0]), location.href);
     const method = args[1]?.method ?? (args[0] instanceof Request ? args[0].method : "GET");
     if (url.origin === location.origin && url.pathname.startsWith("/api/one/world-model/")) {
@@ -62,15 +72,26 @@ export function installPwmBrowserProof({ expectedUserId, expectedEmails }) {
       if (headers.has("Authorization")) ownerHeaders = headers;
       if (watching && method === "POST" && ["/api/one/world-model/jobs", "/api/one/world-model/ensure"].includes(url.pathname)) {
         researchPosts++;
-        if (url.pathname.endsWith("/jobs")) { previousDraft = latestObservedDraft; generation++; report = null; usage = null; streams.length = 0; freshAcknowledged = false; }
+        previousDraft = latestObservedDraft;
+        generation++; report = null; usage = null; lastResearchState = null;
+        streams.length = 0; freshAcknowledged = false;
       }
     }
     const observedGeneration = generation;
+    const identityLookup = url.hostname === "identitytoolkit.googleapis.com" && url.pathname.endsWith("/accounts:lookup");
+    const observedIdentityGeneration = identityLookup ? ++identityGeneration : identityGeneration;
+    if (identityLookup) Object.assign(identity, { lookup_seen: true, http_ok: false, parse_ok: false,
+      uid_match: false, email_verified: false, expected_email_match: false });
     const response = await nativeFetch(...args);
-    if (url.hostname === "identitytoolkit.googleapis.com" && url.pathname.endsWith("/accounts:lookup")) {
+    if (identityLookup && observedIdentityGeneration === identityGeneration) {
+      Object.assign(identity, { lookup_seen: true, http_ok: response.ok, parse_ok: false,
+        uid_match: false, email_verified: false, expected_email_match: false });
       void response.clone().json().then(value => {
-        identityMatches = value.users?.some(user => user.localId === expectedUserId &&
-          user.emailVerified === true && expectedEmails.includes(String(user.email).toLowerCase())) === true;
+        if (observedIdentityGeneration !== identityGeneration) return;
+        const user = value.users?.find(user => user.localId === expectedUserId);
+        Object.assign(identity, { parse_ok: true, uid_match: Boolean(user),
+          email_verified: user?.emailVerified === true,
+          expected_email_match: expectedEmails.includes(String(user?.email).toLowerCase()) });
       }).catch(() => undefined);
     }
     if (url.origin !== location.origin) return response;
@@ -86,6 +107,7 @@ export function installPwmBrowserProof({ expectedUserId, expectedEmails }) {
     }
     return response;
   };
+  window.fetch = observingFetch;
 
   // Intercept the app's existing Download Memory action, never its API/key path.
   // Only the armed export's Blob is retained, and no download reaches disk.
@@ -164,11 +186,17 @@ export function installPwmBrowserProof({ expectedUserId, expectedEmails }) {
     return anchorClick.call(this);
   };
   window.__PWM_ACCEPTANCE__ = {
-    identityMatches: () => current() && identityMatches,
+    identityMatches: () => current() && window.fetch === observingFetch && Object.values(identity).every(Boolean),
+    // Closed diagnostics distinguish account mismatch from missing observation.
+    // Identity values and the authentication response never leave this closure.
+    identityProof: () => ({ ...identity, current_bridge: current(), observer_installed: window.fetch === observingFetch }),
     publicResult: () => report,
     preferences: () => preferences,
     usage: () => usage,
     researchPosts: () => researchPosts,
+    researchState: () => ({ ...lastResearchState, research_posts: researchPosts, fresh_acknowledged: freshAcknowledged }),
+    researchSettled: () => researchPosts > 0 && Boolean(lastResearchState) &&
+      !["pending", "paused"].includes(lastResearchState.status),
     decisionTime: () => decisionTime,
     // An opaque salted commitment crosses contexts in process memory only;
     // neither it nor any private content belongs in evidence artifacts.
@@ -177,7 +205,7 @@ export function installPwmBrowserProof({ expectedUserId, expectedEmails }) {
       if (!current() || watching) return false;
       previousDraft = latestObservedDraft;
       generation++; watching = true; freshAcknowledged = false;
-      report = null; usage = null; streams.length = 0; return true;
+      report = null; usage = null; lastResearchState = null; streams.length = 0; return true;
     },
     async refreshUsage() {
       usage = null;

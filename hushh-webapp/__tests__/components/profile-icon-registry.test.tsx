@@ -1,4 +1,4 @@
-import { render, cleanup, screen } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -10,6 +10,8 @@ import { GiftIcon } from "@/components/icons/ui/detail-icons";
 
 import { PROFILE_ICONS } from "@/components/icons/profile-icons";
 import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
+import TrustedDevicesPage from "@/components/profile/trusted-devices-page";
+import type { TrustedDevicesModel } from "@/components/profile/use-trusted-devices-model";
 
 vi.mock("@/components/theme-toggle", () => ({ ThemeToggleLean: () => null }));
 vi.mock("@/components/app-ui/native-accent-choice", () => ({ NativeAccentChoice: () => null }));
@@ -56,7 +58,7 @@ it("crossfades canonical menu/close icons with reduced-motion support", () => {
 
 it("keeps the actual shared Profile roster neutral with authored accent details", () => {
   const entries = [...PROFILE_MENU_GROUPS.flatMap(group => [...group.entries]),
-    ...(["appearance", "accent", "voice"] as const).map(id => ({ id, icon: PROFILE_ICONS[id] }))];
+    ...(["appearance", "accent", "voice", "referralLink", "referralJoin", "referralAgent", "referralQualified", "referralSuccess", "referralProgress", "referralWarning"] as const).map(id => ({ id, icon: PROFILE_ICONS[id] }))];
   const { container } = render(<>{entries.map(({ id, icon: Icon }) => <Icon key={id} />)}</>);
   const icons = [...container.querySelectorAll("svg")];
   expect(icons).toHaveLength(entries.length);
@@ -105,4 +107,19 @@ it("renders the approved outline artwork in the actual Preferences controls", ()
     expect(svg, title).toHaveAttribute("stroke", "currentColor");
     expect(svg?.querySelector(".profile-pane-icon-accent, .profile-pane-icon-accent-fill"), title).not.toBeNull();
   }
+});
+
+it("restores the nested Devices artwork while retaining its unlink action", () => {
+  const model: TrustedDevicesModel = {
+    devices: [{ device_id: "synthetic-device", device_name: "Test computer", platform: "macos", status: "active" }],
+    confirmation: null, busy: false, uncertain: false, loading: false, refreshing: false, error: "",
+    refresh: vi.fn(), cancel: vi.fn(), choose: vi.fn(), confirm: vi.fn(),
+  };
+  render(<TrustedDevicesPage panePresentation model={model} />);
+  const row = screen.getByText("Test computer").closest("[data-row-layout]");
+  const svg = row?.querySelector("[data-slot=settings-row-icon] svg");
+  expect(svg).toHaveAttribute("viewBox", "0 0 24 24");
+  expect(svg?.querySelector(".profile-pane-icon-accent, .profile-pane-icon-accent-fill")).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Unlink Test computer" }));
+  expect(model.choose).toHaveBeenCalledWith("synthetic-device");
 });

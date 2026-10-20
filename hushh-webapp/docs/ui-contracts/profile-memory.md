@@ -167,7 +167,7 @@ unlocked key, current owner token and unexpired token.
 | Edit or remove these details | Confirmed-source row hands off to Profile Memory. |
 | Citations / related search | Source links, Azure/Bing disclosure and secondary Google suggestions remain explicit; no implied truth from a suggestion. |
 | Invite someone | Usable-model only. Name and email and/or E.164 phone; **Create invitation** persists contact-bound invitation. **Share invitation** invokes share/copy; **Revoke** immediately revokes selected invitation. Failure retains draft. |
-| Research and email | **Research public pages**, **Email me when it’s ready** immediately persist preferences. **Check for updates** requests research and closes; failure remains. |
+| Research and email | **Research public pages**, **Email me when it’s ready** immediately persist preferences. **Check for updates** explicitly starts a new bounded check after completion or exhaustion and closes the sheet. Exhaustion never starts an automatic retry. Owner/consent checks, provider cooldown/breaker and three-starts-per-hour admission still apply. |
 | Claim my model / Decline | Explicit bounded invitation decision, clears handoff and refreshes; nothing shared back. Other-account handoff allows review with current account. Google research opt-back-in checkbox does not grant Azure/Bing disclosure consent. |
 | Public source preparation | URLs, current account name, explicit chosen-public-page checkbox → **Read these pages** prepares a draft. Review selects/corrects facts; explicit save persists selected details. Discard/Skip removes offer; affected-sharing acknowledgment precedes save. |
 

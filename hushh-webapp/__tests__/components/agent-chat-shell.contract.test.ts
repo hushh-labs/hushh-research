@@ -218,7 +218,7 @@ describe("private-agent chat shell contract", () => {
     expect(brandTileStart).toBeGreaterThan(0);
     expect(brandTile).toContain("<OnePresenceAvatar");
     expect(brandTile).toContain('className="grid h-11 w-11 shrink-0 place-items-center"');
-    expect(brandTile).toContain('className="size-8 shrink-0"');
+    expect(brandTile).toContain('className="size-[var(--one-header-artwork-size,32px)] shrink-0"');
     expect(brandTile).not.toContain("max-sm:hidden");
   });
 

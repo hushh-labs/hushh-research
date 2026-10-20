@@ -1474,6 +1474,8 @@ class DriveSharingStore(DriveDocumentStore):
                 "trustedAuto": private.get("trusted_auto") is True,
                 "autoshare": autoshare_request(private),
                 "semanticSearch": semantic_search_request(private),
+                "discoveryDelivery": private.get("semantic_search_policy_version") == 2
+                and semantic_search_request(private),
                 "semanticModelBinding": private.get("semantic_model_binding"),
                 "reusablePacket": private.get("reusable_packet"),
             }

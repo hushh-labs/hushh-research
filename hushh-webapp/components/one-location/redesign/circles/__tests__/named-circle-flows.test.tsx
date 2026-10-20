@@ -159,7 +159,9 @@ describe("named Circle flows", () => {
     render(<CreateCircleFlow {...props} />);
     fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Add Asha Meena" }));
+    const choice = await screen.findByRole("button", { name: "Add Asha Meena" });
+    expect(choice).toHaveAccessibleDescription("Connection details unavailable");
+    fireEvent.click(choice);
     expect(props.onAddPeople).not.toHaveBeenCalled();
     expect(props.onComplete).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person", exact: true }));
@@ -471,6 +473,34 @@ describe("named Circle flows", () => {
       expect(props.onInviteConnections).toHaveBeenCalledTimes(1);
     },
   );
+
+  it("distinguishes sanitized names with relationship context and submits the selected identity", async () => {
+    const props = detailProps(vi.fn(async () => circle("family", "Family")));
+    props.onLoadEligibleConnections = vi.fn(async () => ({
+      eligibleConnections: [
+        { connectionId: "connection-one", userId: "one", displayName: "one@example.test", photoUrl: null, isRia: false, connectedAt: "2026-10-18T10:00:00Z" },
+        { connectionId: "connection-two", userId: "two", displayName: "two@example.test", photoUrl: null, isRia: false, connectedAt: "2026-10-19T11:30:00Z" },
+        { connectionId: "connection-three", userId: "three", displayName: "***1234", photoUrl: null, isRia: false, connectedAt: "invalid" },
+      ], pendingInvites: [], remainingCapacity: 19,
+    }));
+    render(<CircleDetailFlow circleId="family" livingCircleExperience {...props} />);
+    await openCirclePeoplePicker();
+    const choices = await screen.findAllByRole("checkbox", { name: "Add Hussh member to Family" });
+    expect(choices).toHaveLength(3);
+    expect(choices[0]).toHaveAccessibleDescription(/^Connected /);
+    expect(choices[1]).toHaveAccessibleDescription(/^Connected /);
+    const description = (choice: HTMLElement) => document.getElementById(choice.getAttribute("aria-describedby")!)!.textContent!;
+    const selectedDescription = description(choices[1]);
+    expect(description(choices[0])).not.toBe(selectedDescription);
+    expect(choices[2]).toHaveAccessibleDescription("Connection details unavailable");
+    expect(choices[0].getAttribute("aria-describedby")).not.toBe(choices[1].getAttribute("aria-describedby"));
+    expect(screen.queryByText(/one@example|two@example|\*\*\*1234/)).toBeNull();
+    fireEvent.click(choices[1]);
+    fireEvent.click(screen.getByRole("tab", { name: "Selected (1)" }));
+    expect(screen.getByRole("checkbox", { name: "Add Hussh member to Family" })).toHaveAccessibleDescription(selectedDescription);
+    fireEvent.click(screen.getByRole("button", { name: "Add people", exact: true }));
+    await waitFor(() => expect(props.onInviteConnections).toHaveBeenCalledWith("family", ["two"]));
+  });
 
   it("selects multiple people instantly, batches one save, and keeps choices available during slow reconciliation", async () => {
     const people = ["Asha", "Jordan", "Alex"].map((name) => ({
