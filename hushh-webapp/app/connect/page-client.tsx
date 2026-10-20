@@ -35,7 +35,6 @@ import {
 } from "@/components/app-ui/settings-ui";
 import { ConnectCirclesTab } from "@/components/connect/circles/connect-circles-tab";
 import {
-  connectPersonName,
   ConnectDirectoryPersonRow,
   ConnectPersonRow,
   DirectoryMutualLine,
@@ -141,6 +140,7 @@ import {
   type DirectoryPerson,
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
+import { connectPersonName } from "@/lib/connections/person-label";
 import { TOP_SHELL_TAB_REGISTRY } from "@/lib/navigation/top-shell-tabs";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {
@@ -2760,7 +2760,7 @@ export default function ConnectPageClient() {
         return {
           status: "blocked",
           summary: `More than one pending request matches that name: ${matches
-            .map((request) => request.counterpartDisplayName ?? "someone")
+            .map((request) => connectPersonName({ displayName: request.counterpartDisplayName }, "someone"))
             .join(", ")}. Say which one.`,
         };
       }
@@ -2770,7 +2770,7 @@ export default function ConnectPageClient() {
       await loadOutgoingRequestIds();
       return {
         status: "succeeded",
-        summary: `Cancelled your connection request to ${request.counterpartDisplayName ?? spokenName}.`,
+        summary: `Cancelled your connection request to ${connectPersonName({ displayName: request.counterpartDisplayName }, "someone")}.`,
       };
     } catch (error) {
       return {

@@ -2893,6 +2893,29 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(field.className).toContain("pr-11");
   });
 
+  it("redacts contact-only cancellation summaries without cancelling ambiguous requests", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    const cancelRequest = resolveLocalOnboardingHandler("connect.cancel_request");
+    expect(cancelRequest).not.toBeNull();
+    const request = { id: "request-private", counterpartDisplayName: "member@example.test" };
+    mocks.listRequests.mockResolvedValue([request, { ...request, id: "request-other" }]);
+
+    const ambiguous = await cancelRequest!({ person: "member@example.test" });
+    expect(ambiguous.status).toBe("blocked");
+    expect(ambiguous.summary).not.toContain("@");
+    expect(mocks.cancel).not.toHaveBeenCalled();
+
+    mocks.listRequests.mockResolvedValue([request]);
+    let completed: Awaited<ReturnType<NonNullable<typeof cancelRequest>>> | undefined;
+    await act(async () => {
+      completed = await cancelRequest!({ person: "member@example.test" });
+    });
+    expect(completed?.status).toBe("succeeded");
+    expect(completed?.summary).toBe("Cancelled your connection request to someone.");
+    expect(mocks.cancel).toHaveBeenCalledWith(expect.objectContaining({ requestId: "request-private" }));
+  });
+
   it("spends one word on cancelling a request, and says whose in the label", async () => {
     // "Cancel request" under a 100px floor sized for "Cancelling…" made the
     // least common row state the widest control on the screen. The visible word

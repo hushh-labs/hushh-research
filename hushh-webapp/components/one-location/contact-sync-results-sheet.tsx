@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 import type { GoogleContactSyncController } from "@/lib/contacts/use-google-contact-sync-session";
 import { googleContactSyncSummary } from "@/lib/contacts/google-contact-sync-summary";
 import { ROUTES } from "@/lib/navigation/routes";
+import { connectPersonName } from "@/lib/connections/person-label";
 
 const MATCH_PAGE_SIZE = 100;
 
@@ -313,7 +314,7 @@ export function ContactSyncResultsSheet({
           {result.matches.length ? (
             <ul className="divide-y divide-border/70 rounded-2xl border border-border/70">
               {visibleMatches.map((match) => {
-                const name = match.displayName || "Hushh user";
+                const name = connectPersonName(match);
                 const requested = requestedUserIds.has(match.userId);
                 return (
                   <li
