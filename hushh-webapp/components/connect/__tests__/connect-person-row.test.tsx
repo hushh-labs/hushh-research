@@ -15,13 +15,13 @@ describe("compact person row", () => {
       <ConnectPersonRow
         leading={<span>TP</span>}
         title="Test Person"
-        description="t***@example.com"
+        description="Connected 28 Sep"
         openLabel="Open Test Person's profile"
         onOpen={open}
         trailing={<button onClick={connect}>Connect</button>}
       />,
     );
-    expect(screen.getByText("t***@example.com")).toBeVisible();
+    expect(screen.getByText("Connected 28 Sep")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     expect(connect).toHaveBeenCalledOnce();
     expect(open).not.toHaveBeenCalled();

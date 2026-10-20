@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import type { DirectoryPerson } from "@/lib/services/connections-service";
@@ -34,7 +34,7 @@ export function ConnectPersonRow({
   /** The avatar, already sized to fit the 30px well. */
   leading: ReactNode;
   title: ReactNode;
-  /** The one line under the name (a connected date, an email). Omitted when empty. */
+  /** Relationship context, such as a connected date. Omitted when empty. */
   description?: ReactNode;
   /** An optional control that belongs under the text column but cannot sit inside the open control. */
   supplement?: ReactNode;
@@ -109,6 +109,21 @@ export function ConnectPersonRow({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** Discovery shows a name, never contact identifiers or masked contact captions. */
+export function ConnectDirectoryPersonRow({
+  person,
+  ...props
+}: Omit<ComponentProps<typeof ConnectPersonRow>, "title" | "description"> & {
+  person: Pick<DirectoryPerson, "displayName">;
+}) {
+  return (
+    <ConnectPersonRow
+      {...props}
+      title={person.displayName || "Hussh member"}
+    />
   );
 }
 
