@@ -449,7 +449,7 @@ class DriveRequestBulkService:
             )
         if context.get("semanticSearch") is True:
             # This creation-time policy never falls back to a lexical planner.
-            # The complete interpretation is sealed and later content-verified.
+            # The complete interpretation is sealed; v2 delivers provider-query matches.
             prompt = {
                 "document_request": purpose,
                 "transaction_search": True,
@@ -578,6 +578,11 @@ class DriveRequestBulkService:
             **({"brain": brain.as_checkpoint()} if brain is not None else {}),
             **({"plan_source": plan_source} if plan_source is not None else {}),
             **({"semantic_search": True} if context.get("semanticSearch") is True else {}),
+            **(
+                {"discovery_delivery_enabled": True}
+                if context.get("discoveryDelivery") is True
+                else {}
+            ),
             **(
                 {"semantic_model_binding": context["semanticModelBinding"]}
                 if context.get("semanticSearch") is True

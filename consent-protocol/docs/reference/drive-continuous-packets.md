@@ -325,3 +325,33 @@ Do not reinterpret historical approvals. Production scheduler timing is unchange
 
 Native Drive UI and API search ranking are not assumed identical. This release's
 document facts and content-period checks are the private agent's own processing path.
+
+## UAT Drive search-match delivery (policy v2)
+
+New requester-origin UAT automatic requests seal semantic-search policy version
+2. Azure remains the centrally managed query planner; the complete supported
+expression compiles to Drive `q`. Every unique in-scope, in-period provider
+match can enter the existing payment/owner-authorized sharing queue. This mode
+does not download document bodies, run OCR, or invoke per-file relevance
+assessment. Media originals need no extraction parser to share. Results carry
+`discoveryEvidence` under `drive_query_matches_v1`, never fabricated
+`contentVerified`, citations or model confidence. Operational logs record the
+policy and intentionally inapplicable assessment stage without private names.
+
+The compiler retains every conjunction and negation, uses the authored literal
+values rather than broad discovery aliases, and does not expand unrelated
+folder descendants. Full provider pagination and file-ID deduplication remain
+bounded and resumable. Explicit created/modified dates are pushed to Drive with
+timezone-correct half-open bounds; default filename/created/modified precedence
+remains a metadata filter, since a timestamp-only pushdown could lose valid
+filename-dated records. Current metadata dates and sharing capability are
+rechecked before a grant. A search hit is not proof that current file contents
+remain unchanged. Content-period proof and account-relationship queries need
+clarification instead of silent scope widening under this mode.
+
+Version 1 requests, already queued checkpoints, packages and completed sharing
+history keep their frozen contracts. This rollout does not replay old requests,
+charge again, or reinterpret the historical 79-file candidate set. New requests
+use v2 automatically for both existing and new UAT accounts. Rollback disables
+new semantic enrollment; already sealed policies retain their own validation.
+Production, voice, BYOK and content-analysis features are unchanged.
