@@ -21,6 +21,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -995,6 +996,28 @@ export function resolveLocationDeepLinkFocus(input: {
   return { detailAction: null, nextTab: null };
 }
 
+/** Resolve legacy notification intent without overriding a later explicit navigation. */
+function resolveLocationNotificationFocus(
+  params: Pick<URLSearchParams, "get">,
+): LocationDeepLinkFocus {
+  if (params.get(FLOW_ACTION_PARAM)?.trim()) {
+    return { detailAction: null, nextTab: null };
+  }
+  const section = params.get("section")?.trim() ?? "";
+  const view = params.get(LOCATION_HUB_TAB_PARAM)?.trim();
+  // Back and tab changes can retain a notification's ids. A named hub view
+  // closes that detail; an explicit notification section still names its target.
+  if (!section && (view === "now" || view === "people" || view === "links")) {
+    return { detailAction: null, nextTab: null };
+  }
+  return resolveLocationDeepLinkFocus({
+    section,
+    hasRequest: Boolean(params.get("requestId")?.trim()),
+    hasGrant: Boolean(params.get("grantId")?.trim()),
+    hasSubmission: Boolean(params.get("submissionId")?.trim()),
+  });
+}
+
 // People lists (Ready people / Pending invites) can grow long. Cap their height
 // and let them scroll internally so a large Circle doesn't stretch the page into
 // an endless column. ~max-h fits roughly 5 cards before scrolling; a thin,
@@ -1072,7 +1095,15 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const [tab, setTabState] = useState<LocationHubTab>(() =>
     resolveLocationHubTab(searchParams.get(LOCATION_HUB_TAB_PARAM)),
   );
-  const [flow, setFlow] = useState<FlowKind>("none");
+  const [flow, setFlow] = useState<FlowKind>(() => {
+    const action = searchParams.get(FLOW_ACTION_PARAM)?.trim() ?? "";
+    const requested = ACTION_TO_FLOW[action];
+    // Notification detail is already known before Next normalizes the URL.
+    // Render it on the first commit, including with a warm presentation cache.
+    return requested === "shared-with-me" || requested === "needs-review"
+      ? requested
+      : resolveLocationNotificationFocus(searchParams).detailAction ?? "none";
+  });
   const [selectedCircleId, setSelectedCircleId] = useState<string | null>(() =>
     searchParams.get("circleId"),
   );
@@ -1185,23 +1216,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   // notification describes. `view=inbox` remains a harmless legacy alias for
   // the compact Now hub.
   useEffect(() => {
-    const section = String(searchParams.get("section") || "").trim();
-    const hasRequest = Boolean(
-      String(searchParams.get("requestId") || "").trim(),
-    );
-    const hasGrant = Boolean(String(searchParams.get("grantId") || "").trim());
-    const hasSubmission = Boolean(
-      String(searchParams.get("submissionId") || "").trim(),
-    );
-    const { detailAction, nextTab } = resolveLocationDeepLinkFocus({
-      section,
-      hasRequest,
-      hasGrant,
-      hasSubmission,
-    });
-    const legacyInbox = searchParams.get(LOCATION_HUB_TAB_PARAM) === "inbox";
+    const { detailAction, nextTab } = resolveLocationNotificationFocus(searchParams);
+    const legacyInbox = !searchParams.get(FLOW_ACTION_PARAM)?.trim() &&
+      searchParams.get(LOCATION_HUB_TAB_PARAM) === "inbox";
     if (detailAction || nextTab || legacyInbox) {
-      setFlow("none");
       const params = new URLSearchParams(searchParams.toString());
       params.delete("section");
       if (detailAction) {
@@ -1454,7 +1472,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   // deep-link to `?action=…` opens the matching flow on load. Resetting the
   // Share sub-step + review flag on close ensures re-opening Share always starts
   // clean at step 1 (never jumps back into the consent-review screen).
-  useEffect(() => {
+  // Query changes can reuse this mounted hub. Sync before paint so an incoming
+  // notification cannot expose the previous hub while its URL is normalized.
+  useLayoutEffect(() => {
     const rawAction = (searchParams.get(FLOW_ACTION_PARAM) || "").trim();
     const action = LEGACY_ACTION_TO_FLOW[rawAction] ?? rawAction;
     if (rawAction && rawAction !== action) {
@@ -1489,7 +1509,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     const flowAction = action === "event-check-in" ? "check-in" : action;
     const requested: FlowKind = flowAction
       ? (ACTION_TO_FLOW[flowAction] ?? "none")
-      : "none";
+      : resolveLocationNotificationFocus(searchParams).detailAction ?? "none";
     if (
       nearbyCheckInAvailable &&
       (action === "check-in" || action === "event-check-in")

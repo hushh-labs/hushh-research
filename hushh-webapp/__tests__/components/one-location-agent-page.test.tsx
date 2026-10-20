@@ -12,6 +12,7 @@ import {
   type Ref,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
 } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ROUTES } from "@/lib/navigation/routes";
 import { navigateTopShellBack, resolveTopShellBackAction } from "@/lib/navigation/top-shell-back";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
+import { buildOneLocationNotificationHref } from "@/lib/one-location/notifications";
 import {
   OneLocationContactSyncError,
   type OneLocationContactSignalResult,
@@ -195,15 +197,16 @@ vi.mock("@/lib/capacitor", async (importOriginal) => ({
   HushhContacts: { getPermissionState: mockContactsPermissionState },
 }));
 
-vi.mock("next/navigation", () => ({
-  usePathname: () => "/one/location",
-  useRouter: () => ({
-    push: mockRouterPush,
-    replace: mockRouterReplace,
-    back: mockRouterBack,
-  }),
-  useSearchParams: mockUseSearchParams,
-}));
+vi.mock("next/navigation", () => {
+  // Next returns its context router, not a fresh object on each render.
+  // Stable identity also lets notification-open effects settle before URL normalization.
+  const router = { push: mockRouterPush, replace: mockRouterReplace, back: mockRouterBack };
+  return {
+    usePathname: () => "/one/location",
+    useRouter: () => router,
+    useSearchParams: mockUseSearchParams,
+  };
+});
 
 vi.mock("@/hooks/use-auth", () => ({
   useRequireAuth: mockUseRequireAuth,
@@ -5752,6 +5755,82 @@ describe("OneLocationAgentPage", () => {
         vi.useRealTimers();
       }
     });
+  });
+
+  it.each(["active", "revoked", "expired"])(
+    "opens a warm SMS notification on its first commit without a hub flash (%s)",
+    async (status) => {
+      window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+      const snapshot = {
+        ...locationState(),
+        receivedGrants: [{
+          id: "grant_sms", ownerUserId: "user_b", recipientUserId: "user_a",
+          ownerDisplayName: "Trusted B", recipientKeyId: "key_a", status,
+          consentScope: "cap.location.live.view", capabilityScopes: ["cap.location.live.view"],
+          durationHours: 1, expiresAt: "2099-01-01T00:00:00.000Z",
+        }],
+      };
+      const { OneLocationStateResource } = await import("@/lib/one-location/one-location-state-resource");
+      OneLocationStateResource.write("user_a", snapshot);
+      mockGetState.mockImplementationOnce(() => new Promise(() => undefined));
+      mockViewEnvelope.mockImplementationOnce(() => new Promise(() => undefined));
+      const query = new URL(buildOneLocationNotificationHref("grant_sms"), "https://app.test").searchParams;
+      mockUseSearchParams.mockReturnValue(query);
+      const firstCommit = vi.fn();
+      function FirstCommitProbe() {
+        useLayoutEffect(() => {
+          firstCommit(screen.queryByRole("heading", { name: "Shared with me" }) !== null,
+            screen.queryByRole("heading", { name: "Location" }) !== null);
+        }, [firstCommit]);
+        return null;
+      }
+      const view = render(<><OneLocationAgentPage /><FirstCommitProbe /></>);
+      expect(firstCommit).toHaveBeenCalledWith(true, false);
+      // The destination must stay visible while Next's query replacement is delayed.
+      expect(screen.getByRole("heading", { name: "Shared with me" })).toBeTruthy();
+      expect(screen.queryByRole("heading", { name: "Location" })).toBeNull();
+      if (status === "active") {
+        expect(mockViewEnvelope).toHaveBeenCalledWith(expect.objectContaining({ grantId: "grant_sms" }));
+      } else {
+        expect(mockViewEnvelope).not.toHaveBeenCalled();
+      }
+
+      const canonical = new URLSearchParams(query);
+      canonical.delete("section");
+      canonical.set("action", "shared-with-me");
+      mockUseSearchParams.mockReturnValue(canonical);
+      view.rerender(<OneLocationAgentPage />);
+      mockRouterReplace.mockClear();
+      const ask = new URLSearchParams(canonical);
+      ask.set("action", "ask");
+      mockUseSearchParams.mockReturnValue(ask);
+      view.rerender(<OneLocationAgentPage />);
+      expect(screen.getByRole("heading", { name: "Ask for location" })).toBeTruthy();
+      expect(mockRouterReplace).not.toHaveBeenCalled();
+
+      // Back may retain the grant id; an explicit hub view must still close the detail.
+      mockUseSearchParams.mockReturnValue(new URLSearchParams("view=now&grantId=grant_sms"));
+      view.rerender(<OneLocationAgentPage />);
+      expect(screen.getByRole("heading", { name: "Location" })).toBeTruthy();
+      expect(screen.queryByRole("heading", { name: "Shared with me" })).toBeNull();
+      expect(mockRouterReplace).not.toHaveBeenCalled();
+    },
+  );
+
+  it("opens an SMS deep link while the Location hub is already mounted", async () => {
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+    const { OneLocationStateResource } = await import("@/lib/one-location/one-location-state-resource");
+    OneLocationStateResource.write("user_a", locationState());
+    mockGetState.mockImplementationOnce(() => new Promise(() => undefined));
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("view=now"));
+    const view = render(<OneLocationAgentPage />);
+    expect(screen.getByRole("heading", { name: "Location" })).toBeTruthy();
+    const incoming = new URL(buildOneLocationNotificationHref("grant_incoming"), "https://app.test");
+    mockUseSearchParams.mockReturnValue(incoming.searchParams);
+    view.rerender(<OneLocationAgentPage />);
+    // Leave the query at its original notification URL; rendering cannot wait on replace.
+    expect(screen.getByRole("heading", { name: "Shared with me" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Location" })).toBeNull();
   });
 
   it.each(["active", "revoked", "expired"])(
