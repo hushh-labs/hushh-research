@@ -836,9 +836,9 @@ test.describe("Circle roster row", () => {
       });
       await expect(menu).toHaveAttribute("data-side", "right");
       await expect(menu).toHaveAttribute("data-align", "center");
-      await expect(
-        page.getByTestId("circle-member-actions-menu-context"),
-      ).toHaveText(`Actions for ${fixture.memberName}`);
+      await expect(menu).toHaveAccessibleName(`Actions for ${fixture.memberName}`);
+      await expect(menu).not.toContainText("Actions for");
+      await expect(menu.getByRole("menuitem")).toHaveCount(2);
       await expect(
         page.getByRole("menuitem", { name: "Share location" }),
       ).toBeVisible();

@@ -33,7 +33,7 @@ import {
   ChevronDown,
   ChevronUp,
   Clock3,
-  ContactRound,
+  ContactsBookIcon,
   Copy,
   ExternalLink,
   Hand,
@@ -14981,7 +14981,7 @@ export function OneLocationAgentPageContent({
                         className="h-10 w-full min-w-0 rounded-[12px] border-black/[0.06] bg-white text-[13px] font-semibold text-[#1c1c1e] shadow-sm hover:bg-[#f2f2f7] hover:text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
                       >
                         {busy !== "contactSync" ? (
-                          <ContactRound
+                          <ContactsBookIcon
                             className="mr-2 h-4 w-4"
                             aria-hidden="true"
                           />

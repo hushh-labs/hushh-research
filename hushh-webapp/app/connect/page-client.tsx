@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
-  BookUser,
+  ContactsBookIcon,
   Check,
   ChevronDown,
   Loader2,
@@ -3212,7 +3212,7 @@ export default function ConnectPageClient() {
                                       "!text-[color:var(--app-accent)]",
                                     )}
                                   >
-                                    <BookUser
+                                    <ContactsBookIcon
                                       aria-hidden="true"
                                       className="mr-1.5 h-3.5 w-3.5"
                                     />
@@ -3781,7 +3781,7 @@ export default function ConnectPageClient() {
                                       data-slot="settings-group-heading"
                                       className="flex min-h-8 items-center gap-2 pb-0.5 pt-3"
                                     >
-                                      <BookUser aria-hidden="true" className="size-4" color="currentColor" />
+                                      <ContactsBookIcon aria-hidden="true" className="size-4" />
                                       {group.label}
                                     </div>
                                   ) : null}

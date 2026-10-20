@@ -51,6 +51,8 @@ test.beforeAll(async () => {
     },
   );
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  const { transform } = await import("lightningcss");
+  css = transform({ filename: "duration-dialog.css", code: Buffer.from(css), minify: true }).code.toString();
 });
 
 test.afterAll(() => {
@@ -142,17 +144,21 @@ for (const width of [320, 390, 768, 1440]) {
           ? '[data-slot="settings-row-trailing"] > span > span:last-child'
           : "button")!;
         const b = icon.getBoundingClientRect();
+        const glyph = icon.querySelector("svg")!.getBoundingClientRect();
         const a = avatar.getBoundingClientRect();
         const c = control.getBoundingClientRect();
         const r = row.getBoundingClientRect();
         return { rightDelta: Math.abs(b.right - a.right), bottomDelta: Math.abs(b.bottom - a.bottom),
-          iconSize: b.width, controlGap: c.left - b.right,
+          iconSize: b.width, glyphWidth: glyph.width, glyphHeight: glyph.height,
+          controlGap: c.left - b.right,
           controlRight: c.right, rowRight: r.right };
       }), surface);
       for (const row of geometry) {
         expect(row.rightDelta).toBeLessThanOrEqual(2.5);
         expect(row.bottomDelta).toBeLessThanOrEqual(2.5);
         expect(row.iconSize).toBeLessThanOrEqual(12);
+        expect(row.glyphWidth).toBe(row.iconSize);
+        expect(row.glyphHeight).toBe(row.iconSize);
         expect(row.controlGap).toBeGreaterThanOrEqual(0);
         expect(row.controlRight).toBeLessThanOrEqual(row.rowRight - 10);
       }

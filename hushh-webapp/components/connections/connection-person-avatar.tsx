@@ -140,7 +140,7 @@ export function ConnectionPersonAvatar({
         </span>
       ) : null}
       {fromContacts ? (
-        <ContactSourceBadge className="absolute -bottom-0.5 -right-0.5 z-10 size-3 rounded-sm bg-background ring-2 ring-background [&>svg]:size-full" />
+        <ContactSourceBadge className="absolute -bottom-0.5 -right-0.5 z-10 size-3 rounded-sm bg-background ring-2 ring-background" />
       ) : null}
     </Avatar>
   );

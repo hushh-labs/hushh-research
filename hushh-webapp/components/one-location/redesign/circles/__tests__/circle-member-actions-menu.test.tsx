@@ -12,7 +12,7 @@
  *     opens names the member it belongs to;
  *   - the destructive step never stacks a second modal over the first;
  *   - at 640px and up the anchored menu opens outside the selected row,
- *     carries both visible and accessible member-specific context, and closes
+ *     carries accessible member-specific context, and closes
  *     when the confirm takes over rather than being left open behind it.
  *
  * `__tests__/setup.ts` stubs `matchMedia` as permanently non-matching, which
@@ -37,7 +37,6 @@ vi.mock("@/lib/direct-messages/navigate-direct-message", () => ({
 
 import {
   CircleMemberActionsMenu,
-  MEMBER_ACTIONS_MENU_CONTEXT_TESTID,
   MEMBER_ACTIONS_MENU_TESTID,
   MEMBER_ACTIONS_SHEET_CTA_CLASSNAME,
   MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME,
@@ -334,9 +333,8 @@ describe("CircleMemberActionsMenu on a pointer device", () => {
     expect(CIRCLE_MEMBER_ACTIONS_MENU_ALIGN).toBe("center");
     expect(CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX).toBe(22);
     expect(CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX).toBe(12);
-    expect(
-      within(menu).getByTestId(MEMBER_ACTIONS_MENU_CONTEXT_TESTID),
-    ).toHaveTextContent(`Actions for ${MEMBER_NAME}`);
+    expect(menu).not.toHaveTextContent("Actions for");
+    expect(within(menu).getAllByRole("menuitem")).toHaveLength(2);
     const share = within(menu).getByRole("menuitem", {
       name: /Share location/i,
     });
