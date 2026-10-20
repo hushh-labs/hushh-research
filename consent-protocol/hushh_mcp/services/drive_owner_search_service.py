@@ -3150,6 +3150,8 @@ class DriveOwnerSearchService:
             checkpoint = job["checkpoint"]
             if checkpoint.get("semantic_pending") and deadline_seconds < 88:
                 # A short scheduler remainder is not a failed provider attempt.
+                if require_current:
+                    await require_current()
                 return finish(await self.store.release(job))
             saved_request = checkpoint.get("request")
             from hushh_mcp.services.drive_request_bulk_service import (
