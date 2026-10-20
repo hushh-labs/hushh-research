@@ -63,6 +63,10 @@ def _is_transient_probe_error(error: Exception) -> bool:
     seen: set[int] = set()
     while id(current) not in seen:
         seen.add(id(current))
+        # A gateway deadline may recover on the same target. This readiness-only
+        # retry does not broaden regional failover or turn a failed reply green.
+        if 504 in (getattr(current, "code", None), getattr(current, "status_code", None)):
+            return True
         cause = current.__cause__ or current.__context__
         if cause is None or isinstance(cause, asyncio.CancelledError):
             return isinstance(current, (TimeoutError, TimeoutException, ConnectionError))
