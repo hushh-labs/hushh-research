@@ -167,6 +167,77 @@ the flag. Rollback: disable collection, then use the registered migration365
 rollback; original task exports remain available in version 1. No infrastructure,
 collection or marketing delivery is activated by this PR.
 
+### Private registered-account audience and correlated attempts
+
+`POST /api/one/plg/audience` is a separate, private read contract for Matrix's
+role-protected PLG people view. It requires production lane, project `hushh-pda`,
+`ONE_PLG_AUDIENCE_ENABLED=true` and dedicated `ONE_PLG_AUDIENCE_SECRET` (32+
+characters). The existing timestamp/body signature uses purpose `audience`;
+snapshot, sync, enrollment and delivery credentials do not grant this authority.
+The response and all errors are private/no-store; validation and source errors
+never echo contact details. The route is hidden from public OpenAPI.
+
+Request: `{agentId, segment, query, graceMinutes, cursor}`. The agent must exist
+in the generated catalog; segments are `all`, `possible_incomplete`, `failed`,
+`blocked`, `cancelled`, `returned`, `verified`, `unknown` and `in_progress`.
+Query is at most 100 characters, grace is 15–1440 minutes (default 60), and
+cursor is optional. A page traverses at most 25 current Firebase records.
+Disabled, deprovisioned, unclassified/anonymous and tombstoned accounts are
+excluded. This is the registered-account directory, not proof of customer or
+marketing eligibility. Source failures fail the page with sanitized 503.
+
+Only explicit Firebase getters are projected. Exported SDK records, password
+hashes/salts, custom claims, tokens and provider objects are never serialized.
+Canonical identity row presence owns the entire saved name/email/phone projection;
+null or cleared fields never fall back to stale provider fields. For genuinely
+absent canonical rows, current provider contact details may fill the view.
+Only verified full E.164 phone numbers are shown; a number bound to another
+canonical owner suppresses provider fallback. Lifecycle barriers (171 then 198),
+the existing phone-claim lock (namespace 0), shared identity row locks and epoch
+locks fence deletion, transfer and reset races. No identity is written.
+
+Response includes the catalog, fixed seven-day `windowStart`/`asOf`, `scanned`,
+`excluded`, bounded `rows` and `nextCursor`. Each row contains account ID,
+selected agent, nullable identity fields with source/verification flags,
+activity coverage/counts/timestamps/action ID and verified outcome support.
+Filters apply to each source page; an empty matching page can have a continuation.
+No global filtered total or stable directory snapshot is claimed. The signed
+cursor binds all filters, production project, page size and activity anchor and
+expires after 15 minutes. Directory identity remains current on every page;
+directory mutations can change traversal. No full-audience Firestore import occurs.
+
+Migration 366 adds an opaque phase-independent `operation_key` for new SDK and
+gateway observations. Correlation is bounded by owner, epoch, agent, action and
+source; one invocation's return cannot close a different invocation. Historical
+phase hashes and independent `observation:*` reports remain uncorrelated.
+Tools remain separate observations. A correlated start with no terminal after
+the selected grace is **possible incomplete**, never confirmed abandonment.
+Recent unmatched starts are in progress. Returns/failures are observations,
+not unique user attempts: browser and SDK observations can cover the same user
+action. Return/failure timestamps use the selected terminal receipt even when a
+start report arrives later at the server. Last observation can therefore be a
+later start. Only Memory/Mail retain the existing verified domain-outcome adapters;
+business completion for other agents is explicitly unsupported. Capacity-limited,
+not-started, reset and disabled coverage remains explicit. Disabling collection
+hides retained execution counts, timestamps and behavioral segments.
+
+`ONE_PLG_ACTIVITY_ALL_REGISTERED=true` expands the existing collection scope
+only with `ONE_PLG_ACTIVITY_ENABLED=true`, production lane and project
+`hushh-pda`. Admission and writes additionally require a canonical registered
+contact (nonempty email or verified phone); an anonymous UID/spine alone is
+insufficient. Auth-only directory accounts remain visible while normal identity
+warmup has not yet established that baseline. With this flag off, the original
+1–100 UID pilot behavior is preserved. Both new flags default false. The existing
+500-observation/day cap, seven-day TTL, reset/deletion and service-only RLS remain.
+
+This read does not enroll contacts, change campaign addresses, grant messaging
+permission, send messages or alter aggregate DAU/retention. Matrix consumes it
+on demand with its own audience key. Release migration 366 before compatible
+writers and readers, then verify prerequisites before separately enabling flags.
+Rollback: disable expanded collection/audience, deploy the previous writer that
+does not reference `operation_key`, then apply the registered 366 rollback.
+Reapplying 366 leaves retained rows uncorrelated; it cannot reconstruct history.
+
 ## Verified account phone retention
 
 `POST /api/account/identity/refresh` remains Firebase-authenticated. Ordinary

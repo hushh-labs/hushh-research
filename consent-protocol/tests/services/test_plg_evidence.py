@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from api.routes.one import plg
 from hushh_mcp.hushh_adk import product_activity as sdk
+from hushh_mcp.services import plg_audience as audience
 from hushh_mcp.services import plg_evidence as evidence
 from hushh_mcp.services import product_activity as sink
 from hushh_mcp.services.plg_catalog import activity_catalog
@@ -40,14 +41,14 @@ def client(monkeypatch):
         yield value
 
 
-def post(client, payload=None, purpose="snapshot", secret=SECRET, version=None):
+def post(client, payload=None, purpose="snapshot", secret=SECRET, version=None, route="snapshot"):
     body = json.dumps(payload or {"accounts": [ACCOUNT]})
     timestamp = str(int(time.time() * 1000))
     signature = hmac.new(
         secret.encode(), f"{purpose}\n{timestamp}\n{body}".encode(), hashlib.sha256
     ).hexdigest()
     return client.post(
-        "/api/one/plg/snapshot",
+        f"/api/one/plg/{route}",
         content=body,
         headers={
             "Content-Type": "application/json",
@@ -319,3 +320,281 @@ async def test_v2_catalog_bootstrap_never_opens_database_and_activity_never_beco
     assert observed["limited"] is True
     assert observed["rollups"] == []
     assert "private-epoch" not in json.dumps(observed)
+
+
+def test_audience_requires_separate_purpose_key_production_and_activation(client, monkeypatch):
+    key = SECRET + "-audience"
+    source = AsyncMock(return_value={"rows": []})
+    monkeypatch.setattr(plg, "audience_page", source)
+    monkeypatch.setenv("ONE_PLG_AUDIENCE_ENABLED", "true")
+    monkeypatch.setenv("ONE_PLG_AUDIENCE_SECRET", key)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+
+    def call(**kwargs):
+        return post(client, {"agentId": "agent_one"}, route="audience", **kwargs)
+
+    assert call(purpose="audience").status_code == 401
+    assert call(purpose="snapshot", secret=key).status_code == 401
+    assert not source.called
+    assert call(purpose="audience", secret=key).status_code == 200
+    assert source.call_count == 1
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    assert call(purpose="audience", secret=key).status_code == 404
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+    monkeypatch.setenv("ONE_PLG_AUDIENCE_ENABLED", "false")
+    assert call(purpose="audience", secret=key).status_code == 404
+    monkeypatch.setenv("ONE_PLG_AUDIENCE_ENABLED", "true")
+    source.side_effect = RuntimeError("PRIVATE_EMAIL_AND_PHONE")
+    response = call(purpose="audience", secret=key)
+    assert response.status_code == 503
+    assert "PRIVATE_EMAIL" not in response.text
+    assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_audience_cursor_binds_filters_window_project_and_signature():
+    request = audience.AudienceRequest(agentId="agent_one", query="Test", graceMinutes=60)
+    cursor = audience._next_cursor("provider-page", request, SECRET, NOW)
+    following = request.model_copy(update={"cursor": cursor})
+    assert audience._cursor(following, SECRET, NOW) == ("provider-page", NOW)
+    for changed in (
+        following.model_copy(update={"query": "different"}),
+        following.model_copy(update={"segment": "failed"}),
+        following.model_copy(update={"graceMinutes": 15}),
+        following.model_copy(update={"cursor": cursor + "a"}),
+    ):
+        with pytest.raises(audience.AudienceCursorError):
+            audience._cursor(changed, SECRET, NOW)
+    with pytest.raises(audience.AudienceCursorError):
+        audience._cursor(following, SECRET, NOW + timedelta(minutes=16))
+
+
+def test_audience_canonical_clears_win_and_provider_identity_is_bounded_and_whitelisted():
+    record = SimpleNamespace(
+        uid="phone-only",
+        disabled=False,
+        custom_claims={},
+        provider_data=[],
+        email=None,
+        email_verified=False,
+        phone_number="+919876543210",
+        display_name="N" * 300,
+        **{"password_hash": "PRIVATE_HASH", "password_salt": "PRIVATE_SALT"},
+    )
+    assert audience._registered(record)
+    fallback = audience._identity(record, None, record.phone_number)
+    assert fallback["phoneNumber"] == "+919876543210"
+    assert len(fallback["name"]) == 160
+    canonical = audience._identity(
+        record,
+        {"display_name": "Saved", "email": None, "phone_number": None, "phone_verified": False},
+        record.phone_number,
+    )
+    assert canonical["source"] == "canonical"
+    assert canonical["phoneNumber"] is None and canonical["email"] is None
+    assert "PRIVATE" not in json.dumps([fallback, canonical])
+    record.disabled = True
+    assert not audience._registered(record)
+    record.disabled = False
+    record.phone_number = None
+    assert not audience._registered(
+        record
+    )  # Anonymous/unclassified never becomes a registered lead.
+
+
+def test_attempt_summary_pairs_each_invocation_and_labels_missing_terminals_as_uncertain():
+    started = NOW - timedelta(hours=2)
+
+    def row(
+        operation, terminal=None, at=NOW, action="agent:agent_one", source="execution_observed"
+    ):
+        return {
+            "action_id": action,
+            "source": source,
+            "operation_key": operation,
+            "started_at": started if operation == "a" else None,
+            "last_at": at,
+            "terminal": terminal,
+            "terminal_at": at if terminal else None,
+            "observations": 1,
+        }
+
+    rows = [row("a", at=started), row("b", "returned"), row(None, "returned")]
+    options = dict(
+        agent_id="agent_one",
+        now=NOW,
+        grace=60,
+        epoch={"started_at": started},
+        limited=False,
+        enabled=True,
+    )
+    result = audience.summarize_attempts(rows, **options)
+    assert result["counts"]["possibleIncomplete"] == 1
+    assert result["counts"]["returned"] == 1
+    assert result["counts"]["uncorrelated"] == 1
+    rows[0] = row("a", "returned")  # A late terminal closes only its own invocation.
+    result = audience.summarize_attempts(rows, **options)
+    assert result["counts"]["possibleIncomplete"] == 0
+    assert result["counts"]["returned"] == 2
+    hidden = audience.summarize_attempts(rows, **{**options, "enabled": False, "limited": True})
+    assert hidden["coverage"] == "unavailable"
+    assert not any(hidden["counts"].values())
+    assert hidden["lastObservedAt"] is None and hidden["collectionStartedAt"] is None
+    assert not audience._matches(
+        {"identity": {}, "activity": hidden}, audience.AudienceRequest(segment="returned")
+    )
+
+
+@pytest.mark.parametrize(
+    ("phase", "field"), [("returned", "lastReturnedAt"), ("failed", "lastFailureAt")]
+)
+def test_terminal_receipt_time_is_not_replaced_by_a_later_start(phase, field):
+    terminal_at = NOW - timedelta(minutes=2)
+    rows = [
+        {
+            "action_id": "agent:agent_one",
+            "source": "execution_observed",
+            "operation_key": "reordered-call",
+            "started_at": NOW,
+            "last_at": NOW,
+            "terminal": phase,
+            "terminal_at": terminal_at,
+            "observations": 2,
+        }
+    ]
+    result = audience.summarize_attempts(
+        rows,
+        agent_id="agent_one",
+        now=NOW,
+        grace=60,
+        epoch={"started_at": NOW - timedelta(hours=1)},
+        limited=False,
+        enabled=True,
+    )
+    assert result[field] == terminal_at.isoformat()
+    assert result["lastObservedAt"] == NOW.isoformat()
+    assert result["counts"][phase] == 1
+    assert result["counts"]["possibleIncomplete"] == 0
+
+
+@pytest.mark.asyncio
+async def test_phone_fallback_claim_lock_rejects_a_number_bound_to_another_owner():
+    conn = SimpleNamespace(
+        execute=AsyncMock(),
+        fetch=AsyncMock(return_value=[{"user_id": "new-owner", "phone_number": "+919876543210"}]),
+    )
+    result = await audience.ActorIdentityService.read_provider_phone_fallbacks(
+        conn,
+        candidates={"old-owner": "+919876543210", "new-owner": "+919876543210", "bad": "98765"},
+    )
+    assert result == {"new-owner": "+919876543210"}
+    assert "hashtextextended($1, 0)" in conn.execute.call_args.args[0]
+    assert conn.execute.call_args.args[1] == "actor_identity_phone_claim:+919876543210"
+
+
+@pytest.mark.asyncio
+async def test_audience_projection_excludes_tombstoned_owner_after_canonical_barriers():
+    from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
+
+    conn = SimpleNamespace(execute=AsyncMock(), fetch=AsyncMock())
+
+    async def tombstones(query, hashes, **_):
+        # Any deletion that was already in flight must commit before this read.
+        assert [call.args[1:] for call in conn.execute.call_args_list] == [
+            ("active", 171),
+            ("retired", 171),
+            ("active", 198),
+            ("retired", 198),
+        ]
+        assert "account_deletion_tombstones" in query
+        assert account_deletion_user_hash("retired") in hashes
+        return [{"user_id_hash": account_deletion_user_hash("retired")}]
+
+    conn.fetch.side_effect = tombstones
+    active = await audience.AccountDeletionLifecycleService.active_projection_user_ids(
+        conn, user_ids=["retired", "active", "active"]
+    )
+    assert active == {"active"}
+    with pytest.raises(ValueError, match="bound"):
+        await audience.AccountDeletionLifecycleService.active_projection_user_ids(
+            conn, user_ids=[str(n) for n in range(51)]
+        )
+    assert conn.fetch.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_audience_live_page_excludes_deleted_accounts_and_never_serializes_provider_records(
+    monkeypatch,
+):
+    records = [
+        SimpleNamespace(
+            uid=uid,
+            disabled=False,
+            custom_claims={},
+            provider_data=[],
+            email=None,
+            email_verified=False,
+            phone_number="+919876543210",
+            display_name="Phone only",
+            **{"password_hash": "PRIVATE_HASH"},
+        )
+        for uid in ("active", "deleted")
+    ]
+    monkeypatch.setattr(
+        audience,
+        "_firebase_page",
+        lambda _: SimpleNamespace(users=records, **{"next_page_token": "next"}),
+    )
+
+    class Context:
+        def __init__(self, value):
+            self.value = value
+
+        async def __aenter__(self):
+            return self.value
+
+        async def __aexit__(self, *_):
+            pass
+
+    conn = SimpleNamespace(execute=AsyncMock(), fetch=AsyncMock(return_value=[]))
+    conn.transaction = lambda **_: Context(None)
+    monkeypatch.setattr(
+        audience,
+        "get_pool",
+        AsyncMock(return_value=SimpleNamespace(acquire=lambda **_: Context(conn))),
+    )
+    monkeypatch.setattr(
+        audience.AccountDeletionLifecycleService,
+        "active_projection_user_ids",
+        AsyncMock(return_value={"active"}),
+    )
+    monkeypatch.setattr(audience.ActorIdentityService, "get_many", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        audience.ActorIdentityService,
+        "read_provider_phone_fallbacks",
+        AsyncMock(return_value={"active": "+919876543210"}),
+    )
+    monkeypatch.setattr(audience, "enabled_for", lambda _: False)
+    result = await audience.audience_page(audience.AudienceRequest(), SECRET, NOW)
+    assert result["scanned"] == 2 and result["excluded"] == 1
+    assert [r["accountId"] for r in result["rows"]] == ["active"]
+    assert result["rows"][0]["identity"]["phoneNumber"] == "+919876543210"
+    assert result["rows"][0]["verified"]["supported"] is False
+    assert "PRIVATE_HASH" not in json.dumps(result)
+    assert result["campaignEnrollmentChanged"] is False and result["nextCursor"]
+
+
+def test_all_registered_collection_remains_explicit_and_production_only(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_ENABLED", "true")
+    monkeypatch.setenv("ONE_PLG_EXPORT_ACCOUNT_IDS", "pilot-account")
+    monkeypatch.delenv("ONE_PLG_ACTIVITY_ALL_REGISTERED", raising=False)
+    assert sink.enabled_for("pilot-account") and not sink.enabled_for("new-account")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_ALL_REGISTERED", "true")
+    assert sink.enabled_for("new-account")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    assert not sink.enabled_for("new-account")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_ENABLED", "false")
+    assert not sink.enabled_for("new-account")

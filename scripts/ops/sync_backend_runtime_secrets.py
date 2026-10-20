@@ -320,7 +320,12 @@ def _retained_plg_config(
 ) -> dict[str, bool]:
     """Preserve explicit pilot settings without importing another lane's activation."""
     retained: dict[str, bool] = {}
-    for key in ("one_plg_export_enabled", "one_plg_activity_enabled"):
+    for key in (
+        "one_plg_export_enabled",
+        "one_plg_activity_enabled",
+        "one_plg_activity_all_registered",
+        "one_plg_audience_enabled",
+    ):
         if key not in existing:
             continue
         value = existing[key]
@@ -349,6 +354,8 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "environment": args.environment,
         "one_plg_export_enabled": False,
         "one_plg_activity_enabled": False,
+        "one_plg_activity_all_registered": False,
+        "one_plg_audience_enabled": False,
         "email_auth_enabled": getattr(args, "email_auth_enabled", "false"),
         "email_auth_risk_manifest": "/app/config/email-auth/risk-manifest.json",
         "email_auth_mail_api_endpoint": "https://hushh-mail-api-646258530541.us-central1.run.app",

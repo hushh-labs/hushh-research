@@ -86,13 +86,28 @@ belongs to the new observation window. Browser reports use server receipt time,
 not verified execution start time. Admission failures are best effort and there
 is no durable client retry queue.
 
-The deployment config writer defaults both PLG flags to false and retains only
+The deployment config writer defaults all four PLG flags to false and retains only
 explicit booleans from the existing config (JSON booleans or exact `true`/`false`
 strings). Retaining an enabled flag requires both the target and stored config
 to identify production project `hushh-pda`. Invalid values or cross-lane
 activation fail config generation. Production candidate releases retain these
 settings in their candidate config without updating the serving canonical
 config. Deploying this code does not activate the pilot.
+
+The follow-up audience flags `one_plg_audience_enabled` and
+`one_plg_activity_all_registered` map to `ONE_PLG_AUDIENCE_ENABLED` and
+`ONE_PLG_ACTIVITY_ALL_REGISTERED`. Both default false and use the same strict
+production/project retention guards. Expanded collection still requires
+`ONE_PLG_ACTIVITY_ENABLED` and canonical registered-contact evidence. The
+private audience reader requires migration366 and its own Secret Manager key
+`ONE_PLG_AUDIENCE_SECRET` in `hushh-pda`, matching dashboard
+`metrics-one-plg-audience-secret` in `hushh-ai-prod`. Never reuse the snapshot,
+sync, session, OTP or sender key. The optional deployment binding independently
+checks audience key version metadata; it does not require the legacy pilot pair.
+Empty/disabled containers remain unbound. Matrix binds this key only to its
+private PLG runtime, never the sync worker or browser. Provisioning code creates
+containers and scoped IAM only; values stay out of Terraform state. All these
+settings require a separately approved rollout, not a customer import or send.
 
 Production exporter `ONE_PLG_EXPORT_ENABLED` defaults false and maps from
 `one_plg_export_enabled` in `BACKEND_RUNTIME_CONFIG_JSON`.
