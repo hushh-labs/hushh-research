@@ -14,7 +14,7 @@ import hmac
 import json
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -24,7 +24,7 @@ from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletio
 from hushh_mcp.services.actor_identity_service import ActorIdentityService, resolve_firebase_email
 from hushh_mcp.services.email_auth.identity import enterprise_account_deprovisioned
 from hushh_mcp.services.plg_catalog import activity_catalog, public_activity_catalog
-from hushh_mcp.services.plg_evidence import MAIL_SQL, MEMORY_SQL, confirmed_memory
+from hushh_mcp.services.plg_outcomes import value_summary
 from hushh_mcp.services.product_activity import enabled_for
 
 PAGE_SIZE = 25
@@ -327,20 +327,7 @@ def _matches(row: dict, request: AudienceRequest) -> bool:
 
 
 async def _verified(conn, uid: str, agent_id: str, since: datetime, now: datetime) -> dict:
-    supported = agent_id in {"agent_personal_information", "agent_email"}
-    out: dict[str, Any] = {"supported": supported, "count": 0, "lastAt": None, "limited": False}
-    if not supported:
-        return out
-    query = MEMORY_SQL if agent_id == "agent_personal_information" else MAIL_SQL
-    query = query.rsplit("ORDER BY", 1)[0] + " ORDER BY occurred_at DESC,action_id DESC LIMIT 1001"
-    rows = await conn.fetch(query, uid, since, now, timeout=5)
-    out["limited"] = len(rows) > 1000
-    rows = rows[:1000]
-    if agent_id == "agent_personal_information":
-        rows = [r for r in rows if confirmed_memory(r, uid)]
-    out["count"] = len(rows)
-    out["lastAt"] = _iso(max(r["occurred_at"] for r in rows)) if rows else None
-    return out
+    return await value_summary(conn, uid, agent_id, since, now)
 
 
 async def audience_page(request: AudienceRequest, secret: str, now: datetime) -> dict:

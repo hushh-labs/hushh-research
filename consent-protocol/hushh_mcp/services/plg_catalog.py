@@ -11,6 +11,7 @@ import re
 from functools import lru_cache
 
 from hushh_mcp.services.generated_contracts import generated_contract_path
+from hushh_mcp.services.plg_outcomes import outcome_coverage
 
 
 def _runtime_name(value: str) -> str:
@@ -36,7 +37,13 @@ def activity_catalog() -> dict:
             and exposure.get("exposure_status") != "disabled"
         )
         agents.append(
-            {"id": agent_id, "label": agent["name"], "public": public, "available": enabled}
+            {
+                "id": agent_id,
+                "label": agent["name"],
+                "public": public,
+                "available": enabled,
+                "outcome": outcome_coverage(agent_id, public=public),
+            }
         )
 
         def add_execution(node, agent_id=agent_id, exposure=exposure):

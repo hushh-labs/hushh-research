@@ -44,7 +44,8 @@
     "drive_packet_listings",
     "calendar_attendance_reviews",
     "live_memory_source_events",
-    "one_product_activity_observations"
+    "one_product_activity_observations",
+    "one_product_value_receipts"
   ],
   "retention_registry": [
     {
@@ -1982,14 +1983,15 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "one_product_activity_epochs",
-        "one_product_activity_observations"
+        "one_product_activity_observations",
+        "one_product_value_receipts"
       ],
-      "primary_access_path": "Production pilot or explicitly expanded registered-contact observer, signed PLG v2 metadata projection, and separately keyed private paginated registered-account audience. Closed generated catalog identifiers only; client reports and SDK returns are distinct from domain outcome authority. Migration 366 adds phase-independent opaque operation correlation; historical rows remain uncorrelated.",
-      "retention_policy": "Observation reads enforce a seven-day expiry; existing authenticated Drive work drain purges at most 1000 expired rows per pass. At most 500 observations per owner per UTC day, with explicit limited/best-effort coverage. Epochs remain while the account exists and rotate on reset.",
-      "deletion_behavior": "Cascade with actor identity; full delete explicitly removes observations and epochs. Reset rotates the epoch under the existing writer barrier and clears observations, fencing delayed callbacks.",
-      "trust_boundary": "No authorization, reward, content or task settlement authority. Owner-bound admitted callbacks or authenticated Firebase reports, production lane and explicit pilot UID allowlist or default-off expanded registered-contact admission. Anonymous UID presence alone never admits expanded collection. The independently keyed audience read joins current canonical identity under lifecycle/phone/row barriers without enrollment, identity mutation, messaging consent or delivery. Missing terminals mean possible incomplete observations, not confirmed abandonment. No prompts, arguments, responses, private tool names, provider IDs, routes, coordinates or financial details. RLS denies browser roles.",
+      "primary_access_path": "Production pilot or explicitly expanded registered-contact observer, signed PLG v2 metadata projection, and separately keyed private paginated registered-account audience. Closed generated catalog identifiers only; client reports and SDK returns are distinct from domain outcome authority. Migration 366 adds phase-independent opaque operation correlation; historical rows remain uncorrelated. Migration 367 adds domain-authored Calendar/explicit-consent/direct-Location value receipts and a canonical information-request/Mail-send association; per-agent signed outcome adapters read retained domain evidence.",
+      "retention_policy": "Observation reads enforce a seven-day expiry; existing authenticated Drive work drain purges at most 1000 expired rows per pass. At most 500 observations per owner per UTC day, with explicit limited/best-effort coverage. Epochs remain while the account exists and rotate on reset. Value receipts share the seven-day TTL and reset epoch, with a separate 500-per-owner/day cap and the same bounded purge pass.",
+      "deletion_behavior": "Cascade with actor identity; full delete explicitly removes observations and epochs. Reset rotates the epoch under the existing writer barrier and clears observations, fencing delayed callbacks. Value receipts are explicitly cleared on reset and delete and cascade with the observation epoch; delayed callbacks retain their captured generation.",
+      "trust_boundary": "No authorization, reward, content or task settlement authority. Owner-bound admitted callbacks or authenticated Firebase reports, production lane and explicit pilot UID allowlist or default-off expanded registered-contact admission. Anonymous UID presence alone never admits expanded collection. The independently keyed audience read joins current canonical identity under lifecycle/phone/row barriers without enrollment, identity mutation, messaging consent or delivery. Missing terminals mean possible incomplete observations, not confirmed abandonment. No prompts, arguments, responses, private tool names, provider IDs, routes, coordinates or financial details. RLS denies browser roles. Value receipts are metadata projections after provider acknowledgement or a verified explicit owner decision, never new action authority. They retain no provider IDs, private content, or tokens. Other adapters read domain-owned canonical records; internal stages are not activation journeys.",
       "plaintext_posture": "metadata_only",
-      "expected_row_growth": "bounded_500_per_owner_per_day_seven_day_ttl"
+      "expected_row_growth": "bounded_500_observations_and_500_value_receipts_per_owner_per_day_seven_day_ttl"
     }
   ]
 }

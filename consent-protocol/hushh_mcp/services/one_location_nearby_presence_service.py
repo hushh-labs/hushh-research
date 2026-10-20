@@ -1421,6 +1421,12 @@ class OneLocationNearbyPresenceService:
                 )
             except Exception:
                 logger.warning("nearby_presence.prepare_visit_failed", exc_info=False)
+        from hushh_mcp.services.product_value_receipts import (
+            capture_value_epoch_sync,
+            record_location_effect_sync,
+        )
+
+        value_epoch = capture_value_epoch_sync(owner_user_id) if not command_operation_id else None
         saved_presence = self._store.upsert_presence(
             user_id=owner_user_id,
             allow_connection_requests=bool(allow_connection_requests),
@@ -1437,6 +1443,13 @@ class OneLocationNearbyPresenceService:
                 else {}
             ),
         )
+        if not command_operation_id and saved_presence.get("id") and saved_presence.get("version"):
+            record_location_effect_sync(
+                user_id=owner_user_id,
+                kind="nearby_check_in",
+                source_id=f"{saved_presence['id']}:{saved_presence['version']}",
+                generation=value_epoch,
+            )
         state = self.get_state(user_id=owner_user_id)
         if command_operation_id:
             state["operationReceipt"] = saved_presence.get("_command_receipt")
