@@ -18,15 +18,23 @@ evidence, not admission or release claims for the latest implementation.
 
 ### App haptics and shared cancellation checkpoint — 2026-10-19
 
-The development-native repair is installed separately from warm testing
-(native source `e5d095c458`, Debug; existing bundled assets, not a new combined
-Release export). Preferences completes two real haptics changes and restores
-the initial device-local value, including provider-editor cancellation and
-Voice return (74.702 seconds). Ten Chat/History/Profile cycles, One/Puppy,
-keyboard/editor continuity and rename/delete cancellation pass in 515.682
-seconds without changing reviewer records. Ten background/resume cycles and
-an observed Control Center interruption pass touch recovery in 180.629 seconds.
-These are functional checks, not rendered-identity or performance acceptance.
+The combined UAT-backed Debug candidate `73de296157` and matching signed runner
+are installed separately from attach-only testing. Normal whole-value passphrase
+unlock passes against the visible reviewer account; credentials remain process-only
+and private result bundles are destroyed. The affected five-destination batch
+passes Preferences, Security, Trusted devices, Connectors and Invite friends,
+including provider/protected-editor cancellation, Voice return, full-height
+geometry and two real haptics changes restoring the initial device-local value.
+Invite friends remains in its native Profile pane rather than a route workspace.
+Ten background/resume cycles and an observed Control Center interruption pass
+touch recovery. Three bottom-chrome hide/reverse cycles pass with keyboard
+clearance, unchanged draft and one retained WebView. These are functional checks,
+not rendered-identity, visual/accessibility or Release-performance acceptance.
+
+Reuse unchanged earlier thirteen-destination evidence below. The preceding
+`e5d095c458` shell batch also passes ten Chat/History/Profile cycles, One/Puppy,
+keyboard/editor continuity and rename/delete cancellation (515.682 seconds)
+without changing reviewer records; it is not evidence for a newer executable.
 
 The originally reported broken screen is not reproduced: XCTest activation
 recovers the base interface and no full-window privacy cover is present.
