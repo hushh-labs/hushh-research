@@ -63,6 +63,39 @@ git remote add fork https://github.com/<your-user>/hushh-research.git
 git push -u fork docs-windows-setup
 ```
 
+### macOS Setup Troubleshooting
+
+If `./bin/hushh bootstrap` reports `Missing required command: uv`, install `uv` with Homebrew and rerun bootstrap:
+
+```bash
+brew install uv
+```
+
+Bootstrap checks the first `python3` on your `PATH`. The macOS system Python (`/usr/bin/python3`) is 3.9 and fails the `python3 >= 3.13` check. If you use conda, run bootstrap from a conda environment with Python 3.13 or newer:
+
+```bash
+python3 --version                    # must report 3.13 or newer
+conda create -n hussh python=3.13    # only if your active environment is older
+conda activate hussh
+```
+
+Bootstrap hydrates runtime secrets from the `hushh-pda-uat` Google Cloud project. Without a signed-in `gcloud` account that can read them, the default `local` mode stops with `Local backend profile has invalid core cryptographic material`. Install the Google Cloud CLI, sign in with the Google account that has access to that project, then rerun bootstrap:
+
+```bash
+brew install --cask gcloud-cli
+gcloud auth login
+gcloud auth application-default login
+./bin/hushh bootstrap
+```
+
+If your account cannot access `hushh-pda-uat`, ask a maintainer for access. The `uat` frontend profile reads its Firebase settings from the same project.
+
+The PowerShell example above uses Windows paths. In zsh and bash, `\` is an escape character, so `git add docs\guides\getting-started.md` fails with `pathspec 'docsguidesgetting-started.md' did not match any files`. Use forward slashes on macOS:
+
+```bash
+git add docs/guides/getting-started.md
+```
+
 ## First Run
 
 ```bash
