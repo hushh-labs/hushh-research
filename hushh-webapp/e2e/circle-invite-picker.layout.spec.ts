@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
@@ -9,6 +9,13 @@ let css: string;
 let script: string;
 let baselineScript: string;
 let outDir: string;
+
+
+async function setFixtureContent(page: Page, content: string) {
+  // A mobile browser otherwise uses its 980px compatibility layout viewport,
+  // which measures desktop placement instead of the phone surface.
+  await page.setContent(content.replace("<head>", '<head><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'));
+}
 
 test.beforeAll(async () => {
   test.setTimeout(120_000);
@@ -94,7 +101,7 @@ for (const viewport of [
 ]) {
   test(`Circle picker keeps search, people and action visible: ${viewport.name}`, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    await page.setContent(`<html class="${viewport.keyboard ? "native-ios native-keyboard-inset kb-open" : ""}" style="--kb-height:${viewport.keyboard}px;--app-safe-area-top-effective:${viewport.safeTop}px"><head><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`);
+    await setFixtureContent(page, `<html class="${viewport.keyboard ? "native-ios native-keyboard-inset kb-open" : ""}" style="--kb-height:${viewport.keyboard}px;--app-safe-area-top-effective:${viewport.safeTop}px"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.addScriptTag({ content: script });
@@ -151,7 +158,7 @@ for (const viewport of [
 for (const theme of ["light", "dark"]) {
   test(`Task surface is opaque above the shared blurred backdrop: ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.setContent(`<html class="${theme}"><head><style>${css}</style></head><body><main>Previous screen</main><div id="root"></div></body></html>`);
+    await setFixtureContent(page, `<html class="${theme}"><head><style>${css}</style></head><body><main>Previous screen</main><div id="root"></div></body></html>`);
     await page.addScriptTag({ content: script });
     const dialog = page.getByRole("dialog", { name: "Add people to Trusted" });
     await expect(dialog).toBeVisible();
@@ -195,7 +202,7 @@ for (const viewport of [
   { width: 393, height: 852, keyboard: 336 },
 ]) test(`Living picker preserves phone search and action above the keyboard: ${viewport.width}`, async ({ page }) => {
   await page.setViewportSize(viewport);
-  await page.setContent(`<html data-fixture="living" class="native-ios native-keyboard-inset kb-open" style="--kb-height:${viewport.keyboard}px;--app-safe-area-top-effective:59px"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
+  await setFixtureContent(page, `<html data-fixture="living" class="native-ios native-keyboard-inset kb-open" style="--kb-height:${viewport.keyboard}px;--app-safe-area-top-effective:59px"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
   await page.addScriptTag({ content: script });
   const dialog = page.getByRole("dialog", { name: "Add people", exact: true });
   await expect(dialog).toBeVisible();
@@ -223,7 +230,7 @@ for (const viewport of [
 
 test("Selected view keeps the frame stable and enlarged confirmations remain reachable", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 393, height: 852 });
-  await page.setContent(`<html data-fixture="living"><head><style>${css}</style></head><body><main>Previous screen</main><div id="root"></div></body></html>`);
+  await setFixtureContent(page, `<html data-fixture="living"><head><style>${css}</style></head><body><main>Previous screen</main><div id="root"></div></body></html>`);
   await page.addScriptTag({ content: script });
   const dialog = page.getByRole("dialog", { name: "Add people", exact: true });
   await expect(dialog).toBeVisible();
@@ -240,7 +247,7 @@ test("Selected view keeps the frame stable and enlarged confirmations remain rea
   await expect(dialog.getByRole("searchbox")).toBeFocused();
   const screenshot = await page.screenshot({ path: "/tmp/sheets-v15-living-phone.png" });
   await testInfo.attach("sheets-v15-living-phone", { body: screenshot, contentType: "image/png" });
-  await page.setContent(`<html data-fixture="confirmation" style="--kb-height:336px;font-size:24px"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
+  await setFixtureContent(page, `<html data-fixture="confirmation" style="--kb-height:336px;font-size:24px"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
   await page.addScriptTag({ content: script });
   const confirmation = page.getByRole("alertdialog");
   await expect(confirmation).toBeVisible();
@@ -253,7 +260,7 @@ test("Selected view keeps the frame stable and enlarged confirmations remain rea
 
 test("Create step two keeps its virtual list and final controls reachable above the keyboard", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 852 });
-  await page.setContent(`<html data-fixture="create-people" class="native-ios kb-open native-keyboard-inset" style="--kb-height:336px;--app-safe-area-top-effective:59px"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
+  await setFixtureContent(page, `<html data-fixture="create-people" class="native-ios kb-open native-keyboard-inset" style="--kb-height:336px;--app-safe-area-top-effective:59px"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
   await page.addScriptTag({ content: script });
   const dialog = page.getByRole("dialog", { name: "Create Circle: add people" });
   await expect(dialog).toBeVisible();
@@ -274,7 +281,7 @@ test("Create step two keeps its virtual list and final controls reachable above 
 
 test("Member-action Drawer uses the solid dark task canvas through its confirmation pane", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 852 });
-  await page.setContent(`<html class="dark" data-fixture="member-actions"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
+  await setFixtureContent(page, `<html class="dark" data-fixture="member-actions"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
   await page.addScriptTag({ content: script });
   await page.getByRole("button").click();
   const drawer = page.locator('[data-task-surface="drawer"]');
@@ -299,7 +306,7 @@ if (process.env.SHEETS_BASELINE_REF) test("records canonical before/after fixtur
   const reports: Record<string, unknown> = {};
   for (const [version, fixtureScript] of [["before", baselineScript], ["after", script]]) {
     await page.setViewportSize({ width: 393, height: 852 });
-    await page.setContent(`<html data-probe="true"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
+    await setFixtureContent(page, `<html data-probe="true"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
     await page.addScriptTag({ content: fixtureScript });
     await expect(page.getByTestId("hushh-perf-status")).toContainText("perf=ready");
     const list = page.locator("[data-circle-invite-results]");
@@ -323,7 +330,7 @@ if (process.env.SHEETS_BASELINE_REF) test("records canonical before/after fixtur
 
 test("Adaptive task frame stays inside native reserved chrome after CSS optimization", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
-  await page.setContent(`<html class="native-ios native-reserved-chrome" style="--native-overlay-top:120px;--native-overlay-bottom:100px"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
+  await setFixtureContent(page, `<html class="native-ios native-reserved-chrome" style="--native-overlay-top:120px;--native-overlay-bottom:100px"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
   await page.addScriptTag({ content: script });
   const dialog = page.getByRole("dialog", { name: "Add people to Trusted" });
   await expect(dialog).toBeVisible();
