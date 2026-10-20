@@ -228,6 +228,18 @@ That diagnostic selection does not change the user's selected hosting region.
 | Update / transition | Exact owner hosting offer, immutable image, predecessor recovery, old-writer fence and installed-digest readback. Preserve keys/storage; do not automatically move current ACA owners |
 | Erasure | Inventory VM, disks, network, identity, registry and custody through existing cleanup authority; retain repairable state until absence/retention is established |
 
+The image-update preparation now retains exact request-body commitments, installed
+configuration/updater hashes, placement and key identities. It does not export the
+VM environment. Import targets `pod`; the final tag action uses Azure's
+[resource-scoped Merge](https://learn.microsoft.com/en-us/rest/api/resources/tags/update-at-scope?view=rest-resources-2021-04-01).
+Current SQL961 intentionally refuses this new intent. Add forward admission and
+read-only reconciliation in the same setup journal before wiring execution.
+Persist the authenticated idle cursor and epoch through the existing upgrade CAS.
+After target recovery, publish the image/configuration/installation together and
+retire a terminal old power cycle without relabeling its historical receipts.
+Pending power cycles remain fenced. Dev ledger readback on 20 October confirms
+961 applied, with 967 and 968 unused; no migration was applied during this review.
+
 The source VM wake coordinator now adopts a dedicated registry power operation,
 verifies current session authority, and reconciles the original provider dispatch
 before releasing its exact sealed fence. The normal installer has controlled

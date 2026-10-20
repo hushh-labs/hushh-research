@@ -179,6 +179,8 @@ class AzureVmPowerAuthority:
         return asyncio.run_coroutine_threadsafe(self.retain(event), self._loop).result(30)
 
     def admit(self, request_id: str, request: ArmMutationRequest) -> bool:
+        if request.body_sha256 is not None:
+            return False  # Power actions carry no body; never discard a requested commitment.
         return self.record_from_thread(
             {
                 "kind": "request",

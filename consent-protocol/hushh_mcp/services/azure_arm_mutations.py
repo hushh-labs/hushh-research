@@ -8,10 +8,12 @@ terminal evidence leaves an operation unresolved; it does not permit replay.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import urllib.parse
 import uuid
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Literal, NoReturn, Protocol
 
@@ -24,6 +26,32 @@ class ArmMutationRequest:
     path: str
     api_version: str
     purpose: str
+    body_sha256: str | None = None
+
+
+def body_commitment(body: dict) -> str:
+    """Commit the complete JSON value; retain no script, credential or body in receipts."""
+    encoded = json.dumps(body, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def bound_body(
+    method: str, body: dict | None, expected: str | None, *, refuse: Callable[[str], NoReturn]
+) -> dict | None:
+    """Freeze the approved JSON before token acquisition and asynchronous guards."""
+    if expected is None:
+        return body  # Preserve legacy secret-bearing request behavior.
+    try:
+        frozen = deepcopy(body)
+        if (
+            method in {"GET", "HEAD"}
+            or not isinstance(frozen, dict)
+            or body_commitment(frozen) != expected
+        ):
+            refuse("MutationBodyChanged")
+        return frozen
+    except (TypeError, ValueError, RecursionError):
+        refuse("MutationBodyChanged")
 
 
 @dataclass(frozen=True)

@@ -28588,7 +28588,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/azure_arm_client.py",
       "symbol": "ArmClient",
-      "value": 307
+      "value": 327
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -28615,7 +28615,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/azure_arm_client.py",
       "symbol": null,
-      "value": 563
+      "value": 585
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30948,6 +30948,15 @@
       "path": "hushh-webapp/__tests__/components/computer-use-task-card.test.tsx",
       "symbol": null,
       "value": 522
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_pod_upgrade_lease_against_postgres.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_pod_upgrade_lease_against_postgres.py",
+      "symbol": null,
+      "value": 538
     }
   ],
   "inspected_files": 6625,
@@ -75891,5 +75900,30 @@
     "reviewer": "adk_frontend_conflicts (independent read-only review)",
     "scope": "Completed owner Browser result rendering and plain-text/XSS boundary; bounded wire summaries with Unicode code-point parity; no default launcher or transcript persistence. Exact encrypted-result consent enum propagation and unknown-value refusal.",
     "global_budgets_unchanged": true
+  },
+  "azure_vm_payload_binding_review_20261020": {
+    "entries": [
+      {
+        "after": 327,
+        "before": 307,
+        "key": "class_size|consent-protocol/hushh_mcp/services/azure_arm_client.py|ArmClient|class exceeds the advisory operon budget",
+        "source_sha256": "4b36faf1effb73dab1dffae67fa533359e299a3ba28a0e6713f0e32036b0a87a"
+      },
+      {
+        "after": 585,
+        "before": 563,
+        "key": "module_size|consent-protocol/hushh_mcp/services/azure_arm_client.py||module exceeds the advisory operon budget",
+        "source_sha256": "4b36faf1effb73dab1dffae67fa533359e299a3ba28a0e6713f0e32036b0a87a"
+      },
+      {
+        "after": 538,
+        "before": 499,
+        "key": "module_size|consent-protocol/tests/test_pod_upgrade_lease_against_postgres.py||module exceeds the advisory operon budget",
+        "source_sha256": "97857920fefb8fc03873616db85eb5649b039fc8d852282da9281fd427b1bd9a"
+      }
+    ],
+    "rationale": "Optional complete-body commitment plumbing remains in request/put/post; canonicalization/freezing is in the existing mutation leaf. Nearest PostgreSQL publication suite extends its existing race parameterization with exact VM identity, placement and independently changed signing fields. Global500/250/80 budgets and historical provenance remain unchanged. VM execution remains disabled under installed SQL961; no live readiness claim.",
+    "reviewer": "browser_p0_plan_review, independent read-only security/architecture review",
+    "source_parent": "b46f76a734"
   }
 }

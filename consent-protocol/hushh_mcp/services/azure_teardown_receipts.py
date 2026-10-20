@@ -84,7 +84,8 @@ class TeardownMutationJournal:
 
     def admit(self, request_id: str, request: ArmMutationRequest) -> bool:
         if (
-            request.method != "DELETE"
+            request.body_sha256 is not None
+            or request.method != "DELETE"
             or request.path != self._resource.path
             or request.api_version != self._resource.api_version
             or (self._journal.state(self._resource) or {}).get("provider_request") is not None
@@ -106,9 +107,10 @@ class TeardownMutationJournal:
         )
 
     def _matches(self, request_id: str) -> bool:
-        return (self._journal.state(self._resource) or {}).get("provider_request", {}).get(
-            "requestId"
-        ) == request_id
+        return bool(
+            (self._journal.state(self._resource) or {}).get("provider_request", {}).get("requestId")
+            == request_id
+        )
 
     def acknowledge(self, request_id: str, receipt: ArmMutationAcknowledgement) -> bool:
         return (

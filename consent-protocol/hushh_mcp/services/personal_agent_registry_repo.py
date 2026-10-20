@@ -172,6 +172,15 @@ _UPGRADE_HOST_METADATA_KEYS = (
     "ingress",
     "substrateReceipt",
     "filesUpgradeCheckpoint",
+    "hostKind",
+    "vmHost",
+    "vmConfigurationSha256",
+    "vmUpdateModuleSha256",
+    "image",
+    "image_digest",
+    "runtime_principal_id",
+    "runtime_client_id",
+    "vmPower",
 )
 
 
@@ -185,8 +194,11 @@ def upgrade_host_snapshot(row: Optional[dict]) -> Optional[dict]:
             key: row.get(key)
             for key in (
                 "phone_e164_hash",
+                "placement_epoch",
                 "pod_pubkey",
                 "pod_key_id",
+                "pod_signing_key_id",
+                "pod_signing_pubkey",
                 "liveness_mode",
             )
         }

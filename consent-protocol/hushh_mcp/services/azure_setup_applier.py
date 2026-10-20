@@ -187,6 +187,11 @@ class SetupApplier:
         _capture(step, body, values)
 
     def _act(self, step: ArmStep, values: dict[str, str]) -> None:
+        if step.method != "POST":
+            raise AzureSetupRefused(
+                "This action requires its dedicated owner operation.",
+                code="PLAN_ACTION_UNSUPPORTED",
+            )
         api = API_VERSIONS[step.api]
         body = resolve(step.body, values)
         if step.path.endswith("/importImage") and self._image_credentials is not None:

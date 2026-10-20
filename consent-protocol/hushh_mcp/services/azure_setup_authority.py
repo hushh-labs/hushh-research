@@ -69,6 +69,7 @@ class AzureSetupAuthority:
             path=request.path,
             apiVersion=request.api_version,
             purpose=request.purpose,
+            **({"bodySha256": request.body_sha256} if request.body_sha256 is not None else {}),
         )
 
     def acknowledge(self, request_id: str, receipt: ArmMutationAcknowledgement) -> bool:

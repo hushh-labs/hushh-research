@@ -27,6 +27,7 @@ from hushh_mcp.services.azure_arm_mutations import (
     ArmMutationJournal,
     ArmMutationRecorder,
     ArmMutationRequest,
+    bound_body,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ _ARM_HOST = "management.azure.com"
 #: contract: bumping one is a reviewed change, never a silent default.
 API_VERSIONS: dict[str, str] = {
     "resources": "2021-04-01",
+    "tags": "2021-04-01",
     "subscriptions": "2022-12-01",
     "managed_identity": "2023-01-31",
     "key_vault": "2023-07-01",
@@ -425,12 +427,14 @@ class ArmClient:
         api_version: str,
         body: Optional[dict] = None,
         op: str = "",
+        body_sha256: str | None = None,
     ) -> ArmResponse:
         """One call, no polling. Non-2xx raises a typed ``ArmError``."""
         label = op or f"{method} {path}"
         url = _url(path, api_version)
+        body = bound_body(method, body, body_sha256, refuse=_mutation_refused)
         mutation = (
-            ArmMutationRequest(method, path, api_version, label)
+            ArmMutationRequest(method, path, api_version, label, body_sha256)
             if method not in ("GET", "HEAD")
             else None
         )
@@ -457,10 +461,20 @@ class ArmClient:
                 return None
             raise
 
-    def put(self, path: str, *, api_version: str, body: dict, op: str = "") -> dict[str, Any]:
+    def put(
+        self,
+        path: str,
+        *,
+        api_version: str,
+        body: dict,
+        op: str = "",
+        body_sha256: str | None = None,
+    ) -> dict[str, Any]:
         """Create-or-update, waiting for a long-running operation to settle."""
         label = op or f"PUT {path}"
-        response = self.request("PUT", path, api_version=api_version, body=body, op=label)
+        response = self.request(
+            "PUT", path, api_version=api_version, body=body, op=label, body_sha256=body_sha256
+        )
         if self.needs_poll(response):
             self.wait(response, label)
             return _finished_body(
@@ -471,11 +485,19 @@ class ArmClient:
         return _finished_body(response, label, self._mutations)
 
     def post(
-        self, path: str, *, api_version: str, body: Optional[dict] = None, op: str = ""
+        self,
+        path: str,
+        *,
+        api_version: str,
+        body: Optional[dict] = None,
+        op: str = "",
+        body_sha256: str | None = None,
     ) -> dict[str, Any]:
         """An ARM action; returns the final operation body when it was asynchronous."""
         label = op or f"POST {path}"
-        response = self.request("POST", path, api_version=api_version, body=body, op=label)
+        response = self.request(
+            "POST", path, api_version=api_version, body=body, op=label, body_sha256=body_sha256
+        )
         if self.needs_poll(response):
             return self.wait(response, label)
         return _finished_body(response, label, self._mutations)

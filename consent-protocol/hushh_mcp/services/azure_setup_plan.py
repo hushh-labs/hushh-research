@@ -147,7 +147,7 @@ class PlanInputs:
 class ArmStep:
     stage: str
     kind: StepKind
-    method: Literal["PUT", "POST"]
+    method: Literal["PUT", "POST", "PATCH"]
     path: str
     api: str
     body: dict[str, Any]

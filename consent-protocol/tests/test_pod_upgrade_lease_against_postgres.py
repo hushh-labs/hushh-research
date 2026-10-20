@@ -67,9 +67,16 @@ def pg():
             "905_personal_agent_liveness.sql",
             "906_personal_agent_user_cloud.sql",
             "914_personal_agent_billing_space_id.sql",
+            "947_pod_request_signing.sql",
             "948_personal_agent_user_azure.sql",
         ):
             server.apply_file(_REGISTRY_SCHEMA.parent / name)
+        # This suite exercises registry CAS, not standby/deletion triggers. Read
+        # the real registry-column portion instead of inventing a test column.
+        placement = (
+            _REGISTRY_SCHEMA.parent / "950_personal_agent_standby_placements.sql"
+        ).read_text()
+        server.execute(placement.split("CREATE TABLE IF NOT EXISTS", 1)[0] + "COMMIT;")
         yield server
     finally:
         postgres_harness.MIGRATIONS = original
@@ -92,10 +99,11 @@ def _row(pg, *, status: str = "provisioned", lease: Optional[str] = None) -> Non
     metadata = "{}" if lease is None else f'{{"upgradeLease": "{lease}"}}'
     pg.execute(
         """
-        INSERT INTO personal_agent_registry (user_id, hushh_id, status, backend_metadata)
-        VALUES (%s, %s, %s, %s::jsonb)
+        INSERT INTO personal_agent_registry (user_id, hushh_id, status, backend_metadata,
+          pod_pubkey, pod_signing_key_id, pod_signing_pubkey)
+        VALUES (%s, %s, %s, %s::jsonb, 'synthetic-public', %s, %s)
         """,
-        (_USER, "ha1_lease", status, metadata),
+        (_USER, "ha1_lease", status, metadata, "pods_" + "f" * 32, "A" * 43 + "="),
     )
 
 
@@ -203,9 +211,13 @@ async def test_owner_claim_publishes_delta_without_dropping_new_heartbeat(pg, en
 
     _row(pg)
     repo = PersonalAgentRegistryRepo(client=DatabaseClient(engine=engine))
+    previous = {"image": "old", "observed": {"imageTag": "old"}, "upgrade": {"attempts": 1}}
+    pg.execute(
+        "UPDATE personal_agent_registry SET backend_metadata=%s::jsonb WHERE user_id=%s",
+        (json.dumps(previous), _USER),
+    )
     observed = await repo.get(_USER)
     lease = await repo.claim_image_upgrade(user_id=_USER, target_image=_TARGET, observed=observed)
-    previous = {"image": "old", "observed": {"imageTag": "old"}, "upgrade": {"attempts": 1}}
     current = {**previous, "observed": {"imageTag": "new"}, "extra": "keep", "upgradeLease": lease}
     pg.execute(
         "UPDATE personal_agent_registry SET backend_metadata=%s::jsonb WHERE user_id=%s",
@@ -268,6 +280,18 @@ async def test_lifecycle_transition_refuses_old_upgrade_publication(pg, engine):
         "tenancy",
         "ingress",
         "substrateReceipt",
+        "hostKind",
+        "vmHost",
+        "vmConfigurationSha256",
+        "vmUpdateModuleSha256",
+        "image",
+        "image_digest",
+        "runtime_principal_id",
+        "runtime_client_id",
+        "vmPower",
+        "placement_epoch",
+        "pod_signing_key_id",
+        "pod_signing_pubkey",
     ],
 )
 async def test_changed_host_refuses_claim_and_old_publication(pg, engine, changed_field):
@@ -292,6 +316,21 @@ async def test_changed_host_refuses_claim_and_old_publication(pg, engine, change
     if changed_field == "liveness_mode":
         pg.execute(
             "UPDATE personal_agent_registry SET liveness_mode='economy' WHERE user_id=%s", (_USER,)
+        )
+    elif changed_field == "placement_epoch":
+        pg.execute(
+            "UPDATE personal_agent_registry SET placement_epoch=placement_epoch+1 WHERE user_id=%s",
+            (_USER,),
+        )
+    elif changed_field == "pod_signing_key_id":
+        pg.execute(
+            "UPDATE personal_agent_registry SET pod_signing_key_id=%s WHERE user_id=%s",
+            ("pods_" + "e" * 32, _USER),
+        )
+    elif changed_field == "pod_signing_pubkey":
+        pg.execute(
+            "UPDATE personal_agent_registry SET pod_signing_pubkey=%s WHERE user_id=%s",
+            ("B" * 43 + "=", _USER),
         )
     else:
         pg.execute(

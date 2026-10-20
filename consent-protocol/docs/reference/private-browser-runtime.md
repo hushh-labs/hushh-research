@@ -245,6 +245,16 @@ stopping/promotion requires reconciliation; an exact acknowledged retry does not
 restart again. Host acknowledgement reports `application_verified=false` until
 the existing controller independently verifies recovery and installed identity.
 This new action is source-tested, not live owner-update acceptance.
+Its fixed request can now be prepared from retained configuration/updater hashes;
+the full host configuration never needs to leave the VM. The in-memory plan binds
+the complete import (including its ephemeral reader credential), RunCommand and
+exact image-tag Merge bodies. The VM uses the `pod` repository, distinct from
+Container Apps' `consent-protocol-pod`. Registry publication freezes placement,
+workload and signing identities, host configuration and any power cycle.
+The installed setup journal still refuses this version-three plan. Forward
+admission and GET-only reconciliation, authenticated idle-evidence persistence,
+terminal power-cycle retirement and verified publication must be composed before
+enabling VM updates; an image tag or successful RunCommand is not recovery.
 
 The shared Azure factory now recognizes an explicitly retained VM host through
 the typed adoption contract; it never infers VM hosting from a name or redirects

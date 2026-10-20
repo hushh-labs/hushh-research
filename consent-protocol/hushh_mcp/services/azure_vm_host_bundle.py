@@ -7,6 +7,7 @@ import gzip
 import hashlib
 import io
 import json
+import re
 import tarfile
 from pathlib import Path
 
@@ -102,9 +103,66 @@ def replacement_step(
     Unlike installation_step this never reinstalls packages or rewrites a live
     host bundle. An unknown RunCommand outcome must be reconciled, never replayed.
     """
-    from browser_runtime.azure_host.update import canonical, payload
+    from browser_runtime.azure_host.update import payload
 
     value = payload(configuration, image=image, operation_id=operation_id, idle_record=idle_record)
+    return _replacement_action(value)
+
+
+def replacement_from_binding(
+    *,
+    installation: dict,
+    previous_image: str,
+    configuration_sha256: str,
+    update_module_sha256: str,
+    image: str,
+    operation_id: str,
+    idle_record: dict,
+) -> tuple[ArmStep, str]:
+    """Prepare the same fixed action without exporting the host configuration.
+
+    Only installation metadata and commitments cross this boundary. The root
+    host loads its private configuration and checks its hash before any effect.
+    An unknown installed updater is incompatible; never substitute new code.
+    """
+    from hushh_mcp.services.pod_azure_vm_identity import AzureVmInstallation
+
+    identity = AzureVmInstallation.model_validate(installation)
+    cursor = idle_record
+    if (
+        not re.fullmatch(r"[a-z0-9]{5,50}\.azurecr\.io/pod@sha256:[a-f0-9]{64}", previous_image)
+        or previous_image.split("@", 1)[1] != identity.image_digest
+        or not re.fullmatch(r"[a-f0-9]{64}", configuration_sha256)
+        or not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", operation_id)
+        or image.split("@", 1)[0] != previous_image.split("@", 1)[0]
+        or not re.fullmatch(r"[a-z0-9]{5,50}\.azurecr\.io/pod@sha256:[a-f0-9]{64}", image)
+        or image == previous_image
+        or not isinstance(cursor, dict)
+        or set(cursor) != {"seq", "sha"}
+        or type(cursor["seq"]) is not int
+        or cursor["seq"] < 1
+        or not isinstance(cursor["sha"], str)
+        or not re.fullmatch(r"[a-f0-9]{64}", cursor["sha"])
+    ):
+        raise ValueError("VM image replacement binding changed")
+    expected_module = hashlib.sha256((_SOURCE / "update.py").read_bytes()).hexdigest()
+    if update_module_sha256 != expected_module:
+        raise ValueError("Installed VM updater is incompatible")
+    return _replacement_action(
+        {
+            "version": 1,
+            "operation_id": operation_id,
+            "previous_configuration_sha256": configuration_sha256,
+            "installation": identity.model_dump(),
+            "image": image,
+            "idle_record": dict(cursor),
+        }
+    )
+
+
+def _replacement_action(value: dict) -> tuple[ArmStep, str]:
+    from browser_runtime.azure_host.update import canonical
+
     raw = canonical(value)
     if len(raw) > 131072:
         raise ValueError("VM image update exceeds its transport bound")
@@ -124,7 +182,7 @@ def replacement_step(
         "deploying_agent",
         "action",
         "POST",
-        configuration["installation"]["resource_id"] + "/runCommand",
+        value["installation"]["resource_id"] + "/runCommand",
         "virtual_machines",
         {"commandId": "RunShellScript", "script": [script]},
     ), hashlib.sha256(raw).hexdigest()

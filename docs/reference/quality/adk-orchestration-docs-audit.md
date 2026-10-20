@@ -176,6 +176,10 @@ Source now routes explicit VM bindings to read-only observation and refuses
 generic key-rotating adoption. The customer host offer, scoped external grant,
 update/erasure composition, unattended idle trigger and installed owner journey
 remain unqualified.
+The image-only update plan now commits exact import, pinned host command and tag
+Merge payloads without exporting host configuration. PostgreSQL publication
+checks fence changed VM, placement and signing identities. Installed SQL still
+refuses the new plan; admitted reconciliation and end-to-end recovery are next.
 
 **Local evidence:** 66 focused VM/recovery/control cases pass, including both
 restart boundaries, active-work drain, wrong key/digest/cursor/lease refusals and
