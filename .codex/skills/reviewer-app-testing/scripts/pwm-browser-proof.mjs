@@ -195,6 +195,8 @@ export function installPwmBrowserProof({ expectedUserId, expectedEmails }) {
     usage: () => usage,
     researchPosts: () => researchPosts,
     researchState: () => ({ ...lastResearchState, research_posts: researchPosts, fresh_acknowledged: freshAcknowledged }),
+    researchSettled: () => researchPosts > 0 && Boolean(lastResearchState) &&
+      !["pending", "paused"].includes(lastResearchState.status),
     decisionTime: () => decisionTime,
     // An opaque salted commitment crosses contexts in process memory only;
     // neither it nor any private content belongs in evidence artifacts.

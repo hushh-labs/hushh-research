@@ -201,9 +201,25 @@ try {
   await session.page.waitForFunction(() => window.__PWM_ACCEPTANCE__.researchPosts() > 0, null, { timeout: 20_000 }).catch(() => undefined);
   check(await session.page.evaluate(() => window.__PWM_ACCEPTANCE__.researchPosts() > 0), "research_start_not_requested");
   stage("research_wait");
-  await session.page.waitForFunction(() => window.__PWM_ACCEPTANCE__.researchPosts() > 0 &&
-    (window.__PWM_ACCEPTANCE__.publicResult()?.status === "offered" ||
-      ["unavailable", "disabled", "not_ready", "insufficient_identity", "consent_required"].includes(window.__PWM_ACCEPTANCE__.researchState().status)), null, { timeout: 900_000 });
+  await session.page.waitForFunction(() => window.__PWM_ACCEPTANCE__.researchState().fresh_acknowledged ||
+    window.__PWM_ACCEPTANCE__.researchSettled(), null, { timeout: 60_000 });
+  const acknowledged = await session.page.evaluate(() => window.__PWM_ACCEPTANCE__.researchState());
+  if (!acknowledged.fresh_acknowledged && acknowledged.status === "saved" &&
+      evidence.research_ui.action === "retry_existing_state") {
+    // Ensure may resolve an aged-out checkpoint as recently prepared. Only
+    // the app's newly available explicit refresh may start another paid run.
+    stage("research_action");
+    await session.page.locator('[data-voice-control-id="pwm_settings_open"]').click();
+    const refresh = session.page.locator('[data-voice-control-id="pwm_refresh"]');
+    await refresh.waitFor({ state: "visible", timeout: 20_000 });
+    evidence.research_ui.follow_up = "refresh_after_recently_prepared";
+    await refresh.click();
+    stage("research_wait");
+    await session.page.waitForFunction(() => window.__PWM_ACCEPTANCE__.researchState().fresh_acknowledged ||
+      window.__PWM_ACCEPTANCE__.researchSettled(), null, { timeout: 60_000 });
+  }
+  check(await session.page.evaluate(() => window.__PWM_ACCEPTANCE__.researchState().fresh_acknowledged), "research_cache_reused");
+  await session.page.waitForFunction(() => window.__PWM_ACCEPTANCE__.researchSettled(), null, { timeout: 900_000 });
   evidence.research_state = await session.page.evaluate(() => window.__PWM_ACCEPTANCE__.researchState());
   check(evidence.research_state.fresh_acknowledged, "research_start_not_acknowledged");
   check(await session.page.evaluate(() => window.__PWM_ACCEPTANCE__.publicResult()?.status === "offered"), "research_ended_without_offered_result");

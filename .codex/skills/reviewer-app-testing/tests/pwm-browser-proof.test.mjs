@@ -96,6 +96,21 @@ function fixture(fetch = async () => new Response("{}"), browserCrypto = webcryp
 const before = { schema_version: "one.memory.md.v1", markdown: "# memory.md\n\n## Facts\n\n- Existing private fact\n\n## Preferences\n\n## Commitments\n",
   updated_at: "2026-10-19T00:00:00.000Z", _deleted_fact_labels: [], private_branch: { retained: [1, 2] } };
 
+test("cached terminal research ends the wait without certifying a fresh run", async () => {
+ for (const status of ["saved", "offered", "pending", "paused"]) {
+  const { window, proof } = fixture(async () => new Response(JSON.stringify({ status, draft_id: "same" })));
+  await window.fetch("/api/one/world-model/jobs");
+  await new Promise(resolve => setTimeout(resolve, 1));
+  assert.equal(proof.beginResearch(), true);
+  assert.equal(proof.researchSettled(), false);
+  await window.fetch("/api/one/world-model/ensure", { method: "POST" });
+  await new Promise(resolve => setTimeout(resolve, 1));
+  assert.equal(proof.researchSettled(), ["saved", "offered"].includes(status));
+  assert.equal(proof.researchState().fresh_acknowledged, ["pending", "paused"].includes(status));
+  assert.equal(proof.publicResult(), null);
+ }
+});
+
 test("a new research attempt cannot inherit an old terminal cooldown status", async () => {
  for (const endpoint of ["jobs", "ensure"]) {
   let finishNew;
