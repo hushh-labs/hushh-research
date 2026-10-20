@@ -16,7 +16,8 @@ const eligibleConnections = Array.from({ length: 45 }, (_, index) => ({
   displayName: `Connected person ${index + 1}`,
   photoUrl: null,
   connectedFromContacts: true,
-  isRia: false,
+  connectedAt: `2026-10-19T11:${String(index).padStart(2, "0")}:00Z`,
+  isRia: index === 0,
 }));
 
 function Fixture() {

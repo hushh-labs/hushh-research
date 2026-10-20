@@ -42,7 +42,7 @@ import {
 } from "@/lib/one-location/people-search";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { cn } from "@/lib/utils";
-import { connectPersonName } from "@/lib/connections/person-label";
+import { connectPersonName, connectPersonSelectionDetail } from "@/lib/connections/person-label";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
   CIRCLE_INVITE_BATCH_LIMIT,
@@ -343,7 +343,8 @@ export function CircleInvitePeopleSheet({
                               <span className="min-w-0 truncate">{connectPersonName(connection)}</span>
                             </span>
                           }
-                          description="Connected on One"
+                          description={connectPersonSelectionDetail(connection)}
+                          describeContent
                           ariaPressed={selected}
                           ariaLabel={`${selected ? "Deselect" : "Select"} ${connectPersonName(connection)} for Circle invitation${connection.connectedFromContacts ? ", connected from your contacts" : ""}`}
                           disabled={!selected && atCapacity}

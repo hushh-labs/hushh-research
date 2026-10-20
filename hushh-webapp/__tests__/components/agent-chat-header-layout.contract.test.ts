@@ -105,13 +105,14 @@ describe("agent chat header layout", () => {
     );
   });
 
-  it("keeps the canonical One mark compact without reducing its hit region", () => {
+  it("keeps portrait sizing behind the ordinary One gate and preserves native compact sizing", () => {
     const header = headerBlock();
     expect(header).toContain("<OnePresenceAvatar");
     expect(header).toContain(
-      'className="size-8 shrink-0"',
+      'className="size-[var(--one-header-artwork-size,32px)] shrink-0"',
     );
-    expect(header).toContain('className="inline-flex size-11');
+    expect(header).toContain('className="inline-flex size-[var(--one-header-artwork-size,44px)]');
+    expect(workspace).toContain('data-one-centered-header={!isPuppySurface && !customNativePresentationEnabled() ? "true" : undefined}');
     expect(header).not.toContain("🤫");
   });
 
