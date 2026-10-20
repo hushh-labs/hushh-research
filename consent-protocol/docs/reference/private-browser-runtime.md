@@ -201,6 +201,13 @@ response must be reconciled. Deallocation is an intermediate state, not completi
 authenticated recovery and release of the same sealed drain fence are required.
 These locally verified ports do not enable a customer VM offer or wake route.
 
+The existing pod handoff now reports the retained sealed idle cursor separately
+from the current runtime's idle receipt. VM recovery can release only that exact
+cursor; lost release responses reconcile from the same sealed marker, including
+after restart. Legacy failed-update retries keep their previous behavior. The
+hub still must verify recovered identity, image and readiness before requesting
+this release; provider `running` never establishes application recovery.
+
 `task_lifecycle.py` owns execution, expiry and joined shutdown; authenticated owner
 operations remain in `task_runtime.py`. Cancel, expiry and update drain join one
 close operation. Its terminal sealed checkpoint and private-reference cleanup

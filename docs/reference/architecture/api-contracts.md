@@ -71,6 +71,25 @@ verified pod incarnation and timestamp. A recorded job, version label or newer
 available offer is insufficient. See the
 [existing-pod update runbook](../operations/dev-pod-first-light-runbook.md).
 
+### Pod maintenance recovery
+
+The existing machine-authenticated `/api/one/pod/upgrade/{prepare,status,release}`
+family retains exact pod-incarnation checks. Status distinguishes current-runtime
+`idleReceipt` from `retainedIdleRecord`, the sealed cursor preserved across restart.
+`releaseReceipt` identifies the last sealed release and its operation.
+
+Release accepts an optional `expectedIdleRecord: {seq, sha}`. The pod compares it
+atomically with its retained cursor. A retry returns the same sealed receipt only
+for the same operation and checked cursor, with no newer active fence. A lost
+append response is reconciled from the sealed log before work is admitted.
+Cursor-checked terminal releases cannot be reopened by a repeated prepare request.
+Existing failed-update callers may omit the cursor and retain their retry contract.
+
+This is a control-plane contract, with no browser proxy or native-plugin change.
+It does not prove VM image, identity or encrypted recovery by itself; the caller
+must establish those before release. See the
+[Browser runtime lifecycle](../../../consent-protocol/docs/reference/private-browser-runtime.md).
+
 ## Consumer scope commerce
 
 `/api/scope-commerce` uses Firebase identity for account, tariff, quote, human

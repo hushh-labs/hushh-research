@@ -164,6 +164,11 @@ cases now prove one operation across worker restart, uncertain-dispatch refusal
 and retry after confirmed nondispatch. Parked dev migration 967 fences conflicting
 upgrade, placement and deletion admissions; removing the fence fails the negative
 control. All 51 dev-manifest checks and the new authority's typecheck pass.
+The pod's sealed handoff now preserves the original idle cursor and reconciles
+lost release responses without duplicate markers or reopening a completed VM
+cycle. All 45 focused admission/control/handoff cases and the composed Browser
+ledger journey pass; removing the cursor comparison fails its negative control.
+These are source checks, not a newly installed VM wake journey.
 
 ### Local integration candidate — 2026-10-19 UTC
 

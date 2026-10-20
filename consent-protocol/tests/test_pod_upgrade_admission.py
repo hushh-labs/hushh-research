@@ -60,6 +60,17 @@ async def test_prepare_waits_for_active_turn_and_emits_bound_idle_receipt(admiss
 
     released = await admission.release(operation_id="op_12345678", incarnation="rev-a")
     assert released["state"] == "accepting"
+    # A legacy failure release is not a cursor-checked successful VM recovery.
+    with pytest.raises(PodUpgradeAdmissionRefused, match="retained idle"):
+        await admission.release(
+            operation_id="op_12345678",
+            incarnation="rev-a",
+            expected_idle_record=receipt["idleRecord"],
+        )
+    # Existing failed-image update retries retain their original operation.
+    assert (await admission.prepare(operation_id="op_12345678", incarnation="rev-a"))[
+        "state"
+    ] == "idle"
 
 
 @pytest.mark.asyncio
@@ -97,13 +108,75 @@ async def test_durable_fence_recovers_across_restart_and_revalidates_receipt() -
     assert recovered["state"] == "draining"
     assert recovered["operationId"] == "op_12345678"
     assert recovered["idleReceipt"] is None
+    assert recovered["retainedIdleRecord"] == receipt["idleRecord"]
+    with pytest.raises(PodUpgradeAdmissionRefused, match="retained idle"):
+        await restarted.release(
+            operation_id="op_12345678",
+            incarnation="rev-a",
+            expected_idle_record={"seq": 2, "sha": "wrong"},
+        )
 
     # Re-preparing the same operation issues a receipt from this runtime epoch;
     # a stale receipt cannot authorize the provider replacement.
     renewed = await restarted.prepare(operation_id="op_12345678", incarnation="rev-a")
     assert renewed["state"] == "idle"
     assert renewed["idleReceipt"]["runtimeEpoch"] != receipt["runtimeEpoch"]
-    await restarted.release(operation_id="op_12345678", incarnation="rev-a")
+    assert renewed["retainedIdleRecord"] == receipt["idleRecord"]
+    # Current-runtime receipt is stable on retry; old idle remains recovery evidence.
+    repeated = await restarted.prepare(operation_id="op_12345678", incarnation="rev-a")
+    assert repeated["idleReceipt"] == renewed["idleReceipt"]
+    released = await restarted.release(
+        operation_id="op_12345678",
+        incarnation="rev-a",
+        expected_idle_record=receipt["idleRecord"],
+    )
+    release_receipt = released["releaseReceipt"]
+    assert release_receipt["retainedIdleRecord"] == receipt["idleRecord"]
+    assert release_receipt["runtimeEpoch"] == renewed["runtimeEpoch"]
+    before = len(log.records)
+    recovered_again = PodUpgradeAdmission(log_resolver=lambda: log)
+    repeated_release = await recovered_again.release(
+        operation_id="op_12345678",
+        incarnation="rev-a",
+        expected_idle_record=receipt["idleRecord"],
+    )
+    assert repeated_release["releaseReceipt"] == release_receipt
+    assert len(log.records) == before
+    with pytest.raises(PodUpgradeAdmissionRefused, match="already released"):
+        await recovered_again.prepare(operation_id="op_12345678", incarnation="rev-a")
+    await recovered_again.prepare(operation_id="op_next", incarnation="rev-a")
+    with pytest.raises(PodUpgradeAdmissionRefused, match="does not match"):
+        await recovered_again.release(operation_id="op_12345678", incarnation="rev-a")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("committed", [False, True])
+async def test_lost_release_response_is_reconciled_from_sealed_state(monkeypatch, committed):
+    log = MemoryLog()
+    admission = PodUpgradeAdmission(log_resolver=lambda: log)
+    idle = await admission.prepare(operation_id="operation-a", incarnation="revision-a")
+    cursor = idle["idleReceipt"]["idleRecord"]
+    append = log.append
+
+    async def interrupted(kind, payload):
+        if committed:
+            await append(kind, payload)
+        raise OSError("release response unavailable")
+
+    monkeypatch.setattr(log, "append", interrupted)
+    with pytest.raises(PodUpgradeAdmissionRefused, match="durable append"):
+        await admission.release(
+            operation_id="operation-a", incarnation="revision-a", expected_idle_record=cursor
+        )
+    monkeypatch.setattr(log, "append", append)
+    released = await admission.release(
+        operation_id="operation-a", incarnation="revision-a", expected_idle_record=cursor
+    )
+    assert released["state"] == "accepting"
+    assert len([r for r in log.records if r["kind"] == "pod_upgrade_release"]) == 1
+    assert released["releaseReceipt"]["releaseRecord"]["seq"] == 3
+    permit = await admission.acquire_turn(incarnation="revision-a")
+    await permit.release()
 
 
 @pytest.mark.asyncio

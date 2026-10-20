@@ -54,6 +54,25 @@ def test_verified_hub_can_control_only_its_target_pod(lifecycle):
         )
     assert client.get("/api/one/pod/upgrade/status", headers=headers).status_code == 200
     admission.status.assert_awaited_once_with(incarnation="pod-rev-1")
+    cursor = {"seq": 2, "sha": "a" * 64}
+    response = client.post(
+        "/api/one/pod/upgrade/release",
+        headers=headers,
+        json={**payload, "expectedIdleRecord": cursor},
+    )
+    assert response.status_code == 200
+    admission.release.assert_awaited_with(
+        operation_id="operation-123",
+        incarnation="pod-rev-1",
+        expected_idle_record=cursor,
+    )
+    response = client.post(
+        "/api/one/pod/upgrade/release",
+        headers=headers,
+        json={**payload, "expectedIdleRecord": {"seq": True, "sha": "a" * 64}},
+    )
+    assert response.status_code == 422
+    assert admission.release.await_count == 2
 
 
 @pytest.mark.parametrize("asserted", [None, "ha1-other"])

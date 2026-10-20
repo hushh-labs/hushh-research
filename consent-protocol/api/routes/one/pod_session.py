@@ -97,6 +97,16 @@ class UpgradeHandoffRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class HandoffCursor(BaseModel):
+    seq: int = Field(..., strict=True, ge=1)
+    sha: str = Field(..., pattern=r"^[a-f0-9]{64}$")
+    model_config = ConfigDict(extra="forbid")
+
+
+class UpgradeReleaseRequest(UpgradeHandoffRequest):
+    expected_idle_record: HandoffCursor | None = Field(default=None, alias="expectedIdleRecord")
+
+
 def _refuse(exc: PodSessionRefused) -> HTTPException:
     return HTTPException(status_code=exc.status, detail={"code": exc.code, "message": exc.detail})
 
@@ -334,7 +344,7 @@ async def pod_upgrade_status(
 @router.post("/upgrade/release")
 async def pod_upgrade_release(
     request: Request,
-    payload: UpgradeHandoffRequest = Body(...),
+    payload: UpgradeReleaseRequest = Body(...),
     authorization: Optional[str] = Header(default=None),
 ) -> dict[str, Any]:
     """Release a failed or reconciled handoff fence."""
@@ -354,6 +364,11 @@ async def pod_upgrade_release(
             await ADMISSION.release(
                 operation_id=payload.operation_id,
                 incarnation=payload.incarnation,
+                **(
+                    {"expected_idle_record": payload.expected_idle_record.model_dump()}
+                    if payload.expected_idle_record is not None
+                    else {}
+                ),
             ),
         )
     except PodUpgradeAdmissionRefused as exc:

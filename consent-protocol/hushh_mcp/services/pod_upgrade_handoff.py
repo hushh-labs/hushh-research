@@ -151,14 +151,33 @@ class PodUpgradeHandoffClient:
                 interval = min(interval, max(0.05, deadline - time.monotonic()))
             time.sleep(interval)
 
-    def release(self, *, operation_id: str, incarnation: str) -> dict[str, Any]:
-        """Release a fence only when replacement was not submitted or failed definitively."""
+    def release(
+        self,
+        *,
+        operation_id: str,
+        incarnation: str,
+        expected_idle_record: dict[str, Any] | None = None,
+        guard: Callable[[], None] | None = None,
+    ) -> dict[str, Any]:
+        """Release a reconciled fence, or a verified VM recovery's exact idle cursor.
+
+        VM callers verify identity, image and encrypted recovery before release;
+        provider power state is insufficient. The optional cursor is compared
+        atomically by the pod. Existing failed-image handoffs retain their contract.
+        """
+        if guard is not None:
+            guard()
         return self._request(
             "POST",
             "/api/one/pod/upgrade/release",
             body={
                 "operationId": str(operation_id).strip(),
                 "incarnation": str(incarnation).strip(),
+                **(
+                    {"expectedIdleRecord": expected_idle_record}
+                    if expected_idle_record is not None
+                    else {}
+                ),
             },
         )
 
