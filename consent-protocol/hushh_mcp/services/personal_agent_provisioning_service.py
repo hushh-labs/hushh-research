@@ -2006,16 +2006,13 @@ class PersonalAgentProvisioningService:
             )
 
         def persist_handoff_idle(receipt: dict[str, Any]) -> None:
-            if (
-                not approval_operation_id
-                or receipt.get("operationId") != approval_operation_id
-                or receipt.get("activeWork") != 0
-                or not isinstance(receipt.get("incarnation"), str)
-                or not receipt.get("incarnation")
-                or not isinstance(receipt.get("committedState"), str)
-                or not receipt.get("runtimeEpoch")
-            ):
-                raise RuntimeError("upgrade handoff idle receipt invalid")
+            from hushh_mcp.services.pod_upgrade_handoff import retained_idle_evidence
+
+            evidence = retained_idle_evidence(
+                receipt,
+                operation_id=approval_operation_id or "",
+                require_cursor=spec.azure_vm_host is not None,
+            )
 
             async def persist() -> None:
                 approval = claimed_metadata.get("upgradeApproval")
@@ -2031,7 +2028,7 @@ class PersonalAgentProvisioningService:
                             **approval,
                             "presentationPhase": "installing",
                             "handoffIdleAt": datetime.now(timezone.utc).isoformat(),
-                            "handoffIncarnation": receipt["incarnation"],
+                            **evidence,
                         },
                     },
                     retain_lease=True,

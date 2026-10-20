@@ -256,33 +256,6 @@ async def test_files_recovery_requires_completed_resources_and_persists_discover
         assert not registry.writes and not backend.observed
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("status", ["planned", "live"])
-async def test_nonterminal_or_wrong_digest_provider_result_keeps_the_lease(monkeypatch, status):
-    from hushh_mcp.services import personal_agent_provisioning_service as pas
-
-    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
-    monkeypatch.setenv("PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED", "1")
-    monkeypatch.setattr(pas, "resolve_user_cloud", lambda *args, **kwargs: _no_cloud())
-    row = _row(approval=_approval(_row()), lease=None)
-    registry = _ExecutionRegistry(row)
-    handle = BackendHandle(
-        external_agent_id=SERVICE,
-        a2a_route="https://a2a.invalid/owner",
-        status=status,
-        backend="fake",
-        backend_metadata={"image": OTHER_IMAGE, "image_digest": OTHER_DIGEST},
-    )
-    backend = _ExecutingBackend(handle)
-    service = PersonalAgentProvisioningService(registry=registry, backend=backend)
-
-    with pytest.raises(RuntimeError, match="live terminal outcome|different image digest"):
-        await service.upgrade_pod(user_id=OWNER, current_image=NEW_IMAGE)
-
-    assert registry.row["backend_metadata"].get("upgradeLease")
-    assert registry.final_writes == []
-
-
 async def _no_cloud():
     return None
 

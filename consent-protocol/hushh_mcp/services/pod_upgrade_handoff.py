@@ -9,7 +9,10 @@ wire.
 
 from __future__ import annotations
 
+import hashlib
+import re
 import time
+from copy import deepcopy
 from typing import Any, Callable, Optional
 from urllib.parse import urlencode
 
@@ -18,6 +21,55 @@ from hushh_mcp.services.compute_backend import PodSpec
 
 class PodUpgradeHandoffUnavailable(RuntimeError):
     """The pod could not authenticate or complete the lifecycle handoff."""
+
+
+def retained_idle_evidence(
+    receipt: dict[str, Any], *, operation_id: str, require_cursor: bool = False
+) -> dict[str, Any]:
+    """Retain authenticated handoff metadata, never invent a durable cursor.
+
+    Older runtimes omit cursors. Their image-only flow remains compatible;
+    VM replacement requires both the committed prefix and its later idle marker.
+    The caller still owns authenticated dispatch and lease-bound publication.
+    """
+    if (
+        not operation_id
+        or receipt.get("operationId") != operation_id
+        or type(receipt.get("activeWork")) is not int
+        or receipt["activeWork"] != 0
+        or not isinstance(receipt.get("incarnation"), str)
+        or not 1 <= len(receipt["incarnation"]) <= 256
+        or not isinstance(receipt.get("committedState"), str)
+        or not isinstance(receipt.get("runtimeEpoch"), str)
+        or not 1 <= len(receipt["runtimeEpoch"]) <= 256
+    ):
+        raise PodUpgradeHandoffUnavailable("upgrade handoff idle receipt invalid")
+    prefix, marker = receipt.get("committedCursor"), receipt.get("idleRecord")
+    if prefix is None and marker is None and not require_cursor:
+        return {"handoffIncarnation": receipt["incarnation"]}
+    if not isinstance(prefix, dict) or not isinstance(marker, dict):
+        raise PodUpgradeHandoffUnavailable("upgrade handoff durable cursor invalid")
+    for cursor in (prefix, marker):
+        if (
+            set(cursor) != {"seq", "sha"}
+            or type(cursor.get("seq")) is not int
+            or cursor["seq"] < 1
+            or not isinstance(cursor.get("sha"), str)
+            or re.fullmatch(r"[a-f0-9]{64}", cursor["sha"]) is None
+        ):
+            raise PodUpgradeHandoffUnavailable("upgrade handoff durable cursor invalid")
+    expected = hashlib.sha256(
+        f"{operation_id}|{receipt['incarnation']}|{prefix['seq']}|{prefix['sha']}|active=0".encode()
+    ).hexdigest()
+    if marker["seq"] <= prefix["seq"] or receipt["committedState"] != expected:
+        raise PodUpgradeHandoffUnavailable("upgrade handoff committed state changed")
+    return {
+        "handoffIncarnation": receipt["incarnation"],
+        "handoffRuntimeEpoch": receipt["runtimeEpoch"],
+        "handoffCommittedState": expected,
+        "handoffCommittedCursor": deepcopy(prefix),
+        "handoffIdleRecord": deepcopy(marker),
+    }
 
 
 def service_incarnation(service: Optional[dict[str, Any]]) -> Optional[str]:
@@ -250,6 +302,7 @@ class PodUpgradeHandoffClient:
 __all__ = [
     "PodUpgradeHandoffClient",
     "PodUpgradeHandoffUnavailable",
+    "retained_idle_evidence",
     "service_incarnation",
 ]
 

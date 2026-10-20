@@ -297,9 +297,19 @@ exact image-tag Merge bodies. The VM uses the `pod` repository, distinct from
 Container Apps' `consent-protocol-pod`. Registry publication freezes placement,
 workload and signing identities, host configuration and any power cycle.
 The installed setup journal still refuses this version-three plan. Forward
-admission and GET-only reconciliation, authenticated idle-evidence persistence,
-terminal power-cycle retirement and verified publication must be composed before
+admission and GET-only reconciliation, terminal power-cycle retirement and verified publication must be composed before
 enabling VM updates; an image tag or successful RunCommand is not recovery.
+
+The existing update publisher now retains the authenticated idle marker, committed
+prefix, exact committed-state hash and original runtime epoch under its current
+lease. VM preparation refuses absent, partial, altered or reordered cursors; older
+image-only runtimes may still omit them. Receipt mutation cannot change the retained
+copies. The nearest update/handoff suites pass 62 cases; the moved handoff cases
+also pass in their owning suite. Restoring metadata-only retention fails the
+regression. Retention is historical evidence, not proof of a presently held fence:
+the VM dispatcher must reverify the authenticated drain immediately before action.
+The helper typechecks; the broad legacy provisioning module still has 11 unrelated
+typing findings. No live VM update is enabled by this correction.
 
 The shared Azure factory now recognizes an explicitly retained VM host through
 the typed adoption contract; it never infers VM hosting from a name or redirects

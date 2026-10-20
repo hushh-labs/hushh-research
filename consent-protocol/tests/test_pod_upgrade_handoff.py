@@ -1,12 +1,63 @@
 from __future__ import annotations
 
+import copy
+import hashlib
+
 import pytest
 
 from hushh_mcp.services.pod_upgrade_handoff import (
     PodUpgradeHandoffClient,
     PodUpgradeHandoffUnavailable,
+    retained_idle_evidence,
     service_incarnation,
 )
+
+
+@pytest.mark.parametrize("fault", [None, "missing", "partial", "hash", "order", "owner", "bool"])
+def test_retained_idle_cursor_is_exact_and_legacy_updates_remain_compatible(fault):
+    prefix, marker = {"seq": 2, "sha": "a" * 64}, {"seq": 3, "sha": "b" * 64}
+    receipt = {
+        "operationId": "operation-1",
+        "incarnation": "incarnation-1",
+        "runtimeEpoch": "runtime-1",
+        "activeWork": 0,
+        "committedCursor": prefix,
+        "idleRecord": marker,
+        "committedState": hashlib.sha256(
+            f"operation-1|incarnation-1|2|{'a' * 64}|active=0".encode()
+        ).hexdigest(),
+    }
+    changed = copy.deepcopy(receipt)
+    if fault == "missing":
+        changed.pop("idleRecord")
+        changed.pop("committedCursor")
+        assert retained_idle_evidence(changed, operation_id="operation-1") == {
+            "handoffIncarnation": "incarnation-1"
+        }
+    elif fault == "partial":
+        changed.pop("committedCursor")
+    elif fault == "hash":
+        changed["committedState"] = "c" * 64
+    elif fault == "order":
+        changed["idleRecord"]["seq"] = 2
+    elif fault == "owner":
+        changed["operationId"] = "another-operation"
+    elif fault == "bool":
+        changed["idleRecord"]["seq"] = True
+    if fault:
+        with pytest.raises(PodUpgradeHandoffUnavailable):
+            retained_idle_evidence(changed, operation_id="operation-1", require_cursor=True)
+        return
+    result = retained_idle_evidence(changed, operation_id="operation-1", require_cursor=True)
+    assert result == {
+        "handoffIncarnation": "incarnation-1",
+        "handoffRuntimeEpoch": "runtime-1",
+        "handoffCommittedState": receipt["committedState"],
+        "handoffCommittedCursor": prefix,
+        "handoffIdleRecord": marker,
+    }
+    changed["idleRecord"]["sha"] = "d" * 64
+    assert result["handoffIdleRecord"] == marker
 
 
 def test_service_incarnation_uses_ready_revision_then_traffic() -> None:
@@ -280,3 +331,75 @@ async def test_pod_update_refusal_is_terminal_without_running_the_model(monkeypa
             await anext(agent.run(request))
     sdk.assert_not_called()
     assert request.thread_id not in pod._ACTIVE_THREADS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["planned", "live"])
+async def test_nonterminal_or_wrong_digest_provider_result_keeps_the_lease(monkeypatch, status):
+    import asyncio
+
+    from hushh_mcp.services import personal_agent_provisioning_service as pas
+    from hushh_mcp.services.compute_backend import BackendHandle
+    from hushh_mcp.services.personal_agent_provisioning_service import (
+        PersonalAgentProvisioningService,
+    )
+    from tests.test_personal_agent_upgrade_authority import (
+        NEW_IMAGE,
+        OTHER_DIGEST,
+        OTHER_IMAGE,
+        OWNER,
+        SERVICE,
+        _approval,
+        _ExecutingBackend,
+        _ExecutionRegistry,
+        _no_cloud,
+        _row,
+    )
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setenv("PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED", "1")
+    monkeypatch.setattr(pas, "resolve_user_cloud", lambda *args, **kwargs: _no_cloud())
+    row = _row(approval=_approval(_row()), lease=None)
+    registry = _ExecutionRegistry(row)
+    handle = BackendHandle(
+        external_agent_id=SERVICE,
+        a2a_route="https://a2a.invalid/owner",
+        status=status,
+        backend="fake",
+        backend_metadata={"image": OTHER_IMAGE, "image_digest": OTHER_DIGEST},
+    )
+    backend = _ExecutingBackend(handle)
+    idle = {
+        "operationId": "op-original",
+        "incarnation": "runtime-revision",
+        "runtimeEpoch": "runtime-epoch",
+        "activeWork": 0,
+        "committedCursor": {"seq": 2, "sha": "d" * 64},
+        "idleRecord": {"seq": 3, "sha": "e" * 64},
+        "committedState": hashlib.sha256(
+            f"op-original|runtime-revision|2|{'d' * 64}|active=0".encode()
+        ).hexdigest(),
+    }
+
+    async def replacing(spec):
+        await asyncio.to_thread(spec.on_upgrade_idle, idle)
+        assert registry.row["backend_metadata"]["upgradeApproval"]["handoffIdleRecord"] == {
+            "seq": 3,
+            "sha": "e" * 64,
+        }
+        idle["idleRecord"]["sha"] = "changed-after-persistence"
+        return handle
+
+    monkeypatch.setattr(backend, "upgrade", replacing)
+    service = PersonalAgentProvisioningService(registry=registry, backend=backend)
+
+    with pytest.raises(RuntimeError, match="live terminal outcome|different image digest"):
+        await service.upgrade_pod(user_id=OWNER, current_image=NEW_IMAGE)
+
+    assert registry.row["backend_metadata"].get("upgradeLease")
+    assert (
+        registry.row["backend_metadata"]["upgradeApproval"]["handoffIdleRecord"]["sha"] == "e" * 64
+    )
+    assert registry.final_writes == []
