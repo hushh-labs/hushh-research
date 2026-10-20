@@ -3373,7 +3373,7 @@ export function OneLocationAgentPageContent({
         : current;
     setSelectedRecipientIds(retainAvailable);
     setSelectedRequestOwnerIds(retainAvailable);
-  }, [vaultOwnerToken]);
+  }, [setSelectedRecipientIds, vaultOwnerToken]);
 
   useEffect(() => {
     if (!vaultOwnerToken) {
