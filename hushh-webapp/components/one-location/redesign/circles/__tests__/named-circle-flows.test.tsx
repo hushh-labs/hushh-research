@@ -415,7 +415,7 @@ describe("named Circle flows", () => {
         eligibleConnections: current.memberCount === 1 ? [{
           connectionId: "connection-asha",
           userId: "asha",
-          displayName: "Asha Rao",
+          displayName: "member@example.test",
           photoUrl: null,
           isRia: false,
         }] : [],
@@ -428,7 +428,7 @@ describe("named Circle flows", () => {
           memberCount: 2,
           members: [...current.members, {
             userId: "asha",
-            displayName: "Asha Rao",
+            displayName: "member@example.test",
             role: "member",
             phoneVerified: true,
             secureLocationReady: true,
@@ -437,7 +437,7 @@ describe("named Circle flows", () => {
       });
       render(<CircleDetailFlow circleId="family" livingCircleExperience {...props} />);
     await openCirclePeoplePicker();
-      const addButton = await screen.findByRole("checkbox", { name: "Add Asha Rao to Family" });
+      const addButton = await screen.findByRole("checkbox", { name: "Add Hussh member to Family" });
 
       expect(method).toBe("tap");
       fireEvent.click(addButton);
@@ -445,8 +445,9 @@ describe("named Circle flows", () => {
       expect(addButton).toHaveAttribute("aria-checked", "true");
       fireEvent.click(screen.getByRole("button", { name: "Add people", exact: true }));
       await waitFor(() => expect(props.onInviteConnections).toHaveBeenCalledWith("family", ["asha"]));
-      await waitFor(() => expect(within(screen.getByTestId("one-location-circle-members")).getByText("Asha Rao")).toBeTruthy());
-      await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Add Asha Rao to Family" })).toBeNull());
+      await waitFor(() => expect(within(screen.getByTestId("one-location-circle-members")).getByText("Hussh member")).toBeTruthy());
+      expect(screen.queryByText("member@example.test")).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Add Hussh member to Family" })).toBeNull());
       expect(props.onInviteConnections).toHaveBeenCalledTimes(1);
     },
   );

@@ -1,5 +1,7 @@
 "use client";
 
+import { connectPersonName } from "@/lib/connections/person-label";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -135,7 +137,7 @@ export function CreateCirclePeopleBody({ circleName, onBack, model }: CreateCirc
         </div>
       ) : people.length ? (
         <VirtualContactList items={people} getKey={(person) => person.userId} ariaLabel="Contacts to add" maxHeightClassName="max-h-[36vh]" renderItem={(person) => (
-          <ContactRow label={person.displayName} photoUrl={person.photoUrl} verified={person.isRia} fromContacts={person.connectedFromContacts}
+          <ContactRow label={connectPersonName(person)} photoUrl={person.photoUrl} verified={person.isRia} fromContacts={person.connectedFromContacts}
             selected={selected.includes(person.userId)} busy={saving} ready addDisabled={selected.length >= limit}
             onAdd={() => add(person.userId)}
             onRemove={() => remove(person.userId)} />

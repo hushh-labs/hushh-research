@@ -52,6 +52,7 @@ import {
 } from "@/components/one-location/redesign/tokens";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { connectPersonName } from "@/lib/connections/person-label";
 import {
   buildDirectMessageRoute,
   buildPersonProfileRoute,
@@ -1297,6 +1298,7 @@ function CircleMemberRow({
   cancelling?: boolean;
 }) {
   const isCurrentUser = member.userId === currentUserId;
+  const memberName = connectPersonName(member);
   const canShare =
     !isCurrentUser && member.phoneVerified && member.secureLocationReady;
   const canRemove = isOwner && member.role !== "owner";
@@ -1352,7 +1354,7 @@ function CircleMemberRow({
   return (
     <div className={CIRCLE_MEMBER_ROW_CLASSNAME}>
       <ConnectionPersonAvatar
-        label={member.displayName}
+        label={memberName}
         photoUrl={member.photoUrl}
         size="list"
         verified={Boolean(member.isRia)}
@@ -1365,8 +1367,8 @@ function CircleMemberRow({
         )}
       >
         <p className={cn(CIRCLE_MEMBER_NAME_ROW_CLASSNAME, "flex items-center gap-1.5")}>
-          <span className={CIRCLE_MEMBER_NAME_CLASSNAME} title={member.displayName}>
-            {member.displayName}
+          <span className={CIRCLE_MEMBER_NAME_CLASSNAME} title={memberName}>
+            {memberName}
           </span>
           {member.connectedFromContacts ? <ContactSourceBadge /> : null}
         </p>
@@ -1414,7 +1416,7 @@ function CircleMemberRow({
             size="compact"
             disabled={busy || cancelling}
             isLoading={cancelling}
-            aria-label={`Cancel your request to ${member.displayName}`}
+            aria-label={`Cancel your request to ${memberName}`}
             data-testid={`circle-member-cancel-${member.userId}`}
             className={CIRCLE_MEMBER_ACTION_CLASSNAME}
             onClick={() => void onCancelRequest?.()}
@@ -1428,7 +1430,7 @@ function CircleMemberRow({
             size="compact"
             disabled={busy || connecting}
             isLoading={connecting}
-            aria-label={`Connect with ${member.displayName}`}
+            aria-label={`Connect with ${memberName}`}
             data-testid={`circle-member-connect-${member.userId}`}
             className={CIRCLE_MEMBER_ACTION_CLASSNAME}
             onClick={() => void onConnect?.()}
@@ -1457,7 +1459,7 @@ function CircleMemberRow({
               // nothing at all when tapped. Connect's own Respond goes here
               // too, and a different pathname works from either host.
               href={buildConsentCenterHref("pending")}
-              aria-label={`Respond to the connection request from ${member.displayName}`}
+              aria-label={`Respond to the connection request from ${memberName}`}
               data-testid={`circle-member-respond-${member.userId}`}
               className={cn(
                 buttonVariants({ variant: "outline", size: "sm" }),
@@ -1475,7 +1477,7 @@ function CircleMemberRow({
             anchored menu. It also renders the inert 44px spacer on the rows
             that offer nothing, so the kebab column exists on every row. */}
         <CircleMemberActionsMenu
-          displayName={member.displayName}
+          displayName={memberName}
           profileHref={
             member.publicPersonRef
               ? buildPersonProfileRoute(member.publicPersonRef, {
@@ -1490,7 +1492,7 @@ function CircleMemberRow({
                 })
               : null
           }
-          initials={circleInitials(member.displayName)}
+          initials={circleInitials(memberName)}
           photoUrl={member.photoUrl}
           verified={Boolean(member.isRia)}
           secondaryLine={secondaryLine}
@@ -2509,7 +2511,7 @@ export function CircleDetailFlow({
               {renderChat?.(circle, { active: detailView === "chat", readingBlocked: photoSheetOpen || renameSheetOpen || inviteCodeSheetOpen || peopleSheetOpen || replaceCodeConfirmOpen })}
               <button type="button" onClick={() => setDetailView("members")} className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-lg px-3 py-1 text-sm focus-visible:outline-2 focus-visible:outline-ring hover:bg-muted/40 sm:px-5" aria-label="View circle members">
                 <span aria-hidden="true" className="flex shrink-0 -space-x-2">
-                  {orbitMembers.slice(0, 4).map((member) => <ConnectionPersonAvatar key={member.userId} photoUrl={member.photoUrl} label={member.displayName} size="comfortable" className="!size-8 ring-2 ring-card" />)}
+                  {orbitMembers.slice(0, 4).map((member) => <ConnectionPersonAvatar key={member.userId} photoUrl={member.photoUrl} label={connectPersonName(member)} size="comfortable" className="!size-8 ring-2 ring-card" />)}
                   {visibleMemberCount > 4 ? <span className="flex size-8 items-center justify-center rounded-full bg-muted text-xs ring-2 ring-card">+{visibleMemberCount - 4}</span> : null}
                 </span>
                 <span className="min-w-0 flex-1 text-left text-muted-foreground">{visibleMemberCount} {visibleMemberCount === 1 ? "member" : "members"}</span>
@@ -3002,13 +3004,13 @@ export function CircleDetailFlow({
                                   <ConnectionPersonAvatar
                                     size="list"
                                     photoUrl={connection.photoUrl ?? null}
-                                    label={connection.displayName}
+                                    label={connectPersonName(connection)}
                                     verified={Boolean(connection.isRia)}
                                   />
                                 }
                                 title={
                                   <span className="flex min-w-0 items-center gap-1.5">
-                                    <span className="min-w-0 truncate">{connection.displayName}</span>
+                                    <span className="min-w-0 truncate">{connectPersonName(connection)}</span>
                                     {connection.connectedFromContacts ? <ContactSourceBadge /> : null}
                                   </span>
                                 }
