@@ -271,7 +271,8 @@
       "table_family_ids": [
         "actor_identity_state",
         "agent_chat_encrypted_memory",
-        "relay_ticket_replay_guard"
+        "relay_ticket_replay_guard",
+        "one_product_activity_observations"
       ],
       "evidence_lanes": [
         "frontend_architect",

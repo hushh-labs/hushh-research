@@ -9255,13 +9255,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           )}
         >
           <div
-            data-one-centered-header={!isPuppySurface ? "true" : undefined}
+            data-one-centered-header={!isPuppySurface && !customNativePresentationEnabled() ? "true" : undefined}
+            data-agent-header-layout={customNativePresentationEnabled() ? "compact" : "portrait"}
             className={cn(
               "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-[color:var(--one-chat-canvas)] px-[var(--agent-chat-header-inline-gutter)] pt-[var(--agent-chat-header-safe-top)]",
               "h-[var(--agent-chat-header-height)]",
             )}
           >
-            {/* Both agents share one compact identity/action row. */}
+            {/* One retains its portrait identity; coherent native chrome owns its compact header. */}
             {/* The same overlay drawer on every width keeps the transcript and
                 fixed navigation in place. */}
             <NativeHistoryOpener owner={renderedWorkspaceOwnerId}
@@ -9299,9 +9300,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="inline-flex size-11 shrink-0 items-center justify-center border-0 bg-transparent p-0 shadow-none"
+                    className="inline-flex size-[var(--one-header-artwork-size,44px)] shrink-0 items-center justify-center border-0 bg-transparent p-0 shadow-none"
                   >
-                    <OnePresenceAvatar state={onePresenceState} className="size-8 shrink-0" />
+                    <OnePresenceAvatar state={onePresenceState} className="size-[var(--one-header-artwork-size,32px)] shrink-0" />
                   </button>
                 )}
               </div>
@@ -9349,7 +9350,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     // one when it is read out of context.
                     aria-label="One's model"
                     title={`Running ${modelPreference.effective_model}`}
-                    className="h-11 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
+                    className="agent-chat-model-picker h-11 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
                   >
                     {/* "3.7 Flash", not "Gemini 3.7 Flash": every option is a
                         Gemini, so the shared word is the one thing a narrow
@@ -10863,7 +10864,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          <AgentDockPortal enabled={isCanonicalChatRoute && !isPuppySurface} visible={!showVoiceBar}>
+          <AgentDockPortal enabled={isCanonicalChatRoute} active={!isPuppySurface} visible={!showVoiceBar}>
           <div
             inert={isHistoryDrawerOpen}
             data-agent-chat-composer-form={

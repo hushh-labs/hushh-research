@@ -93,7 +93,7 @@ type StatusKind =
   | "failed"
   /** Research's own service is unreachable; it is asked again after a wait. */
   | "outage"
-  /** Today's research is spent; asking again before tomorrow returns the same. */
+  /** This check reached its limit; only an explicit new check can start. */
   | "exhausted"
   | "insufficient"
   | "not_ready"
@@ -206,8 +206,8 @@ function statusCopy(input: {
   if (result?.status === "unavailable" && result.research_exhausted)
     return {
       kind: "exhausted",
-      title: "Nothing more to check today",
-      body: "Try again tomorrow.",
+      title: "This check has ended",
+      body: "Open Research and email to start a new check.",
     };
   if (input.failed || result?.status === "unavailable")
     return {
@@ -286,6 +286,14 @@ function statusCopy(input: {
       kind: "nothing",
       title: "Nothing to review right now",
       body: "We’ll check public pages again in a few days.",
+    };
+  // Reviewed statements can all be duplicates or unsuitable without changing
+  // the separately assessed identity result.
+  if (result.status === "offered" && result.report.match_status !== "no_match")
+    return {
+      kind: "nothing",
+      title: "No new details to review",
+      body: "We checked the public findings and found no new personal details to offer.",
     };
   // Only an offered report with no statements at all. People with the owner's
   // name may have turned up without any of them confirmed as the owner.
@@ -1157,7 +1165,8 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
               preferences={preferences}
               sourcesRequest={claims}
               canCheckForUpdates={
-                result?.status !== "pending" && result?.status !== "paused" && !spent
+                result?.status !== "pending" && result?.status !== "paused" &&
+                (!spent || status.kind === "exhausted")
               }
               pathname={pathname}
               embedded={embedded}

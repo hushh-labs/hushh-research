@@ -13,6 +13,7 @@ vi.mock("@/lib/services/secure-resource-cache-service", () => ({
 }));
 vi.mock("@/lib/services/secure-durable-resource-service", () => ({
   SecureDurableResourceService: {},
+  subscribeDurableOwnerReset: () => () => {},
 }));
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   PkmDomainResourceService: { getStaleFirst },

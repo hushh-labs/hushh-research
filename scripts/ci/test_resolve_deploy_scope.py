@@ -151,6 +151,7 @@ def test_auto_backend_only_change() -> None:
         base = commit_file(repo, "README.md", "base\n")
         commit_file(repo, "consent-protocol/api/routes/health.py", "backend\n")
         commit_file(repo, "deploy/email-auth/bind_secrets.sh", "backend\n")
+        commit_file(repo, "deploy/plg/bind_secrets.sh", "backend\n")
         target = commit_file(repo, "scripts/ops/email_auth_uat_release.py", "backend\n")
         previous_cwd = Path.cwd()
         try:

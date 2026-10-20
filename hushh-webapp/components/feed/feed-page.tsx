@@ -41,6 +41,8 @@ import {
   readFeedClearedThroughId,
 } from "@/lib/feed/feed-clear-watermark";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
+import { FeedSmsAlertGroup } from "@/components/feed/feed-sms-alert-group";
+import { groupFeedSmsAlerts } from "@/lib/feed/feed-sms-grouping";
 import { FeedDriveProgressRow } from "@/components/feed/feed-drive-progress-row";
 import { FeedSharedFilesSheet } from "@/components/feed/feed-shared-files-sheet";
 import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
@@ -956,21 +958,24 @@ function FeedPageSession({
     );
     return groupItemsByDay(sorted);
   }, [items]);
-  // A live SOS share gets its own "Live" section, pinned above "Needs you",
-  // so a safety alert is never mistaken for a routine pending item. Revoked or
-  // expired SOS rows fall straight into the regular "Needs you" list.
+  // Repeated SMS incidents stay together by sender. Ended alerts are history,
+  // not pending tasks; a sender with a live alert stays in Live, with all of
+  // their available incidents accessible in the same disclosure.
   const allActionables = [...actionables, ...briefingActionables].sort(
     (a, b) => b.sortAt - a.sortAt,
   );
   const liveActionables = allActionables.filter(
-    (item) => item.emphasis === "emergency",
+    (item) => item.emphasis === "emergency" && !item.smsEmergency,
   );
   const regularActionables = allActionables.filter(
-    (item) => item.emphasis !== "emergency",
+    (item) => item.emphasis !== "emergency" && !item.smsEmergency,
   );
-  const hasLiveActionables = liveActionables.length > 0;
+  const smsGroups = groupFeedSmsAlerts(allActionables);
+  const liveSmsGroups = smsGroups.filter((group) => group.activeCount > 0);
+  const endedSmsGroups = smsGroups.filter((group) => group.activeCount === 0);
+  const hasLiveActionables = liveActionables.length > 0 || liveSmsGroups.length > 0;
   const hasRegularActionables = regularActionables.length > 0;
-  const hasActionables = hasLiveActionables || hasRegularActionables;
+  const hasActionables = hasLiveActionables || hasRegularActionables || endedSmsGroups.length > 0;
   const hasUpcomingEvents = upcomingActionables.length > 0;
   const hasProgress = inProgress.length > 0 || progressOverflow.length > 0;
   // Once cleared this session, the loaded history rows are hidden even though
@@ -1002,6 +1007,8 @@ function FeedPageSession({
     <AppPageShell
       as="main"
       width="reading"
+      data-profile-type-scale="page"
+      data-feed-page=""
       className="pb-[calc(var(--app-screen-footer-pad)+16px)]"
     >
       <NativeTestBeacon
@@ -1030,6 +1037,9 @@ function FeedPageSession({
                   testId="feed-live-group"
                   shellClassName="!bg-accent/[0.04] shadow-none ring-1 ring-inset ring-accent/10"
                 >
+                  {liveSmsGroups.map((group) => (
+                    <FeedSmsAlertGroup key={group.id} group={group} />
+                  ))}
                   {liveActionables.map((item) => (
                     <FeedActionableRow key={item.id} item={item} />
                   ))}
@@ -1040,10 +1050,7 @@ function FeedPageSession({
           {hasRegularActionables ? (
             <section aria-label="Needs you">
               <SectionLabel>Needs you</SectionLabel>
-              {/* The Profile type scale covers this list only (name, supporting line,
-                  action label); the other Feed sections keep theirs. */}
               <div
-                data-profile-type-scale=""
                 className="divide-y divide-[color:var(--foundation-hairline)]"
               >
                 {regularActionables.map((item) => (
@@ -1052,6 +1059,17 @@ function FeedPageSession({
               </div>
             </section>
           ) : null}
+
+            {endedSmsGroups.length > 0 ? (
+              <section aria-label="Recent SMS alerts">
+                <SectionLabel>Recent SMS alerts</SectionLabel>
+                <SettingsGroup separatorInset testId="feed-ended-sms-group">
+                  {endedSmsGroups.map((group) => (
+                    <FeedSmsAlertGroup key={group.id} group={group} />
+                  ))}
+                </SettingsGroup>
+              </section>
+            ) : null}
 
             {hasUpcomingEvents ? (
               <section aria-label="Coming up">
@@ -1081,7 +1099,8 @@ function FeedPageSession({
                         key={link.href}
                         href={link.href}
                         prefetch={false}
-                        className="text-sm font-medium text-accent underline-offset-4 hover:underline"
+                        data-profile-role="action"
+                        className="text-accent underline-offset-4 hover:underline"
                       >
                         {link.label}
                       </Link>
@@ -1100,10 +1119,11 @@ function FeedPageSession({
                 role="alert"
                 className="flex min-h-[100px] flex-col items-center justify-center gap-2.5 rounded-[16px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 text-center"
               >
-                <p className="text-[17px] font-semibold leading-[22px] text-[color:var(--app-label)]">
+                <p data-profile-role="name" className="text-[color:var(--app-label)]">
                   Activity unavailable
                 </p>
                 <Button
+                  data-profile-role="action"
                   type="button"
                   variant="none"
                   effect="fade"
@@ -1120,10 +1140,11 @@ function FeedPageSession({
                 role="status"
                 className="mt-2 flex items-center justify-between gap-3 rounded-xl bg-foreground/[0.04] px-3 py-2 text-xs text-muted-foreground"
               >
-                <span>
+                <span data-profile-role="description">
                   Showing saved activity. Some updates couldn't refresh.
                 </span>
                 <Button
+                  data-profile-role="action"
                   type="button"
                   variant="none"
                   effect="fade"
@@ -1140,11 +1161,8 @@ function FeedPageSession({
                 role="status"
                 className="flex min-h-[100px] flex-col items-center justify-center gap-1 rounded-[16px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 text-center"
               >
-                <p className="text-[17px] font-semibold leading-[22px] text-[color:var(--app-label)]">
+                <p data-profile-role="name" className="text-[color:var(--app-label)]">
                   No activity yet
-                </p>
-                <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
-                  Your recent activity will appear here.
                 </p>
               </div>
             ) : null}
@@ -1175,11 +1193,12 @@ function FeedPageSession({
             {hasHistory && pagination.nextCursor ? (
               <div className="flex flex-col items-center gap-1 pt-2">
                 {loadMoreError ? (
-                  <p role="alert" className="text-xs text-muted-foreground">
+                  <p data-profile-role="description" role="alert" className="text-muted-foreground">
                     {loadMoreError} Try again.
                   </p>
                 ) : null}
                 <Button
+                  data-profile-role="action"
                   type="button"
                   variant="none"
                   effect="fade"
@@ -1201,6 +1220,7 @@ function FeedPageSession({
             {canClear ? (
               <div className="flex w-full justify-center pt-1" aria-live="polite">
                 <StockButton
+                  data-profile-role="action"
                   type="button"
                   variant="secondary"
                   size="compact"
@@ -1279,6 +1299,7 @@ function SectionLabel({ children }: { children: ReactNode }) {
     <AppSectionLabel
       as="h2"
       compact
+      data-profile-role="group-label"
       className="px-1 pb-1.5 pt-5 text-[color:var(--app-section-label)]"
     >
       {children}

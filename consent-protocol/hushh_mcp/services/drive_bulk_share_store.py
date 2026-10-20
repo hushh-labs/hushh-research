@@ -3920,6 +3920,11 @@ class DriveBulkShareStore(DriveLivePreferences):
         share = self._owned(connection, job["user_id"], job["share_id"], unexpired=False)
         if not reconcile:
             self._require_paid_for_origin(connection, share["origin_request_id"])
+            discovery = job.get("file", {}).get("discoveryEvidence")
+            if isinstance(discovery, dict) and discovery.get("request_id") != str(
+                share["origin_request_id"]
+            ):
+                raise DriveSharingError("bulk_changed")
         effect = self._row(
             connection,
             """SELECT * FROM drive_bulk_share_effects WHERE share_id=:share

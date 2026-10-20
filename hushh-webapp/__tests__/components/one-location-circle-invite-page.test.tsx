@@ -81,13 +81,13 @@ describe("OneLocationCircleInvitePageClient", () => {
     let finish!: (result: unknown) => void;
     mockClaimCircleInvite.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
     const view = render(<OneLocationCircleInvitePageClient token="first_invite" />);
-    fireEvent.click(await screen.findByRole("button", { name: /Accept Invite/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Accept invitation/i }));
     await waitFor(() => expect(mockClaimCircleInvite).toHaveBeenCalledOnce());
     view.rerender(<OneLocationCircleInvitePageClient token="second_invite" />);
     await waitFor(() => expect(mockResolveCircleInvite).toHaveBeenCalledWith("second_invite"));
     await act(async () => finish({ invite: invitePayload() }));
     expect(mockRouterPush).not.toHaveBeenCalled();
-    expect(await screen.findByRole("button", { name: /Accept Invite/i })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: /Accept invitation/i })).toBeEnabled();
   });
   it("keeps the native query-backed invitation through anonymous sign-in", async () => {
     mockUseAuth.mockReturnValue({ loading: false, isAuthenticated: false, userId: null, user: null });
@@ -106,7 +106,7 @@ describe("OneLocationCircleInvitePageClient", () => {
   it("skips guest screens for a signed-in native recipient and retains the token through unlock", async () => {
     mockUseVault.mockReturnValue({ isVaultUnlocked: false, vaultOwnerToken: null });
     render(<OneLocationCircleInvitePageClient token="real_token" returnTo="/circle/join?invite=real_token" />);
-    expect(await screen.findByRole("link", { name: /Continue to Vault/i })).toHaveAttribute("href", "/one/profile/security?unlock_vault=1&return_to=%2Fcircle%2Fjoin%3Finvite%3Dreal_token");
+    expect(await screen.findByRole("link", { name: /Accept invitation/i })).toHaveAttribute("href", "/one/profile/security?unlock_vault=1&return_to=%2Fcircle%2Fjoin%3Finvite%3Dreal_token");
     expect(screen.queryByTestId("guest-preview")).not.toBeInTheDocument();
     expect(mockClaimCircleInvite).not.toHaveBeenCalled();
   });
@@ -153,7 +153,7 @@ describe("OneLocationCircleInvitePageClient", () => {
 
     render(<OneLocationCircleInvitePageClient />);
 
-    const vaultLink = await screen.findByRole("link", { name: /Continue to Vault/i });
+    const vaultLink = await screen.findByRole("link", { name: /Accept invitation/i });
     expect(vaultLink.getAttribute("href")).toBe(
       "/one/profile/security?unlock_vault=1&return_to=%2Fone%2Flocation%2Finvite%2Finvite_token_123",
     );
@@ -175,12 +175,12 @@ describe("OneLocationCircleInvitePageClient", () => {
 
     render(<OneLocationCircleInvitePageClient />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /Accept Invite/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Accept invitation/i }));
 
     expect(
       await screen.findByText("Verify your phone number before joining One Network."),
     ).toBeTruthy();
-    const verifyLink = screen.getByRole("link", { name: /Verify phone to continue/i });
+    const verifyLink = screen.getByRole("link", { name: /Accept invitation/i });
     expect(verifyLink.getAttribute("href")).toBe(
       "/register-phone?redirect=%2Fone%2Flocation%2Finvite%2Finvite_token_123",
     );
@@ -200,12 +200,45 @@ describe("OneLocationCircleInvitePageClient", () => {
     render(<OneLocationCircleInvitePageClient />);
 
     const verifyLink = await screen.findByRole("link", {
-      name: /Verify phone to continue/i,
+      name: /Accept invitation/i,
     });
     expect(verifyLink.getAttribute("href")).toBe(
       "/register-phone?redirect=%2Fone%2Flocation%2Finvite%2Finvite_token_123",
     );
-    expect(screen.queryByRole("link", { name: /Continue to Vault/i })).toBeNull();
+    expect(screen.getByText("Verify your phone to accept this invitation.")).toBeVisible();
+    expect(mockClaimCircleInvite).not.toHaveBeenCalled();
+  });
+
+  it.each(["JHUMMA KUMARI - ********6911", "********6911"])("aligns the masked suffix in %s without redundant boilerplate", async (label) => {
+    mockResolveCircleInvite.mockResolvedValue({ invite: { ...invitePayload(), ownerLabel: label } });
+    render(<OneLocationCircleInvitePageClient />);
+    expect(await screen.findByText(label.startsWith("JHUMMA") ? "JHUMMA KUMARI" : "A trusted person")).toBeVisible();
+    const suffix = screen.getByLabelText("Phone ending in 6911");
+    expect(suffix).toHaveTextContent("•••• 6911");
+    expect(suffix).toHaveClass("whitespace-nowrap", "tabular-nums");
+    expect(screen.queryByText("Join me on One.")).toBeNull();
+    expect(screen.getByText("Your location stays private until you choose to share it.")).toBeVisible();
+    expect(screen.queryByText(/24h invite window/)).toBeNull();
+  });
+
+  it("offers account-check retry instead of mistaking an unavailable identity for a phone requirement", async () => {
+    mockSyncCurrentUser.mockResolvedValueOnce(null);
+    render(<OneLocationCircleInvitePageClient />);
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("button", { name: "Accept invitation" })).toBeEnabled();
+    expect(mockClaimCircleInvite).not.toHaveBeenCalled();
+  });
+
+  it("recovers a temporary preview failure and gives expired links a usable next step", async () => {
+    mockResolveCircleInvite.mockRejectedValueOnce(new Error("Temporary preview failure"));
+    const view = render(<OneLocationCircleInvitePageClient />);
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("button", { name: "Accept invitation" })).toBeEnabled();
+    mockResolveCircleInvite.mockRejectedValueOnce(new ApiError("This invitation has expired.", 410));
+    view.rerender(<OneLocationCircleInvitePageClient token="expired_token" />);
+    expect(await screen.findByRole("link", { name: "Open One" })).toHaveAttribute("href", "/one");
+    expect(screen.getByText("Ask the person who invited you for a new link.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Accept invitation" })).toBeNull();
     expect(mockClaimCircleInvite).not.toHaveBeenCalled();
   });
 });

@@ -51,6 +51,8 @@ test.beforeAll(async () => {
     },
   );
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  const { transform } = await import("lightningcss");
+  css = transform({ filename: "duration-dialog.css", code: Buffer.from(css), minify: true }).code.toString();
 });
 
 test.afterAll(() => {
@@ -120,7 +122,7 @@ for (const [width, height, current] of [
 }
 
 for (const width of [320, 390, 768, 1440]) {
-  test(`contact icons sit beside names without overlapping row controls at ${width}px`, async ({ page }, testInfo) => {
+  test(`contact icons sit at the avatar corner without overlapping row controls at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.route("http://localhost/duration-dialog**", (route) => route.fulfill({
@@ -137,23 +139,27 @@ for (const width of [320, 390, 768, 1440]) {
       await expect(rows).toHaveCount(4);
       const geometry = await rows.evaluateAll((elements, surface) => elements.map((row) => {
         const icon = row.querySelector('[aria-label="Connected from your contacts"]')!;
-        const name = icon.previousElementSibling!;
+        const avatar = icon.closest('[data-slot="avatar"]')!;
         const control = row.querySelector(surface === "invite"
           ? '[data-slot="settings-row-trailing"] > span > span:last-child'
           : "button")!;
         const b = icon.getBoundingClientRect();
-        const n = name.getBoundingClientRect();
+        const glyph = icon.querySelector("svg")!.getBoundingClientRect();
+        const a = avatar.getBoundingClientRect();
         const c = control.getBoundingClientRect();
         const r = row.getBoundingClientRect();
-        return { nameGap: b.left - n.right, controlGap: c.left - b.right,
-          centreDelta: Math.abs(b.y + b.height / 2 - n.y - n.height / 2),
+        return { rightDelta: Math.abs(b.right - a.right), bottomDelta: Math.abs(b.bottom - a.bottom),
+          iconSize: b.width, glyphWidth: glyph.width, glyphHeight: glyph.height,
+          controlGap: c.left - b.right,
           controlRight: c.right, rowRight: r.right };
       }), surface);
       for (const row of geometry) {
-        expect(row.nameGap).toBeGreaterThanOrEqual(5);
-        expect(row.nameGap).toBeLessThanOrEqual(7);
+        expect(row.rightDelta).toBeLessThanOrEqual(2.5);
+        expect(row.bottomDelta).toBeLessThanOrEqual(2.5);
+        expect(row.iconSize).toBeLessThanOrEqual(12);
+        expect(row.glyphWidth).toBe(row.iconSize);
+        expect(row.glyphHeight).toBe(row.iconSize);
         expect(row.controlGap).toBeGreaterThanOrEqual(0);
-        expect(row.centreDelta).toBeLessThanOrEqual(4);
         expect(row.controlRight).toBeLessThanOrEqual(row.rowRight - 10);
       }
       if (process.env.OVERFLOW_ACTION_EVIDENCE_DIR && (width === 390 || width === 1440)) {
@@ -161,5 +167,38 @@ for (const width of [320, 390, 768, 1440]) {
           `contact-icons-${surface}-${width}-${testInfo.project.name}.png`) });
       }
     }
+  });
+}
+
+for (const viewport of [
+  { width: 390, height: 844, keyboard: 0 },
+  { width: 393, height: 852, keyboard: 336 },
+  { width: 1440, height: 900, keyboard: 0 },
+]) {
+  test(`Circle creation keeps its selection action visible at ${viewport.width}px with keyboard ${viewport.keyboard}`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.route("http://localhost/duration-dialog**", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
+    await page.goto("http://localhost/duration-dialog?people=create");
+    await page.addScriptTag({ content: script });
+    const dialog = page.getByRole("dialog", { name: "Create a Circle" });
+    await expect(dialog.getByRole("button", { name: "Add Person 0", exact: true })).toBeVisible();
+    if (viewport.keyboard) await page.evaluate(keyboard => {
+      document.documentElement.classList.add("kb-open");
+      document.documentElement.style.setProperty("--kb-height", `${keyboard}px`);
+    }, viewport.keyboard);
+    await awaitProductFont(page);
+    const action = dialog.getByRole("button", { name: "Add people", exact: true });
+    await page.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished)));
+    await expect.poll(async () => {
+      const box = await action.boundingBox();
+      return box ? box.y + box.height : Infinity;
+    }).toBeLessThanOrEqual(viewport.height - viewport.keyboard);
+    await dialog.getByRole("button", { name: "Add Person 0", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "Remove Person 0", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(dialog.getByRole("button", { name: "Add 1 person", exact: true })).toBeEnabled();
+    const search = dialog.getByPlaceholder("Search people");
+    const before = (await search.boundingBox())!.y;
+    await dialog.getByRole("list", { name: "Contacts to add" }).evaluate(list => { list.scrollTop = list.scrollHeight; });
+    expect((await search.boundingBox())!.y).toBeCloseTo(before, 0);
   });
 }

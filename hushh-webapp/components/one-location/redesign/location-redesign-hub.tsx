@@ -21,6 +21,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -136,7 +137,6 @@ import {
 } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { useBackLayer } from "@/lib/navigation/back-layers";
-import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { RequestCard, SharedWithMeCard, type GrantViewStatus } from "./cards";
 
@@ -996,6 +996,28 @@ export function resolveLocationDeepLinkFocus(input: {
   return { detailAction: null, nextTab: null };
 }
 
+/** Resolve legacy notification intent without overriding a later explicit navigation. */
+function resolveLocationNotificationFocus(
+  params: Pick<URLSearchParams, "get">,
+): LocationDeepLinkFocus {
+  if (params.get(FLOW_ACTION_PARAM)?.trim()) {
+    return { detailAction: null, nextTab: null };
+  }
+  const section = params.get("section")?.trim() ?? "";
+  const view = params.get(LOCATION_HUB_TAB_PARAM)?.trim();
+  // Back and tab changes can retain a notification's ids. A named hub view
+  // closes that detail; an explicit notification section still names its target.
+  if (!section && (view === "now" || view === "people" || view === "links")) {
+    return { detailAction: null, nextTab: null };
+  }
+  return resolveLocationDeepLinkFocus({
+    section,
+    hasRequest: Boolean(params.get("requestId")?.trim()),
+    hasGrant: Boolean(params.get("grantId")?.trim()),
+    hasSubmission: Boolean(params.get("submissionId")?.trim()),
+  });
+}
+
 // People lists (Ready people / Pending invites) can grow long. Cap their height
 // and let them scroll internally so a large Circle doesn't stretch the page into
 // an endless column. ~max-h fits roughly 5 cards before scrolling; a thin,
@@ -1073,7 +1095,15 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const [tab, setTabState] = useState<LocationHubTab>(() =>
     resolveLocationHubTab(searchParams.get(LOCATION_HUB_TAB_PARAM)),
   );
-  const [flow, setFlow] = useState<FlowKind>("none");
+  const [flow, setFlow] = useState<FlowKind>(() => {
+    const action = searchParams.get(FLOW_ACTION_PARAM)?.trim() ?? "";
+    const requested = ACTION_TO_FLOW[action];
+    // Notification detail is already known before Next normalizes the URL.
+    // Render it on the first commit, including with a warm presentation cache.
+    return requested === "shared-with-me" || requested === "needs-review"
+      ? requested
+      : resolveLocationNotificationFocus(searchParams).detailAction ?? "none";
+  });
   const [selectedCircleId, setSelectedCircleId] = useState<string | null>(() =>
     searchParams.get("circleId"),
   );
@@ -1186,23 +1216,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   // notification describes. `view=inbox` remains a harmless legacy alias for
   // the compact Now hub.
   useEffect(() => {
-    const section = String(searchParams.get("section") || "").trim();
-    const hasRequest = Boolean(
-      String(searchParams.get("requestId") || "").trim(),
-    );
-    const hasGrant = Boolean(String(searchParams.get("grantId") || "").trim());
-    const hasSubmission = Boolean(
-      String(searchParams.get("submissionId") || "").trim(),
-    );
-    const { detailAction, nextTab } = resolveLocationDeepLinkFocus({
-      section,
-      hasRequest,
-      hasGrant,
-      hasSubmission,
-    });
-    const legacyInbox = searchParams.get(LOCATION_HUB_TAB_PARAM) === "inbox";
+    const { detailAction, nextTab } = resolveLocationNotificationFocus(searchParams);
+    const legacyInbox = !searchParams.get(FLOW_ACTION_PARAM)?.trim() &&
+      searchParams.get(LOCATION_HUB_TAB_PARAM) === "inbox";
     if (detailAction || nextTab || legacyInbox) {
-      setFlow("none");
       const params = new URLSearchParams(searchParams.toString());
       params.delete("section");
       if (detailAction) {
@@ -1455,7 +1472,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   // deep-link to `?action=…` opens the matching flow on load. Resetting the
   // Share sub-step + review flag on close ensures re-opening Share always starts
   // clean at step 1 (never jumps back into the consent-review screen).
-  useEffect(() => {
+  // Query changes can reuse this mounted hub. Sync before paint so an incoming
+  // notification cannot expose the previous hub while its URL is normalized.
+  useLayoutEffect(() => {
     const rawAction = (searchParams.get(FLOW_ACTION_PARAM) || "").trim();
     const action = LEGACY_ACTION_TO_FLOW[rawAction] ?? rawAction;
     if (rawAction && rawAction !== action) {
@@ -1490,7 +1509,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     const flowAction = action === "event-check-in" ? "check-in" : action;
     const requested: FlowKind = flowAction
       ? (ACTION_TO_FLOW[flowAction] ?? "none")
-      : "none";
+      : resolveLocationNotificationFocus(searchParams).detailAction ?? "none";
     if (
       nearbyCheckInAvailable &&
       (action === "check-in" || action === "event-check-in")
@@ -2837,7 +2856,7 @@ function LocationDetailFlow({
                             size="sm"
                             onClick={() => vm.onAskReshare(grant)}
                             disabled={vm.busy === "request"}
-                            className="h-8 rounded-full border-[color:var(--app-warning-border)] bg-[color:var(--app-card-surface-default-solid)]/85 px-3 text-[12px] font-semibold text-[color:var(--app-warning)] hover:bg-[color:var(--app-card-surface-default-solid)]"
+                            className="h-11 rounded-full border-[color:var(--app-warning-border)] bg-[color:var(--app-card-surface-default-solid)]/85 px-3 text-[12px] font-semibold text-[color:var(--app-warning)] hover:bg-[color:var(--app-card-surface-default-solid)]"
                           >
                             <RefreshCw
                               className={cn(
@@ -3959,7 +3978,6 @@ function PersonActionsDialog({
   onManageSharing,
   onViewLocation,
   onManageConnection,
-  onInvite,
   onCancelRequest,
 }: {
   open: boolean;
@@ -3976,7 +3994,6 @@ function PersonActionsDialog({
   onManageSharing: () => void;
   onViewLocation: () => void;
   onManageConnection: () => void;
-  onInvite: () => void;
   onCancelRequest: () => void;
 }) {
   const cancelBusy =
@@ -4031,13 +4048,12 @@ function PersonActionsDialog({
     actionRows.push(action("share", "Share my location", onShare));
     actionRows.push(action("ask", "Ask for location", onAsk));
   } else {
-    actionRows.push(action("invite", "Invite to One", onInvite));
+    // Everyone in this directory already has a relationship on One. A missing
+    // receiving key cannot revoke it, and asking does not require their key.
+    actionRows.push(action("ask", "Ask for location", onAsk));
     actionRows.push(
       action("connection", "Manage connection", onManageConnection),
     );
-  }
-  if (!shareReady && status.kind !== "neutral") {
-    actionRows.push(action("invite", "Invite to One", onInvite));
   }
 
   return (
@@ -4063,7 +4079,7 @@ function PersonActionsDialog({
                   {status.label ? <span className="block">{status.label}</span> : null}
                   {!shareReady ? (
                     <span className="block">
-                      {`${name} needs to open Location in One and finish setup before receiving your location.`}
+                      {`${name} is connected on One. They need to open One before they can receive your location.`}
                     </span>
                   ) : null}
                 </DialogDescription>
@@ -4450,10 +4466,6 @@ export function PeopleHub({
           onManageConnection={() => {
             setSelectedPersonId(null);
             onAddConnections();
-          }}
-          onInvite={() => {
-            setSelectedPersonId(null);
-            onInvite();
           }}
           onCancelRequest={() => {
             if (selectedPendingRequest) {
@@ -5015,12 +5027,12 @@ function ShareFlow({
             label={label}
             photoUrl={r.photoUrl}
             verified={Boolean(r.isRia)}
+            fromContacts={r.connectedFromContacts}
           />
         }
         title={
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="min-w-0 truncate">{label}</span>
-            {r.connectedFromContacts ? <ContactSourceBadge /> : null}
           </span>
         }
         // Only says something when there is something to say. A row that is
@@ -5039,7 +5051,7 @@ function ShareFlow({
           ) : includedThroughCircle ? (
             `Included through ${includedThroughCircle.circle.name}`
           ) : ready ? undefined : (
-            "Location setup pending"
+            "Connected · Location receiving unavailable"
           )
         }
         trailing={
@@ -5775,11 +5787,10 @@ function RequestRecipientListRow({
         aria-pressed={rowSelectable ? selected : undefined}
         className="grid w-full min-h-[58px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3.5 py-2 text-left focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
       >
-        <ContactAvatar label={name} photoUrl={photoUrl} verified={verified} />
+        <ContactAvatar label={name} photoUrl={photoUrl} verified={verified} fromContacts={fromContacts} />
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-1.5 text-[17px] font-normal leading-[22px] text-foreground">
             <span className="min-w-0 truncate">{name}</span>
-            {fromContacts ? <ContactSourceBadge /> : null}
           </span>
           {subtitle ? (
             <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
@@ -6101,7 +6112,8 @@ function AskFlow({
     return byGrantId;
   }, [statusNowMs, vm.requestedByMe]);
 
-  const isRequestFormValid = vm.selectedRequestOwnerIds.length > 0;
+  const isRequestFormValid = selectedRequestRecipients.length > 0 &&
+    selectedRequestRecipients.length === selectedRequestOwnerIds.length;
   const sendingRequest = vm.busy === "request";
   const sendRequest = () => {
     // Never submit an incomplete form even if the click somehow reaches the
@@ -6305,7 +6317,7 @@ function AskFlow({
                   fromContacts={r.connectedFromContacts}
                   subtitle={
                     status.selectable && status.tone === "ready"
-                      ? vm.isRecipientShareReady(r) ? undefined : "Location setup pending"
+                      ? undefined
                       : status.subtitle
                   }
                   tone={status.tone}
@@ -6498,13 +6510,11 @@ function SelectedRecipientsRail({
                   label={label}
                   photoUrl={recipient.photoUrl}
                   verified={Boolean(recipient.isRia)}
+                  fromContacts={recipient.connectedFromContacts}
                   className="h-8 w-8 text-[13px]"
                 />
                 <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
                   <span className="min-w-0 truncate">{label}</span>
-                  {recipient.connectedFromContacts ? (
-                    <ContactSourceBadge className="mt-px shrink-0" />
-                  ) : null}
                 </span>
               </div>
             );

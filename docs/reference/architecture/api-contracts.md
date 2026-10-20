@@ -8,7 +8,7 @@ clients reach them through the Next.js proxy layer.
 ```mermaid
 flowchart TB
   subgraph creds["Credential planes"]
-    fb["Firebase ID Token<br/>bootstrap and developer-portal sign-in only"]
+    fb["Firebase ID Token<br/>identity bootstrap and pilot metadata"]
     vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
     devtok["Developer Token<br/>Authorization Bearer"]
     hct["Consent Token HCT<br/>app-bound scoped grant"]
@@ -53,6 +53,215 @@ flowchart TB
 ```
 
 ---
+
+## One PLG pilot task evidence
+
+The server caller and isolated Firestore consumer are maintained in the
+[private PLG dashboard integration PR](https://github.com/hushh-labs/hussh-matrix-dashboard/pull/124).
+Release the two services independently through their existing approved paths;
+adding this contract does not enable the exporter or campaign delivery.
+
+`POST /api/one/plg/snapshot` is a server-only integration hidden from public
+OpenAPI. It requires `ONE_PLG_EXPORT_ENABLED=true`, production runtime identity,
+dedicated `ONE_PLG_EXPORT_SECRET` (at least 32 characters), and private
+`ONE_PLG_EXPORT_ACCOUNT_IDS` (1–100 explicitly enrolled production customer
+Firebase UIDs). No browser proxy or native caller is added. Login, legal
+acceptance and shared Firebase membership do not establish marketing consent.
+
+`X-PLG-Timestamp` (13-digit Unix milliseconds, within five minutes) and
+`X-PLG-Signature` authenticate HMAC-SHA256 over
+`snapshot\n<TIMESTAMP>\n<EXACT_RAW_JSON_BODY>`. Wrong purposes and bodies fail.
+Bodies have a 16,000-byte limit and contain 1–20 distinct accounts:
+`{ "accounts": [{ "accountId": "<enrolled UID>", "journey": "memory",
+"since": "<timezone-qualified ISO timestamp>" }] }`. Journey is `memory` or
+`mail`; since must be within seven days. Unlisted UIDs and more than 100 task
+results per account fail the entire batch. Read-only replay cannot send email.
+
+The version-1 response includes `environment: "production"`, `retainedOnly:
+true`, `asOf`, and matching accounts with original `since`, `deleted` and
+`tasks: [{ actionId, occurredAt }]`. Task IDs are opaque SHA-256 values. Memory
+requires committed mutations with matching confirmed content-write provenance;
+upgrades and maintenance writes are excluded. The writer now records its existing
+validated authorization mode as derived provenance, preserving the prior request
+fingerprint for cross-release retries. Only explicit `owner_confirmed` writes
+with an exact owner/domain/plan-derived commit ID qualify. Historical rows
+without that mode remain unclassified; automatic saves and source refreshes
+never become deliberate usage. Mail requires durable `sent` state
+and a provider message ID; uncertain and scheduled background sends are excluded
+so a background worker cannot count as the owner's returning usage. No content, domains,
+email addresses, recipients, subjects or bodies leave the backend. Existing
+account-deletion tombstones take priority over task export.
+
+Retained rows prove positive outcomes only. Empty results do not prove signup,
+complete feed coverage or inactivity: retention, domain deletion and resets can
+remove rows. The consumer must not emit complete observations from this
+projection. Setup, failure, support and canonical enrollment remain separate
+producers. Version 1 remains compatible; the version 2 observation extension
+below introduces migration 365.
+
+Responses are `private, no-store`: sanitized 400 for invalid requests or result
+limits, 401 for signatures, 404 for disabled/nonproduction configuration, 413
+for request size, and 503 for source failures. Reads are bounded; synchronous
+deletion checks run off the event loop. Production deployment optionally binds
+the two dedicated secrets; `one_plg_export_enabled` in existing
+`BACKEND_RUNTIME_CONFIG_JSON` maps the enable flag, which defaults off.
+
+### All-agent activity, version 2
+
+Set `X-PLG-Version: 2` or JSON `version: 2` to negotiate the expanded contract.
+`accounts: []` returns the catalog without opening a database. Nonempty requests
+still require the signed enrolled-account allowlist and seven-day window.
+Journey additionally accepts a canonical authored `agent_*` ID. The catalog is a
+derived measurement projection of the product-agent registry, capability graph, action gateway
+and closed frontend observability enums, with a content revision. It does not
+register tools, route requests, enable unavailable agents or grant permissions.
+
+Version 2 returns matching accounts with `tasks: []`, `verified` aggregate rows
+and `activity`. Only the existing Memory and manual Mail ledgers produce
+verified rows (`agentId`, count, first/last timestamps and UTC days, maximum 1000
+per ledger). Other agents' execution or app reports never become verified value.
+`activity` contains `enabled`, `mode: best_effort`, `limited`, `startedAt`, an
+opaque epoch hash, and bounded rollups by agent/action/source/phase. Sources are
+`client_reported` and `execution_observed`; phases are started, returned, failed,
+cancelled and blocked. A return is not proof of a domain effect. Deleted accounts
+have no activity. Collection disabled or not started remains unknown. Disabling
+collection also hides retained observations from export.
+
+`GET /api/one/plg/activity` admits an observation epoch; `POST` reports only
+`generation`, random `operationId`, registered `actionId` and phase. These hidden
+routes require read-only verified Firebase identity; the UID and client source
+are derived by the server. Extra fields and client attempts to report SDK
+identifiers fail. Browser and native callers use the existing API transport and
+One catch-all proxy. Reporting never bootstraps an account or sends a campaign.
+
+`ONE_PLG_ACTIVITY_ENABLED=true` additionally gates collection to production and
+the same explicit pilot UID allowlist. It defaults false. SDK plugins observe
+admitted root/specialist/gene runs and tools without reading prompts, arguments,
+responses or errors. Unknown private MCP tools use one fixed catalog bucket.
+Warmup and anonymous/Firebase-only introductory runs are excluded. Frontend
+gateway actions retain synchronous trusted browser activation; event collection
+uses closed identifiers only and is independent of GA sampling.
+
+Migration 365 creates two service-only RLS tables. Hashed observation IDs dedupe
+replays; writes serialize a maximum 500 rows per owner per UTC day. Reads exclude
+seven-day expired rows; the existing authenticated Drive work drain purges up to
+1000 expired rows per pass. A rolling window may span eight UTC dates, bounded
+at 4000 retained observations. Retired/reowned identifiers are omitted and mark
+coverage limited. Collection is best effort: timeouts, capacity drops and missing
+history cannot establish inactivity or complete app-wide DAU.
+
+Reset rotates the epoch under the existing writer barrier and clears rows;
+full account deletion erases both tables. SDK invocations pin their epoch once
+before execution. Browser dispatches pin the initiating account, local reset
+generation and admission promise. Account switches and local resets discard
+stale callbacks. A previously resolved admission keeps its epoch, so a later
+remote reset rejects those reports. Cold admission first processed after a
+remote reset belongs to the new observation window; browser reports use server
+receipt time and do not prove when execution began. Observation SQL has statement
+and lock deadlines.
+New client operations refresh admission after at most one minute, recovering
+eligibility changes, temporary admission failures and cross-device resets.
+Pending terminal reports remain bound to their original admission promise.
+Apply the migration and verify schema/deletion/retention checks before enabling
+the flag. Rollback: disable collection, then use the registered migration365
+rollback; original task exports remain available in version 1. No infrastructure,
+collection or marketing delivery is activated by this PR.
+
+### Private registered-account audience and correlated attempts
+
+`POST /api/one/plg/audience` is a separate, private read contract for Matrix's
+role-protected PLG people view. It requires production lane, project `hushh-pda`,
+`ONE_PLG_AUDIENCE_ENABLED=true` and dedicated `ONE_PLG_AUDIENCE_SECRET` (32+
+characters). The existing timestamp/body signature uses purpose `audience`;
+snapshot, sync, enrollment and delivery credentials do not grant this authority.
+The response and all errors are private/no-store; validation and source errors
+never echo contact details. The route is hidden from public OpenAPI.
+
+Request: `{agentId, segment, query, graceMinutes, cursor}`. The agent must exist
+in the generated catalog; segments are `all`, `possible_incomplete`, `failed`,
+`blocked`, `cancelled`, `returned`, `verified`, `unknown` and `in_progress`.
+Query is at most 100 characters, grace is 15–1440 minutes (default 60), and
+cursor is optional. A page traverses at most 25 current Firebase records.
+Disabled, deprovisioned, unclassified/anonymous and tombstoned accounts are
+excluded. This is the registered-account directory, not proof of customer or
+marketing eligibility. Source failures fail the page with sanitized 503.
+
+Only explicit Firebase getters are projected. Exported SDK records, password
+hashes/salts, custom claims, tokens and provider objects are never serialized.
+Canonical identity row presence owns the entire saved name/email/phone projection;
+null or cleared fields never fall back to stale provider fields. For genuinely
+absent canonical rows, current provider contact details may fill the view.
+Only verified full E.164 phone numbers are shown; a number bound to another
+canonical owner suppresses provider fallback. Lifecycle barriers (171 then 198),
+the existing phone-claim lock (namespace 0), shared identity row locks and epoch
+locks fence deletion, transfer and reset races. No identity is written.
+
+Response includes the catalog, fixed seven-day `windowStart`/`asOf`, `scanned`,
+`excluded`, bounded `rows` and `nextCursor`. Each row contains account ID,
+selected agent, nullable identity fields with source/verification flags,
+activity coverage/counts/timestamps/action ID and verified outcome support.
+Filters apply to each source page; an empty matching page can have a continuation.
+No global filtered total or stable directory snapshot is claimed. The signed
+cursor binds all filters, production project, page size and activity anchor and
+expires after 15 minutes. Directory identity remains current on every page;
+directory mutations can change traversal. No full-audience Firestore import occurs.
+
+Migration 366 adds an opaque phase-independent `operation_key` for new SDK and
+gateway observations. Correlation is bounded by owner, epoch, agent, action and
+source; one invocation's return cannot close a different invocation. Historical
+phase hashes and independent `observation:*` reports remain uncorrelated.
+Tools remain separate observations. A correlated start with no terminal after
+the selected grace is **possible incomplete**, never confirmed abandonment.
+Recent unmatched starts are in progress. Returns/failures are observations,
+not unique user attempts: browser and SDK observations can cover the same user
+action. Return/failure timestamps use the selected terminal receipt even when a
+start report arrives later at the server. Last observation can therefore be a
+later start. Only Memory/Mail retain the existing verified domain-outcome adapters;
+business completion for other agents is explicitly unsupported. Capacity-limited,
+not-started, reset and disabled coverage remains explicit. Disabling collection
+hides retained execution counts, timestamps and behavioral segments.
+
+`ONE_PLG_ACTIVITY_ALL_REGISTERED=true` expands the existing collection scope
+only with `ONE_PLG_ACTIVITY_ENABLED=true`, production lane and project
+`hushh-pda`. Admission and writes additionally require a canonical registered
+contact (nonempty email or verified phone); an anonymous UID/spine alone is
+insufficient. Auth-only directory accounts remain visible while normal identity
+warmup has not yet established that baseline. With this flag off, the original
+1–100 UID pilot behavior is preserved. Both new flags default false. The existing
+500-observation/day cap, seven-day TTL, reset/deletion and service-only RLS remain.
+
+This read does not enroll contacts, change campaign addresses, grant messaging
+permission, send messages or alter aggregate DAU/retention. Matrix consumes it
+on demand with its own audience key. Release migration 366 before compatible
+writers and readers, then verify prerequisites before separately enabling flags.
+Rollback: disable expanded collection/audience, deploy the previous writer that
+does not reference `operation_key`, then apply the registered 366 rollback.
+Reapplying 366 leaves retained rows uncorrelated; it cannot reconstruct history.
+
+## Verified account phone retention
+
+`POST /api/account/identity/refresh` remains Firebase-authenticated. Ordinary
+refreshes, including forced/strict reads and display-name synchronization,
+preserve a complete verified phone in the serialized identity writer. A delayed
+provider snapshot cannot replace a newer committed E.164 number.
+
+Native OTP completion and web provider-phone replacement send optional JSON
+`{ "verified_phone_number": "+…" }`
+through the existing account proxy/shared native transport. This is explicit
+finalization intent, not verification proof: the backend freshly checks the
+authenticated UID and exact Firebase phone, then uses the existing phone claim
+writer without cross-owner transfer authority. Mismatch or conflicting ownership
+returns 409; provider/persistence failure returns 503. No number enters a URL.
+Web's existing secondary Firebase phone-token claim remains unchanged.
+If provider linking succeeds while persistence is unavailable, retrying the
+same linked phone rechecks provider proof and finalizes without another OTP.
+
+Backend and updated native shared JavaScript must ship together for native
+replacement. Older clients without explicit intent retain the existing app
+phone and fail their exact-number completion check rather than overwrite it.
+Concurrent explicit replacements on separate devices still require retry if
+their provider state changes; this is not a guarantee of offline or simultaneous
+replacement ordering. No historical erased claim is inferred or reconstructed.
 
 ## Messages unread action count
 
@@ -958,6 +1167,14 @@ other person-to-person catalog, and are refused again at request creation.
 
 ### Personal World Model research
 
+Explicit “Check for updates” sends `refresh:true` only to
+`POST /api/one/world-model/jobs`. It starts a new discovery from a completed,
+same-identity draft, with new evidence/usage budgets while retaining the three
+starts-per-hour limit, consent checks, provider breaker and atomic claim.
+Pending work coalesces and paused/unavailable work retains its existing resume
+and cooldown behavior. Ordinary starts keep their idempotent reuse behavior;
+`/ensure` rejects the refresh field and never implicitly buys a new discovery.
+
 `POST /api/one/world-model/ensure` starts/resumes the existing owner-bound research
 job after setup and unlock. The backend resolves fresh authenticated name,
 verified email and canonical verified phone when available; at least one verified
@@ -970,11 +1187,45 @@ output behind the same routes. Fresh `pwm-azure-bing-v1` consent remains require
 `GET /api/one/world-model/jobs/stream` retains `progress`, cumulative validated
 `partial`, `ping` and terminal `result` events with private/no-store headers.
 Status and stream reads recheck authority before releasing checkpoint findings.
+Owner-authorized JSON responses may include numeric `X-Hussh-PWM-Usage` metadata
+from encrypted provider receipts, including paused or failed work. Missing token
+receipts remain unknown. The Next.js proxy forwards this private header; the
+strict JSON and SSE event bodies remain unchanged. Prices are not part of this
+receipt and any currency calculation is an estimate at the stated rates.
 Reports remain view-only (`pkm_written:false`); source and identity review precede
-the owner's existing encrypted memory save. See the [PWM contract](../one/personal-world-model.md)
+the owner's existing encrypted memory save. A final model review selects existing
+fact IDs without rewriting their statements or citations. It may return an empty
+matched/uncertain report when no new statements remain; the assessed identity is
+preserved. `no_match` still forbids findings. Backend and shared web/native JavaScript
+decoders use this same rule; no SSE event or credential boundary changes.
+See the [PWM contract](../one/personal-world-model.md)
 and [stream implementation](../streaming/streaming-implementation-guide.md).
 
 ### One Runtime Configuration
+
+`GET` and `PUT /api/one/models/private-text-approval` remain Firebase-owner
+authenticated and `private, no-store`. Without query parameters their strict
+owner-receipt response is unchanged. Updated clients opt into
+`?include_policy=true` to additionally receive `processing_policy`:
+`{enabled,basis:owner_approval|uat_policy|disabled,version,generation,
+scope:one_text_chat_and_drive_requests}`. Effective administrator status never
+changes the owner receipt's `enabled`, `accepted_at`, `revoked_at` or CAS generation.
+The old PUT remains a historical personal receipt operation; it cannot choose the
+managed UAT processor. Updated clients expose read-only processing information.
+
+All UAT users use the administrator Azure-primary policy for managed One text
+chat and semantic document requests. `/api/one/models/preference` projects the
+central deployment as effective, with `source:administrator_policy`; old saved
+choices remain visible as history. Selection writes return `MODEL_MANAGED_BY_POLICY`.
+The generic Gemini-name resolver remains unchanged for unrelated callers and BYOK.
+
+New semantic bindings seal `authorization_basis:uat_policy` and the current policy
+generation. Existing eligible pending bindings move only through an atomic,
+recorded processor migration that preserves results and effect history. The shared
+provider contract always attempts Azure first and permits a bounded Gemini fallback
+only for classified transient model failures before any output. Current file access,
+owner/request authority, source versions, payment and sharing gates remain required.
+See [UAT policy and recovery](../iam/rollout-and-environments.md#uat-managed-text-processing-policy).
 
 | Method | Path                               | Auth            | Description                                                                                                                                                                                                                                                                                                               |
 | ------ | ---------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2492,6 +2743,12 @@ the backend claim commits, including same-user Firebase republication, and never
 uses stale/unverified cache evidence or a previous user's cache. Historical
 missing phone bindings are not reconstructed from email verification or OTP log
 messages; account owners restore them through the existing phone verification flow.
+An identity lookup failure is retryable availability uncertainty, not a removed
+phone. Auth state retains the known same-session claim, accepts later exact-owner
+cache updates, and fences delayed responses against account changes and newer
+committed claims. Profile offers Retry while the number is unresolved and Add
+only after an authoritative full unverified identity. View-cache TTL and the
+backend identity-refresh freshness interval do not expire a verified phone.
 
 | Method | Path                                              | Description                                                                                                                                                                                              |
 | ------ | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2588,6 +2845,20 @@ thread visible again. A dismissal also covers older rows in the same displayed
 Consent bundle. A Drive outcome dismissal also hides earlier outcome rows for
 that same request; its decision, progress, and payment entries remain visible.
 Account deletion removes its Feed rows and hide state.
+
+A historical Drive outcome with request status `partial` receives live,
+participant-scoped receipt counts in metadata: `current_delivery_total_count`,
+`current_delivery_confirmed_count` (`succeeded` plus `preexisting`) and
+`current_delivery_pending_count` (queued, dispatching or unknown). These counts
+cover approved batches for that request and recipient. They describe recorded
+permission outcomes, not a new check of the current Google ACL. Missing or
+inconsistent counts use neutral copy; a request-level `partial` alone never
+establishes a sharing failure. The request detail uses aggregate delivery counts,
+so a successful latest batch cannot conceal an earlier failed batch. Confirmed
+delivery does not establish exhaustive search coverage or authorize unverified
+candidates. The proxy and native HTTP transport pass these additive fields;
+older servers safely omit them.
+
 
 ### SSE (Server-Sent Events)
 

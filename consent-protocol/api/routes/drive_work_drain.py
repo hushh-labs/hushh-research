@@ -218,6 +218,14 @@ async def drain_drive_work(
         ) from None
     try:
         retention = safe_retention_result(await ConnectorAttemptRetention().purge_batch())
+        # Independent metadata cleanup; migration-first rollout and collection
+        # failures must never prevent domain work from draining.
+        try:
+            from hushh_mcp.services.product_activity import purge_expired
+
+            await run_in_threadpool(purge_expired)
+        except Exception:  # noqa: BLE001 - bounded optional observation maintenance
+            pass
         result = await DriveWorkDrain().run(
             stage=stage,
             max_jobs_per_worker=MAX_JOBS_PER_WORKER,

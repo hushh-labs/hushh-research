@@ -596,9 +596,35 @@ async def test_private_semantic_binding_keeps_one_approval_generation_and_compos
         await model.require_current()
 
 
+def test_uat_policy_binding_is_explicit_frozen_and_invalidated_on_policy_change(monkeypatch):
+    from hushh_mcp.services import drive_request_package_assessment as assessment
+    from hushh_mcp.services import private_text_processing_approval_service as approval
+    from hushh_mcp.services.drive_request_package_service import assessment_policy_version
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
+    generation = approval.private_drive_text_policy()["generation"]
+    binding = assessment.semantic_request_model_binding(
+        provider="azure_openai", approval_generation=generation, authorization_basis="uat_policy"
+    )
+    assert assessment.validate_semantic_model_binding(binding) == binding
+    legacy = {k: v for k, v in binding.items() if k != "authorization_basis"}
+    assert assessment.validate_semantic_model_binding(legacy) == legacy
+    assert assessment_policy_version(binding) != assessment_policy_version(legacy)
+    assert assessment.validate_semantic_model_binding(None)["provider"] == "gemini"
+    for invalid in ("administrator", "owner_approval", None, True):
+        with pytest.raises(ValueError):
+            assessment.validate_semantic_model_binding({**binding, "authorization_basis": invalid})
+    monkeypatch.setattr(approval, "private_drive_text_policy", lambda: None)
+    with pytest.raises(ValueError, match="policy changed"):
+        assessment.validate_semantic_model_binding(binding)
+    assert assessment.validate_semantic_model_binding(legacy) == legacy
+
+
 @pytest.mark.parametrize(
     "provider,environment",
-    [("unknown", "uat"), ("azure_openai", "production"), ("azure_openai", "development")],
+    [("azure_openai", "production"), ("azure_openai", "development")],
 )
 def test_semantic_azure_selection_fails_closed_outside_trusted_uat(
     monkeypatch, provider, environment

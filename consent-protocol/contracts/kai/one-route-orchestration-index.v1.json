@@ -1613,7 +1613,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.connect",
-        "purpose": "Find people, review scoped connection requests, and manage connections. The exact-person reviewPerson query sends nothing automatically; a retained Location task rechecks eligibility only after the owner returns with Continue.",
+        "purpose": "Find people opens by default; My connections is an adjacent local view with an independent accepted-roster search. Circles remains a route-backed surface. Review scoped requests only through the exact-person reviewPerson query; a retained Location task rechecks eligibility only after the owner returns with Continue.",
         "screen": "connect",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -1641,6 +1641,7 @@
       "action_ids": [
         "connect.accept_request",
         "connect.cancel_request",
+        "connect.open_connections",
         "connect.open_nearby",
         "connect.open_people",
         "connect.reject_request",
@@ -3581,6 +3582,7 @@
         "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
+        "profile.retry_phone_lookup",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -3588,6 +3590,7 @@
         "route.back",
         "route.profile",
         "route.profile_access_panel",
+        "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
         "route.profile_payouts",
@@ -3735,6 +3738,7 @@
         "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
+        "profile.retry_phone_lookup",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -3742,6 +3746,7 @@
         "route.back",
         "route.profile",
         "route.profile_access_panel",
+        "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
         "route.profile_payouts",
@@ -3754,12 +3759,12 @@
         "route.profile_world_model",
         "route.ria_settings_compat"
       ],
-      "action_coverage": "none",
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-profile"
     },
     {
@@ -3803,6 +3808,7 @@
         "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
+        "profile.retry_phone_lookup",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -3810,6 +3816,7 @@
         "route.back",
         "route.profile",
         "route.profile_access_panel",
+        "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
         "route.profile_payouts",
@@ -3822,12 +3829,12 @@
         "route.profile_world_model",
         "route.ria_settings_compat"
       ],
-      "action_coverage": "none",
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-profile"
     },
     {

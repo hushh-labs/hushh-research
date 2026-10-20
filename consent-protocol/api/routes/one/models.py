@@ -65,11 +65,14 @@ class PrivateTextApprovalRequest(BaseModel):
 @router.get("/private-text-approval")
 async def read_private_text_approval(
     response: Response,
+    include_policy: bool = False,
     user_id: str = Depends(require_firebase_auth_read_only),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        approval: dict[str, Any] = await private_approval.get_private_text_approval(user_id=user_id)
+        approval: dict[str, Any] = await private_approval.get_private_text_approval(
+            user_id=user_id, **({"include_policy": True} if include_policy else {})
+        )
         return approval
     except private_approval.PrivateTextApprovalError as exc:
         raise HTTPException(
@@ -81,6 +84,7 @@ async def read_private_text_approval(
 async def write_private_text_approval(
     payload: PrivateTextApprovalRequest,
     response: Response,
+    include_policy: bool = False,
     user_id: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
@@ -94,6 +98,7 @@ async def write_private_text_approval(
                 else None
             ),
             disclosure_version=payload.disclosure_version,
+            **({"include_policy": True} if include_policy else {}),
         )
         return approval
     except private_approval.PrivateTextApprovalError as exc:

@@ -1839,11 +1839,11 @@ describe("exact-file document review", () => {
       expect(screen.getByText("$2 refunded for files not sent.")).toBeVisible();
       view.unmount();
 
-      // Negative control: an older request keeps its words.
+      // Missing aggregate receipts never imply a delivery failure.
       state.status.mockResolvedValue({ ...initial(), direction: "outgoing", status: "partial",
         paymentRequired: true, payment: refunded });
       render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
-      await waitFor(() => expect(screen.getAllByRole("status")[0]).toHaveTextContent("Sharing incomplete"));
+      await waitFor(() => expect(screen.getAllByRole("status")[0]).toHaveTextContent("Review sharing and search results"));
       expect(screen.getByText("$2 refunded")).toBeVisible();
     });
 
@@ -2309,6 +2309,8 @@ describe("exact-file document review", () => {
       state.status.mockResolvedValue({ ...initial(), status: "partial" });
       state.delivery.mockResolvedValue({ status: "partial", files: [], bulkShareId, fileCount: 72, sharedCount: 71 });
       state.review.mockResolvedValue(partial({ durableAvailable: true,
+        aggregateCounts: { total: 72, processed: 72, shared: 62, alreadyShared: 9,
+          skipped: 1, failed: 0, needsReview: 0, unknown: 0, pending: 0 },
         search: durableSearch({ status: "completed", matched: 108, unshareableCount: 36, coverage: {
           corpora: ["user", "member_shared_drives"], fileKind: "document",
           requestedPeriod: { start: "2026-06-28", end: "2026-09-28", timezone: "Asia/Kolkata" },
@@ -2364,7 +2366,8 @@ describe("exact-file document review", () => {
         skipped: 0, failed: 0, needsReview: 1, unknown: 0, pending: 0 }, "1 needs review", null],
     ])("explains every outcome category for a %s share", async (status, label, counts, outcome, secondOutcome) => {
       state.status.mockResolvedValue({ ...initial(), status: status === "running" ? "approved" : "partial" });
-      state.delivery.mockResolvedValue({ status: "partial", files: [], bulkShareId, fileCount: 3, sharedCount: 0 });
+      state.delivery.mockResolvedValue({ status: "partial", files: [], bulkShareId, fileCount: 3,
+        sharedCount: counts.shared + counts.alreadyShared, counts });
       state.review.mockResolvedValue(partial({ durableAvailable: true,
         search: durableSearch({ status: "completed", matched: 3 }),
         bulkShare: durableBulk({ status, fileCount: 3, canApprove: false, counts,
@@ -2375,6 +2378,40 @@ describe("exact-file document review", () => {
       expect(screen.getByText(outcome)).toBeVisible();
       if (secondOutcome) expect(screen.getByText(secondOutcome)).toBeVisible();
       if (status === "failed") expect(screen.getByText(/Google Drive denied sharing/)).toBeVisible();
+    });
+
+    it.each([
+      ["incoming", 0, 0, "Files shared · Request incomplete"],
+      ["outgoing", 0, 0, "Files shared · Request incomplete"],
+      ["incoming", 1, 0, "Sharing incomplete"],
+      ["outgoing", 0, 1, "Checking file access"],
+    ] as const)("distinguishes incomplete discovery from aggregate delivery (%s, %s, %s)", async (direction, failed, unknown, label) => {
+      const confirmed = 20 - failed - unknown;
+      const counts = { total: 20, processed: 20 - unknown, shared: confirmed - 7,
+        alreadyShared: 7, skipped: 0, failed, needsReview: 0, unknown, pending: 0 };
+      state.status.mockResolvedValue({ ...initial(), direction, status: "partial" });
+      state.delivery.mockResolvedValue({ status: "partial", files: [], bulkShareId,
+        fileCount: 20, sharedCount: confirmed, bulkStatus: "partial", counts });
+      // The latest batch is complete even when an earlier batch failed.
+      state.review.mockResolvedValue(partial({ durableAvailable: true,
+        search: durableSearch({ status: "completed", matched: 20 }),
+        bulkShare: durableBulk({ status: "completed", fileCount: 1, canApprove: false }),
+      }));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      expect(await screen.findByRole("status")).toHaveTextContent(label);
+      expect(screen.queryByText("Could not share all selected files")).toBeNull();
+    });
+
+    it("does not substitute the latest completed batch when aggregate counts are missing", async () => {
+      state.status.mockResolvedValue({ ...initial(), status: "partial" });
+      state.delivery.mockResolvedValue({ status: "partial", files: [], bulkShareId,
+        fileCount: 20, sharedCount: 20, bulkStatus: "partial" });
+      state.review.mockResolvedValue(partial({ durableAvailable: true,
+        search: durableSearch({ status: "completed", matched: 20 }),
+        bulkShare: durableBulk({ status: "completed", fileCount: 1, canApprove: false }),
+      }));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      expect(await screen.findByRole("status")).toHaveTextContent("Review sharing and search results");
     });
 
     it.each(["partial", "running"])("tells B whether the final file is unavailable or still pending (%s)", async bulkStatus => {

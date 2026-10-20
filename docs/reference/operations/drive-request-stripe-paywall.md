@@ -137,6 +137,13 @@ planner does not consume their worker slice before Google receives a query.
 The existing authority checks, durable checkpoints and retry backoff remain in
 the critical path.
 
+The search worker resolves request authority inside the claimed job's failure
+boundary, including short slices waiting for content assessment. Declined or
+cancelled requests release their active search slot without another provider
+call; saved results remain available for audit. A temporary context lookup
+failure retains the job for retry. This prevents a closed request from parking
+the same owner's later searches and their Checkout preparation.
+
 The Documents agent expresses an explicit file count as `result_limit` (1–1,000)
 with recent ordering. A date count such as “last three days” is not a file limit.
 For generic “latest 100 documents,” the engine queries original files with native

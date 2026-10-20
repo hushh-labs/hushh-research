@@ -396,10 +396,10 @@ describe("Personal World Model page", () => {
       "We’ll check public pages again in a few days.",
     ],
     [
-      "today's research being spent",
+      "a research check reaching its limit",
       { status: "unavailable", pkm_written: false, research_exhausted: true },
-      "Nothing more to check today",
-      "Try again tomorrow.",
+      "This check has ended",
+      "Open Research and email to start a new check.",
     ],
     [
       "research just started",
@@ -985,6 +985,15 @@ describe("Personal World Model page", () => {
     expect(onOpenAccount).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["matched", "uncertain"] as const)("preserves %s identity when review offers no new details", async (status) => {
+    const report = offered([], status);
+    report.research.candidates = [{ id: "c1", label: "Alice" }];
+    research(report);
+    render(<PersonalWorldModelPage embedded />);
+    expect(await screen.findByText("No new details to review")).toBeInTheDocument();
+    expect(screen.queryByText(/none confirmed as you/)).toBeNull();
+  });
+
   it("counts people with the owner's name when none was confirmed, and points to adding a page", async () => {
     const report = offered([], "no_match");
     report.research.candidates = [
@@ -1093,13 +1102,17 @@ describe("Personal World Model page", () => {
     expect(await screen.findByText(`Your private agent can’t reach its research service. It will try again at ${at}.`)).toBeInTheDocument();
   });
 
-  it("offers no retry loop once today's research is spent", async () => {
+  it("offers one explicit new check after exhaustion without an automatic retry loop", async () => {
     research({ status: "unavailable", pkm_written: false, research_exhausted: true });
     render(<PersonalWorldModelPage embedded />);
-    expect(await screen.findByText("Nothing more to check today")).toBeInTheDocument();
+    expect(await screen.findByText("This check has ended")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     fireEvent.click(screen.getByText("Research and email"));
     expect(await screen.findByText("Email me when it’s ready")).toBeInTheDocument();
-    expect(screen.queryByText("Check for updates")).toBeNull();
+    expect(mock.research.refresh).not.toHaveBeenCalled();
+    expect(mock.research.reload).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Check for updates"));
+    expect(mock.research.refresh).toHaveBeenCalledTimes(1);
+    expect(mock.research.reload).not.toHaveBeenCalled();
   });
 });

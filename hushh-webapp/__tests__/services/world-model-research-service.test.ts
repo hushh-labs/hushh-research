@@ -135,6 +135,16 @@ it("accepts a deep PWM draft with scored evidence but rejects padded duplicates"
   expect(pwmReportSchema.safeParse(report).success).toBe(true);
   expect(pwmReportSchema.safeParse({
     ...report,
+    match_status: "uncertain",
+    summary: "No new personal findings remain after review.",
+    sections: [],
+  }).success).toBe(true);
+  expect(pwmReportSchema.safeParse({
+    ...report,
+    match_status: "no_match",
+  }).success).toBe(false);
+  expect(pwmReportSchema.safeParse({
+    ...report,
     sections: sections.map((section, index) => index === 6
       ? { ...section, facts: [...section.facts, section.facts[0]] }
       : section),
@@ -267,6 +277,7 @@ describe("PWM service authority and request recovery", () => {
     });
     expect(api.mock.calls[0][0]).toBe("/api/one/world-model/jobs");
     expect(api.mock.calls[0][1].method).toBe("POST");
+    expect(JSON.parse(api.mock.calls[0][1].body)).toEqual({ refresh: true });
   });
   it("sends owner decisions only when starting research", async () => {
     const ownerDecisions = { confirmed: ["Saved."], rejected: ["Declined."] };
@@ -316,7 +327,7 @@ describe("PWM service authority and request recovery", () => {
       [
         "/api/one/world-model/jobs",
         "POST",
-        { owner_decisions: ownerDecisions },
+        { owner_decisions: ownerDecisions, refresh: true },
       ],
       ["/api/one/world-model/ensure", "POST", undefined],
     ]);

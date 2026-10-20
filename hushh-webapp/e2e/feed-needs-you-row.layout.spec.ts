@@ -56,7 +56,7 @@ async function buildFixture(dark: boolean): Promise<string> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "feed-person-layout-"));
   fs.writeFileSync(
     path.join(dir, "fixture.css"),
-    stripAppFontFaces(compiler.build([...used])),
+    stripAppFontFaces((await import("lightningcss")).transform({ code: Buffer.from(compiler.build([...used])), minify: true }).code.toString()),
   );
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
@@ -67,249 +67,117 @@ async function buildFixture(dark: boolean): Promise<string> {
       productFontStyle() +
       "body{margin:0;background:var(--background);color:var(--foreground)}" +
       "main{max-width:1040px;margin:auto;padding:16px}</style></head><body>" +
-      '<main class="app-page-shell" data-app-density="compact" data-app-surface="one">' +
+      '<main class="app-page-shell" data-app-density="compact" data-app-surface="one" data-profile-type-scale="page">' +
       markup +
       "</main></body></html>",
   );
   return pathToFileURL(path.join(dir, "fixture.html")).href;
 }
 
-test("compact person typography survives a portal outside the page shell", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 375, height: 1000 });
+test("explicit Feed typography survives outside the page shell", async ({ page }) => {
   await page.goto(await buildFixture(false));
   await awaitProductFont(page);
   await page.evaluate(() => {
-    const row = document.querySelector('[data-row-layout="person"]')!;
+    const row = document.querySelector('[data-testid="feed-row"]')!;
+    row.setAttribute("data-profile-type-scale", "feed");
     document.body.appendChild(row);
-    row.setAttribute("data-portal-person", "true");
+    row.setAttribute("data-portal-feed", "true");
   });
-  const portalRow = page.locator('[data-portal-person="true"]');
-  await expect(portalRow.locator('[data-slot="settings-row-title"]')).toHaveCSS(
-    "font-size",
-    "16px",
-  );
-  await expect(portalRow.locator(".ui-text-row-description-compact")).toHaveCSS(
-    "font-size",
-    "13px",
-  );
+  await expect(page.locator('[data-portal-feed] [data-slot="settings-row-title"]')).toHaveCSS("font-size", "13px");
+  await expect(page.locator('[data-portal-feed] [data-slot="feed-event-description"]')).toHaveCSS("font-size", "12px");
 });
 
 for (const dark of [false, true]) {
   for (const width of WIDTHS) {
-    test(
-      "feed rows remain aligned at " +
-        width +
-        "px " +
-        (dark ? "dark" : "light"),
-      async ({ page }, testInfo) => {
-        await page.setViewportSize({ width, height: 1000 });
-        await page.goto(await buildFixture(dark));
-        await awaitProductFont(page);
-        const rows = page.locator('[data-row-layout="person"]');
-        const compactActionables = page.locator(
-          '[data-row-layout="settings"][data-testid^="feed-actionable-"]',
-        );
-        const historyRows = page.locator('[data-testid="feed-row"]');
-        // The generated fixture has three decision rows, one compact live row,
-        // and eight compact historical events. Assert every class so a missing
-        // selector cannot silently pass the geometry checks below.
-        await expect(rows).toHaveCount(3);
-        await expect(compactActionables).toHaveCount(1);
-        await expect(historyRows).toHaveCount(8);
-        for (const heading of await page
-          .locator('[data-slot="settings-group-heading"]')
-          .all()) {
-          await expect(heading).toHaveCSS("font-size", "14px");
-        }
-        const measurements = await rows.evaluateAll((elements) =>
-          elements.map((row) => {
-            const box = row.getBoundingClientRect();
-            const title = row.querySelector(
-              '[data-slot="settings-row-title"]',
-            )!;
-            const avatar = row.querySelector(
-              '[data-slot="avatar"],[data-slot="settings-row-icon"],[data-slot="feed-domain-icon"]',
-            )!;
-            const desc = row.querySelector(
-              '[data-slot="feed-event-description"]',
-            )!;
-            const time = row.querySelector('[data-slot="feed-event-time"]')!;
-            const t = title.getBoundingClientRect();
-            const a = avatar.getBoundingClientRect();
-            const d = desc.getBoundingClientRect();
-            const stamp = time.getBoundingClientRect();
-            // Only the row's decisions, never the row itself. The row's own
-            // tap target is a full-bleed overlay button that labels itself
-            // by reference and so no longer contains the title; counting it
-            // made the three-decision rows read as four (skipping the
-            // one-line check) and the two-decision rows read as three.
-            // Only rendered buttons: a phone-hidden action has no box.
-            const actions = [...row.querySelectorAll("button")].filter(
-              (button) =>
-                button.getAttribute("data-slot") !== "settings-row-action" &&
-                !button.contains(title) &&
-                button.getBoundingClientRect().width > 0,
-            );
-            return {
-              title: title.textContent,
-              inset: t.left - box.left,
-              avatarWidth: a.width,
-              avatarHeight: a.height,
-              separator: parseFloat(getComputedStyle(row, "::after").left),
-              fontSize: parseFloat(getComputedStyle(title).fontSize),
-              timeTop: stamp.top,
-              descriptionBottom: d.bottom,
-              timeWidth: stamp.width,
-              height: box.height,
-              overflow: [...row.querySelectorAll("*")].some((node) => {
-                if ((node as HTMLElement).classList.contains("sr-only"))
-                  return false;
-                const bounds = node.getBoundingClientRect();
-                return (
-                  bounds.width > 0 &&
-                  (bounds.left < box.left - 1 || bounds.right > box.right + 1)
-                );
-              }),
-              actions: actions.map((button) => ({
-                height: button.getBoundingClientRect().height,
-                left: button.getBoundingClientRect().left - box.left,
-                width: button.getBoundingClientRect().width,
-                top: button.getBoundingClientRect().top,
-                bottom: button.getBoundingClientRect().bottom,
-              })),
-            };
+    test(`Feed uses one text line and right-side times at ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 1100 });
+      await page.goto(await buildFixture(dark));
+      await awaitProductFont(page);
+      const rows = page.locator('[data-row-layout="settings"][data-testid^="feed-actionable-"]:not([data-testid^="feed-actionable-sms-emergency:"]), [data-row-layout="settings"][data-testid^="feed-drive-progress-"], [data-testid="feed-row"]');
+      await expect(rows).toHaveCount(16);
+      for (const heading of await page.locator('[data-slot="settings-group-heading"]').all()) {
+        await expect(heading).toHaveCSS("font-size", "10px");
+      }
+      const measurements = await rows.evaluateAll(elements => elements.map(row => {
+        const box = row.getBoundingClientRect();
+        const copy = row.querySelector('[data-slot="feed-inline-copy"]')!;
+        const title = copy.querySelector('[data-profile-role="name"]')!;
+        const description = copy.querySelector('[data-slot="feed-event-description"]')!;
+        const time = row.querySelector('[data-slot="feed-event-time"]')!;
+        const t = title.getBoundingClientRect();
+        const d = description.getBoundingClientRect();
+        const stamp = time?.getBoundingClientRect();
+        const buttons = [...row.querySelectorAll('button')].filter(node => node.getBoundingClientRect().width > 0 && !node.contains(copy));
+        return {
+          label: title.textContent,
+          titleSize: getComputedStyle(title).fontSize,
+          descriptionSize: getComputedStyle(description).fontSize,
+          timeSize: time ? getComputedStyle(time).fontSize : null,
+          titleWidth: t.width,
+          titleHeight: t.height,
+          descriptionHeight: d.height,
+          textCenterDelta: Math.abs((t.top + t.height / 2) - (d.top + d.height / 2)),
+          timeCenterDelta: stamp ? Math.abs((box.top + box.height / 2) - (stamp.top + stamp.height / 2)) : null,
+          timeWidth: stamp?.width,
+          timeLeft: stamp?.left,
+          copyRight: copy.getBoundingClientRect().right,
+          height: box.height,
+          overflow: [...row.querySelectorAll('*')].some(node => {
+            if (node.classList.contains('sr-only')) return false;
+            const rect = node.getBoundingClientRect();
+            // Text can extend inside an ellipsis box; the visible box itself cannot.
+            return rect.width > 0 && (rect.left < box.left - 1 || rect.right > box.right + 1);
           }),
-        );
-        for (const row of measurements) {
-          expect.soft(row.inset, row.title ?? "").toBeCloseTo(68, 0);
-          expect.soft(row.separator).toBeCloseTo(68, 0);
-          expect.soft(row.avatarWidth).toBe(40);
-          expect.soft(row.avatarHeight).toBe(40);
-          expect.soft(row.fontSize).toBeLessThanOrEqual(16);
-          expect.soft(row.timeTop).toBeGreaterThanOrEqual(row.descriptionBottom);
+          actions: buttons.map(node => ({ height: node.getBoundingClientRect().height, top: node.getBoundingClientRect().top })),
+        };
+      }));
+      for (const row of measurements) {
+        expect.soft(row.titleSize, row.label ?? "").toBe("13px");
+        expect.soft(row.descriptionSize).toBe("12px");
+        if (row.timeSize) expect.soft(row.timeSize).toBe("12px");
+        expect.soft(row.titleHeight).toBeLessThanOrEqual(17);
+        expect.soft(row.descriptionHeight).toBeLessThanOrEqual(17);
+        expect.soft(row.textCenterDelta).toBeLessThanOrEqual(1);
+        if (row.timeCenterDelta != null) {
+          expect.soft(row.timeCenterDelta).toBeLessThanOrEqual(1);
           expect.soft(row.timeWidth).toBeGreaterThan(40);
-          expect.soft(row.height).toBeGreaterThanOrEqual(72);
-          expect.soft(row.height).toBeLessThanOrEqual(220);
-          expect.soft(row.overflow, row.title ?? "").toBe(false);
-          for (const action of row.actions)
-            expect(action.height).toBeGreaterThanOrEqual(44);
-          // Below 375px the consent row's Details icon steps aside (the row
-          // itself opens Details), leaving the same two-decision pair.
-          if (width < 640 && row.actions.length === 2) {
-            expect
-              .soft(Math.abs(row.actions[0].top - row.actions[1].top))
-              .toBeLessThanOrEqual(1);
-            expect
-              .soft(row.actions[1].left)
-              .toBeGreaterThanOrEqual(
-                row.actions[0].left + row.actions[0].width - 1,
-              );
-          }
-          if (width < 640 && row.actions.length === 1) {
-            expect.soft(row.actions[0].width).toBeLessThanOrEqual(180);
-          }
-          // The owner's consent request carries Details, Don't allow and
-          // Allow. From 375px up (iPhone 16 is 393) they share one line, in
-          // that order, with Allow last.
-          if (row.actions.length === 3 && width >= 375) {
-            const [first, second, third] = row.actions;
-            expect.soft(Math.abs(first.top - third.top)).toBeLessThanOrEqual(1);
-            expect.soft(second.left).toBeGreaterThanOrEqual(first.left + first.width - 1);
-            expect.soft(third.left).toBeGreaterThanOrEqual(second.left + second.width - 1);
-          }
+          expect.soft(row.timeLeft).toBeGreaterThanOrEqual(row.copyRight - 1);
         }
-        const compactMeasurements = await page
-          .locator(
-            '[data-row-layout="settings"][data-testid^="feed-actionable-"], [data-testid="feed-row"]',
-          )
-          .evaluateAll((elements) =>
-            elements.map((row) => {
-              const box = row.getBoundingClientRect();
-              const surface = row.querySelector(":scope > a, :scope > button")!;
-              const title = row.querySelector(
-                '[data-slot="settings-row-title"]',
-              )!;
-              const description = row.querySelector(
-                '[data-slot="feed-event-description"]',
-              )!;
-              const leading = row.querySelector(
-                '[data-slot="avatar"],[data-slot="feed-domain-icon"]',
-              )!;
-              const time = row.querySelector('[data-slot="feed-event-time"]');
-              const titleBox = title.getBoundingClientRect();
-              const leadingBox = leading.getBoundingClientRect();
-              const surfaceBox = surface.getBoundingClientRect();
-              return {
-                kind: row.getAttribute("data-row-layout") === "settings"
-                  ? "actionable"
-                  : "history",
-                title: title.textContent,
-                inset: titleBox.left - box.left,
-                separator: parseFloat(getComputedStyle(row, "::after").left),
-                leadingWidth: leadingBox.width,
-                leadingHeight: leadingBox.height,
-                titleFontSize: parseFloat(getComputedStyle(title).fontSize),
-                descriptionFontSize: parseFloat(getComputedStyle(description).fontSize),
-                timeFontSize: time
-                  ? parseFloat(getComputedStyle(time).fontSize)
-                  : null,
-                timeVisible: time
-                  ? time.getBoundingClientRect().width > 0
-                  : false,
-                height: box.height,
-                tapHeight: surfaceBox.height,
-                tapWidth: surfaceBox.width,
-                width: box.width,
-                overflow: [...row.querySelectorAll("*")].some((node) => {
-                  if ((node as HTMLElement).classList.contains("sr-only"))
-                    return false;
-                  const bounds = node.getBoundingClientRect();
-                  return (
-                    bounds.width > 0 &&
-                    (bounds.left < box.left - 1 || bounds.right > box.right + 1)
-                  );
-                }),
-              };
-            }),
-          );
-        expect(compactMeasurements).toHaveLength(9);
-        for (const row of compactMeasurements) {
-          const expectedInset = row.kind === "history" && width <= 360 ? 46 : 50;
-          expect.soft(row.inset, row.title ?? "").toBeCloseTo(expectedInset, 0);
-          expect.soft(row.separator).toBeCloseTo(
-            row.kind === "history" ? 44 : 50,
-            0,
-          );
-          expect.soft(row.leadingWidth).toBeGreaterThanOrEqual(22);
-          expect.soft(row.leadingWidth).toBeLessThanOrEqual(26);
-          expect.soft(row.leadingHeight).toBeGreaterThanOrEqual(22);
-          expect.soft(row.leadingHeight).toBeLessThanOrEqual(26);
-          expect.soft(row.titleFontSize).toBeGreaterThanOrEqual(12.5);
-          expect.soft(row.titleFontSize).toBeLessThanOrEqual(13);
-          expect.soft(row.descriptionFontSize).toBeGreaterThanOrEqual(10);
-          expect.soft(row.descriptionFontSize).toBeLessThanOrEqual(11);
-          if (row.timeFontSize !== null) {
-            expect.soft(row.timeFontSize).toBe(10);
-            expect.soft(row.timeVisible).toBe(width > 520);
-          }
-          expect.soft(row.height, `${row.kind}: ${row.title}`).toBeGreaterThanOrEqual(52);
-          expect.soft(row.height).toBeLessThanOrEqual(90);
-          expect.soft(row.tapHeight, `${row.kind}: ${row.title}`).toBeGreaterThanOrEqual(52);
-          expect.soft(row.tapWidth).toBeGreaterThanOrEqual(row.width - 1);
-          expect.soft(row.overflow, row.title ?? "").toBe(false);
-        }
-        await expect(
-          page.locator("button button, button a, a button"),
-        ).toHaveCount(0);
-        if (width === 393 || width === 1280) {
-          await page.screenshot({
-            path: testInfo.outputPath("feed-rows.png"),
-            fullPage: true,
-          });
-        }
-      },
-    );
+        expect.soft(row.height).toBeGreaterThanOrEqual(52);
+        expect.soft(row.height).toBeLessThanOrEqual(60);
+        expect.soft(row.titleWidth, row.label ?? "").toBeGreaterThan(20);
+        expect.soft(row.overflow, row.label ?? "").toBe(false);
+        for (const action of row.actions) expect.soft(action.height).toBeGreaterThanOrEqual(44);
+      }
+      const consent = page.locator('[data-testid^="feed-actionable-consent:"]');
+      if (width < 640) {
+        await expect(consent.getByRole("button", { name: "Review", exact: true })).toBeVisible();
+        await expect(consent.getByRole("button", { name: "Allow", exact: true })).toBeHidden();
+      } else {
+        await expect(consent.getByRole("button", { name: "Allow", exact: true })).toBeVisible();
+        await expect(consent.getByRole("button", { name: "Review", exact: true })).toBeHidden();
+      }
+      await expect(page.locator('[data-testid="feed-actionable-android-connection"]').getByRole("button", { name: /^Report/ })).toBeVisible();
+      await expect(page.locator("button button, button a, a button")).toHaveCount(0);
+      const sms = page.getByTestId("feed-sms-alert-group");
+      await expect(sms.locator("summary")).toContainText("3 recent SMS alerts · 1 active");
+      await expect(sms.locator("summary time")).toBeVisible();
+      await sms.locator("summary").focus();
+      await page.keyboard.press("Enter");
+      await expect(sms).toHaveAttribute("open", "");
+      await expect(sms.getByRole("link", { name: /Emergency SMS · Active/ })).toBeVisible();
+      const sentTimes = sms.locator('[data-testid^="feed-actionable-sms-emergency:"] time');
+      await expect(sentTimes).toHaveCount(3);
+      for (const stamp of await sentTimes.all()) {
+        await expect(stamp).toBeVisible();
+        const box = await stamp.boundingBox();
+        expect(box!.x).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      if (width === 393 || width === 1280) {
+        await page.screenshot({ path: testInfo.outputPath("feed-rows.png"), fullPage: true });
+      }
+    });
   }
 }

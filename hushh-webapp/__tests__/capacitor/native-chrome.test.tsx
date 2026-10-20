@@ -24,7 +24,7 @@ import { NativeAgentDock } from "@/components/agent/native-agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { NativePanelPoseWriter, useNativePanelPresentation, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
 import { nativePresentationAdmission, registerNativeDrawerPose, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativeFullWindowOverlayReady, waitForNativeDrawerCoverageRelease, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
-import { AgentDockProvider, useAgentDockState } from "@/components/agent/agent-dock";
+import { AgentDockPortal, AgentDockProvider, useAgentDockState } from "@/components/agent/agent-dock";
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { setNativeBaseAperture } from "@/lib/capacitor/native-base-apertures";
@@ -1590,11 +1590,9 @@ describe("private dock asynchronous submission boundary", () => {
   function Feature({ blocked, onAction, onEdit }: { blocked: boolean; onAction: NativeDockPort["onAction"]; onEdit?: (text: string) => void }) {
     const dock = useAgentDockState();
     const host = useRef<HTMLDivElement>(null);
-    const owner = useRef(Symbol("test-composer"));
     useNativeNavigationBlocked(blocked);
     useLayoutEffect(() => {
       dock?.setHost(host.current);
-      dock?.claim(owner.current, true, false);
     }, [dock]);
     useNativeDockPort("text", { projection: {
       context: "synthetic-conversation", mode: "text", text: "Synthetic draft", placeholder: "Message One",
@@ -1602,7 +1600,8 @@ describe("private dock asynchronous submission boundary", () => {
       recording: false, recordingReady: false, muted: false, supportsHold: false,
       attachments: [], attachmentRevision: 0, editorRevision: 0,
     }, onAction, onEdit });
-    return <div data-agent-bar-shell><div ref={host}><div data-agent-dock-embedded /></div><NativeAgentDock enabled /><PresentationProbe /></div>;
+    return <div data-agent-bar-shell><div ref={host} /><AgentDockPortal enabled visible>
+      <div data-agent-dock-embedded /></AgentDockPortal><NativeAgentDock enabled /><PresentationProbe /></div>;
   }
   function PresentationProbe() {
     const ports = useNativeDockPorts();

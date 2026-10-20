@@ -97,6 +97,10 @@ async def counted(
 
 
 def _frame(event: str, payload: Any) -> dict[str, str]:
+    if event == "result":
+        from hushh_mcp.one_adk.world_model_usage import public_result
+
+        payload, _ = public_result(payload)
     return {"event": event, "data": json.dumps(payload, separators=(",", ":"))}
 
 

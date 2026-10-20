@@ -423,6 +423,84 @@ async def test_provider_refresh_cannot_displace_a_verified_phone_owner(
         assert identity["phone_verified"] is True
 
 
+@pytest.mark.parametrize("claim_during_lookup", [False, True])
+async def test_passive_provider_refresh_preserves_newer_verified_phone(
+    monkeypatch, claim_during_lookup
+):
+    """A stale provider read must not reverse a saved country-coded number."""
+    _stub_referral_resync(monkeypatch)
+    uid = "firebase-user-123456789012"
+    conn = _PhoneClaimFakeConnection()
+    conn.rows.pop("other-firebase-user-1234567890")
+    conn.rows[uid].update(
+        phone_number="+16505550101" if claim_during_lookup else "+919000000001", phone_verified=True
+    )
+    service = ActorIdentityService()
+    cached = copy.deepcopy(conn.rows[uid])
+    monkeypatch.setattr(service, "get_many", AsyncMock(return_value={uid: cached}))
+    monkeypatch.setattr(
+        actor_identity_service, "get_pool", AsyncMock(return_value=_AliasFakePool(conn))
+    )
+
+    async def provider(*args, **kwargs):
+        if claim_during_lookup:
+            conn.rows[uid].update(phone_number="+919000000001", phone_verified=True)
+        return types.SimpleNamespace(
+            uid=uid, display_name="Updated Name", phone_number="+16505550101"
+        )
+
+    monkeypatch.setattr(service, "_get_firebase_user_record", provider)
+    identity = await service.sync_from_firebase(uid, force=True, require_success=True)
+    assert identity["phone_number"] == "+919000000001"
+    assert identity["phone_verified"] is True
+    assert identity["display_name"] == "Updated Name"
+
+
+@pytest.mark.parametrize("conflicting_owner", [False, True])
+async def test_explicit_native_phone_finalize_keeps_owner_protection(
+    monkeypatch, conflicting_owner
+):
+    _stub_referral_resync(monkeypatch)
+    uid = "firebase-user-123456789012"
+    conn = _PhoneClaimFakeConnection()
+    if not conflicting_owner:
+        conn.rows.pop("other-firebase-user-1234567890")
+    conn.rows[uid].update(phone_number="+919000000001", phone_verified=True)
+    monkeypatch.setattr(
+        actor_identity_service, "get_pool", AsyncMock(return_value=_AliasFakePool(conn))
+    )
+    service = ActorIdentityService()
+    monkeypatch.setattr(
+        service,
+        "_get_firebase_user_record",
+        AsyncMock(return_value=types.SimpleNamespace(uid=uid, phone_number="+16505550101")),
+    )
+    if conflicting_owner:
+        with pytest.raises(ActorIdentityPhoneClaimConflictError):
+            await service.finalize_verified_phone_from_firebase(uid, "+16505550101")
+        assert conn.rows[uid]["phone_number"] == "+919000000001"
+        assert conn.rows["other-firebase-user-1234567890"]["phone_number"] == "+16505550101"
+    else:
+        identity = await service.finalize_verified_phone_from_firebase(uid, "+16505550101")
+        assert identity["phone_number"] == "+16505550101"
+        assert identity["phone_verified"] is True
+
+
+@pytest.mark.parametrize("uid,phone", [("other", "+16505550101"), ("owner", "+919000000001")])
+async def test_native_phone_finalize_rejects_mismatched_provider_proof(monkeypatch, uid, phone):
+    service = ActorIdentityService()
+    monkeypatch.setattr(
+        service,
+        "_get_firebase_user_record",
+        AsyncMock(return_value=types.SimpleNamespace(uid=uid, phone_number=phone)),
+    )
+    claim = AsyncMock()
+    monkeypatch.setattr(service, "claim_verified_phone", claim)
+    with pytest.raises(ValueError):
+        await service.finalize_verified_phone_from_firebase("owner", "+16505550101")
+    claim.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_verified_phone_owner_transfer_uses_parameterized_lock_and_ordered_rows() -> None:
     statements: list[tuple[str, tuple[object, ...]]] = []

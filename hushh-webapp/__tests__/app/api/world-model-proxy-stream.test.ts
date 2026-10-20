@@ -66,16 +66,18 @@ describe("/api/one world-model proxy", () => {
   });
 
   it("still buffers the plain status read exactly as before", async () => {
+    const usage = JSON.stringify({ model_calls: 2, input_tokens: 120, output_tokens: 35 });
     mocks.fetch.mockResolvedValue(
       new Response(JSON.stringify({ status: "pending", pkm_written: false }), {
         status: 200,
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-hussh-pwm-usage": usage },
       }),
     );
     const response = await GET(worldModelRequest("jobs") as never, {
       params: Promise.resolve({ path: ["world-model", "jobs"] }),
     });
     expect(response.headers.get("content-type")).toContain("application/json");
+    expect(response.headers.get("x-hussh-pwm-usage")).toBe(usage);
     await expect(response.json()).resolves.toEqual({
       status: "pending",
       pkm_written: false,

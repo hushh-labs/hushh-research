@@ -58,8 +58,8 @@ describe("lost vault deletion", () => {
     render(<LostVaultDeletePanel user={user} onBack={vi.fn()} />);
 
     expect(await screen.findByRole("heading", { name: "Verify it’s you" })).toBeVisible();
-    expect(screen.getByText("Sign in again to continue.")).toBeVisible();
-    expect(screen.getByText(/This permanently deletes your account/)).toBeVisible();
+    expect(screen.getByText("Sign in again, then confirm deletion.")).toBeVisible();
+    expect(screen.getByText("Account deletion is permanent. Remove One’s bank access in bank settings. Required records may remain.")).toBeVisible();
     fireEvent.click(await screen.findByRole("button", { name: "Continue with Google" }));
     await screen.findByRole("button", { name: "Permanently delete account" });
     expect(screen.getByRole("heading", { name: "Delete account" })).toBeVisible();

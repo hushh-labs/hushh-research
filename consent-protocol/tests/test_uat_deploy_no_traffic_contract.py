@@ -273,10 +273,17 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         "#!/bin/bash\n"
         'printf "%s\\n" "$*" >> "$GCLOUD_CALLS_PATH"\n'
         'if [[ "$1 $2 $3" == "run jobs executions" ]]; then echo "azure-pwm-exec-1"; fi\n'
-        'if [[ "$1 $2" == "logging read" ]]; then printf \'[{"jsonPayload":{"azure_pwm_runtime_probe_result":"%s"}}]\\n\' "$PROBE_VERDICT"; fi\n',
+        'if [[ "$1 $2" == "logging read" ]]; then\n'
+        '  if [[ "$PROBE_DELAYED" == "true" && ! -f "$PROBE_FIRST_READ" ]]; then\n'
+        '    touch "$PROBE_FIRST_READ"; printf "%s\\n" "$PROBE_PARTIAL_LOGS"\n'
+        '  else printf "%s\\n" "$PROBE_LOGS"; fi\n'
+        "fi\n",
         encoding="utf-8",
     )
     fake_gcloud.chmod(0o755)
+    # Exercise the production bounded polling loop without real ingestion waits.
+    (fake_bin / "sleep").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (fake_bin / "sleep").chmod(0o755)
     digest = "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64
     base_env = {
         **os.environ,
@@ -292,13 +299,34 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
     runtime_identity = base_env["_RUNTIME_SERVICE_ACCOUNT"]
     cases = (
         ("ok", digest, runtime_identity, 0, True),
+        ("delayed", digest, runtime_identity, 0, True),
         ("failed", digest, runtime_identity, 1, True),
+        ("missing_http", digest, runtime_identity, 1, True),
+        ("missing_managed", digest, runtime_identity, 1, True),
+        ("wrong_scope", digest, runtime_identity, 1, True),
         ("ok", "gcr.io/hushh-pda-uat/consent-protocol:mutable", runtime_identity, 1, False),
         ("ok", digest, "other-runtime@hushh-pda-uat.iam.gserviceaccount.com", 1, False),
     )
     for verdict, image, service_account, expected_status, should_call_gcloud in cases:
         calls = tmp_path / "gcloud-calls.txt"
         calls.write_text("", encoding="utf-8")
+        first_read = tmp_path / "first-read"
+        first_read.unlink(missing_ok=True)
+        http = {
+            "azure_pwm_runtime_probe_stage": "primary_http",
+            "result": "ok",
+            "http_status": 200,
+            "deployment": "synthetic-primary",
+        }
+        records = [
+            http,
+            {"azure_managed_text_contract": "ok", "scopes": 1 if verdict == "wrong_scope" else 2},
+            {"azure_pwm_runtime_probe_result": "failed" if verdict == "failed" else "ok"},
+        ]
+        if verdict == "missing_http":
+            records.pop(0)
+        if verdict == "missing_managed":
+            records.pop(1)
         result = subprocess.run(  # noqa: S603 - production build script with a fake gcloud.
             ["bash", "-c", probe],
             cwd=tmp_path,
@@ -306,7 +334,10 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
                 **base_env,
                 "_IMAGE_REFERENCE": image,
                 "_RUNTIME_SERVICE_ACCOUNT": service_account,
-                "PROBE_VERDICT": verdict,
+                "PROBE_LOGS": json.dumps([{"jsonPayload": value} for value in records]),
+                "PROBE_PARTIAL_LOGS": json.dumps([{"jsonPayload": http}]),
+                "PROBE_DELAYED": "true" if verdict == "delayed" else "false",
+                "PROBE_FIRST_READ": str(first_read),
                 "GCLOUD_CALLS_PATH": str(calls),
             },
             capture_output=True,
@@ -323,6 +354,8 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
             assert "--clear-secrets" in invoked
             assert "run.googleapis.com/execution_name" in invoked
             assert "jsonPayload.azure_pwm_runtime_probe_result" in invoked
+            if verdict == "delayed":
+                assert invoked.count("logging read") >= 2
         else:
             assert not invoked
 

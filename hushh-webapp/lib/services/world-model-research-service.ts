@@ -116,7 +116,7 @@ export const pwmReportSchema = z
     const facts = value.sections.flatMap((section) => section.facts);
     return (
       new Set(value.sections.map((section) => section.kind)).size === value.sections.length &&
-      (value.match_status === "no_match") === (facts.length === 0) &&
+      (value.match_status !== "no_match" || facts.length === 0) &&
       facts.length <= 269 &&
       new Set(facts.map((fact) => fact.statement.trim().replace(/\s+/g, " ").toLowerCase())).size === facts.length
     );
@@ -597,8 +597,9 @@ async function step(
         input,
         path,
         method,
-        method === "POST" && input.ownerDecisions
-          ? { owner_decisions: input.ownerDecisions }
+        method === "POST" && (input.ownerDecisions || path === "jobs")
+          ? { ...(input.ownerDecisions ? { owner_decisions: input.ownerDecisions } : {}),
+              ...(path === "jobs" ? { refresh: true } : {}) }
           : undefined,
       ),
     );

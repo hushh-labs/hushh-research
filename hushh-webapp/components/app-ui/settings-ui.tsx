@@ -26,14 +26,12 @@ import {
 } from "@/components/ui/drawer";
 import {
   Sheet,
-  SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
@@ -50,6 +48,7 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
+import { TaskSheetContent, TaskDialogContent, TaskSurfaceBody, TaskSurfaceFooter } from "@/lib/morphy-ux/ui/task-surfaces";
 import { cn } from "@/lib/utils";
 
 const INTERACTIVE_HTML_TAGS = new Set([
@@ -481,6 +480,7 @@ export function SettingsRow({
   voicePurpose,
   ariaPressed,
   ariaLabel,
+  describeContent = false,
   testId = "settings-row",
 }: {
   asChild?: boolean;
@@ -526,10 +526,13 @@ export function SettingsRow({
    * what it does. Omit it and the title-derived name is used, unchanged.
    */
   ariaLabel?: string;
+  /** Read the visible description even when an explicit action name is supplied. */
+  describeContent?: boolean;
   testId?: string;
 }) {
   const presentation = useContext(SettingsPresentationContext);
   const contentId = useId();
+  const descriptionId = describeContent && description ? `${contentId}-description` : undefined;
   const resolvedDensity = density ?? presentation.density ?? "comfortable";
   const resolvedAsChild = asChild && isValidElement(children);
   const isInteractive =
@@ -677,6 +680,7 @@ export function SettingsRow({
             as="div"
             compact={resolvedDensity === "compact"}
             data-slot="settings-row-description"
+            id={descriptionId}
             className={
               textOverflow === "truncate"
                 ? "truncate whitespace-nowrap"
@@ -852,6 +856,7 @@ export function SettingsRow({
           disabled={disabled}
           aria-pressed={ariaPressed}
           aria-label={ariaLabel}
+          aria-describedby={descriptionId}
           aria-labelledby={ariaLabel ? undefined : contentId}
           className={rowActionClassName}
           {...voiceProps}
@@ -913,6 +918,7 @@ export function SettingsRow({
               disabled,
               "aria-pressed": ariaPressed,
               "aria-label": ariaLabel,
+              "aria-describedby": descriptionId,
             }
           : { "aria-disabled": disabled || undefined })}
         className={sharedClassName}
@@ -1009,7 +1015,7 @@ export function AdaptiveDetailSurface({
       : "line-clamp-2";
 
   const closeButton = (
-    <button
+    <button data-slot="task-close"
       type="button"
       aria-label="Close detail panel"
       onClick={() => onOpenChange(false)}
@@ -1029,8 +1035,9 @@ export function AdaptiveDetailSurface({
     if (mobilePresentation === "sheet") {
       return (
         <Sheet open={open} onOpenChange={onOpenChange} modal>
-          <SheetContent
+          <TaskSheetContent
             side="bottom"
+            contentDragDismiss={false}
             onCloseAutoFocus={onCloseAutoFocus}
             showCloseButton={showMobileCloseButton}
             className={cn("gap-0", surfaceClassName, contentClassName)}
@@ -1039,7 +1046,7 @@ export function AdaptiveDetailSurface({
               (event.currentTarget as HTMLElement).focus();
             }}
           >
-            <SheetHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 pt-7 pb-3 text-left">
+            <SheetHeader className="morphy-theme-content">
               <div
                 className={cn(
                   "flex min-w-0 items-center gap-3 text-left",
@@ -1071,20 +1078,13 @@ export function AdaptiveDetailSurface({
                 </div>
               </div>
             </SheetHeader>
-            <div
-              className={cn(
-                "bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+1rem)] pt-1 sm:px-4 sm:pt-2",
-                bodyClassName,
-              )}
-            >
-              {children}
-            </div>
+            <TaskSurfaceBody className={bodyClassName}>{children}</TaskSurfaceBody>
             {footer ? (
-              <div className="sticky bottom-0 border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+              <TaskSurfaceFooter>
                 {footer}
-              </div>
+              </TaskSurfaceFooter>
             ) : null}
-          </SheetContent>
+          </TaskSheetContent>
         </Sheet>
       );
     }
@@ -1152,7 +1152,7 @@ export function AdaptiveDetailSurface({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} modal>
-      <DialogContent
+      <TaskDialogContent size="lg"
         data-settings-detail-panel="true"
         onCloseAutoFocus={onCloseAutoFocus}
         showCloseButton={false}
@@ -1168,7 +1168,7 @@ export function AdaptiveDetailSurface({
           (e.currentTarget as HTMLElement).focus();
         }}
       >
-        <DialogHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-6 pt-4 pb-3 pr-16 text-left backdrop-blur-[var(--blur-standard)]">
+        <DialogHeader className="morphy-theme-content">
           <div className="flex min-w-0 items-center gap-3 text-left">
             {leading ? <div className="shrink-0">{leading}</div> : null}
             <div className="min-w-0 text-left">
@@ -1194,20 +1194,13 @@ export function AdaptiveDetailSurface({
           </div>
           {showCloseButton ? closeButton : null}
         </DialogHeader>
-        <div
-          className={cn(
-            "min-h-0 flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-4 pb-8 pt-2 sm:px-5 sm:pt-2.5",
-            bodyClassName,
-          )}
-        >
-          {children}
-        </div>
+        <TaskSurfaceBody className={bodyClassName}>{children}</TaskSurfaceBody>
         {footer ? (
-          <div className="border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4 sm:justify-end">
+          <TaskSurfaceFooter>
             {footer}
-          </div>
+          </TaskSurfaceFooter>
         ) : null}
-      </DialogContent>
+      </TaskDialogContent>
     </Dialog>
   );
 }

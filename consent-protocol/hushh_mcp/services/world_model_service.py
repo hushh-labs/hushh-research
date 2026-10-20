@@ -306,6 +306,12 @@ class WorldModelJobs(ProfileResearchJobs):
             state, now=self.clock(), revision_at=self.activity_at(user_id, state)
         )
         facts = validated_facts_from_work(state.get("work"))
+        if POLICY["provider"] == "azure_openai_web_search":
+            from hushh_mcp.one_adk.world_model_azure import checkpoint_usage
+
+            usage = checkpoint_usage(state.get("work"), state.get("attempted_combinations", []))
+            if usage is not None:
+                result = {**result, "_provider_usage": usage}
         return {**result, "progress": progress, "validated_facts": facts}
 
     def committed(self):
@@ -341,14 +347,16 @@ class WorldModelJobs(ProfileResearchJobs):
         ):
             await enroll_default(user_id, consent_token)
             enrolled = True
-        refused, _ = await admission(user_id, consent_token)
+        refused, binding = await admission(user_id, consent_token)
         if refused:
             self.decision("ensure", "refused", refused, None)
             return refused
         consent = await preferences(user_id)
         state = await self.store.get(user_id)
+        current_binding = state is not None and state.get("identity_binding") == binding
         if (
             state is not None
+            and current_binding
             and state.get("status") in {"offered", "low_confidence", "saved"}
             and self.clock() - state.get("finished_at", self.clock()) >= TTL_SECONDS
         ):
@@ -371,6 +379,7 @@ class WorldModelJobs(ProfileResearchJobs):
         if (
             state
             and state["status"] == "saved"
+            and current_binding
             and state.get("consent_generation") == str(consent["generation"])
         ):
             self.decision("ensure", "saved", state["result"], state)

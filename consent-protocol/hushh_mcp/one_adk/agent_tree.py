@@ -171,6 +171,7 @@ from hushh_mcp.runtime_providers import (
     thinking_config_for,
 )
 from hushh_mcp.runtime_providers.live_compatibility import GEMINI_LIVE_COMPATIBILITY
+from hushh_mcp.runtime_providers.managed_text import managed_text_agent
 from hushh_mcp.runtime_providers.puppy_transport import PuppyCapabilityUnsupported
 from hushh_mcp.runtime_settings import one_db_sessions_enabled, pod_mode
 from hushh_mcp.services.action_gateway import (
@@ -2303,7 +2304,7 @@ async def list_intro_navigation_actions() -> dict[str, Any]:
 def _build_ria_agent(*, model: Any | None = None) -> LlmAgent:
     """RIA subagent of Finance: advisor workspace persona."""
     manifest = next(child for child in _KAI_MANIFEST.subagents if child.id == "agent_ria")
-    return LlmAgent(
+    return managed_text_agent(
         name="ria",
         model=model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL),
         description=manifest.description,
@@ -2327,6 +2328,13 @@ def _resolve_text_model(model: Any | None, *, vertex_project: str | None = None)
         return model
     if os.getenv("TESTING", "").strip().lower() in {"1", "true", "yes"}:
         return _SPECIALIST_MODEL
+    from hushh_mcp.runtime_providers.managed_text import (
+        build_managed_text_model,
+        managed_text_policy,
+    )
+
+    if managed_text_policy() is not None:
+        return build_managed_text_model(scope="one_text_chat")
     if vertex_project is not None:
         return build_managed_regional_gemini_adk_model(
             _SPECIALIST_MODEL, vertex_project=vertex_project
@@ -2344,7 +2352,7 @@ def build_one_intro_text_agent(
     a consent token, and has no specialist, persistence, or mutation tool.
     """
     manifest = next(child for child in _ONE_MANIFEST.subagents if child.id == "one_intro")
-    return LlmAgent(
+    return managed_text_agent(
         name=manifest.name,
         model=_resolve_text_model(model, vertex_project=vertex_project),
         description=manifest.description,
@@ -2359,7 +2367,7 @@ def build_one_intro_text_agent(
 def _build_investor_agent(*, model: Any | None = None) -> LlmAgent:
     """Investor subagent of Finance: personal investing analysis persona."""
     manifest = next(child for child in _KAI_MANIFEST.subagents if child.id == "agent_investor")
-    return LlmAgent(
+    return managed_text_agent(
         name="investor",
         model=model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL),
         description=manifest.description,
@@ -2484,7 +2492,7 @@ def _build_finance_agent(*, model: Any | None = None) -> LlmAgent:
     from google.adk.tools.agent_tool import AgentTool
 
     specialist_model = model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
-    return LlmAgent(
+    return managed_text_agent(
         name="finance",
         model=specialist_model,
         description=_KAI_MANIFEST.description,
@@ -2509,7 +2517,7 @@ def _build_wallet_agent(*, model: Any | None = None) -> LlmAgent:
     model, or the server in plaintext.
     """
     specialist_model = model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
-    return LlmAgent(
+    return managed_text_agent(
         name="wallet",
         model=specialist_model,
         description=_WALLET_MANIFEST.description,
@@ -2521,7 +2529,7 @@ def _build_wallet_agent(*, model: Any | None = None) -> LlmAgent:
 def build_google_search_agent(*, model: Any | None = None) -> LlmAgent:
     """The manifest-owned public Search child, shared by One's bounded tasks."""
     manifest = next(child for child in _ONE_MANIFEST.subagents if child.id == "google_search")
-    return LlmAgent(
+    return managed_text_agent(
         name=manifest.name,
         model=model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL),
         description=manifest.description,
@@ -2733,9 +2741,14 @@ def build_one_text_agent(
     # register the canonical endpoint. The shared resolver keeps that import
     # credential-independent in tests while hosted runtimes stay explicit.
     text_model = _resolve_text_model(model, vertex_project=vertex_project)
+    from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel
+
+    if isinstance(text_model, ManagedPrimaryTextModel) and google_search_model is None:
+        # Native Google Search is a separate declared capability, not a text fallback.
+        google_search_model = build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
 
-    return LlmAgent(
+    return managed_text_agent(
         name="one",
         model=text_model,
         description=_ONE_MANIFEST.description,
@@ -2832,6 +2845,9 @@ def build_one_live_runner(
     plugins: list[BasePlugin] = (
         [_PrivateLiveAccessPlugin(require_access)] if require_access is not None else []
     )
+    from hushh_mcp.hushh_adk.product_activity import product_activity_plugins
+
+    plugins.extend(product_activity_plugins("agent_one"))
     if require_access is not None and not pod_mode():
         raise ValueError("private_live_access_required")
     if pod_mode() and not public_intro_only and require_access is None:

@@ -1909,7 +1909,7 @@ export class ApiService {
 
   static async refreshAccountIdentityShadow(
     idToken?: string,
-    options?: { force?: boolean; requireSuccess?: boolean },
+    options?: { force?: boolean; requireSuccess?: boolean; verifiedPhoneNumber?: string },
   ): Promise<Response> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -1933,6 +1933,9 @@ export class ApiService {
       headers: {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
+      ...(options?.verifiedPhoneNumber ? {
+        body: JSON.stringify({ verified_phone_number: options.verifiedPhoneNumber }),
+      } : {}),
     });
   }
 
@@ -3043,6 +3046,12 @@ export class ApiService {
   /** Public accessor for callers outside this class (voice session tickets). */
   static async getFirebaseIdToken(): Promise<string | undefined> {
     return this.getFirebaseToken();
+  }
+
+  /** Correlate a token with the initiating owner; the backend verifies it. */
+  static async getFirebaseIdTokenForOwner(userId: string): Promise<string | undefined> {
+    const token = await this.getFirebaseToken();
+    return token && decodeFirebaseTokenSubject(token) === userId ? token : undefined;
   }
 
   private static async getFirebaseToken(): Promise<string | undefined> {

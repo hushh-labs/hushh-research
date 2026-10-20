@@ -582,6 +582,7 @@ class GoogleDrivePermissionAdapter:
         require_app_authorized: bool = True,
         require_genai_eligibility: bool = True,
         metadata_only: bool = False,
+        metadata_period: dict | None = None,
         expected_name: str | None = None,
         time_field: str | None = None,
         start_time: str | None = None,
@@ -637,7 +638,27 @@ class GoogleDrivePermissionAdapter:
                 raise DrivePermissionError("source_changed")
         elif result.get("version") != expected_version:
             raise DrivePermissionError("source_changed")
-        if metadata_only:
+        if metadata_only and metadata_period is not None:
+            from hushh_mcp.services.drive_owner_search_service import _in_requested_period
+
+            basis = metadata_period.get("date_basis")
+            match = {
+                "name": result.get("name"),
+                "created_time": result.get("createdTime"),
+                "modified_time": result.get("modifiedTime"),
+            }
+            if basis in {"created", "modified"}:
+                field = "created_time" if basis == "created" else "modified_time"
+                match = {"name": "", field: match.get(field)}
+            if basis not in {"title_created_modified", "created", "modified"}:
+                raise DrivePermissionError("operation_not_allowed")
+            try:
+                eligible = _in_requested_period(match, metadata_period, precedence=True)
+            except (ValueError, TypeError, KeyError):
+                raise DrivePermissionError("operation_not_allowed") from None
+            if not eligible:
+                raise DrivePermissionError("source_changed")
+        elif metadata_only:
             if time_field not in {"modifiedTime", "createdTime"} or not all(
                 isinstance(value, str)
                 and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", value)

@@ -180,11 +180,12 @@ export function AuthStep({
   const [reviewModeConfig, setReviewModeConfig] = useState<{
     enabled: boolean;
   }>({ enabled: false });
+  // Authentication belongs to NativeTestBootstrap even in the mint-only
+  // rehearsal. Withholding the vault passphrase must keep the vault locked,
+  // not start a second Firebase sign-in from this component.
   const shouldUseNativeTestBootstrap =
     nativeTestConfig.enabled &&
-    nativeTestConfig.autoReviewerLogin &&
-    Boolean(nativeTestConfig.expectedUserId) &&
-    Boolean(nativeTestConfig.vaultPassphrase);
+    nativeTestConfig.autoReviewerLogin;
   const preserveOnboardingAuditRoute =
     nativeTestConfig.enabled &&
     nativeTestConfig.expectedRoute === ROUTES.ONE_SETUP_FINANCE &&
@@ -452,6 +453,8 @@ export function AuthStep({
   }, []);
 
   const handleReviewerLogin = useCallback(async () => {
+    const liveConfig = getNativeTestConfig();
+    if (shouldUseNativeTestBootstrap || (liveConfig.enabled && liveConfig.autoReviewerLogin)) return;
     trackEvent("auth_started", {
       action: "reviewer",
     });
@@ -554,6 +557,7 @@ export function AuthStep({
     nativeTestConfig.vaultPassphrase,
     resolveAndNavigate,
     reviewModeConfig.enabled,
+    shouldUseNativeTestBootstrap,
   ]);
 
   useEffect(() => {
@@ -999,7 +1003,7 @@ export function AuthStep({
         dataState={nativeDataState}
         attachToBridge={(bridge) => {
           bridge.triggerReviewerLogin = () => {
-            if (autoReviewerLoginStartedRef.current) {
+            if (shouldUseNativeTestBootstrap || autoReviewerLoginStartedRef.current) {
               return;
             }
             autoReviewerLoginStartedRef.current = true;
@@ -1111,7 +1115,7 @@ export function AuthStep({
                     label="Continue as Reviewer"
                     icon={<Icon icon={Shield} size="md" />}
                     onClick={handleReviewerLogin}
-                    disabled={providerBusy}
+                    disabled={providerBusy || shouldUseNativeTestBootstrap}
                     className={REVIEWER_BTN_CLASS}
                   />
                 ) : null}

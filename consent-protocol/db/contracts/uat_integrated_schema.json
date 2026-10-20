@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 364,
+  "expected_migration_version": 366,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -2446,6 +2446,24 @@
       "accepted_at",
       "revoked_at",
       "updated_at"
+    ],
+    "one_product_activity_epochs": [
+      "user_id",
+      "generation",
+      "started_at"
+    ],
+    "one_product_activity_observations": [
+      "event_id",
+      "user_id",
+      "generation",
+      "agent_id",
+      "action_id",
+      "catalog_revision",
+      "source",
+      "phase",
+      "observed_at",
+      "expires_at",
+      "operation_key"
     ],
     "one_referral_activity_days": [
       "user_id",

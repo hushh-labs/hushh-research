@@ -81,6 +81,12 @@ def feed_db():
                   stripe_mode TEXT);
                 CREATE TABLE drive_request_payment_refunds(request_id UUID, status TEXT,
                   amount_cents BIGINT);
+                CREATE TABLE drive_bulk_shares(share_id UUID PRIMARY KEY, user_id TEXT,
+                  origin_request_id UUID, approved_at TIMESTAMPTZ, progressive_batch BOOLEAN);
+                CREATE TABLE drive_bulk_share_effects(share_id UUID, user_id TEXT, position INT,
+                  recipient_user_id TEXT, state TEXT);
+                CREATE TABLE drive_bulk_share_files(share_id UUID, user_id TEXT, position INT,
+                  origin_request_id UUID);
                 -- Grant columns as of migrations 061 and 150.
                 CREATE TABLE one_location_share_grants(
                   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -146,6 +152,66 @@ def session(engine) -> FeedService:
 
 def listed_ids(service: FeedService, user_id: str) -> list[int]:
     return [int(item["id"]) for item in service.list_feed(user_id, limit=100)["items"]]
+
+
+def test_partial_delivery_counts_only_active_claims_for_each_participant(feed_db):
+    active, superseded = str(uuid.uuid4()), str(uuid.uuid4())
+    with feed_db.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO drive_share_requests
+            (request_id,user_id,recipient_user_id,status,payment_required)
+            VALUES (:request,:owner,:recipient,'partial',FALSE)"""),
+            {"request": REQUEST, "owner": OWNER, "recipient": OTHER},
+        )
+        for share in (active, superseded):
+            connection.execute(
+                text("""INSERT INTO drive_bulk_shares
+                VALUES (:share,:owner,:request,now(),TRUE)"""),
+                {"share": share, "owner": OWNER, "request": REQUEST},
+            )
+        for position in range(1, 21):
+            connection.execute(
+                text("""INSERT INTO drive_bulk_share_files
+                VALUES (:share,:owner,:position,:request);
+                INSERT INTO drive_bulk_share_effects
+                VALUES (:share,:owner,:position,:recipient,:state)"""),
+                {
+                    "share": active,
+                    "owner": OWNER,
+                    "position": position,
+                    "request": REQUEST,
+                    "recipient": OTHER,
+                    "state": "succeeded" if position <= 13 else "preexisting",
+                },
+            )
+        # Recovery retains the old effect for audit and detaches its source claim.
+        connection.execute(
+            text("""INSERT INTO drive_bulk_share_files
+            VALUES (:share,:owner,1,NULL);
+            INSERT INTO drive_bulk_share_effects
+            VALUES (:share,:owner,1,:recipient,'skipped')"""),
+            {"share": superseded, "owner": OWNER, "recipient": OTHER},
+        )
+    row = {
+        "event_type": "document_share_outcome",
+        "metadata": {"request_id": REQUEST, "user_facing_status": "partial"},
+    }
+    for viewer in (OWNER, OTHER, SOS_SENDER):
+        service = session(feed_db)
+        hydrated = service._with_drive_payment_status(viewer, [row])
+        metadata = FeedService._to_item({"id": 1, **hydrated[0]})["metadata"]
+        counts = {
+            key: value for key, value in metadata.items() if key.startswith("current_delivery_")
+        }
+        assert counts == (
+            {
+                "current_delivery_total_count": 20,
+                "current_delivery_confirmed_count": 20,
+                "current_delivery_pending_count": 0,
+            }
+            if viewer in (OWNER, OTHER)
+            else {}
+        )
 
 
 def account_rows(engine, user_id: str) -> int:

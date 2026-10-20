@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-09-08
+Last updated: 2026-10-20
 
 ## Visual Map
 
@@ -53,22 +53,41 @@ Opening a contact source always requires the user's contact-check action.
 
 ### Automatic receiving readiness
 
-Vault unlock starts recipient-key recovery before unrelated warm jobs, including
-cached warm returns. Warm-up, setup and Location join one account-scoped operation.
+Root vault unlock starts recipient-key recovery on every route, including
+`/one/setup`, before optional Firebase-token reads and unrelated warm jobs.
+Returning directly to Chat or Connect cannot skip receiving readiness. Warm-up,
+setup and Location join one account-scoped operation.
 The operation adopts the existing vault-encrypted backup across devices; a failed
 remote read or undecryptable backup cannot silently replace a registered key.
 Session and owner generations fence recovery and registration across lock/logout.
-Transient failures retry with bounded backoff; the setup status also retries on
-online/foreground return and waits for registration before publishing readiness.
+Transient failures retry with bounded backoff; the root provider also retries on
+online/foreground return after those attempts are exhausted. The setup status
+waits for registration before publishing readiness.
 Receiving readiness requests no GPS permission and enables no location sharing.
 
 Share and Ask use the same account-ID recipient directory. Workspace refreshes
 reconcile both visible pages and retained selections, fence older page responses,
 and reload the directory. A connected person's missing receiving key is shown as
-`Location setup pending`, never as an invitation requirement. Ask may still send a
+`Connected · Location receiving unavailable`, never as an invitation requirement.
+The person's action sheet retains Ask and Manage connection. Ask may still send a
 consent request to that person without disclosing coordinates; private sharing
 requires their registered public key and revalidates the complete audience before
 submission. Contact matches never merge different account IDs by display name.
+
+After a material recipient-key change commits, a fresh read captures direct and
+Circle viewers and sends the existing silent `connection_graph_changed` doorbell.
+This closes the race with concurrent connection acceptance: the fresh read sees
+an earlier accepted edge, or the later acceptance event sees the committed key.
+Identical active
+keys and private backup-only backfills do not fan out; rotation, reactivation and
+repair of extra active keys do. Full account deletion captures surviving graph,
+Circle and pending-request viewers under the graph writer lock before erasure,
+then sends the same doorbell only after commit. Failed delivery cannot turn a
+committed erasure or registration into an API failure. Clients invalidate all
+connection-backed projections, including Location and SMS. Open People, Share,
+Ask and SMS surfaces also repair missed transitions while visible every minute.
+Missing recipient keys or optional Location preferences never establish that an
+account is deleted or inactive; proper deletion removes the graph itself.
 
 The introduction has three steps: Features, an optional Save a place step, then the
 existing Circle invite, copy/share, Join and Find contacts finale. Continue on
@@ -238,6 +257,15 @@ owner/link metadata plus the attached public location snapshot.
   separately materialize a mutual One Network connection. Claiming never
   creates a live location grant, exposes private owner profile data, or requests
   location permission.
+  The preview's primary action is **Accept invitation**, with short guidance
+  when phone verification or vault unlock is needed. Token invitations retain
+  their return destination through login, phone verification, setup and unlock.
+  Explicit invitation verification remains available to established accounts:
+  their exemption from first-run phone onboarding must not redirect them back
+  before they can verify the phone required by the claim endpoint. An unknown
+  identity offers Retry. Optional phone-based discovery does not interrupt this
+  invitation continuation. Masked inviter phone suffixes use one nonbreaking
+  bullet mask, including labels without a display name.
 - Named Circles are a separate durable metadata graph backed by
   `one_location_circles`, `one_location_circle_memberships`, and
   `one_location_circle_invite_codes`. The user's confirmed Join action on a

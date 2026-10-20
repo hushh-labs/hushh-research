@@ -13,7 +13,10 @@ const recoveryCache = vi.hoisted(() => ({ writeRequired: vi.fn().mockResolvedVal
   readRequired: vi.fn() }));
 vi.mock("@/lib/services/secure-resource-cache-service", () => ({ SecureResourceCacheService: recoveryCache }));
 
-vi.mock("@/lib/services/secure-durable-resource-service", () => ({ SecureDurableResourceService: { version: vi.fn().mockResolvedValue({ generation: 0, revision: 0 }) } }));
+vi.mock("@/lib/services/secure-durable-resource-service", () => ({
+  SecureDurableResourceService: { version: vi.fn().mockResolvedValue({ generation: 0, revision: 0 }) },
+  subscribeDurableOwnerReset: () => () => {},
+}));
 
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   PkmDomainResourceService: { getStaleFirst },

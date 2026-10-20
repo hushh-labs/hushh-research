@@ -63,7 +63,7 @@ vi.mock("@/lib/services/pkm-upgrade-orchestrator", () => ({
   },
 }));
 vi.mock("@/lib/services/unlock-warm-orchestrator", () => ({
-  UnlockWarmOrchestrator: { run: vi.fn() },
+  UnlockWarmOrchestrator: { run: vi.fn(), queueLocationRecipientKeyBootstrap: vi.fn() },
 }));
 vi.mock("@/lib/services/vault-service", () => ({
   VaultService: { invalidateVaultStateCache: vi.fn(), issueVaultOwnerToken: vi.fn() },
