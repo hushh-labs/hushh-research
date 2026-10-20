@@ -149,11 +149,32 @@ test("Profile header, Preferences and body follow one whole-panel pull without r
     return box ? Math.abs(box.x + box.width - page.viewportSize()!.width) : Number.POSITIVE_INFINITY;
   }).toBeLessThanOrEqual(1);
   const controlEdges = await preferences.evaluate(node => {
-    const appearance = node.querySelector('[role="radiogroup"]')!.getBoundingClientRect();
+    const theme = node.querySelector('[role="radiogroup"]')!;
+    const appearance = theme.getBoundingClientRect();
     const accent = node.querySelector('[role="combobox"]')!.getBoundingClientRect();
-    return { appearance: appearance.right, accent: accent.right };
+    return { appearance: appearance.right, accent: accent.right,
+      appearanceWidth: appearance.width, accentWidth: accent.width,
+      appearanceTargetHeight: appearance.height, accentTargetHeight: accent.height,
+      appearanceTrackHeight: theme.firstElementChild!.getBoundingClientRect().height,
+      accentTrackHeight: node.querySelector('[data-slot="accent-control-surface"]')!.getBoundingClientRect().height };
   });
   expect(Math.abs(controlEdges.appearance - controlEdges.accent)).toBeLessThanOrEqual(1);
+  expect(controlEdges.accentWidth).toBe(138);
+  expect(controlEdges.accentWidth).toBe(controlEdges.appearanceWidth);
+  expect(controlEdges.accentTargetHeight).toBeGreaterThanOrEqual(44);
+  expect(controlEdges.accentTargetHeight).toBe(controlEdges.appearanceTargetHeight);
+  expect(controlEdges.accentTrackHeight).toBe(36);
+  expect(controlEdges.accentTrackHeight).toBe(controlEdges.appearanceTrackHeight);
+  const accentChoice = preferences.getByRole("combobox", { name: "App accent color" });
+  await accentChoice.click();
+  await page.getByRole("option", { name: "Molten Gold", exact: true }).click();
+  await expect(accentChoice).toContainText("Molten Gold");
+  const label = accentChoice.getByText("Molten Gold", { exact: true });
+  expect(await label.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await accentChoice.click();
+  await page.getByRole("option", { name: "Blue", exact: true }).click();
+  await expect(accentChoice).toContainText("Blue");
+  await preferences.screenshot({ path: test.info().outputPath("profile-appearance-controls.png") });
   const measured = await page.evaluate(() => {
     const frame = document.querySelector<HTMLElement>('[data-testid="profile-pane"]')!;
     const body = frame.querySelector<HTMLElement>('[data-profile-pane-scroll-root="true"]')!;

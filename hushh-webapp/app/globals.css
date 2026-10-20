@@ -2691,36 +2691,19 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   container: profile-preferences / inline-size;
 }
 
-.profile-preferences-content .profile-preferences-control-row {
-  --profile-control-icon-size: 34px;
-}
-
 .profile-preferences-content .profile-preferences-control-row > .grid {
-  grid-template-columns: minmax(0, 1fr);
-  row-gap: var(--settings-row-stack-gap);
-}
-
-.profile-preferences-control-row[data-settings-density="compact"] {
-  --profile-control-icon-size: 28px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, min(50%, 148px));
+  align-items: center;
+  column-gap: var(--settings-row-gap);
+  row-gap: 0;
 }
 
 .profile-preferences-control-row [data-slot="settings-row-trailing"] {
   width: 100%;
   min-width: 0;
-  padding-inline-start: calc(var(--profile-control-icon-size) + var(--settings-row-gap));
-  padding-top: 4px;
-}
-
-@container profile-preferences (min-width: 560px) {
-  .profile-preferences-content .profile-preferences-control-row > .grid {
-    grid-template-columns: minmax(0, 1fr) 240px;
-    row-gap: 0;
-  }
-
-  .profile-preferences-control-row [data-slot="settings-row-trailing"] {
-    padding-inline-start: 0;
-    padding-top: 0;
-  }
+  padding-inline-start: 0;
+  padding-inline-end: 0;
+  padding-top: 0;
 }
 
 .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"],
