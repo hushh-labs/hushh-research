@@ -178,6 +178,10 @@ for (const dark of [false, true]) {
       page.on("pageerror", (error) => errors.push(error.message));
       await open(page, width, dark);
       await settle(page, width);
+      const workspaceBox = await page.locator("[data-connect-page]").boundingBox();
+      expect(workspaceBox).not.toBeNull();
+      expect(workspaceBox!.width).toBeLessThanOrEqual(728);
+      if (width >= 768) expect(workspaceBox!.width).toBe(728);
       await page.getByRole("tab", { name: /My connections/ }).click();
       const connectionGroup = page.getByTestId("connect-my-connections-group");
       await expect(connectionGroup.getByRole("heading", { name: "From contacts", exact: true })).toHaveCount(1);

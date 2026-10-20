@@ -20,12 +20,7 @@ describe("Connect canonical surface contract", () => {
     // workspace measure without changing the application's global reading width.
     expect(source).toContain('width="reading"');
     expect(source).toContain('styles.workspace');
-    const workspace = readFileSync(
-      join(process.cwd(), "components/connect/connect-workspace.module.css"),
-      "utf8",
-    );
-    expect(workspace).toContain("--app-shell-reading: 728px;");
-    expect(workspace).toContain("max-width: 728px;");
+    // Rendered workspace width is proved by connect-page-grid.layout.spec.ts.
     // The shared top bar owns the single "Connect" title (as on Feed), so the
     // page must not repeat it as an in-body header.
     expect(source).not.toContain("<PageHeader");
