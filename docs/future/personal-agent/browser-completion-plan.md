@@ -2,11 +2,19 @@
 
 ## Status
 
-**Implementation plan — 2026-10-19; source reviewed at `9d817ba5f3`.**
-Planning is complete; cloud execution is not. Both adapters remain disabled until
+**Implementation in progress — 2026-10-19; integration baseline `fd4770c16e`.**
+Browser is the P0 capability. Both adapters remain disabled until
 their own acceptance passes. Preserve the infrastructure branch, owner resources,
 selected configuration and concurrent work. Broader release-plan changes follow
 actual Browser implementation evidence, not this proposed design.
+
+The approved execution order is native feasibility, Browser production composition
+and owner control, all-family One scheduling, lifecycle corrections, then one
+combined dev candidate. Scheduled actions retain their existing confirmation
+requirements. Preserve economy scale-to-zero: no always-on wake service or artificial
+keepalive. Cold response under thirty seconds is an optimization goal, not a release
+gate. Reuse prior timings; after relevant changes, measure three cold and three warm
+turns per cloud without claiming a new percentile.
 
 ## Visual Context
 
@@ -53,7 +61,7 @@ task session; do not fork ADK or add an independent orchestration engine.
 - Reuse Azure endpoint validation, workload identity/token renewal and private
   credential custody. Add browser-specific native request/result translation:
   computer calls, call IDs, screenshot parts, safety checks and continuation.
-  The existing generic text/function translator drops required browser material.
+  The existing generic text/function translator explicitly refuses native media and tools; preserve that refusal while adding the separate Browser transport.
 - Qualify `store=false` with bounded in-memory continuation; never enable stored
   Responses to repair a failed request. Suppress content telemetry. This setting
   does not establish provider blindness or remove processing disclosure.
@@ -97,7 +105,7 @@ for owner input checkpoints and follows idle teardown rather than inferring fore
 | Cloud | Recorded failure | Required next proof |
 | --- | --- | --- |
 | GCP | Native worker ran as root; required UID/GID changes returned `EPERM`; sandboxed Chromium produced no frame | Provider-supported non-root identity and Chromium namespace compatibility, then the existing native browser-only probe |
-| Azure | Execution admission returned 403; worker identity, Chromium and private bridge remain unqualified | Supported owner-controlled Entra/workload identity with exact SandboxGroup authority, then native worker and broker qualification |
+| Azure | Workload identity, non-root/zero-capability execution and tmpfs pass. Chromium aborts on restricted namespaces; no frame. Network denial is unqualified | Provider-supported restricted namespace permissions, verified HTTP/TCP/UDP denial and the private memory-only broker bridge |
 
 Retain the owner's native sandbox requirement. No `--no-sandbox`, privileged
 process, alternate executor or execution in the private-agent container.
@@ -116,11 +124,12 @@ real owner information before the complete cloud boundary passes.
 
 | Stage | Deliverable | Exit proof |
 | --- | --- | --- |
-| 1. Native model contracts | Gemini verified; Azure model/toolset adapter and exact action mapping | Extend existing browser/Responses suites for images, instructions, call correlation, safety review, focused typing and unsupported-action negative controls |
-| 2. Cloud execution | Qualified launcher and private bridge per cloud | Native probes, actual Chromium, controlled network and teardown receipts |
-| 3. Runtime composition | Install `browser_task_runtime` with real ledger, exports, storage, model and update ports | Admitted start/reconnect/review/cancel; no fake readiness or duplicate task/effect |
-| 4. Owner experience | Headless work, responsive preview and exclusive takeover | Controlled mouse/touch/keyboard, viewport changes, login suppression and explicit fresh handback |
-| 5. Installed-image acceptance | Separate GCP and Azure evidence | Research, manual login, reviewed submission, scoped byte-exact Files download, Forget, update drain/recovery and idle wake |
+| 1. Native execution | Qualified non-root Chromium and private bridge on each cloud | Native frame, denied network, immutable source and teardown receipts |
+| 2. Native model contracts | Gemini verified; Azure model/toolset adapter and exact action mapping | Extend existing browser/Responses suites for images, instructions, call correlation, safety review, focused typing and unsupported-action negative controls |
+| 3. Cloud execution | Qualified launcher and private bridge per cloud | Native probes, actual Chromium, controlled network and teardown receipts |
+| 4. Runtime composition | Install `browser_task_runtime` with real ledger, exports, storage, model and update ports | Admitted start/reconnect/review/cancel; no fake readiness or duplicate task/effect |
+| 5. Owner experience | Headless work, responsive preview and exclusive takeover | Controlled mouse/touch/keyboard, viewport changes, login suppression and explicit fresh handback |
+| 6. Installed-image acceptance | Separate GCP and Azure evidence | Research, manual login, reviewed submission, scoped byte-exact Files download, Forget, update drain/recovery and idle wake |
 
 Run focused checks while building; use one core mirror and exact-SHA hosted
 verification on the finished candidate. Model checks stay synthetic, bounded and

@@ -15,6 +15,7 @@ from hushh_mcp.services.pod_commit_log import GcsObjectStore
 from hushh_mcp.services.pod_workload_identity import (
     PodWorkloadIdentityUnavailable,
     forget_workload_token,
+    get_workload_access_token,
     get_workload_token,
     google_metadata_access_endpoint,
 )
@@ -39,6 +40,9 @@ def test_the_token_is_minted_for_the_explicit_identity_with_the_platform_header(
     azure_workload_env(monkeypatch)
     endpoint = FakeManagedIdentity()
     token = get_workload_token(STORAGE, session=endpoint)
+    issued = get_workload_access_token(STORAGE, session=endpoint)
+    assert issued.token == token and issued.expires_at > identity.time.time() + 300
+    assert token not in repr(issued)
     assert token.startswith("mi-token-1-")
     (call,) = endpoint.calls
     assert call["url"] == IDENTITY_ENDPOINT
@@ -150,3 +154,38 @@ def test_google_and_local_workloads_keep_the_metadata_server(monkeypatch, platfo
     for name, value in platform_env.items():
         monkeypatch.setenv(name, value)
     assert "metadata.google.internal" in google_metadata_access_endpoint()
+
+
+@pytest.mark.asyncio
+async def test_native_workload_credential_preserves_identity_scope_and_issuer_expiry(monkeypatch):
+    import time
+
+    from hushh_mcp.services import pod_workload_identity
+    from hushh_mcp.services.pod_browser.azure_credentials import (
+        DATA_PLANE_SCOPE,
+        AzureWorkloadCredential,
+    )
+    from hushh_mcp.services.pod_browser.contracts import BrowserRefused
+
+    azure_workload_env(monkeypatch)
+    endpoint = FakeManagedIdentity(lifetime_seconds=3600)
+    original = pod_workload_identity.get_workload_access_token
+    monkeypatch.setattr(pod_workload_identity, "_cache", {})
+    monkeypatch.setattr(
+        pod_workload_identity,
+        "get_workload_access_token",
+        lambda resource: original(resource, session=endpoint),
+    )
+    credential = AzureWorkloadCredential(CLIENT_ID)
+    issued = await credential.get_token(DATA_PLANE_SCOPE)
+    assert issued.expires_at > time.time() + 300
+    assert issued.token not in repr(issued)
+    assert endpoint.calls[0]["params"]["resource"] == "https://management.azuredevcompute.io/"
+    for scope, client_id in (
+        ("https://storage.azure.com/.default", CLIENT_ID),
+        (DATA_PLANE_SCOPE, "99999999-0000-0000-0000-000000000000"),
+    ):
+        monkeypatch.setenv("AZURE_CLIENT_ID", client_id)
+        with pytest.raises(BrowserRefused, match="AZURE_PROBE_AUTH_REFUSED"):
+            await credential.get_token(scope)
+    assert len(endpoint.calls) == 1

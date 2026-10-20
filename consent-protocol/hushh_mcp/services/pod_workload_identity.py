@@ -22,7 +22,7 @@ import re
 import threading
 import time
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from hushh_mcp.services.pod_platform import WorkloadPlatform, workload_platform
@@ -52,7 +52,13 @@ class _AzureIdentity:
     client_id: str
 
 
-_cache: dict[tuple[str, str, str], tuple[str, float]] = {}
+@dataclass(frozen=True)
+class WorkloadAccessToken:
+    token: str = field(repr=False)
+    expires_at: float
+
+
+_cache: dict[tuple[str, str, str], WorkloadAccessToken] = {}
 _cache_lock = threading.Lock()
 
 
@@ -136,8 +142,8 @@ def _mint(identity: _AzureIdentity, resource: str, session: Any) -> tuple[str, f
     return token, _expiry(body)
 
 
-def get_workload_token(resource: str, *, session: Any = None) -> str:
-    """A bearer token for ``resource`` as the pod's own Azure workload identity.
+def get_workload_access_token(resource: str, *, session: Any = None) -> WorkloadAccessToken:
+    """Token and issuer expiry for the explicitly selected Azure workload.
 
     Cached per resource until five minutes before ``expires_on``. The cache guards
     only itself: the mint runs outside the lock, so a slow identity endpoint fails
@@ -151,19 +157,25 @@ def get_workload_token(resource: str, *, session: Any = None) -> str:
     now = time.time()
     with _cache_lock:
         cached = _cache.get(key)
-        if cached is not None and now < cached[1]:
-            return cached[0]
+        if cached is not None and now < cached.expires_at - _REFRESH_MARGIN_SECONDS:
+            return cached
         _cache.pop(key, None)
     if session is None:
         import requests  # type: ignore[import-untyped]  # noqa: PLC0415
 
         session = requests
     token, expires_on = _mint(identity, resource, session)
+    issued = WorkloadAccessToken(token=token, expires_at=expires_on)
     refresh_at = expires_on - _REFRESH_MARGIN_SECONDS
     if refresh_at > time.time():
         with _cache_lock:
-            _cache[key] = (token, refresh_at)
-    return token
+            _cache[key] = issued
+    return issued
+
+
+def get_workload_token(resource: str, *, session: Any = None) -> str:
+    """Existing string-only interface; token custody and refresh stay shared."""
+    return get_workload_access_token(resource, session=session).token
 
 
 def forget_workload_token(resource: str) -> None:
@@ -177,8 +189,10 @@ __all__ = [
     "GCE_METADATA_ACCESS_ENDPOINT",
     "PodWorkloadIdentityUnavailable",
     "WorkloadPlatform",
+    "WorkloadAccessToken",
     "forget_workload_token",
     "get_workload_token",
+    "get_workload_access_token",
     "google_metadata_access_endpoint",
     "workload_platform",
 ]

@@ -1,8 +1,10 @@
 # Private agent: normal release transition
 
-**Status:** local proposal, 2026-10-18. No push, application main merge or deployment
-is authorized by this document. Source reviewed against `origin/main` at
-`135d3c9d2a87` and the infrastructure candidate's main integration `32c9342806`.
+**Status:** local integration plan, refreshed 2026-10-19. Main `f47a4832dbc` and
+frozen ADK `42bb9823005` are integrated through `b14bc29901`; the current local
+checkpoint is `fd4770c16e`. The approved Browser-first implementation permits
+exact-SHA validation and governed dev acceptance after the candidate is complete.
+Application main merge, UAT/production and stable publication remain separate.
 The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
 actual journey acceptance; this plan does not convert source checks into live proof.
 
@@ -33,12 +35,13 @@ neither a cleaner tree nor passing documentation checks proves pod readiness.
 
 - Fresh main is integrated locally. Preserve pod authorization, bounded streams,
   reconnect/resync, connector route registration and current Profile behavior.
-- Preserve the active ADK worktree. Its frozen `0eedb8a366fb` delta needs authority
-  reconciliation before inclusion: extracted AI settings must retain Azure-aware
+- Preserve the active ADK worktree. The frozen `42bb9823005` delta is integrated
+  with authority reconciliation: extracted AI settings retain Azure-aware
   pod selection and key readiness; device models must retain Puppy grant and
   revocation; Memory must retain identifier-processing consent and sharing controls;
-  World Model writes must retain owner-current and abort checks. Regenerate
-  projections from the merged authored owners. A merge commit alone proves no parity.
+  World Model writes retain owner-current and abort checks. Regenerate
+  projections from the merged authored owners. Integrate the later dependency-relevant
+  delta once after implementation; preserve the existing verified integration evidence.
 - Keep unrelated PDF, native dependency and tooling edits outside the release.
   Freeze one dependency-complete revision after these seams are resolved.
 - Run affected contract checks while implementing. Run the local core mirror once

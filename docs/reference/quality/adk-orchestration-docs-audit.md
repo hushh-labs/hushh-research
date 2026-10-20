@@ -5,7 +5,9 @@
 **Continue dev qualification. Hold application promotion.** Azure owner chat,
 Files and an exact-approved update have live receipts. Puppy has a streamed
 Gemma 12B response through the same owner pod. GCP native AI access, retained
-Shared deletion, cold latency and Browser execution prevent a complete readiness claim.
+Shared deletion and Browser execution prevent a complete readiness claim.
+Cold latency remains a measured usability constraint; the former 30-second target
+is an optimization goal, not a release gate. Economy hosting remains selected.
 
 Private execution stays in the selected owner cloud. The hub coordinates identity,
 consent, placement and updates. Puppy inference executes on the explicitly granted
@@ -69,8 +71,11 @@ Its temporary Job was removed. This proves bridge access only; it neither repair
 nor authorizes replacing the selected owner-project connection.
 
 GCP's native sandbox probe ran as root and refused the required UID change
-(`EPERM`); Chromium never emitted a frame. Azure's earlier enrollment blocker is
-stale, but native execution and privacy remain unqualified. Both adapters stay
+(`EPERM`); Chromium never emitted a frame. Azure's group-scoped workload identity now passes native creation, restrictive
+policy/source readback and the non-root synthetic UID/GID 10002 check; the earlier
+personal-identity 403 is historical. The pinned Chromium probe aborts on namespace restrictions despite a non-root,
+zero-capability worker and tmpfs scratch. Network denial and the private bridge
+remain unqualified. Disposable resources were removed with absence readback. Both adapters stay
 closed. See [native Browser evidence](../../../consent-protocol/docs/reference/private-browser-runtime.md).
 
 ### Local integration candidate — 2026-10-19 UTC
@@ -109,6 +114,13 @@ it retains an update permit and is cancelled and joined during shutdown.
 These changes are not deployed and do not establish a successful live erasure or
 a new cold-start percentile.
 
+The Browser-first working slice preserves issuer expiry, normalizes only observed
+Azure readback defaults, rejects JSON type substitution and closes failed-probe
+scratch. Focused boundary checks and negative controls pass; original scalar-type
+and scratch-lifecycle defects are independently reproduced. All 107 focused native/authority cases and ten CI partition cases pass: analytics' non-Vitest checks remain and
+Siri runs once. Required security/browser/migration gates and architecture budgets
+remain unchanged. This slice is not the final core-frozen or deployed candidate.
+
 Verified admin ADC repaired a missing Service Usage Consumer grant on the disposable
 GCP qualification workload. Current provisioning already declares that role; this
 was existing-resource drift. Its subsequent native owner-project request still
@@ -134,7 +146,7 @@ deletion or vault recovery.
 
 | Measurement | Result | Decision |
 | --- | --- | --- |
-| Matched cloud chat | 20 cold / 20 warm per cloud: GCP p95 71.721 / 7.700 s; Azure 71.304 / 13.389 s | Cold ≤30 s target fails; equal vCPU labels do not establish equal performance |
+| Matched cloud chat | 20 cold / 20 warm per cloud: GCP p95 71.721 / 7.700 s; Azure 71.304 / 13.389 s | Retain this historical baseline. Thirty seconds is an optimization goal; fix measured startup work and recovery, without a permanent warm floor |
 | Personal chat | Latest zero-instance sample: first content 44.837 s, complete 46.040 s; capabilities 40.304 s | Wake/readiness dominates this sample; not a percentile or physical paint measurement |
 | Puppy Dev 25 | First text 35.257 s, complete 35.509 s; device first content 25.308 s | Nonempty Gemma 12B response received in an occluded browser; not cold-model or foreground-paint acceptance |
 | Idle | Personal Dev 25 reached zero replicas at 03:40 UTC after the verified turn | No pod wake request was made to obtain this control-plane observation; exact idle-grace timing remains unmeasured |
@@ -150,11 +162,12 @@ paid work; spending thresholds warn without stopping service.
 ## Next gate and owners
 
 The [local normal-release transition plan](../../future/personal-agent/NORMAL-RELEASE-TRANSITION.md)
-records CI consolidation, Shared continuity and changelog promotion. Nothing in
-that proposal authorizes a push or environment rollout.
+records CI consolidation, Shared continuity and changelog promotion. The completed
+candidate must pass the approved gates before a governed dev rollout; main, UAT,
+production and stable publication remain separate decisions.
 
-1. **Engineering:** app release/readback complete. A fresh pod image must remove the deliberate Dev 25 reuse pin, qualify recovery from the actual installed digest and use exact owner approval. Do not describe the reused image as the new source.
-2. **Engineering + Operations:** finish retained synthetic erasure, GCP native model authority, recorded commands/connectors and measured cold latency. Keep Browser disabled until each native gate passes.
+1. **P0 Engineering:** resolve native Browser gates, compose its real authority/runtime ports, then complete all-family scheduling. Both-cloud Browser completion remains blocked. The historical app release/readback is complete. A fresh pod image must remove the deliberate Dev 25 reuse pin, qualify recovery from the actual installed digest and use exact owner approval. Do not describe the reused image as the new source.
+2. **Engineering + Operations:** finish retained synthetic erasure, GCP native model authority and recorded commands/connectors. Measure startup changes with three cold and three warm samples per cloud; do not claim a new percentile. Keep Browser disabled until each native gate passes.
 3. **Release owner:** decide dev readiness from actual journey receipts. Production still requires migration/release-channel graduation, IAM, erasure, recovery, hub capacity and independent UAT acceptance.
 
 Puppy's deployed One-style UI already passes 320 responsive Chromium/WebKit cases.

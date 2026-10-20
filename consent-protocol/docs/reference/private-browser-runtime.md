@@ -2,7 +2,7 @@
 
 ## Status and evidence
 
-**2026-10-13 — disabled pilot; not a usable owner browser capability.**
+**2026-10-19 — disabled pilot; not a usable owner browser capability.**
 The committed information/session foundation is `f407f849b`. The resumed working
 candidate composes authenticated owner task routes, exact reviews, ephemeral
 preview, takeover and remembered-session controls with an isolated native ADK
@@ -26,26 +26,61 @@ qualification. Its target paths are not implemented capability claims.
 
 ### Latest controlled qualification
 
-The local slice is based on `22c7d3cac422`, frozen main `1d691714135e` and
-local ADK `63b4b60aac89`. Controlled headless Chromium passed persistent-cookie
-redirect/restore and refused unapproved recipients and frames. These fixtures
-contain synthetic information and prove neither cloud isolation nor owner custody.
+The working slice starts at `fd4770c16e`, including frozen main `f47a4832dbc`
+and local ADK `42bb9823005`. The earlier controlled Chromium cookie/redirect,
+restoration and unapproved-recipient fixtures remain local evidence only; they
+were not repeated to claim cloud acceptance.
 
-GCP's native worker still reports root identity; the attempted identity change was
-refused. A supported non-root Chromium sandbox and private bridge remain required.
-Do not substitute `--no-sandbox`, privileged execution or the private-agent container.
-Azure's current native API read back the exact synthetic source and deny/full/enforced
-policy, but execution admission returned 403. The observed personal-identity token
-was refused despite the temporary role.
-Microsoft now explicitly requires Entra identities and excludes personal Microsoft
-accounts for Sandboxes. Use an owner workload identity, Entra member or service
-principal with the exact group-scoped SandboxGroup Data Owner role for the next
-synthetic probe. Guest admission remains unqualified. A policy receipt does not
-qualify Chromium or the private bridge.
-The temporary sandbox, group, resource group and exact temporary role were removed
-and absence verified; the initial failed cleanup receipt is retained.
+| Native gate | Current evidence | Remaining proof |
+| --- | --- | --- |
+| GCP | Native worker UID/GID 0; required identity change refused with `EPERM`. Current CLI has no user selector; Google's Scion integration documents the restriction | Supported non-root execution, sandboxed Chromium, private bridge and denied network access |
+| Azure | Workload identity, fixed UID/GID 10002, zero capabilities, no-new-privileges and tmpfs scratch pass. Pinned Chromium aborts with namespace denial and “No usable sandbox” | Supported namespace isolation without disabling seccomp, enforced network denial, Chromium/frame, private bridge and installed lifecycle |
 
-No readiness receipt or owner installation was issued. Resolve supported cloud
+The Azure personal-identity 403 is resolved for the workload-identity probe; this
+is not an owner Browser enablement. Actual issuer expiry is preserved, and no CLI
+identity fallback enters the pod. The API mirrors HTTP policy and materializes two
+empty source collections. Validation accepts only those demonstrated defaults;
+changed types, identities, images, nonempty collections and unknown fields refuse.
+The unsupported exec user override was removed; configured non-root execution is
+independently checked by the fixed synthetic command.
+
+The successful Azure source bundle is
+`10505a548b9cd71abc4a38a625369702fd88867a851ccf8764eec0a616c9face`;
+controller program `e5744691ebda19ca0003b71ae1054e5f356cff904ffd615f5094b3df6cff741e`.
+The synthetic Ubuntu image is pinned to
+`sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac`.
+
+The separate Chromium probe used the fixed Microsoft Playwright image
+`sha256:72bd171a9ffc2b4b59532aaa6210e21014d07093120dc25528870c0b840da1f0`.
+It produced no frame: the sandboxed process exited with namespace denial. The
+worker identity and memory scratch passed, scratch was removed, and native
+termination and resource-group absence were confirmed. Its source bundle is
+`a471410c772e4f4ba95db264ed63edb860a2afe4f5d69cfc1b727143c6ceffac`;
+controller `7a2f30c0c54040ebd56ca9f4c2dae42f5d7de43459338cc2552252bc9c14a326`.
+A TCP connection was accepted under HTTP Full inspection; this alone proves
+neither a request reaching the destination nor its denial. Current source also
+requires explicit TCP/UDP default deny. The network-only follow-up accepted that
+strict readback, then observed only timeouts for all three destinations. Actual
+destination denial remains unqualified. Its source bundle is
+`9c78a4975196978b4166e8c45314b31d062187954b82f8962bef5a4f8d7c72b4`;
+controller `36780e0310871112e5097c2ad974cf80da165239b0824e66f55145a595a47ead`.
+Teardown and resource-group absence were confirmed again. Future qualification
+must collect the same sandbox's `egressDecisions` before teardown and correlate
+provider denial with the fixed targets and probe window. Timeouts and policy
+readback alone cannot establish enforcement.
+
+[Playwright's sandbox guidance](https://playwright.dev/python/docs/docker#crawling-and-scraping)
+requires selected namespace syscalls. Azure's [native API schema](https://raw.githubusercontent.com/Azure/azure-rest-api-specs/main/specification/app/data-plane/ContainerApps/preview/2026-09-01-preview/containerappssandbox.json)
+provides RuntimeDefault or Unconfined, without a custom-profile field. Disabling
+filtering is not this pilot's remediation. Retain the native gate and obtain a
+supported restricted namespace mechanism before another Chromium attempt.
+Sandbox termination and disposable resource-group absence were read back. Earlier
+failed receipts remain retained. Existing owner resources, keys, hosting and images
+were unchanged; no private information or model calls entered qualification.
+Scoped RBAC readback found zero remaining assignments for all ten disposable
+principals used by this slice.
+
+No Browser readiness receipt or owner installation was issued. Resolve supported cloud
 identity, memory-only broker transport, denied egress and teardown independently
 before enabling either adapter.
 
@@ -250,21 +285,20 @@ release channels and application traffic were unchanged.
 
 The earlier Early Access blocker is stale: Azure Sandboxes reached general
 availability in September 2026. Fresh read-only stable `2026-07-01` and preview
-SandboxGroups requests succeed; the subscription has no groups. The legacy
+SandboxGroups requests succeeded during the earlier inventory; no group existed in that readback. The legacy
 `SandboxPreview=NotRegistered` flag does not prove current unavailability.
 
-The 2026-10-06 bounded probe created a native group, qualified data-plane read
-access and created a synthetic sandbox. Exact egress-policy readback was refused
-before execution; sandbox and group deletion were confirmed. On October 7, the
-`2026-09-01-preview` API accepted a bounded Deny/Full/Enforced policy readback.
-The requested non-root security context was normalized; its actual execution
-identity was not qualified. A later created sandbox returned 403 on read despite
-bounded GET retries. Exact sandbox, temporary role and resource-group deletion
-were confirmed; no owner information was supplied. Sandboxed Chromium,
-deny-by-default egress with **Full** inspection, a private task-only broker bridge
-and browser lifecycle remain unqualified. No alternate executor or unsandboxed
-fallback is permitted. A synthetic probe cannot authorize real owner information
-or remembered logins.
+The earlier personal-identity execution 403 is historical. The October 19
+workload-identity probe above passes native creation, strict policy/source readback
+and non-root synthetic execution. These are separate from Chromium, enforced
+network-denial and private-bridge qualification. Both the public alias and its
+resolved image must not be trusted interchangeably: the controlled probe imports
+an immutable digest and binds its exact disk ID before execution.
+
+Real owner information and remembered logins remain refused. Native exec stdout
+and filesystem APIs are synthetic-probe channels only; they are not an accepted
+private frame/session transport. No alternate executor or unsandboxed fallback
+is permitted.
 
 Native cloud contracts: [GCP sandbox execution](https://docs.cloud.google.com/run/docs/code-execution),
 [GCP resource allocation](https://docs.cloud.google.com/run/docs/configuring/services/sandboxes),

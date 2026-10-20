@@ -18,19 +18,21 @@ import json
 import re
 import time
 import uuid
-from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Literal
 
 import httpx
 from pydantic import Field
 
+from .azure_credentials import DATA_PLANE_SCOPE as DATA_PLANE_SCOPE
+from .azure_credentials import AzureAccessToken as AzureAccessToken
+from .azure_credentials import AzureCliCredential as AzureCliCredential
+from .azure_credentials import AzureCredentialPort as AzureCredentialPort
+from .azure_credentials import AzureWorkloadCredential as AzureWorkloadCredential
 from .azure_probe_wire import CONTAINER_NAME as _CONTAINER_NAME
-from .azure_probe_wire import SOURCE as _SOURCE
-from .azure_probe_wire import creation_body
+from .azure_probe_wire import creation_body, exact_deny_policy, exact_source
 from .contracts import BrowserAction, BrowserFrame, BrowserRefused, StrictContract
 
-API_VERSION = "2026-09-01-preview"
-DATA_PLANE_SCOPE = "https://management.azuredevcompute.io/.default"
+API_VERSION: Literal["2026-09-01-preview"] = "2026-09-01-preview"
 
 _MARKER = "hushh-azure-native-synthetic-v1\n"
 _COMMAND = "test \"$(id -u)\" = 10002 && test \"$(id -g)\" = 10002 && printf '%s\\n' 'hushh-azure-native-synthetic-v1'"
@@ -47,70 +49,18 @@ class AzureProbeConfig(StrictContract):
     timeout_seconds: int = Field(default=60, ge=1, le=120)
 
 
-@dataclass(frozen=True)
-class AzureAccessToken:
-    token: str = field(repr=False)
-    expires_at: int
-
-
-class AzureCredentialPort(Protocol):
-    async def get_token(self, scope: str) -> AzureAccessToken: ...
-
-
-class AzureCliCredential:
-    """Existing operator CLI identity. Captures tokens only in host memory."""
-
-    def __init__(self, subscription_id: str) -> None:
-        # Share the configuration validator instead of accepting CLI options.
-        AzureProbeConfig(
-            subscription_id=subscription_id,
-            resource_group="probe",
-            sandbox_group="probe",
-            region="eastus2",
-        )
-        self._subscription_id = subscription_id
-
-    async def get_token(self, scope: str) -> AzureAccessToken:
-        if scope != DATA_PLANE_SCOPE:
-            raise BrowserRefused("AZURE_PROBE_AUTH_REFUSED")
-        try:
-            process = await asyncio.create_subprocess_exec(
-                "az",
-                "account",
-                "get-access-token",
-                "--subscription",
-                self._subscription_id,
-                "--scope",
-                scope,
-                "--output",
-                "json",
-                "--only-show-errors",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            try:
-                stdout, _ = await asyncio.wait_for(process.communicate(), timeout=10)
-            except BaseException:
-                if process.returncode is None:
-                    process.kill()
-                await process.wait()
-                raise
-            if process.returncode or len(stdout) > _MAX_RESPONSE:
-                raise BrowserRefused("AZURE_PROBE_AUTH_REFUSED")
-            value = json.loads(stdout)
-            token = value["accessToken"]
-            expires_at = int(value["expires_on"])
-            if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,16384}", token):
-                raise BrowserRefused("AZURE_PROBE_AUTH_REFUSED")
-            return AzureAccessToken(token=token, expires_at=expires_at)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            raise BrowserRefused("AZURE_PROBE_AUTH_REFUSED") from None
-
-
 JSONType = Literal["absent", "null", "boolean", "number", "string", "array", "object"]
-PolicyField = Literal["defaultAction", "trafficInspection", "enforcementMode", "hostRules", "rules"]
+PolicyField = Literal[
+    "defaultAction",
+    "trafficInspection",
+    "enforcementMode",
+    "hostRules",
+    "rules",
+    "validationWarnings",
+    "http",
+    "tds",
+    "transportRules",
+]
 
 
 class AzurePolicyRefusalDiagnostics(StrictContract):
@@ -123,10 +73,18 @@ class AzurePolicyRefusalDiagnostics(StrictContract):
     unknown_field_count: int = Field(ge=0)
     default_action: Literal["Allow", "Deny", "absent", "unknown"]
     traffic_inspection: Literal["Full", "Partial", "None", "Legacy", "absent", "unknown"]
+    enforcement_mode: Literal["Enforced", "Audit", "absent", "unknown"] = "absent"
     host_rule_count: int | None = Field(ge=0)
     rule_count: int | None = Field(ge=0)
+    validation_warning_count: int | None = Field(default=None, ge=0)
     skip_egress_proxy: Literal["absent", "false", "true", "unknown"]
     customer_vnet_connection_present: bool
+
+
+class AzureHttpRefusal(StrictContract):
+    # No provider message, body, URL, headers, command or identifiers.
+    operation: Literal["create", "list", "read", "execute", "delete"]
+    http_status: int = Field(ge=100, le=599)
 
 
 class AzureNativeQualification(StrictContract):
@@ -141,6 +99,7 @@ class AzureNativeQualification(StrictContract):
     code: str = Field(pattern=r"^[A-Z0-9_]{1,128}$")
     failure_code: str | None = Field(default=None, pattern=r"^[A-Z0-9_]{1,128}$")
     refusal_diagnostics: AzurePolicyRefusalDiagnostics | None = None
+    http_refusal: AzureHttpRefusal | None = None
 
 
 class UnqualifiedAzureBrowserExecutor:
@@ -175,14 +134,15 @@ def _json_type(value: object, *, present: bool = True) -> JSONType:
         return "absent"
     if value is None:
         return "null"
-    return {
+    kinds: dict[type, JSONType] = {
         bool: "boolean",
         int: "number",
         float: "number",
         str: "string",
         list: "array",
         dict: "object",
-    }[type(value)]
+    }
+    return kinds[type(value)]
 
 
 class _NativeClient:
@@ -200,6 +160,7 @@ class _NativeClient:
         self.create_attempted = False
         self.policy_read_count = 0
         self.refusal_diagnostics: AzurePolicyRefusalDiagnostics | None = None
+        self.http_refusal: AzureHttpRefusal | None = None
 
     async def request(
         self,
@@ -218,7 +179,7 @@ class _NativeClient:
                 or not re.fullmatch(r"[A-Za-z0-9_.-]{1,16384}", credential.token)
             ):
                 raise BrowserRefused("AZURE_PROBE_AUTH_REFUSED")
-            params = {"api-version": API_VERSION}
+            params: dict[str, str] = {"api-version": API_VERSION}
             if labels:
                 params["labels"] = f"hushhProbe={self.probe_id}"
             if container:
@@ -239,6 +200,19 @@ class _NativeClient:
                 if response.status_code in {401, 403}:
                     raise BrowserRefused("AZURE_PROBE_AUTH_REFUSED")
                 if response.status_code not in {200, 201, 202, 204, 404}:
+                    if self.http_refusal is None:
+                        self.http_refusal = AzureHttpRefusal(
+                            operation="execute"
+                            if suffix.endswith("/executeShellCommand")
+                            else "create"
+                            if method == "POST"
+                            else "delete"
+                            if method == "DELETE"
+                            else "list"
+                            if not suffix
+                            else "read",
+                            http_status=response.status_code,
+                        )
                     raise BrowserRefused("AZURE_PROBE_RESPONSE_REFUSED")
                 if response.headers.get("content-encoding", "identity") != "identity":
                     raise BrowserRefused("AZURE_PROBE_RESPONSE_REFUSED")
@@ -256,21 +230,34 @@ class _NativeClient:
             raise BrowserRefused("AZURE_PROBE_TRANSPORT_UNCERTAIN") from None
 
     def owned_id(self, value: object) -> str:
+        if not isinstance(value, dict):
+            raise BrowserRefused("AZURE_PROBE_RESOURCE_BINDING_REFUSED")
+        identity = value.get("id")
         if (
-            not isinstance(value, dict)
-            or value.get("labels") != {"hushhProbe": self.probe_id}
-            or not isinstance(value.get("id"), str)
-            or not _SEGMENT.fullmatch(value["id"])
+            value.get("labels") != {"hushhProbe": self.probe_id}
+            or not isinstance(identity, str)
+            or not _SEGMENT.fullmatch(identity)
         ):
             raise BrowserRefused("AZURE_PROBE_RESOURCE_BINDING_REFUSED")
-        return value["id"]
+        return identity
 
     def policy_refused(self, code: str, value: dict) -> None:
         policy = value.get("egressPolicy")
         fields = policy if isinstance(policy, dict) else {}
-        names = ("defaultAction", "trafficInspection", "enforcementMode", "hostRules", "rules")
+        names = (
+            "defaultAction",
+            "trafficInspection",
+            "enforcementMode",
+            "hostRules",
+            "rules",
+            "validationWarnings",
+            "http",
+            "tds",
+            "transportRules",
+        )
         default = fields.get("defaultAction")
         inspection = fields.get("trafficInspection")
+        enforcement = fields.get("enforcementMode")
         skip = value.get("skipEgressProxy")
         self.refusal_diagnostics = AzurePolicyRefusalDiagnostics(
             operation="initial_policy_readback"
@@ -289,10 +276,18 @@ class _NativeClient:
             else "absent"
             if "trafficInspection" not in fields
             else "unknown",
+            enforcement_mode=enforcement
+            if isinstance(enforcement, str) and enforcement in ("Enforced", "Audit")
+            else "absent"
+            if "enforcementMode" not in fields
+            else "unknown",
             host_rule_count=len(fields["hostRules"])
             if isinstance(fields.get("hostRules"), list)
             else None,
             rule_count=len(fields["rules"]) if isinstance(fields.get("rules"), list) else None,
+            validation_warning_count=len(fields["validationWarnings"])
+            if isinstance(fields.get("validationWarnings"), list)
+            else None,
             skip_egress_proxy="absent"
             if "skipEgressProxy" not in value
             else "false"
@@ -309,11 +304,7 @@ class _NativeClient:
         if self.owned_id(value) != self.sandbox_id:
             raise BrowserRefused("AZURE_PROBE_RESOURCE_BINDING_REFUSED")
         policy = value.get("egressPolicy")
-        if not isinstance(policy, dict) or {
-            key: item
-            for key, item in policy.items()
-            if key not in {"hostRules", "rules"} or item != []
-        } != {"defaultAction": "Deny", "trafficInspection": "Full", "enforcementMode": "Enforced"}:
+        if not exact_deny_policy(policy):
             self.policy_refused("AZURE_PROBE_EGRESS_REFUSED", value)
         lifecycle = value.get("lifecycle")
         if (
@@ -331,7 +322,7 @@ class _NativeClient:
             "customerVnetConnectionName"
         ):
             self.policy_refused("AZURE_PROBE_EGRESS_REFUSED", value)
-        if value.get("sourcesRef") != _SOURCE:
+        if not exact_source(value.get("sourcesRef")):
             self.policy_refused("AZURE_PROBE_IMAGE_REFUSED", value)
 
     def qualification_receipt(
@@ -346,6 +337,7 @@ class _NativeClient:
             code=code if termination else "AZURE_PROBE_STOP_UNCONFIRMED",
             failure_code=code if not termination else None,
             refusal_diagnostics=self.refusal_diagnostics,
+            http_refusal=self.http_refusal,
         )
 
     async def terminate(self) -> bool:
@@ -433,7 +425,10 @@ async def qualify_azure_sandbox(
                 status, result = await native.request(
                     "POST",
                     suffix + "/executeShellCommand",
-                    body={"command": _COMMAND, "user": "10002:10002"},
+                    # Use the source's verified execution identity. The optional
+                    # exec override need not accept a Docker UID:GID expression.
+                    # The fixed command independently refuses a UID/GID mismatch.
+                    body={"command": _COMMAND},
                     container=True,
                 )
                 if (

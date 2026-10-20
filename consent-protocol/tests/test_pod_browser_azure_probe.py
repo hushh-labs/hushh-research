@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import json
-import time
 
 import httpx
 import pytest
@@ -13,8 +11,8 @@ from pydantic import ValidationError
 
 from hushh_mcp.services.pod_browser import azure_probe as probe
 from hushh_mcp.services.pod_browser.contracts import BrowserAction, BrowserRefused
-
-_AUTH_MARKER = "synthetic.host.only.token"
+from tests.helpers.pod_browser_azure import AUTH_MARKER as _AUTH_MARKER
+from tests.helpers.pod_browser_azure import Credential, NativeAPI
 
 
 def config(**overrides):
@@ -27,82 +25,6 @@ def config(**overrides):
     )
 
 
-class Credential:
-    def __init__(self, *, expired=False):
-        self.scopes = []
-        self.expired = expired
-
-    async def get_token(self, scope):
-        self.scopes.append(scope)
-        return probe.AzureAccessToken(
-            token=_AUTH_MARKER,
-            expires_at=int(time.time()) + (-1 if self.expired else 3600),
-        )
-
-
-class NativeAPI:
-    def __init__(self, *, change=None, lose=None, inventory=None, exec_response=None):
-        self.change, self.lose, self.inventory = change, lose, inventory
-        self.exec_response = exec_response
-        self.requests = []
-        self.document = None
-        self.deleted = False
-        self.exec_started = asyncio.Event()
-        self.hold_exec = False
-        self.gets = 0
-
-    async def __call__(self, request):
-        self.requests.append(request)
-        path = request.url.path
-        if request.method == "POST" and path.endswith("/sandboxes"):
-            self.document = {**json.loads(request.content), "id": "synthetic-1", "state": "Running"}
-            if self.lose == "create":
-                raise httpx.ReadError("synthetic lost response")
-            return httpx.Response(201, json=self.document)
-        if request.method == "DELETE":
-            assert path.endswith("/synthetic-1")
-            self.deleted = True
-            if self.lose == "delete":
-                raise httpx.ReadError("synthetic lost delete response")
-            return httpx.Response(202)
-        if request.method == "GET" and path.endswith("/sandboxes"):
-            assert (
-                request.url.params["labels"]
-                == "hushhProbe=" + self.document["labels"]["hushhProbe"]
-            )
-            return httpx.Response(
-                200,
-                json=self.inventory if self.inventory is not None else {"value": [self.document]},
-            )
-        if request.method == "GET":
-            if self.deleted:
-                return httpx.Response(404)
-            self.gets += 1
-            value = copy.deepcopy(self.document)
-            if self.change:
-                self.change(value, self.gets)
-            return httpx.Response(200, json=value)
-        if request.method == "POST":
-            assert path.endswith("/executeShellCommand")
-            assert request.url.params["containerName"] == probe._CONTAINER_NAME
-            assert json.loads(request.content) == {
-                "command": probe._COMMAND,
-                "user": "10002:10002",
-            }
-            self.exec_started.set()
-            if self.hold_exec:
-                await asyncio.Future()
-            if self.lose == "exec":
-                raise httpx.ReadError("synthetic lost execution response")
-            return httpx.Response(
-                200,
-                json=self.exec_response
-                if self.exec_response is not None
-                else {"exitCode": 0, "stdout": probe._MARKER, "stderr": "", "executionTimeMs": 1},
-            )
-        raise AssertionError("Unexpected native request")
-
-
 async def run(api, **kwargs):
     return await probe.qualify_azure_sandbox(
         config(), credential=Credential(), transport=httpx.MockTransport(api), **kwargs
@@ -110,8 +32,19 @@ async def run(api, **kwargs):
 
 
 @pytest.mark.asyncio
-async def test_native_qualification_is_synthetic_metadata_and_not_browser_readiness():
-    api, credential = NativeAPI(), Credential()
+@pytest.mark.parametrize("shape", ["flat", "warnings", "http"])
+async def test_native_qualification_is_synthetic_metadata_and_not_browser_readiness(shape):
+    def readback(value, _):
+        if shape == "warnings":
+            value["egressPolicy"]["validationWarnings"] = []
+        if shape == "http":
+            value["egressPolicy"]["http"] = {
+                key: copy.deepcopy(item)
+                for key, item in value["egressPolicy"].items()
+                if key != "transportRules"
+            }
+
+    api, credential = NativeAPI(change=readback), Credential()
     result = await probe.qualify_azure_sandbox(
         config(), credential=credential, transport=httpx.MockTransport(api)
     )
@@ -133,6 +66,7 @@ async def test_native_qualification_is_synthetic_metadata_and_not_browser_readin
         "defaultAction": "Deny",
         "trafficInspection": "Full",
         "enforcementMode": "Enforced",
+        "transportRules": {"defaultAction": "Deny", "rules": []},
     }
     assert api.document["lifecycle"] == {
         "autoSuspendPolicy": {"enabled": False},
@@ -142,6 +76,83 @@ async def test_native_qualification_is_synthetic_metadata_and_not_browser_readin
         key in api.document for key in ("environment", "volumes", "ports", "connections")
     )
     assert "synthetic.host.only.token" not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_native_transport_default_deny_is_required_even_with_http_full_inspection():
+    for transport in (
+        None,
+        {"defaultAction": "Allow", "rules": []},
+        {"defaultAction": "Deny", "rules": [{"action": "Allow"}]},
+        {"defaultAction": "Deny", "rules": [], "bypass": False},
+    ):
+
+        def changed(value, _, transport=transport):
+            if transport is None:
+                value["egressPolicy"].pop("transportRules")
+            else:
+                value["egressPolicy"]["transportRules"] = transport
+
+        api = NativeAPI(change=changed)
+        result = await run(api)
+        assert result.code == "AZURE_PROBE_EGRESS_REFUSED"
+        assert result.termination_confirmed and not api.exec_started.is_set()
+
+
+@pytest.mark.asyncio
+async def test_native_source_normalization_preserves_security_and_image_boundaries():
+    def normalized(value, _):
+        pod = value["sourcesRef"]["pod"]
+        container = pod["containers"][0]
+        container.update(volumeMounts=[], contentPackageDownloads=[])
+
+    result = await run(NativeAPI(change=normalized))
+    assert result.policy_verified and result.synthetic_execution_verified
+    for mutate in (
+        lambda c: c.update(env={"INHERITED": "synthetic"}),
+        lambda c: c.update(command=["unreviewed"]),
+        lambda c: c.update(diskImage={"name": "other", "isPublic": True}),
+        lambda c: c["securityContext"].update(runAsUser=0),
+        lambda c: c["securityContext"]["capabilities"].update(add=["SYS_ADMIN"]),
+        lambda c: c.update(unrecognized=[]),
+        lambda c: c.update(env={}),
+        lambda c: c.update(command=[]),
+        lambda c: c.update(volumeMounts=[{"name": "other"}]),
+        lambda c: c.update(contentPackageDownloads=[{"name": "other"}]),
+        lambda c: c["diskImage"].update(isPublic=1),
+        lambda c: c["securityContext"].update(runAsUser=10002.0),
+        lambda c: c["securityContext"].update(runAsGroup=10002.0),
+        lambda c: c["securityContext"].update(runAsNonRoot=1),
+        lambda c: c["securityContext"].update(privileged=0),
+        lambda c: c["securityContext"].update(allowPrivilegeEscalation=0),
+        lambda c: c["securityContext"].update(readOnlyRootFilesystem=1),
+    ):
+
+        def changed(value, count, mutate=mutate):
+            normalized(value, count)
+            mutate(value["sourcesRef"]["pod"]["containers"][0])
+
+        api = NativeAPI(change=changed)
+        refused = await run(api)
+        assert refused.code == "AZURE_PROBE_IMAGE_REFUSED"
+        assert refused.termination_confirmed and not api.exec_started.is_set()
+
+
+@pytest.mark.asyncio
+async def test_native_execution_http_refusal_retains_only_bounded_failure_metadata():
+    api = NativeAPI()
+
+    async def refused(request):
+        if request.url.path.endswith("/executeShellCommand"):
+            return httpx.Response(400, json={"message": "private provider diagnostic"})
+        return await api(request)
+
+    result = await run(refused)
+    assert result.policy_verified and not result.synthetic_execution_verified
+    assert result.termination_confirmed and api.deleted
+    assert result.code == "AZURE_PROBE_RESPONSE_REFUSED"
+    assert result.http_refusal.model_dump() == {"operation": "execute", "http_status": 400}
+    assert "private provider diagnostic" not in result.model_dump_json()
 
 
 @pytest.mark.asyncio
@@ -163,6 +174,32 @@ async def test_native_qualification_is_synthetic_metadata_and_not_browser_readin
             "rules": [{"action": {"type": "Rewrite"}}],
         },
         {"defaultAction": "Deny", "trafficInspection": "Full", "unknownBypass": True},
+        {
+            "defaultAction": "Deny",
+            "trafficInspection": "Full",
+            "enforcementMode": "Enforced",
+            "validationWarnings": [{"code": "PolicyNotApplied"}],
+        },
+        {
+            "defaultAction": "Deny",
+            "trafficInspection": "Full",
+            "enforcementMode": "Enforced",
+            "http": {
+                "defaultAction": "Allow",
+                "trafficInspection": "Full",
+                "enforcementMode": "Enforced",
+            },
+        },
+        {
+            "defaultAction": "Deny",
+            "trafficInspection": "Full",
+            "enforcementMode": "Enforced",
+            "http": {
+                "defaultAction": "Deny",
+                "trafficInspection": "Full",
+                "enforcementMode": "Audit",
+            },
+        },
     ],
 )
 async def test_permissive_or_missing_readback_never_reaches_native_execution(policy):
