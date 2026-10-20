@@ -1733,7 +1733,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
-  it.each(["Share", "Ask"])("repairs an open %s audience after a missed deletion notification", async (flow) => {
+  it.each(["Share", "Ask", "Ask details", "Ask details with another person"])("repairs an open %s audience after a missed deletion notification", async (flow) => {
     const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
     const setInterval = window.setInterval.bind(window);
     let repair: (() => void) | undefined;
@@ -1745,7 +1745,7 @@ describe("OneLocationAgentPage", () => {
       return setInterval(handler, delay, ...args);
     });
     try {
-      mockLocationSearchParams(`action=${flow.toLowerCase()}`);
+      mockLocationSearchParams(`action=${flow === "Share" ? "share" : "ask"}`);
       const directory = locationState().recipients;
       const boundedState = { ...locationState(), recipients: directory.filter((person) => person.userId !== "user_d") };
       mockGetState.mockResolvedValue(boundedState);
@@ -1755,15 +1755,40 @@ describe("OneLocationAgentPage", () => {
       const action = flow === "Share" ? /Select Investor D for private sharing/i : /Select Investor D for location request/i;
       expect(await screen.findByRole("button", { name: action })).toBeEnabled();
       fireEvent.click(screen.getByRole("button", { name: action }));
+      if (flow === "Ask details with another person") {
+        fireEvent.click(screen.getByRole("button", { name: /Select Trusted B for location request/i }));
+      }
+      if (flow.startsWith("Ask details")) {
+        await continueAskFlow();
+        expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled();
+      }
       expect(repair).toBeTypeOf("function");
       // Only the paged directory changes: this selected account was never in
       // the bounded workspace snapshot. Its unchanged signature cannot repair it.
       mockListRecipientsPage.mockResolvedValue({ items: boundedState.recipients, page: 1, hasMore: false, totalCount: boundedState.recipients.length });
       mockGetSmsContacts.mockClear();
-      act(() => repair?.());
+      await act(async () => { repair?.(); });
       await waitFor(() => expect(screen.queryByRole("button", { name: action })).toBeNull());
       await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalled());
-      expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+      if (flow.startsWith("Ask details")) {
+        await waitFor(() => {
+          const summary = screen.queryByRole("list", { name: "People you are asking for location" });
+          expect(summary ? within(summary).queryByText("Investor D") : null).toBeNull();
+        });
+        const send = screen.getByRole("button", { name: "Send request" });
+        if (flow === "Ask details with another person") {
+          expect(send).toBeEnabled();
+          fireEvent.click(send);
+          await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledOnce());
+          expect(mockRequestAccess).toHaveBeenCalledWith(expect.objectContaining({ ownerUserId: "user_b" }));
+        } else {
+          await waitFor(() => expect(send).toBeDisabled());
+          fireEvent.click(send);
+          expect(mockRequestAccess).not.toHaveBeenCalled();
+        }
+      } else {
+        expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+      }
     } finally {
       interval.mockRestore();
       visibility.mockRestore();

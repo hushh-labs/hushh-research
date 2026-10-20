@@ -3364,6 +3364,15 @@ export function OneLocationAgentPageContent({
     setPagedRecipientsByUserId(
       new Map(latest.map((recipient) => [recipient.userId, recipient])),
     );
+    // Only the complete directory can remove retained selections. A missing
+    // person on a bounded/search page is not evidence of a deleted connection.
+    const availableIds = new Set(latest.map((recipient) => recipient.userId));
+    const retainAvailable = (current: string[]) =>
+      connectionGraphRefreshRevisionRef.current === expectedRevision
+        ? current.filter((userId) => availableIds.has(userId))
+        : current;
+    setSelectedRecipientIds(retainAvailable);
+    setSelectedRequestOwnerIds(retainAvailable);
   }, [vaultOwnerToken]);
 
   useEffect(() => {

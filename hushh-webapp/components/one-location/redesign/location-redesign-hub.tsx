@@ -6112,7 +6112,8 @@ function AskFlow({
     return byGrantId;
   }, [statusNowMs, vm.requestedByMe]);
 
-  const isRequestFormValid = vm.selectedRequestOwnerIds.length > 0;
+  const isRequestFormValid = selectedRequestRecipients.length > 0 &&
+    selectedRequestRecipients.length === selectedRequestOwnerIds.length;
   const sendingRequest = vm.busy === "request";
   const sendRequest = () => {
     // Never submit an incomplete form even if the click somehow reaches the
