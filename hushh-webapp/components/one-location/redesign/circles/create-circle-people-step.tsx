@@ -1,5 +1,7 @@
 "use client";
 
+import { connectPersonName } from "@/lib/connections/person-label";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -209,7 +211,7 @@ export function CreateCirclePeopleBody({
                 person={person}
                 selected={checked}
                 disabled={saving || (!checked && selected.length >= limit)}
-                ariaLabel={`${checked ? "Remove" : "Add"} ${person.displayName}`}
+                ariaLabel={`${checked ? "Remove" : "Add"} ${connectPersonName(person)}`}
                 onToggle={() =>
                   checked ? remove(person.userId) : add(person.userId)
                 }

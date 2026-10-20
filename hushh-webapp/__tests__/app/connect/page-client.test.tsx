@@ -2016,19 +2016,21 @@ describe("Connect — People", () => {
     expect(mocks.sendRequest).not.toHaveBeenCalled();
   });
 
-  it("shows directory emails while preserving duplicate disambiguation", async () => {
+  it("keeps contact identifiers out of directory rows and voice choices without merging duplicate people", async () => {
     mocks.searchDirectory.mockResolvedValue({
       items: [
         {
           userId: "u9",
           displayName: "Ankit Kumar Singh",
+          email: "ankit@example.test",
           maskedEmail: "a***t@hushh.ai",
+          maskedPhone: "98******10",
           relationship: "none" as const,
         },
         {
           userId: "u10",
           displayName: "Ankit Kumar Singh",
-          maskedEmail: "a***3@gmail.com",
+          maskedPhone: "97******66",
           relationship: "pending_outgoing" as const,
         },
       ],
@@ -2040,8 +2042,15 @@ describe("Connect — People", () => {
 
     const directory = screen.getByTestId("connect-directory-group");
     expect(within(directory).getAllByText("Ankit Kumar Singh")).toHaveLength(2);
-    expect(within(directory).getByText("a***t@hushh.ai")).toBeVisible();
-    expect(within(directory).getByText("a***3@gmail.com")).toBeVisible();
+    expect(within(directory).getByText("Request sent")).toBeVisible();
+    for (const identifier of [
+      "ankit@example.test",
+      "a***t@hushh.ai",
+      "98******10",
+      "97******66",
+    ]) {
+      expect(directory).not.toHaveTextContent(identifier);
+    }
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     const result = await sendRequest!({ person: "Ankit Kumar Singh" });
@@ -2050,10 +2059,8 @@ describe("Connect — People", () => {
     const parsed = parseVoiceCard(result.data);
     expect(parsed?.actionId).toBe("connect.send_request");
     expect(parsed?.resolveSlot).toBe("userId");
-    expect(parsed?.candidates.map((c) => c.detail)).toEqual([
-      "a***t@hushh.ai",
-      "a***3@gmail.com",
-    ]);
+    expect(parsed?.candidates.map((c) => c.id)).toEqual(["u9", "u10"]);
+    expect(parsed?.candidates.map((c) => c.detail)).toEqual([null, null]);
     // Each duplicate keeps its own button. One is connectable and the other
     // already has a request out, so a single shared label would offer an
     // action guaranteed to be refused.
@@ -2226,7 +2233,7 @@ describe("Connect — People", () => {
     expect(await screen.findByText('No one matches "Nobody"')).toBeTruthy();
   });
 
-  it("shows a directory person as one compact row: email only, never a phone, action apart from the profile", async () => {
+  it("shows name-only compact directory rows with actions apart from the profile", async () => {
     mocks.searchDirectory.mockResolvedValue({
       items: [
         {
@@ -2237,10 +2244,15 @@ describe("Connect — People", () => {
           maskedPhone: "98******10",
         },
         {
-          ...person("u2", "No Email"),
+          ...person("u2", "97******66"),
           email: null,
           maskedEmail: null,
           maskedPhone: "97******66",
+        },
+        {
+          ...person("u3", "member@example.test"),
+          email: "member@example.test",
+          maskedEmail: "m***r@example.test",
         },
       ],
       hasMore: false,
@@ -2249,13 +2261,15 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
 
     const rows = await screen.findAllByTestId("directory-person-row");
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(screen.queryByTestId("directory-person-card")).toBeNull();
-    // The masked email the server returned stays; a phone is never shown, not
-    // even as the fallback for a person with no email.
-    expect(rows[0]).toHaveTextContent("a***e@example.com");
-    expect(rows[1].querySelector('[data-slot="settings-row-description"]')).toBeNull();
+    expect(rows[0]).toHaveTextContent("Avery Stone");
+    // Ready people can use a contact value as displayName when no name exists.
+    expect(rows[1]).toHaveTextContent("Hussh member");
+    expect(rows[2]).toHaveTextContent("Hussh member");
     for (const row of rows) {
+      expect(row.querySelector('[data-slot="settings-row-description"]')).toBeNull();
+      expect(row.textContent).not.toContain("@");
       expect(row.textContent).not.toMatch(/\d{2}\*{4,}\d{2}/);
     }
     // The call to action is a sibling of the control that opens the profile.
@@ -2563,7 +2577,7 @@ describe("Connect — removing a connection", () => {
     expect(confirm?.prompt).toBe("Remove your connection with Rashid?");
     expect(confirm?.subject).toMatchObject({
       name: "Rashid",
-      detail: "r***d@gmail.com",
+      detail: null,
     });
     // Warning text comes from the action's own contract `meaning`, so it
     // cannot drift away from what the action actually does.
@@ -2734,6 +2748,29 @@ describe("Connect — the phone-width geometry QA reported", () => {
 
     fireEvent.change(field, { target: { value: "ada" } });
     expect(field.className).toContain("pr-11");
+  });
+
+  it("redacts contact-only cancellation summaries without cancelling ambiguous requests", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    const cancelRequest = resolveLocalOnboardingHandler("connect.cancel_request");
+    expect(cancelRequest).not.toBeNull();
+    const request = { id: "request-private", counterpartDisplayName: "member@example.test" };
+    mocks.listRequests.mockResolvedValue([request, { ...request, id: "request-other" }]);
+
+    const ambiguous = await cancelRequest!({ person: "member@example.test" });
+    expect(ambiguous.status).toBe("blocked");
+    expect(ambiguous.summary).not.toContain("@");
+    expect(mocks.cancel).not.toHaveBeenCalled();
+
+    mocks.listRequests.mockResolvedValue([request]);
+    let completed: Awaited<ReturnType<NonNullable<typeof cancelRequest>>> | undefined;
+    await act(async () => {
+      completed = await cancelRequest!({ person: "member@example.test" });
+    });
+    expect(completed?.status).toBe("succeeded");
+    expect(completed?.summary).toBe("Cancelled your connection request to someone.");
+    expect(mocks.cancel).toHaveBeenCalledWith(expect.objectContaining({ requestId: "request-private" }));
   });
 
   it("spends one word on cancelling a request, and says whose in the label", async () => {

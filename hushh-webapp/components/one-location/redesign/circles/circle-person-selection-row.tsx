@@ -4,6 +4,7 @@ import { Check } from "@/components/icons";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import type { OneLocationCircleEligibleConnection } from "@/lib/one-location/types";
+import { connectPersonName } from "@/lib/connections/person-label";
 import { cn } from "@/lib/utils";
 
 /** Shared presentation; each Circle flow retains its eligibility and mutation owner. */
@@ -22,6 +23,7 @@ export function CirclePersonSelectionRow({
   ariaLabel?: string;
   testId?: string;
 }) {
+  const name = connectPersonName(person);
   return (
     <SettingsRow
       layout="person"
@@ -29,12 +31,12 @@ export function CirclePersonSelectionRow({
         <ConnectionPersonAvatar
           size="list"
           photoUrl={person.photoUrl}
-          label={person.displayName}
+          label={name}
           verified={Boolean(person.isRia)}
           fromContacts={person.connectedFromContacts}
         />
       }
-      title={person.displayName}
+      title={name}
       ariaPressed={selected}
       ariaLabel={ariaLabel}
       disabled={disabled}

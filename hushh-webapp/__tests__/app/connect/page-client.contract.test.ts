@@ -3,11 +3,6 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  getDirectoryPersonDescription,
-  getDirectoryPersonEmail,
-} from "@/app/connect/directory-person-label";
-
 describe("Connect canonical surface contract", () => {
   it("uses the shared Profile/One header and settings-row geometry", () => {
     const source = readFileSync(
@@ -139,44 +134,6 @@ describe("Connect canonical surface contract", () => {
     expect(providers).toContain("isFocusedConnectCircleTask(");
   });
 
-  it("renders a privacy-safe masked identity when duplicate names need disambiguation", () => {
-    const serviceSource = readFileSync(
-      join(process.cwd(), "lib/services/connections-service.ts"),
-      "utf8",
-    );
-
-    expect(serviceSource).toContain("maskedPhone?: string | null");
-    expect(serviceSource).toContain("maskedEmail?: string | null");
-    expect(
-      getDirectoryPersonDescription({
-        displayName: "Abdul Zalil",
-        email: null,
-        maskedEmail: "a***l@example.com",
-        maskedPhone: "******4455",
-      }),
-    ).toBe("a***l@example.com");
-  });
-
-  it("offers a directory row an email or nothing, never a phone", () => {
-    const base = { displayName: "Abdul Zalil", maskedPhone: "98******10" };
-    expect(getDirectoryPersonEmail({ ...base, email: "abdul@example.test", maskedEmail: "a***l@example.test" })).toBe("abdul@example.test");
-    expect(getDirectoryPersonEmail({ ...base, email: null, maskedEmail: "a***l@example.test" })).toBe("a***l@example.test");
-    expect(getDirectoryPersonEmail({ ...base, email: null, maskedEmail: null })).toBeUndefined();
-    // The caption helper still falls back to the phone for the voice card; the
-    // row must not use it.
-    expect(getDirectoryPersonDescription({ ...base, email: null, maskedEmail: null })).toBe("98******10");
-  });
-
-  it("keeps email as the preferred secondary identity", () => {
-    expect(
-      getDirectoryPersonDescription({
-        displayName: "Abdul Zalil",
-        email: "abdul@example.test",
-        maskedEmail: "a***l@example.test",
-        maskedPhone: "******4455",
-      }),
-    ).toBe("abdul@example.test");
-  });
 });
 
 describe("voice actions land on a surface that is actually showing", () => {

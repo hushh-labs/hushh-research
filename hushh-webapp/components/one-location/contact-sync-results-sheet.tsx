@@ -30,6 +30,7 @@ import { CONTACT_SYNC_MAX_LOOKUPS } from "@/lib/marketplace/contact-matching";
 import { cn } from "@/lib/utils";
 import type { GoogleContactSyncController } from "@/lib/contacts/use-google-contact-sync-session";
 import { googleContactSyncSummary } from "@/lib/contacts/google-contact-sync-summary";
+import { connectPersonName } from "@/lib/connections/person-label";
 import { CONNECT_CONNECTIONS_LIST_HREF } from "@/lib/navigation/connect-routes";
 
 const MATCH_PAGE_SIZE = 100;
@@ -315,7 +316,7 @@ export function ContactSyncResultsSheet({
           {result.matches.length ? (
             <ul className="divide-y divide-border/70 rounded-2xl border border-border/70">
               {visibleMatches.map((match) => {
-                const name = match.displayName || "Hushh user";
+                const name = connectPersonName(match);
                 const requested = requestedUserIds.has(match.userId);
                 return (
                   <li

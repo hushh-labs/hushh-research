@@ -1,4 +1,5 @@
 import type { CircleMembershipEvent } from "@/lib/services/circle-chat-service";
+import { connectPersonName } from "@/lib/connections/person-label";
 
 export function groupCircleMembershipEvents(events: CircleMembershipEvent[]): CircleMembershipEvent[][] {
   const groups: CircleMembershipEvent[][] = [];
@@ -25,14 +26,15 @@ function listNames(names: string[]): string {
 
 export function CircleMembershipEventPill({ events }: { events: CircleMembershipEvent[] }) {
   const event = events[0]!;
-  const subject = event.subjectName;
-  const actor = event.actorName;
+  const subject = connectPersonName({ displayName: event.subjectName });
+  const actor = connectPersonName({ displayName: event.actorName });
+  const isOtherActor = event.actorName && event.actorName !== event.subjectName;
   const label = events.length > 1
-    ? `${listNames(events.map((item) => item.subjectName))} were added`
+    ? `${listNames(events.map((item) => connectPersonName({ displayName: item.subjectName })))} were added`
     : event.kind === "member_joined"
-    ? actor && actor !== subject ? `${actor} added ${subject}` : `${subject} joined`
+    ? isOtherActor ? `${actor} added ${subject}` : `${subject} joined`
     : event.kind === "member_left" ? `${subject} left`
-      : actor && actor !== subject ? `${actor} removed ${subject}` : `${subject} was removed`;
+      : isOtherActor ? `${actor} removed ${subject}` : `${subject} was removed`;
   return <li data-circle-membership-event={event.id} className="my-4 flex justify-center px-2">
     <time dateTime={event.createdAt} title={new Date(event.createdAt).toLocaleString()} dir="auto"
       className="max-w-full rounded-full bg-[color:var(--chat-incoming,var(--card))] px-3 py-1 text-center text-[11px] leading-4 text-[color:var(--chat-muted,var(--muted-foreground))]">

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import styles from "../connect-workspace.module.css";
 import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
 import { circleInviteSelectionLimit } from "@/lib/one-location/circle-invite-contract";
+import { connectPersonName } from "@/lib/connections/person-label";
 import type {
   OneLocationCircleEligibleConnection,
   OneLocationCircleMember,
@@ -105,7 +106,7 @@ export function LivingCirclePanel({
         size="profile"
         className="!size-12"
         photoUrl={owner.photoUrl}
-        label={owner.displayName}
+        label={connectPersonName(owner)}
         verified={Boolean(owner.isRia)}
       />
     </span>
@@ -125,9 +126,9 @@ export function LivingCirclePanel({
         {loading && !candidates.length ? <p className="py-4 text-sm text-muted-foreground">Loading connections…</p>
           : remainingCapacity <= 0 ? <p className="py-4 text-sm text-muted-foreground">This circle is full.</p>
           : candidates.length ? candidates.map(person => <label key={person.userId} className="flex min-h-[72px] items-center gap-3 border-b border-border py-3">
-            <ConnectionPersonAvatar size="compact" className="!size-9" photoUrl={person.photoUrl} label={person.displayName} verified={person.isRia} />
-            <span className={`min-w-0 flex-1 whitespace-normal [overflow-wrap:anywhere] ${styles.pickerName}`}>{person.displayName}</span>
-            <Checkbox checked={selectedUserIds.has(person.userId)} onCheckedChange={() => onAdd(person.userId)} disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)} aria-label={`Add ${person.displayName} to ${circleName}`} />
+            <ConnectionPersonAvatar size="compact" className="!size-9" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} />
+            <span className={`min-w-0 flex-1 whitespace-normal [overflow-wrap:anywhere] ${styles.pickerName}`}>{connectPersonName(person)}</span>
+            <Checkbox checked={selectedUserIds.has(person.userId)} onCheckedChange={() => onAdd(person.userId)} disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)} aria-label={`Add ${connectPersonName(person)} to ${circleName}`} />
           </label>) : !error ? <p className="py-4 text-sm text-muted-foreground">{searchQuery.trim() ? "No matching connections." : "No connections available to add."}</p> : null}
         {hasMore && !loading && !error && remainingCapacity > 0 ? <Button type="button" variant="ghost" size="compact" className="my-3 w-full" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? "Loading…" : "Load more connections"}</Button> : null}
       </div>
@@ -167,7 +168,7 @@ export function LivingCirclePanel({
         <PeopleOrbit
           people={orbitMembers.map((member) => ({
             id: member.userId,
-            name: member.displayName,
+            name: connectPersonName(member),
             photoUrl: member.photoUrl,
             verified: Boolean(member.isRia),
             publicPersonRef: member.publicPersonRef,
@@ -179,8 +180,8 @@ export function LivingCirclePanel({
               <Link
                 data-testid="circle-owner-profile"
                 className="cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
-                title={owner.displayName}
-                aria-label={`Open ${owner.displayName}'s profile`}
+                title={connectPersonName(owner)}
+                aria-label={`Open ${connectPersonName(owner)}'s profile`}
                 href={profileHref(owner.publicPersonRef)}
               >
                 {ownerAvatar}
@@ -325,15 +326,15 @@ export function LivingCirclePanel({
                       }}
                       className="flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-2.5 py-2 shadow-[0_2px_12px_-10px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow] duration-200 hover:border-[color:var(--app-accent)] "
                     >
-                      <ConnectionPersonAvatar size="compact" photoUrl={person.photoUrl} label={person.displayName} verified={person.isRia} />
-                      <span data-profile-role="name" className="min-w-0 flex-1 truncate text-[color:var(--app-primary-label)]" title={person.displayName}>{person.displayName}</span>
+                      <ConnectionPersonAvatar size="compact" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} />
+                      <span data-profile-role="name" className="min-w-0 flex-1 truncate text-[color:var(--app-primary-label)]" title={connectPersonName(person)}>{connectPersonName(person)}</span>
                       <button
                         type="button"
                         className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full px-2 text-sm font-semibold text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-50"
                         onClick={() => onAdd(person.userId)}
                         disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)}
                         aria-pressed={selectedUserIds.has(person.userId)}
-                        aria-label={`Add ${person.displayName} to ${circleName}`}
+                        aria-label={`Add ${connectPersonName(person)} to ${circleName}`}
                       >
                         {selectedUserIds.has(person.userId) ? <Check aria-hidden="true" className="size-4" /> : <Plus aria-hidden="true" className="size-4" />}
                         {selectedUserIds.has(person.userId) ? "Selected" : "Add"}

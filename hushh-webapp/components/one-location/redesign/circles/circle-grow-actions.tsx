@@ -42,6 +42,7 @@ import {
 } from "@/lib/one-location/people-search";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { cn } from "@/lib/utils";
+import { connectPersonName } from "@/lib/connections/person-label";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { CONTACT_SHEET_MAX_HEIGHT_CLASSNAME } from "@/components/connections/contact-sheet-layout";
 import {
@@ -352,19 +353,19 @@ export function CircleInvitePeopleSheet({
                           leading={
                             <ConnectionPersonAvatar
                               photoUrl={connection.photoUrl ?? null}
-                              label={connection.displayName}
+                              label={connectPersonName(connection)}
                               verified={Boolean(connection.isRia)}
                               fromContacts={connection.connectedFromContacts}
                             />
                           }
                           title={
                             <span className="flex min-w-0 items-center gap-1.5">
-                              <span className="min-w-0 truncate">{connection.displayName}</span>
+                              <span className="min-w-0 truncate">{connectPersonName(connection)}</span>
                             </span>
                           }
                           description="Connected on One"
                           ariaPressed={selected}
-                          ariaLabel={`${selected ? "Deselect" : "Select"} ${connection.displayName} for Circle invitation${connection.connectedFromContacts ? ", connected from your contacts" : ""}`}
+                          ariaLabel={`${selected ? "Deselect" : "Select"} ${connectPersonName(connection)} for Circle invitation${connection.connectedFromContacts ? ", connected from your contacts" : ""}`}
                           disabled={!selected && atCapacity}
                           trailing={
                             <span className="flex shrink-0 items-center gap-3">
@@ -442,7 +443,7 @@ export function CircleInvitePeopleSheet({
                         icon={Send}
                         // Awaiting acceptance is PENDING, not an action.
                         iconTone="orange"
-                        title={invite.inviteeDisplayName || "One connection"}
+                        title={connectPersonName({ displayName: invite.inviteeDisplayName }, "One connection")}
                         description="Waiting for them to join"
                         trailing={
                           <Button

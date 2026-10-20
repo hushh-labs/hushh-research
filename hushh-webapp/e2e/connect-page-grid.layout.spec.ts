@@ -240,8 +240,8 @@ for (const dark of [false, true]) {
       await page.getByRole("tab", { name: "Find people", exact: true }).click();
       const cards = page.getByTestId("directory-person-row");
       await expect(cards).toHaveCount(3);
-      await expect(cards.first()).toContainText("p***0@example.com");
-      // An email or no line: a masked phone is never shown on a directory row.
+      await expect(cards.first()).not.toContainText("p***0@example.com");
+      // Discovery presents names and relationship context, not contact identifiers.
       await expect(cards.first()).not.toContainText("98******10");
       await expect(page.getByTestId("directory-person-masked-phone")).toHaveCount(0);
       await expect(cards.first().getByText("Alex Chen", { exact: true })).toHaveCount(0);
@@ -405,7 +405,7 @@ for (const width of [320, 393, 1440]) {
     await expect(cards).toHaveCount(3);
     const first = cards.first();
     await expect(first).toContainText("Avery Featherstonehaugh-Rajendran");
-    await expect(first).toContainText("a***@international-research-department.example.com");
+    await expect(first).not.toContainText("a***@international-research-department.example.com");
     await expect(first).not.toContainText("98******10");
     const groupBox = await page.getByTestId("connect-directory-group").boundingBox();
     const cardBox = await first.boundingBox();
