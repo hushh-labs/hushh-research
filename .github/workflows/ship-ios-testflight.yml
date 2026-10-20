@@ -13,6 +13,10 @@ on:
         description: Exact green main SHA to ship. Blank selects latest main.
         required: false
         type: string
+      marketing_version:
+        description: Optional packaging version (x.y.z); does not change the release source or public App Store version.
+        required: false
+        type: string
       dry_run:
         description: Archive, sign, and run all gates without uploading to TestFlight.
         required: false
@@ -189,6 +193,26 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ needs.preflight.outputs.release_sha }}"
 
+      - name: Resolve TestFlight marketing version
+        shell: bash
+        env:
+          REQUESTED_MARKETING_VERSION: ${{ inputs.marketing_version }}
+        run: |
+          set -euo pipefail
+          version="$(python3 - <<'PY'
+          import os, pathlib, re, sys
+          requested = os.environ.get('REQUESTED_MARKETING_VERSION', '').strip()
+          source = pathlib.Path(os.environ['PBXPROJ']).read_text()
+          match = re.search(r'MARKETING_VERSION\s*=\s*([^;]+)', source)
+          version = requested or (match.group(1).strip() if match else '')
+          if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
+              sys.exit('Marketing version must have three numeric components.')
+          print(version)
+          PY
+          )"
+          echo "IOS_MARKETING_VERSION=$version" >> "$GITHUB_ENV"
+          echo "TestFlight packaging version: $version"
+
       - name: Assert optional physical evidence agrees with source
         if: ${{ inputs.require_hardware == true }}
         shell: bash
@@ -350,6 +374,7 @@ jobs:
             --key-id "$ASC_KEY_ID" \
             --issuer-id "$ASC_ISSUER_ID" \
             --bundle-id "$IOS_BUNDLE_ID" \
+            --marketing-version "$IOS_MARKETING_VERSION" \
             --pbxproj "$PBXPROJ")"
           echo "next_build=$next_build" >> "$GITHUB_OUTPUT"
 
@@ -376,8 +401,28 @@ jobs:
             -authenticationKeyPath "$RUNNER_TEMP/asc.p8" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            MARKETING_VERSION="$IOS_MARKETING_VERSION" \
             CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.next_build }}" \
             archive
+
+      - name: Verify archived app and extension versions
+        shell: bash
+        env:
+          EXPECTED_BUILD_NUMBER: ${{ steps.build_number.outputs.next_build }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, plistlib, sys
+          app = pathlib.Path(os.environ['RUNNER_TEMP'], 'App.xcarchive/Products/Applications/App.app')
+          plists = [app / 'Info.plist', *app.glob('PlugIns/*.appex/Info.plist')]
+          for path in plists:
+              with path.open('rb') as handle:
+                  info = plistlib.load(handle)
+              if (info.get('CFBundleShortVersionString') != os.environ['IOS_MARKETING_VERSION'] or
+                  str(info.get('CFBundleVersion')) != os.environ['EXPECTED_BUILD_NUMBER']):
+                  sys.exit(f'Archive version mismatch: {path.relative_to(app)}')
+          print(f'Verified app and {len(plists) - 1} extension version(s).')
+          PY
 
       - name: Verify archive assets, privacy, and own symbols
         shell: bash
@@ -443,8 +488,10 @@ jobs:
           BUILD_NUMBER: ${{ steps.build_number.outputs.next_build }}
         run: |
           python3 - <<'PY'
-          import json, os, pathlib, re
-          version = re.search(r'MARKETING_VERSION\s*=\s*([^;]+)', pathlib.Path(os.environ['PBXPROJ']).read_text()).group(1).strip()
+          import json, os, pathlib, plistlib
+          archive_info = pathlib.Path(os.environ['RUNNER_TEMP'], 'App.xcarchive/Products/Applications/App.app/Info.plist')
+          with archive_info.open('rb') as handle:
+              version = plistlib.load(handle)['CFBundleShortVersionString']
           receipt = dict(source_sha=os.environ['RELEASE_SHA'], build_number=os.environ['BUILD_NUMBER'], marketing_version=version, bundle_id=os.environ['IOS_BUNDLE_ID'])
           pathlib.Path(os.environ['RUNNER_TEMP'], 'testflight-upload-receipt.json').write_text(json.dumps(receipt))
           PY
@@ -464,14 +511,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          marketing_version="$(grep -m1 -E 'MARKETING_VERSION[[:space:]]*=' "$PBXPROJ" | sed -E 's/.*= *([^;]+);.*/\1/' | tr -d ' ')"
-          test -n "$marketing_version"
           "$RUNNER_TEMP/asc-venv/bin/python" scripts/ci/wait_for_testflight_build.py \
             --p8-path "$RUNNER_TEMP/asc.p8" \
             --key-id "$ASC_KEY_ID" \
             --issuer-id "$ASC_ISSUER_ID" \
             --bundle-id "$IOS_BUNDLE_ID" \
-            --marketing-version "$marketing_version" \
+            --marketing-version "$IOS_MARKETING_VERSION" \
             --build-number "${{ steps.build_number.outputs.next_build }}" \
             --timeout-seconds 1200 \
             --poll-interval-seconds 15 \
@@ -483,14 +528,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          marketing_version="$(grep -m1 -E 'MARKETING_VERSION[[:space:]]*=' "$PBXPROJ" | sed -E 's/.*= *([^;]+);.*/\1/' | tr -d ' ')"
-          test -n "$marketing_version"
           "$RUNNER_TEMP/asc-venv/bin/python" scripts/ci/distribute-testflight-build.py \
             --p8-path "$RUNNER_TEMP/asc.p8" \
             --key-id "$ASC_KEY_ID" \
             --issuer-id "$ASC_ISSUER_ID" \
             --bundle-id "$IOS_BUNDLE_ID" \
-            --marketing-version "$marketing_version" \
+            --marketing-version "$IOS_MARKETING_VERSION" \
             --build-number "${{ steps.build_number.outputs.next_build }}" \
             --build-id-file "$RUNNER_TEMP/testflight-build.json" \
             --internal-group-id "$ASC_INTERNAL_GROUP_ID" \
@@ -533,6 +576,7 @@ jobs:
             echo "| Physical iPhone p95 (ms) | ${{ inputs.require_hardware == true && needs.hardware-capture.outputs.p95_time_to_capture_ms || 'not requested' }} |"
             echo "| Focused App Intent/action gate | ${{ steps.core_tests.outcome }} |"
             echo "| Build number | ${{ steps.build_number.outputs.next_build }} |"
+            echo "| Marketing version | ${IOS_MARKETING_VERSION:-unresolved} |"
             echo "| IPA export / TestFlight upload | ${{ steps.upload.outcome }} |"
             echo "| Private dry-run UAT IPA | ${PRIVATE_ARTIFACT_OUTCOME:-not requested} (14-day bucket retention; receipt only in Actions) |"
             echo "| Apple processing | ${{ steps.processing.outcome }} |"

@@ -1,4 +1,5 @@
 import { executeOneCommandInvocation } from "@/lib/agent/one-system-action-executor";
+import { observeDispatch } from "@/lib/observability/product-activity-client";
 import { executeKaiCommand } from "@/lib/kai/command-executor";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import {
@@ -225,6 +226,13 @@ function buildLocalHandlerResult(input: {
  * tap. The returned promise represents the provider's eventual settlement.
  */
 export function executeTrustedActivationGatewayAction(
+  input: ExecuteAgentGatewayActionInput,
+): Promise<AgentActionRuntimeResult> {
+  // Invoke synchronously first: observation cannot consume the trusted tap.
+  return observeDispatch(input.actionId, executeTrustedActivationGatewayActionImpl(input));
+}
+
+function executeTrustedActivationGatewayActionImpl(
   input: ExecuteAgentGatewayActionInput,
 ): Promise<AgentActionRuntimeResult> {
   const routeBefore = input.appRuntimeState.route;
@@ -488,6 +496,12 @@ function executeConnectedSystemAgentAction(
 }
 
 export async function executeAgentGatewayAction(
+  input: ExecuteAgentGatewayActionInput,
+): Promise<AgentActionRuntimeResult> {
+  return observeDispatch(input.actionId, executeAgentGatewayActionImpl(input));
+}
+
+async function executeAgentGatewayActionImpl(
   input: ExecuteAgentGatewayActionInput,
 ): Promise<AgentActionRuntimeResult> {
   const routeBefore = input.appRuntimeState.route;

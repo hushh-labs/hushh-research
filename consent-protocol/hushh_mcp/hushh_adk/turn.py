@@ -22,6 +22,7 @@ from google.genai import types
 
 from hushh_mcp.hushh_adk.context import HushhContext
 from hushh_mcp.hushh_adk.events import bounded_adk_events
+from hushh_mcp.hushh_adk.product_activity import product_activity_plugins
 from hushh_mcp.hushh_adk.telemetry import private_telemetry
 
 logger = logging.getLogger(__name__)
@@ -199,7 +200,8 @@ async def run_specialist_adk_turn(
             )
     budget = _CallBudget(max_llm_calls)
     runner = Runner(
-        app=App(name=app_name, root_agent=agent, plugins=[budget]), session_service=store
+        app=App(name=app_name, root_agent=agent, plugins=[budget, *product_activity_plugins()]),
+        session_service=store,
     )
     final_text = ""
     structured_output: Any = None

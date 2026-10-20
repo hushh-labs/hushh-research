@@ -1,0 +1,92 @@
+{
+  "events": {
+    "analysis_stream_aborted": [],
+    "analysis_stream_error": [],
+    "analysis_stream_started": [],
+    "analysis_stream_terminal_decision": [],
+    "growth_funnel_step_completed": [],
+    "investor_activation_completed": [],
+    "market_insights_loaded": [],
+    "marketplace_profile_viewed": [
+      "ria",
+      "investor"
+    ],
+    "one_calendar_action": [
+      "connected",
+      "disconnected",
+      "chat_opened"
+    ],
+    "one_crm_action": [
+      "record_created",
+      "record_updated",
+      "record_deleted"
+    ],
+    "one_kyc_action": [
+      "redraft_completed",
+      "reply_sent",
+      "reply_rejected",
+      "workflow_refreshed",
+      "access_approved",
+      "access_denied"
+    ],
+    "one_location_activation_completed": [],
+    "one_location_check_in_completed": [],
+    "one_location_check_out_completed": [],
+    "one_location_circle_created": [],
+    "one_location_circle_invite_created": [],
+    "one_location_contact_signal_synced": [],
+    "one_location_foreground_retry": [],
+    "one_location_journey_action": [
+      "contact_sync_started",
+      "contact_invitation_handoff",
+      "circle_tab_opened",
+      "circle_create_started",
+      "circle_join_started",
+      "circle_opened",
+      "circle_joined",
+      "circle_member_invited",
+      "circle_member_removed",
+      "circle_invite_cancelled",
+      "circle_invite_declined",
+      "circle_left",
+      "circle_deleted",
+      "circle_code_shared",
+      "location_request_approved",
+      "location_request_denied",
+      "location_request_fulfilled",
+      "location_share_viewed",
+      "nearby_check_in_result",
+      "public_link_opened",
+      "public_link_shared",
+      "public_link_revoked"
+    ],
+    "one_location_onboarding_completed": [],
+    "one_location_public_link_created": [],
+    "one_location_recommendation_selected": [],
+    "one_location_request_sent": [],
+    "one_location_review_handoff_opened": [],
+    "one_location_setup_completed": [],
+    "one_location_share_confirmed": [],
+    "one_location_share_review_opened": [],
+    "one_location_sos_triggered": [],
+    "one_location_visit_rated": [],
+    "one_memory_action": [
+      "export_saved",
+      "capture_prepared",
+      "capture_saved",
+      "detail_edited",
+      "detail_deleted",
+      "auto_save_changed"
+    ],
+    "one_wallet_action": [
+      "card_added",
+      "card_deleted"
+    ],
+    "portfolio_viewed": [],
+    "profile_picks_loaded": [],
+    "recommendation_viewed": [],
+    "ria_activation_completed": []
+  },
+  "sourceDigest": "de68afdc6569e07c15774b17bea4d1992fced2c9978e2c60932d56689afb7729",
+  "version": 1
+}

@@ -519,6 +519,11 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     rpc_call = service._db.rpc_calls[0]
     assert rpc_call["function_name"] == "commit_pkm_domain_mutation_v4"
     params = rpc_call["params"]
+    assert all(
+        event["metadata"]["provenance"]["authorization_mode"] == "owner_confirmed"
+        for event in _unwrap(params["p_event_rows"])
+        if event["operation_type"] == "content_write"
+    )
     assert "PRIVATE USER SENTENCE" not in json.dumps(params["p_manifest_row"])
     assert "PRIVATE USER SENTENCE" not in json.dumps(params["p_summary_patch"])
     assert "PRIVATE USER SENTENCE" not in json.dumps(_unwrap(params["p_event_rows"]))

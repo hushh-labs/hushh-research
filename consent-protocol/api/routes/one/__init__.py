@@ -49,6 +49,7 @@ from .people import public_router as public_people_router
 from .people import router as people_router
 from .pkm_packets import router as pkm_packets_router
 from .places import router as places_router
+from .plg import router as plg_router
 from .profile_research import router as profile_research_router
 from .referrals import router as referrals_router
 from .requester_document_payment_source import router as requester_document_payment_source_router
@@ -62,6 +63,7 @@ from .world_model import router as world_model_router
 from .world_model_stream import router as world_model_stream_router
 
 router = APIRouter()
+router.include_router(plg_router)
 router.include_router(a2a_well_known_router)
 router.include_router(a2a_router)
 router.include_router(retired_voice_router)
