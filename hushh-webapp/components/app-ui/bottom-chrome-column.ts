@@ -7,8 +7,8 @@
  * and the inset are CSS tokens in `app/globals.css`
  * (`--app-bottom-shell-max-width`, `--app-bottom-shell-inline-inset`); these
  * classes are the only way a bar consumes them.
- * Messages on tablets and desktop places this column inside its conversation pane;
- * composer and navigation still share the same edges.
+ * Messages keeps this same viewport-centered column; its message composer
+ * replaces the launcher without changing the shared width or insets.
  *
  * Widths are container-relative, never `100vw`: `100vw` counts a desktop
  * scrollbar and ignores the shell moving over for the chat history column,

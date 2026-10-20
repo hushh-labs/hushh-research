@@ -1707,18 +1707,14 @@ article[data-message-role] .messageActions .messageActionButton { background: ra
 .newChatPerson:disabled { opacity: .5; cursor: not-allowed; }
 .newChatMore { min-height: 44px; color: var(--chat-ios-accent); font-size: 13px; font-weight: 600; }
 @media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
-  /* The list reaches the bottom edge. Only the conversation reserves the
-     shared dock, so the composer does not leave a blank band under the list. */
+  /* Both panes reserve the viewport-centered composer and navigation. */
   .page, .page[data-chat-open="true"] {
     height: max(0px, calc(100dvh - max(var(--direct-message-page-top, 0px), var(--messages-top-clearance))));
   }
+  .inbox,
   .thread {
     align-self: start;
     height: max(0px, calc(100% - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset) + var(--direct-message-dock-height, 0px) + var(--direct-message-dock-clearance, 0px)))));
-  }
-  .inbox {
-    align-self: start;
-    height: max(0px, calc(100% - var(--direct-message-keyboard-inset, 0px)));
   }
   .messageCluster,
   article[data-message-role="peer"] .messageCluster {

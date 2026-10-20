@@ -84,6 +84,27 @@ async function mount(page: Page, dark = false, delayInbox = false, inbox = false
 const fixture = (page: Page, code: string) => page.evaluate((value) => { Function("fixture", value)((window as any).directChatFixture); }, code);
 const transcript = (page: Page) => page.getByTestId("direct-message-list");
 
+async function expectSharedDockFrame(page: Page) {
+  const shared = await page.evaluate(() => {
+    const root = document.documentElement;
+    const shell = document.querySelector("[data-app-bottom-shell]")!;
+    const style = getComputedStyle(shell);
+    return {
+      viewport: root.clientWidth,
+      maxWidth: parseFloat(getComputedStyle(root).getPropertyValue("--app-bottom-shell-max-width")),
+      inset: parseFloat(style.paddingLeft) + parseFloat(style.paddingRight),
+    };
+  });
+  const dock = (await page.locator("[data-bottom-shell-motion-stack]").boundingBox())!;
+  expect(Math.abs(dock.x + dock.width / 2 - shared.viewport / 2), "Messages uses the page-centered footer frame").toBeLessThanOrEqual(1);
+  expect(Math.abs(dock.width - Math.min(shared.maxWidth, shared.viewport - shared.inset)), "Messages uses the shared footer width cap").toBeLessThanOrEqual(1);
+  for (const selector of ["[data-bottom-shell-navigation-slot]", "[data-agent-bar-shell]"]) {
+    const bar = (await page.locator(selector).boundingBox())!;
+    expect(Math.abs(bar.x - dock.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(bar.width - dock.width)).toBeLessThanOrEqual(1);
+  }
+}
+
 for (const [width, height] of [[393, 844], [768, 1024], [1024, 768], [1440, 1000], [1920, 1080]]) {
   test(`responsive Messages approval preview at ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width: width!, height: height! });
@@ -91,6 +112,7 @@ for (const [width, height] of [[393, 844], [768, 1024], [1024, 768], [1440, 1000
     await expect(transcript(page).getByText("See you tomorrow 😊", { exact: true })).toBeVisible();
     await page.locator('[data-direct-message-composer-input]').blur();
     await page.mouse.move(0, height!);
+    await expectSharedDockFrame(page);
     const navigation = page.locator("[data-bottom-shell-navigation-slot]");
     await expect(navigation.getByRole("radio", { name: "One", exact: true })).toHaveAttribute("aria-checked", "true");
     await expect(navigation.getByRole("radio", { name: "Chat", exact: true })).toHaveAttribute("aria-checked", "false");
@@ -114,6 +136,7 @@ for (const width of [393, 768, 960, 1920]) {
     const pane = page.locator('[data-circle-messages-pane][data-active="true"]');
     const thread = pane.getByRole("region", { name: "Weekend friends messages" });
     const dock = page.locator('[data-bottom-shell-motion-stack]');
+    await expectSharedDockFrame(page);
     if (width >= 768) {
       const listBox = (await pane.getByRole("complementary", { name: "Circles" }).boundingBox())!;
       const threadBox = (await thread.boundingBox())!;
@@ -124,10 +147,8 @@ for (const width of [393, 768, 960, 1920]) {
       const actions = (await header.locator('[class*="inboxHeaderActions"]').boundingBox())!;
       if (width < 1100) expect(heading.y + heading.height + 4).toBeLessThanOrEqual(actions.y);
       else expect(heading.x + heading.width + 4).toBeLessThanOrEqual(actions.x);
-      expect(Math.abs(listBox.y + listBox.height - 1000)).toBeLessThanOrEqual(1);
+      expect(listBox.y + listBox.height).toBeLessThanOrEqual(dockBox.y + 1);
       expect(Math.abs(threadBox.x - listBox.x - listBox.width)).toBeLessThanOrEqual(1);
-      expect(Math.abs(dockBox.x - threadBox.x - 16)).toBeLessThanOrEqual(1);
-      expect(Math.abs(dockBox.x + dockBox.width - threadBox.x - threadBox.width + 16)).toBeLessThanOrEqual(1);
       expect(await page.locator('[data-app-scroll-root]').evaluate(node => node.scrollHeight - node.clientHeight)).toBeLessThanOrEqual(1);
     }
     await input.fill("A Circle draft above the keyboard");
@@ -143,29 +164,33 @@ for (const width of [393, 768, 960, 1920]) {
       const conversation = (await thread.boundingBox())!;
       return conversation.y + conversation.height - (await page.locator('[data-agent-bar-shell]').boundingBox())!.y;
     }).toBeLessThanOrEqual(1);
+    await expectSharedDockFrame(page);
     expect(errors).toEqual([]);
   });
 }
 
 for (const lane of ["People", "Circles"] as const) {
-  test(`the last ${lane} row stays above the keyboard in tablet split mode`, async ({ page }) => {
+  test(`the last ${lane} row stays above the centered dock and keyboard in tablet split mode`, async ({ page }) => {
     await page.setViewportSize({ width: 768, height: 1000 });
     const errors = await mount(page, false, false, false, "idle", { overflowInbox: true });
     if (lane === "Circles") {
       await page.getByRole("tab", { name: "Circles 33" }).click();
       await page.getByRole("button", { name: /Weekend friends/ }).click();
     }
-    await page.evaluate(() => {
-      document.documentElement.classList.add("kb-open", "native-keyboard-inset");
-      document.documentElement.style.setProperty("--kb-height", "300px");
-    });
     const list = page.getByRole("complementary", { name: lane === "People" ? "Conversations" : "Circles" });
     const lastRow = list.getByRole("button", { name: lane === "People" ? /Connection 30/ : /Circle 30/ });
     await expect(lastRow).toBeAttached();
-    await list.locator(lane === "People" ? "nav" : '[class*="rows"]').evaluate(node => { node.scrollTop = node.scrollHeight; });
-    const row = (await lastRow.boundingBox())!;
-    expect(row.y).toBeGreaterThanOrEqual((await list.boundingBox())!.y);
-    expect(row.y + row.height).toBeLessThanOrEqual(700);
+    for (const inset of [0, 300]) {
+      if (inset) await page.evaluate((height) => {
+        document.documentElement.classList.add("kb-open", "native-keyboard-inset");
+        document.documentElement.style.setProperty("--kb-height", `${height}px`);
+      }, inset);
+      await list.locator(lane === "People" ? "nav" : '[class*="rows"]').evaluate(node => { node.scrollTop = node.scrollHeight; });
+      const row = (await lastRow.boundingBox())!;
+      const dock = (await page.locator('[data-agent-bar-shell]').boundingBox())!;
+      expect(row.y).toBeGreaterThanOrEqual((await list.boundingBox())!.y);
+      expect(row.y + row.height).toBeLessThanOrEqual(Math.min(1000 - inset, dock.y) + 1);
+    }
     expect(errors).toEqual([]);
   });
 }
@@ -264,6 +289,10 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   expect(await navigation.innerText()).toBe(navLabels);
   const bounds = (await navigation.boundingBox())!;
   expect(Math.abs(bounds.x + bounds.width / 2 - 393 / 2)).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expectSharedDockFrame(page);
+  await page.getByRole("button", { name: "Switch to dark mode" }).click();
+  await expectSharedDockFrame(page);
 });
 
 for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 844], [0, 844, 390]] as const) {
@@ -489,7 +518,7 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [767, 852], [
       const actions = (await inboxHeader.locator('[class*="inboxHeaderActions"]').boundingBox())!;
       if (width! < 1100) expect(heading.y + heading.height + 4).toBeLessThanOrEqual(actions.y);
       else expect(heading.x + heading.width + 4).toBeLessThanOrEqual(actions.x);
-      expect(Math.abs(layout.aside!.y + layout.aside!.height - height!)).toBeLessThanOrEqual(1);
+      expect(layout.aside!.y + layout.aside!.height).toBeLessThanOrEqual((await page.locator('[data-bottom-shell-motion-stack]').boundingBox())!.y + 1);
       const overflow = await page.locator('[data-app-scroll-root]').evaluate(node => node.scrollHeight - node.clientHeight);
       expect(overflow, "The desktop workspace must not scroll beneath the fixed dock").toBeLessThanOrEqual(1);
       const thread = (await page.locator('[data-direct-message-page] > main').boundingBox())!;
@@ -500,8 +529,7 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [767, 852], [
       expect(header.x).toBe(thread.x);
       expect(header.width).toBe(thread.width);
       expect(Math.abs(row.x - thread.x - 16)).toBeLessThanOrEqual(1);
-      expect(Math.abs(dock.x - thread.x - 16)).toBeLessThanOrEqual(1);
-      expect(Math.abs(dock.x + dock.width - thread.x - thread.width + 16)).toBeLessThanOrEqual(1);
+      await expectSharedDockFrame(page);
       const navigation = (await page.locator('[data-bottom-shell-navigation-slot]').boundingBox())!;
       expect(navigation.x).toBe(dock.x);
       expect(navigation.width).toBe(dock.width);
@@ -654,9 +682,7 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   const after = await bubble.boundingBox();
   expect(Math.abs(after!.height - before!.height)).toBeLessThanOrEqual(1);
   expect(Math.abs(after!.y - before!.y)).toBeLessThanOrEqual(1);
-  const dock = await page.locator('[data-bottom-shell-motion-stack]').boundingBox();
-  const thread = (await page.locator('[data-direct-message-page] > main').boundingBox())!;
-  expect(Math.abs(dock!.x + dock!.width / 2 - thread.x - thread.width / 2)).toBeLessThanOrEqual(1);
+  await expectSharedDockFrame(page);
   for (const role of ["user", "peer"]) {
     const row = page.locator(`[data-message-role="${role}"]`).last();
     await row.hover();
