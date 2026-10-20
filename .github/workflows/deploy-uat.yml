@@ -290,6 +290,8 @@ jobs:
               "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
             cp deploy/email-auth/bind_secrets.sh \
               "${RUNNER_TEMP}/release-tools/email-auth-bind-secrets.sh"
+            cp deploy/plg/bind_secrets.sh \
+              "${RUNNER_TEMP}/release-tools/plg-bind-secrets.sh"
           fi
 
       - name: Checkout deployment SHA
@@ -315,6 +317,10 @@ jobs:
             cp "${RUNNER_TEMP}/release-tools/email-auth-bind-secrets.sh" \
               deploy/email-auth/bind_secrets.sh
             printf '\n!deploy/email-auth/bind_secrets.sh\n' >> .gcloudignore
+            mkdir -p deploy/plg
+            cp "${RUNNER_TEMP}/release-tools/plg-bind-secrets.sh" \
+              deploy/plg/bind_secrets.sh
+            printf '\n!deploy/plg/bind_secrets.sh\n' >> .gcloudignore
           fi
 
       - name: Validate Google Cloud workload identity configuration

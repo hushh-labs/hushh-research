@@ -8,7 +8,7 @@ clients reach them through the Next.js proxy layer.
 ```mermaid
 flowchart TB
   subgraph creds["Credential planes"]
-    fb["Firebase ID Token<br/>bootstrap and developer-portal sign-in only"]
+    fb["Firebase ID Token<br/>identity bootstrap and pilot metadata"]
     vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
     devtok["Developer Token<br/>Authorization Bearer"]
     hct["Consent Token HCT<br/>app-bound scoped grant"]
@@ -53,6 +53,119 @@ flowchart TB
 ```
 
 ---
+
+## One PLG pilot task evidence
+
+The server caller and isolated Firestore consumer are maintained in the
+[private PLG dashboard integration PR](https://github.com/hushh-labs/hussh-matrix-dashboard/pull/124).
+Release the two services independently through their existing approved paths;
+adding this contract does not enable the exporter or campaign delivery.
+
+`POST /api/one/plg/snapshot` is a server-only integration hidden from public
+OpenAPI. It requires `ONE_PLG_EXPORT_ENABLED=true`, production runtime identity,
+dedicated `ONE_PLG_EXPORT_SECRET` (at least 32 characters), and private
+`ONE_PLG_EXPORT_ACCOUNT_IDS` (1–100 explicitly enrolled production customer
+Firebase UIDs). No browser proxy or native caller is added. Login, legal
+acceptance and shared Firebase membership do not establish marketing consent.
+
+`X-PLG-Timestamp` (13-digit Unix milliseconds, within five minutes) and
+`X-PLG-Signature` authenticate HMAC-SHA256 over
+`snapshot\n<TIMESTAMP>\n<EXACT_RAW_JSON_BODY>`. Wrong purposes and bodies fail.
+Bodies have a 16,000-byte limit and contain 1–20 distinct accounts:
+`{ "accounts": [{ "accountId": "<enrolled UID>", "journey": "memory",
+"since": "<timezone-qualified ISO timestamp>" }] }`. Journey is `memory` or
+`mail`; since must be within seven days. Unlisted UIDs and more than 100 task
+results per account fail the entire batch. Read-only replay cannot send email.
+
+The version-1 response includes `environment: "production"`, `retainedOnly:
+true`, `asOf`, and matching accounts with original `since`, `deleted` and
+`tasks: [{ actionId, occurredAt }]`. Task IDs are opaque SHA-256 values. Memory
+requires committed mutations with matching confirmed content-write provenance;
+upgrades and maintenance writes are excluded. The writer now records its existing
+validated authorization mode as derived provenance, preserving the prior request
+fingerprint for cross-release retries. Only explicit `owner_confirmed` writes
+with an exact owner/domain/plan-derived commit ID qualify. Historical rows
+without that mode remain unclassified; automatic saves and source refreshes
+never become deliberate usage. Mail requires durable `sent` state
+and a provider message ID; uncertain and scheduled background sends are excluded
+so a background worker cannot count as the owner's returning usage. No content, domains,
+email addresses, recipients, subjects or bodies leave the backend. Existing
+account-deletion tombstones take priority over task export.
+
+Retained rows prove positive outcomes only. Empty results do not prove signup,
+complete feed coverage or inactivity: retention, domain deletion and resets can
+remove rows. The consumer must not emit complete observations from this
+projection. Setup, failure, support and canonical enrollment remain separate
+producers. Version 1 remains compatible; the version 2 observation extension
+below introduces migration 365.
+
+Responses are `private, no-store`: sanitized 400 for invalid requests or result
+limits, 401 for signatures, 404 for disabled/nonproduction configuration, 413
+for request size, and 503 for source failures. Reads are bounded; synchronous
+deletion checks run off the event loop. Production deployment optionally binds
+the two dedicated secrets; `one_plg_export_enabled` in existing
+`BACKEND_RUNTIME_CONFIG_JSON` maps the enable flag, which defaults off.
+
+### All-agent activity, version 2
+
+Set `X-PLG-Version: 2` or JSON `version: 2` to negotiate the expanded contract.
+`accounts: []` returns the catalog without opening a database. Nonempty requests
+still require the signed enrolled-account allowlist and seven-day window.
+Journey additionally accepts a canonical authored `agent_*` ID. The catalog is a
+derived measurement projection of the product-agent registry, capability graph, action gateway
+and closed frontend observability enums, with a content revision. It does not
+register tools, route requests, enable unavailable agents or grant permissions.
+
+Version 2 returns matching accounts with `tasks: []`, `verified` aggregate rows
+and `activity`. Only the existing Memory and manual Mail ledgers produce
+verified rows (`agentId`, count, first/last timestamps and UTC days, maximum 1000
+per ledger). Other agents' execution or app reports never become verified value.
+`activity` contains `enabled`, `mode: best_effort`, `limited`, `startedAt`, an
+opaque epoch hash, and bounded rollups by agent/action/source/phase. Sources are
+`client_reported` and `execution_observed`; phases are started, returned, failed,
+cancelled and blocked. A return is not proof of a domain effect. Deleted accounts
+have no activity. Collection disabled or not started remains unknown. Disabling
+collection also hides retained observations from export.
+
+`GET /api/one/plg/activity` admits an observation epoch; `POST` reports only
+`generation`, random `operationId`, registered `actionId` and phase. These hidden
+routes require read-only verified Firebase identity; the UID and client source
+are derived by the server. Extra fields and client attempts to report SDK
+identifiers fail. Browser and native callers use the existing API transport and
+One catch-all proxy. Reporting never bootstraps an account or sends a campaign.
+
+`ONE_PLG_ACTIVITY_ENABLED=true` additionally gates collection to production and
+the same explicit pilot UID allowlist. It defaults false. SDK plugins observe
+admitted root/specialist/gene runs and tools without reading prompts, arguments,
+responses or errors. Unknown private MCP tools use one fixed catalog bucket.
+Warmup and anonymous/Firebase-only introductory runs are excluded. Frontend
+gateway actions retain synchronous trusted browser activation; event collection
+uses closed identifiers only and is independent of GA sampling.
+
+Migration 365 creates two service-only RLS tables. Hashed observation IDs dedupe
+replays; writes serialize a maximum 500 rows per owner per UTC day. Reads exclude
+seven-day expired rows; the existing authenticated Drive work drain purges up to
+1000 expired rows per pass. A rolling window may span eight UTC dates, bounded
+at 4000 retained observations. Retired/reowned identifiers are omitted and mark
+coverage limited. Collection is best effort: timeouts, capacity drops and missing
+history cannot establish inactivity or complete app-wide DAU.
+
+Reset rotates the epoch under the existing writer barrier and clears rows;
+full account deletion erases both tables. SDK invocations pin their epoch once
+before execution. Browser dispatches pin the initiating account, local reset
+generation and admission promise. Account switches and local resets discard
+stale callbacks. A previously resolved admission keeps its epoch, so a later
+remote reset rejects those reports. Cold admission first processed after a
+remote reset belongs to the new observation window; browser reports use server
+receipt time and do not prove when execution began. Observation SQL has statement
+and lock deadlines.
+New client operations refresh admission after at most one minute, recovering
+eligibility changes, temporary admission failures and cross-device resets.
+Pending terminal reports remain bound to their original admission promise.
+Apply the migration and verify schema/deletion/retention checks before enabling
+the flag. Rollback: disable collection, then use the registered migration365
+rollback; original task exports remain available in version 1. No infrastructure,
+collection or marketing delivery is activated by this PR.
 
 ## Verified account phone retention
 

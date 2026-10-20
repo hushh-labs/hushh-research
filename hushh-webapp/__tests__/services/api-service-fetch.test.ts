@@ -89,6 +89,7 @@ vi.mock("@/lib/utils/request-timeouts", () => ({
 import { ApiService } from "@/lib/services/api-service";
 import { GoogleConnectionService } from "@/lib/services/google-connection-service";
 import { AuthService } from "@/lib/services/auth-service";
+
 import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -134,6 +135,14 @@ function deferred<T>() {
 // ---------------------------------------------------------------------------
 
 describe("ApiService.apiFetch", () => {
+  it("refuses a mismatched Firebase subject before observation admission", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(false);
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(makeUnsignedToken({ sub: "owner-b" }));
+    expect(await ApiService.getFirebaseIdTokenForOwner("owner-a")).toBeUndefined();
+    const matching = makeUnsignedToken({ sub: "owner-a" });
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(matching);
+    expect(await ApiService.getFirebaseIdTokenForOwner("owner-a")).toBe(matching);
+  });
   it("sends explicit phone finalization as an authenticated body while ordinary refresh stays read-only", async () => {
     mockFetch.mockResolvedValue(jsonResponse({ success: true }));
     await ApiService.refreshAccountIdentityShadow("fixture-token", { requireSuccess: true, verifiedPhoneNumber: "+919000000001" });

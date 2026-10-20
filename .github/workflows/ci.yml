@@ -240,6 +240,7 @@ jobs:
               - 'scripts/ci/web-*.sh'
             backend:
               - 'consent-protocol/**'
+              - 'deploy/plg/**'
               - 'packages/hushh-mcp/**'
               - 'deploy/backend.cloudbuild.yaml'
               - '.github/workflows/ci.yml'
