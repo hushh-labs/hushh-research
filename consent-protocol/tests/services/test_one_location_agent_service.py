@@ -1168,6 +1168,44 @@ def test_lock_current_auto_approve_preference_rejects_circles_scope_with_no_ids(
     assert error.value.code == "LOCATION_AUTO_APPROVE_RULE_INVALID"
 
 
+@pytest.mark.parametrize(
+    ("command_owned", "replay", "expected"), [(False, False, 1), (True, False, 0), (False, True, 0)]
+)
+def test_private_share_measurement_excludes_implicit_commands_and_replays(
+    monkeypatch, command_owned, replay, expected
+):
+    from hushh_mcp.services import product_value_receipts as values
+
+    service = AtomicPrivateShareProbe(replay=replay)
+    execute = service._execute_atomic_private_share
+
+    def save(**kwargs):
+        return {**execute(**kwargs), "_command_owned": command_owned}
+
+    monkeypatch.setattr(service, "_execute_atomic_private_share", save)
+    monkeypatch.setattr(values, "capture_value_epoch_sync", lambda _: "pinned-generation")
+    captured = []
+    monkeypatch.setattr(
+        values, "record_location_effect_sync", lambda **kwargs: captured.append(kwargs)
+    )
+    now = datetime.now(timezone.utc)
+    result = service.create_grant_with_initial_envelope(
+        owner_user_id="owner",
+        recipient_user_id="recipient",
+        recipient_key_id="recipient-key",
+        duration_hours=1,
+        client_operation_id="123e4567-e89b-12d3-a456-426614174000",
+        confirmed_at=now,
+        envelope={**encrypted_envelope("recipient-key"), "capturedAt": now.isoformat()},
+        share_kind="check_in",
+    )
+    assert len(captured) == expected
+    assert "_command_owned" not in result
+    if captured:
+        assert captured[0]["generation"] == "pinned-generation"
+        assert captured[0]["source_id"] == result["grant"]["id"]
+
+
 def test_atomic_private_share_commits_grant_envelope_and_events_together() -> None:
     service = AtomicPrivateShareProbe()
     confirmed_at = datetime.now(timezone.utc)

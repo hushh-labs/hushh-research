@@ -102,7 +102,7 @@ below introduces migration 365.
 Responses are `private, no-store`: sanitized 400 for invalid requests or result
 limits, 401 for signatures, 404 for disabled/nonproduction configuration, 413
 for request size, and 503 for source failures. Reads are bounded; synchronous
-deletion checks run off the event loop. Production deployment optionally binds
+deletion/read barriers are held for each bounded transaction. Production deployment optionally binds
 the two dedicated secrets; `one_plg_export_enabled` in existing
 `BACKEND_RUNTIME_CONFIG_JSON` maps the enable flag, which defaults off.
 
@@ -117,9 +117,48 @@ and closed frontend observability enums, with a content revision. It does not
 register tools, route requests, enable unavailable agents or grant permissions.
 
 Version 2 returns matching accounts with `tasks: []`, `verified` aggregate rows
-and `activity`. Only the existing Memory and manual Mail ledgers produce
-verified rows (`agentId`, count, first/last timestamps and UTC days, maximum 1000
-per ledger). Other agents' execution or app reports never become verified value.
+and `activity`. Every public agent declares a static `outcome` contract in the
+catalog (`status`, `proof`, `label`, `reason`). Internal agents declare `internal`,
+with no separate activation journey. Availability remains a separate product flag.
+Verified rows contain `agentId`, exact `proof`, count, first/last timestamps and
+UTC days, maximum 1000 distinct effects per group. Generic execution or app
+reports never become verified value. No effect IDs leave the version-2 projection.
+
+| Public agent | Narrow verified value and source |
+| --- | --- |
+| Memory | Owner-confirmed PKM mutation with exact owner/domain/plan commit binding |
+| Mail | Immediate provider-confirmed send; scheduled/uncertain sends excluded |
+| Calendar | Provider-acknowledged reviewed create/reschedule/cancel or changed RSVP; no-op RSVP excluded |
+| Kai | Confirmed financial save attributed to `kai_analysis_completion`; proves saved analysis, not a trade or model correctness |
+| Career | Confirmed professional save attributed to `career_resume_owner_review`; proves reviewed resume saved, not application submission |
+| Wallet | Confirmed wallet commit linked to an activated owner card registration; projection refresh/reservation excluded |
+| KYC | Information-request workflow linked to canonical same-owner/thread confirmed immediate Mail send; not identity verification |
+| Nav | Explicit owner approval/denial of a pending sharing request, persisted audit with server-derived canonical owner and decision; excludes token reuse/automatic revocation |
+| Location | Domain command receipts, or newly committed direct private share/nearby check-in; no automatic envelope refresh or command replay/no-op checkout/contact change |
+| Documents | Approved review and consumed directive bound to a successful permission grant with sealed provider receipt; automatic rules/preexisting permissions excluded |
+| Connected Systems | Same-owner/intent/approval mutation plus successful provider readback; earliest successful audit per intent, excluding generic MCP success |
+| One | Union of distinct effects above; shared Memory/Kai/Career/Wallet commits and Mail/KYC sends count once |
+
+Migration 367 adds a service-only RLS receipt store for domain effects whose
+working rows are short-lived (Calendar, explicit Nav decisions, direct Location).
+The store contains opaque effect hashes and static proof identifiers, seven-day
+TTL and maximum 500 receipts per owner/UTC day. Domain writers pin the observation
+epoch before the effect, and write only after authoritative success. Delayed
+callbacks cannot refresh their epoch after reset. Bounded optional receipt failure
+cannot change the domain result, retry a provider operation or grant authority.
+Nav additionally re-reads its persisted owner-stamped audit before recording.
+KYC gains a nullable canonical send-action association; no historical association
+or outcome is guessed. Source limits/cap saturation mark audience counts limited;
+the signed pilot snapshot fails atomically on truncated evidence.
+
+Release the backward-compatible Matrix proof consumer first, then migration367,
+then backend writers/readers. Retain version1 Memory/Mail compatibility. Rollback
+the backend writer before dropping the registered migration367 schema; the Matrix
+consumer continues accepting older catalogs and legacy Memory/Mail proofs. Reset
+clears new receipts under the existing barrier; account deletion cascades through
+the observation epoch. Maintenance reserves bounded capacity for receipt TTL
+purging so busy observation cleanup cannot starve it. Existing consent, OAuth,
+agent routing and action settlement remain their original authorities.
 `activity` contains `enabled`, `mode: best_effort`, `limited`, `startedAt`, an
 opaque epoch hash, and bounded rollups by agent/action/source/phase. Sources are
 `client_reported` and `execution_observed`; phases are started, returned, failed,
@@ -216,8 +255,8 @@ Recent unmatched starts are in progress. Returns/failures are observations,
 not unique user attempts: browser and SDK observations can cover the same user
 action. Return/failure timestamps use the selected terminal receipt even when a
 start report arrives later at the server. Last observation can therefore be a
-later start. Only Memory/Mail retain the existing verified domain-outcome adapters;
-business completion for other agents is explicitly unsupported. Capacity-limited,
+later start. Verified value uses the public-agent outcome contracts above;
+internal stages do not manufacture separate business completions. Capacity-limited,
 not-started, reset and disabled coverage remains explicit. Disabling collection
 hides retained execution counts, timestamps and behavioral segments.
 

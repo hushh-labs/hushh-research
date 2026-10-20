@@ -1506,7 +1506,11 @@ class OneLocationAgentService:
                         status_code=409,
                     )
                 command.save(str(grant["id"]))
-            return dict(row) if row is not None else None
+            return (
+                {**dict(row), **({"_command_owned": True} if command_operation else {})}
+                if row is not None
+                else None
+            )
 
     def _execute_recipient_key_registration(
         self,
@@ -6701,6 +6705,12 @@ class OneLocationAgentService:
         if capability is not None:
             metadata["capability_token"] = capability["token"]
         metadata_json = _json_param(metadata)
+        from hushh_mcp.services.product_value_receipts import (
+            capture_value_epoch_sync,
+            record_location_effect_sync,
+        )
+
+        value_epoch = capture_value_epoch_sync(owner_user_id) if not command_operation_id else None
         row = self._execute_atomic_private_share(
             recipient_key_lock_key=f"one-location-recipient-key:{recipient_user_id}",
             pair_lock_key=f"one-location-grant:{owner_user_id}:{recipient_user_id}",
@@ -7126,6 +7136,18 @@ class OneLocationAgentService:
             )
 
         idempotent_replay = bool(row.get("idempotent_replay"))
+        if (
+            not idempotent_replay
+            and not command_operation_id
+            and not row.get("_command_owned")
+            and resolved_kind in {"share", "check_in"}
+        ):
+            record_location_effect_sync(
+                user_id=owner_user_id,
+                kind="private_share",
+                source_id=str(grant["id"]),
+                generation=value_epoch,
+            )
         if not idempotent_replay:
             self._send_location_share_created_notification(
                 grant=grant,

@@ -30,6 +30,7 @@ from hushh_mcp.services.google_calendar_service import (
     get_google_calendar_service,
 )
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
+from hushh_mcp.services.product_value_receipts import capture_value_epoch, record_calendar_effect
 
 _READABLE_CALENDAR_ROLES = frozenset({"reader", "writer", "owner", "writerWithoutPrivateAccess"})
 _INVENTORY_MAX = 100
@@ -1019,6 +1020,7 @@ class CalendarScheduleService:
                 409,
                 "calendar_confirmation_pending",
             )
+        value_epoch = await capture_value_epoch(user_id)
         patch_attempted = False
         result = {
             "calendar": "failed",
@@ -1135,6 +1137,13 @@ class CalendarScheduleService:
             "UPDATE calendar_attendance_reviews SET state = 'complete', result_json = CAST(:result AS jsonb) WHERE review_id = :review_id AND user_id = :user_id",
             {**params, "result": json.dumps(result)},
         )
+        if patch_attempted and result["calendar"] in {"accepted", "declined", "tentative"}:
+            await record_calendar_effect(
+                user_id=user_id,
+                kind="attendance",
+                source_id=params["review_id"],
+                generation=value_epoch,
+            )
         return result
 
     async def public_options(self, *, token: str):

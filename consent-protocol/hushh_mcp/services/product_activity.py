@@ -164,11 +164,23 @@ def purge_expired(limit: int = 1000) -> int:
             text("SELECT to_regclass('public.one_product_activity_observations')")
         ).scalar():
             return 0
+        budget = min(max(limit, 1), 1000)
+        removed = 0
+        if conn.execute(text("SELECT to_regclass('public.one_product_value_receipts')")).scalar():
+            values = conn.execute(
+                text("""DELETE FROM one_product_value_receipts
+              WHERE (user_id,generation,agent_id,effect_id) IN (
+                SELECT user_id,generation,agent_id,effect_id FROM one_product_value_receipts
+                WHERE expires_at<NOW() ORDER BY expires_at LIMIT :limit FOR UPDATE SKIP LOCKED)
+              RETURNING effect_id"""),
+                {"limit": max(1, budget // 2)},
+            )
+            removed = len(values.fetchall())
         result = conn.execute(
             text("""DELETE FROM one_product_activity_observations
           WHERE event_id IN (SELECT event_id FROM one_product_activity_observations
             WHERE expires_at<NOW() ORDER BY expires_at LIMIT :limit FOR UPDATE SKIP LOCKED)
           RETURNING event_id"""),
-            {"limit": min(max(limit, 1), 1000)},
+            {"limit": budget - removed},
         )
-        return len(result.fetchall())
+        return removed + len(result.fetchall())

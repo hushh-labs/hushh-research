@@ -465,6 +465,9 @@ def test_deny_consent_records_event(monkeypatch):
                 "requester_actor_type": "ria",
                 "requester_entity_id": "profile_deny",
                 "developer_app_display_name": "Advisor Y",
+                # A requester cannot stamp the owner's decision evidence.
+                "decision_owner_uid": "requester_claim",
+                "owner_decision": "approve",
             },
         },
     )
@@ -487,6 +490,8 @@ def test_deny_consent_records_event(monkeypatch):
         "requester_actor_type": "ria",
         "requester_entity_id": "profile_deny",
         "developer_app_display_name": "Advisor Y",
+        "decision_owner_uid": "investor_1",
+        "owner_decision": "deny",
     }
 
 
@@ -527,6 +532,8 @@ def test_deny_carries_the_bundle_id_of_the_pending_request(monkeypatch):
         "requester_actor_type": "person",
         "requester_label": "Viewer",
         "bundle_id": "bundle_deny",
+        "decision_owner_uid": "investor_1",
+        "owner_decision": "deny",
     }
 
 

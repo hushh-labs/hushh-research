@@ -1803,12 +1803,18 @@ class PersonalGmailInformationRequestService:
             async with pool.acquire() as conn:
                 await conn.execute(
                     """
-                    UPDATE gmail_personal_information_requests
-                    SET status = 'sent', updated_at = NOW()
-                    WHERE workflow_id = $1 AND user_id = $2
+                    UPDATE gmail_personal_information_requests w
+                    SET status = 'sent', reply_send_action_id = a.action_id, updated_at = NOW()
+                    FROM gmail_owner_send_actions a
+                    WHERE w.workflow_id = $1 AND w.user_id = $2
+                      AND a.action_id = $3 AND a.user_id = w.user_id
+                      AND a.state = 'sent' AND a.send_at IS NULL AND a.sent_at IS NOT NULL
+                      AND NULLIF(BTRIM(a.gmail_message_id),'') IS NOT NULL
+                      AND a.gmail_thread_id = w.gmail_thread_id
                     """,
                     workflow_id,
                     user_id,
+                    _text(result.get("action_id")),
                 )
         return result
 

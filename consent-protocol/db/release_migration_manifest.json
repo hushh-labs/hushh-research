@@ -330,7 +330,8 @@
     "363_sms_circle_ten_contacts.sql",
     "364_one_private_text_processing_approvals.sql",
     "365_one_product_activity_observations.sql",
-    "366_one_product_activity_correlation.sql"
+    "366_one_product_activity_correlation.sql",
+    "367_one_product_value_receipts.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -702,6 +703,7 @@
     "363_sms_circle_ten_contacts.sql": "rollback/363_sms_circle_ten_contacts.rollback.sql",
     "364_one_private_text_processing_approvals.sql": "rollback/364_one_private_text_processing_approvals.rollback.sql",
     "365_one_product_activity_observations.sql": "rollback/365_one_product_activity_observations.rollback.sql",
-    "366_one_product_activity_correlation.sql": "rollback/366_one_product_activity_correlation.rollback.sql"
+    "366_one_product_activity_correlation.sql": "rollback/366_one_product_activity_correlation.rollback.sql",
+    "367_one_product_value_receipts.sql": "rollback/367_one_product_value_receipts.rollback.sql"
   }
 }

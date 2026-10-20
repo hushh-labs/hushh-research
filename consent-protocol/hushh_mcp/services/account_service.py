@@ -98,6 +98,9 @@ class AccountService:
             "one_product_activity_observations": text(
                 "DELETE FROM one_product_activity_observations WHERE user_id=:user_id"
             ),
+            "one_product_value_receipts": text(
+                "DELETE FROM one_product_value_receipts WHERE user_id=:user_id"
+            ),
             "one_product_activity_epochs": text(
                 "DELETE FROM one_product_activity_epochs WHERE user_id=:user_id"
             ),
@@ -1565,6 +1568,7 @@ class AccountService:
                 "pwm_research_preferences",
                 "one_adk_sessions",
                 "one_product_activity_observations",
+                "one_product_value_receipts",
                 "one_action_directive_ledger",
                 "one_mcp_pending_calls",
                 "live_memory_hosted_source_envelopes",
@@ -2004,6 +2008,7 @@ class AccountService:
             "one_referral_risk_reviews": False,
             "one_referral_events": False,
             "one_product_activity_observations": False,
+            "one_product_value_receipts": False,
             "one_product_activity_epochs": False,
             "one_referral_relationships": False,
             "one_referral_attributions": False,
@@ -2123,6 +2128,7 @@ class AccountService:
                     table_names=[
                         "one_adk_sessions",
                         "one_product_activity_observations",
+                        "one_product_value_receipts",
                         "one_product_activity_epochs",
                         # Remove challenge bindings before their enrollment lookup.
                         "email_auth_challenges",
