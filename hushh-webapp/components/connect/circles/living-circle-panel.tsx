@@ -116,7 +116,7 @@ export function LivingCirclePanel({
   );
 
   if (focusOnAdding) return (
-    <section data-testid="connect-circle-add-picker" className={styles.picker} aria-label={`Add people to ${circleName}`}>
+    <section data-profile-type-scale="circles" data-testid="connect-circle-add-picker" className={styles.picker} aria-label={`Add people to ${circleName}`}>
       <label className="mb-3 block shrink-0"><span className="sr-only">Search connections to add</span>
         <Input type="search" value={searchQuery} onChange={event => onSearchChange(event.target.value)} placeholder="Name, email or phone" />
       </label>
