@@ -238,7 +238,6 @@ def _restartable_backend(row: dict) -> Optional[tuple[Any, Any]]:
         hushh_id=str(row["hushh_id"]),
         phone_e164_hash=str(row.get("phone_e164_hash") or ""),
         pod_pubkey=str(row.get("pod_pubkey") or ""),
-        expected_service_uid=metadata.get("serviceUid"),
         deployment_target=row.get("deployment_target"),
         **spec_coordinates_from_row(row),
         **adoption_expectations(metadata),

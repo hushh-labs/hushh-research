@@ -35,6 +35,14 @@ def _azure_row(**overrides) -> dict:
     return {**row, **overrides}
 
 
+def test_hosting_spec_uses_one_recorded_incarnation_binding():
+    row = _azure_row()
+    spec = byoc_azure_rebuild._spec(row)
+    assert spec.expected_service_uid == row["backend_metadata"]["serviceUid"]
+    assert spec.expected_runtime_principal == _PRINCIPAL
+    assert spec.azure_vm_host is None
+
+
 class _Registry:
     row: dict | None = None
 

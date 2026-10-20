@@ -240,7 +240,8 @@ async def test_the_resolver_hands_the_recorded_identity_and_digest_to_adoption(
     assert await unrecorded.discover(_HUSHH_ID) is None
 
 
-async def test_adopt_orphan_copies_the_recorded_identity_and_digest_into_its_spec(monkeypatch):
+@pytest.mark.parametrize("vm", [False, True])
+async def test_adopt_orphan_copies_the_recorded_identity_and_digest_into_its_spec(monkeypatch, vm):
     monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
     from hushh_mcp.services import personal_agent_provisioning_service as pas
 
@@ -249,11 +250,33 @@ async def test_adopt_orphan_copies_the_recorded_identity_and_digest_into_its_spe
         "hushh_id": _HUSHH_ID,
         "phone_e164_hash": "phone-hash",
         "status": "needs_reinit",
-        "backend_metadata": {"runtime_principal_id": POD_PRINCIPAL, "image_digest": _OLD},
+        "backend_metadata": {
+            "runtime_principal_id": POD_PRINCIPAL,
+            "image_digest": _OLD,
+            "serviceUid": "recorded-incarnation",
+        },
     }
     cloud = SimpleNamespace(
         is_user_owned=True, deployment_target="user_azure", files_library_enabled=False
     )
+    coordinates = {}
+    if vm:
+        from tests.test_compute_backend import _vm_spec_and_metadata
+
+        spec, row["backend_metadata"] = _vm_spec_and_metadata()
+        row["hushh_id"], row["pod_pubkey"] = spec.hushh_id, "retained-owner-key"
+        coordinates = {
+            name: getattr(spec, name)
+            for name in (
+                "user_cloud_tenant_id",
+                "user_cloud_subscription_id",
+                "user_cloud_resource_group",
+                "user_cloud_region",
+            )
+        }
+    from copy import deepcopy
+
+    original = deepcopy(row)
     seen: list[PodSpec] = []
 
     class _Registry:
@@ -269,12 +292,20 @@ async def test_adopt_orphan_copies_the_recorded_identity_and_digest_into_its_spe
 
     def _backend_for(self, spec):
         seen.append(spec)
+        if vm:
+            from hushh_mcp.services.compute_backend import resolve_compute_backend_for_spec
+
+            return resolve_compute_backend_for_spec(spec)
         return _Undiscoverable()
 
     monkeypatch.setattr(pas, "resolve_user_cloud", _cloud)
-    monkeypatch.setattr(pas, "spec_coordinates", lambda _cloud: {})
+    monkeypatch.setattr(pas, "spec_coordinates", lambda _cloud: coordinates)
     monkeypatch.setattr(pas.PersonalAgentProvisioningService, "_backend_for", _backend_for)
     service = pas.PersonalAgentProvisioningService(registry=_Registry(), backend=_Undiscoverable())
     assert await service.adopt_orphan(user_id=_OWNER) is None
-    assert seen[0].expected_runtime_principal == POD_PRINCIPAL
-    assert seen[0].expected_image_digest == _OLD
+    metadata = original["backend_metadata"]
+    assert seen[0].expected_runtime_principal == metadata["runtime_principal_id"]
+    assert seen[0].expected_image_digest == metadata["image_digest"]
+    assert seen[0].expected_service_uid == metadata["serviceUid"]
+    assert bool(seen[0].azure_vm_host) is vm
+    assert row == original  # Unqualified VM adoption never rotates keys or drops receipts.

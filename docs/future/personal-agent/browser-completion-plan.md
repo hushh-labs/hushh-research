@@ -214,7 +214,8 @@ region, carried through authenticated authorization, the setup job, registry
 publication and `PodSpec`. Existing Azure rows retain Container Apps as their
 default. A mutable provider observation must not choose the host. The current
 setup's fixed `eastus2` region cannot silently select a VM qualified elsewhere.
-This placement extension is not implemented or offered to owners yet.
+Read-only retained-host routing is implemented. Customer host selection,
+approval, publication and exact-key attachment are not offered yet.
 The recovery probe moved to `northcentralus` only after `westus2` returned
 `AllocationFailed` and fresh quota, SKU and pinned-OS checks passed there.
 That diagnostic selection does not change the user's selected hosting region.
@@ -229,13 +230,38 @@ That diagnostic selection does not change the user's selected hosting region.
 
 The source VM wake coordinator now adopts a dedicated registry power operation,
 verifies current session authority, and reconciles the original provider dispatch
-before releasing its exact sealed fence. The customer installer, external grant
-and live wake/idle acceptance remain prerequisites. Exact VM start/deallocate
+before releasing its exact sealed fence. The normal installer has controlled
+HTTPS/recovery proof; the customer offer, external grant and live wake/idle
+acceptance remain prerequisites. Exact VM start/deallocate
 permission alone does not prove long-running-operation polling access: qualify
 [the required operation-status permission](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/async-operations#permission-for-tracking-async-status)
 without silently broadening the Container Apps observer role.
 Deletion of a sleeping VM must first recover the existing cryptographic-erasure
 path, or remain repairable. A provider DELETE alone is not that receipt.
+
+**Unattended wake design:** a deallocated VM cannot receive direct push or consume
+its queue. Retain the direct pod subscription and existing Files work queue. A
+separate owner-cloud Azure Function with zero ready instances receives wake
+signals; its dedicated queue contains identifiers only. The Function requests
+the existing hub power operation using its verified Entra workload identity and
+exact installation binding. It receives no VM control permission. The hub never
+receives Gmail notification contents. A second authenticated Gmail subscription
+targets the owner Function solely for waking; actual processing stays in the pod.
+
+Persist wake publication intent beside the existing sealed job, reconcile lost
+publication replies, and tolerate duplicate identifiers through the current
+power cycle. Never bind a Function trigger to the Files work queue: that trigger
+could claim or delete work before the pod wakes. Delayed scheduled delivery needs
+bounded seven-day checkpoints and authenticated worker dispatch after recovery.
+Idle deallocation must defer active work; an idle candidate cannot authorize
+cancelling a newly admitted turn. These paths are not implemented or qualified.
+The visible offer must include Function host storage, its queue and narrow
+identity grants, the additional subscription/DLQ, and metered execution/storage.
+No always-ready instances or artificial keepalive are proposed. References:
+[Functions Flex Consumption](https://learn.microsoft.com/azure/azure-functions/flex-consumption-plan),
+[queue trigger settlement](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-storage-queue-trigger),
+[queue delay bounds](https://learn.microsoft.com/en-us/rest/api/storageservices/put-message),
+[authenticated Pub/Sub push](https://docs.cloud.google.com/pubsub/docs/authenticate-push-subscriptions).
 
 **Cost assumptions, 2026-10-20, westus2 USD retail:** Linux B2als_v2 host
 **2 vCPU / 4 GiB**, app **1 vCPU / 2 GiB**, single worker. The observed 30 GiB

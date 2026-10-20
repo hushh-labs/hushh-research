@@ -1749,7 +1749,7 @@ class PersonalAgentProvisioningService:
             phone_e164_hash=phone_hash,
             billing_space_id=row.get("billing_space_id"),
             pod_pubkey=str(row.get("pod_pubkey") or ""),
-            expected_service_uid=metadata.get("serviceUid"),
+            **adoption_expectations(metadata),
             deployment_target=row.get("deployment_target")
             or (cloud.deployment_target if cloud else None),
             model_credential_mode=row.get("model_credential_mode")
@@ -2512,7 +2512,7 @@ class PersonalAgentProvisioningService:
             phone_e164_hash=str(row.get("phone_e164_hash") or ""),
             pod_pubkey=str(row.get("pod_pubkey") or ""),
             billing_space_id=row.get("billing_space_id"),
-            expected_service_uid=metadata["serviceUid"],
+            **adoption_expectations(metadata),
             deployment_target=row.get("deployment_target"),
             model_credential_mode=row.get("model_credential_mode"),
             **spec_coordinates_from_row(row),
@@ -2664,7 +2664,7 @@ class PersonalAgentProvisioningService:
             phone_e164_hash=str(row.get("phone_e164_hash") or ""),
             pod_pubkey=str(row.get("pod_pubkey") or ""),
             billing_space_id=row.get("billing_space_id"),
-            expected_service_uid=metadata["serviceUid"],
+            **adoption_expectations(metadata),
             deployment_target=row.get("deployment_target"),
             model_credential_mode=row.get("model_credential_mode"),
             **spec_coordinates_from_row(row),
@@ -2756,10 +2756,12 @@ class PersonalAgentProvisioningService:
             raise RuntimeError("erasure substrate inventory readback unconfirmed")
 
     def _reserved_cleanup_backend(self, snapshot: dict, *, grant_release: bool = False):
+        metadata = snapshot.get("backend_metadata") or {}
         spec = PodSpec(
             hushh_id=snapshot["hushh_id"],
             phone_e164_hash=str(snapshot.get("phone_e164_hash") or ""),
             pod_pubkey=str(snapshot.get("pod_pubkey") or ""),
+            **adoption_expectations(metadata),
             deployment_target=snapshot.get("deployment_target"),
             model_credential_mode=snapshot.get("model_credential_mode"),
             **spec_coordinates_from_row(snapshot),

@@ -50,12 +50,14 @@ async def inspect_files_offer(repo, row: dict, target_image: str):
         or "erasure" in metadata
     ):
         raise ValueError("Files requires an available owner-authorized BYOC pod")
+    from hushh_mcp.services.compute_backend import adoption_expectations
+
     spec = PodSpec(
         hushh_id=row["hushh_id"],
         phone_e164_hash=row["phone_e164_hash"],
         pod_pubkey=row.get("pod_pubkey") or "",
         deployment_target=provider,
-        expected_service_uid=metadata.get("serviceUid"),
+        **adoption_expectations(metadata),
         **spec_coordinates_from_row(row),
     )
     backend = resolve_compute_backend_for_spec(spec)

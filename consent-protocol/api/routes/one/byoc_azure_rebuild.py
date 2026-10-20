@@ -91,7 +91,6 @@ def _spec(row: dict) -> Any:
         billing_space_id=row.get("billing_space_id"),
         deployment_target=BACKEND_USER_AZURE,
         model_credential_mode=str(row.get("model_credential_mode") or "user_azure_mi"),
-        expected_service_uid=str((row.get("backend_metadata") or {}).get("serviceUid") or ""),
         files_library_enabled=selected_for_row(row),
         **spec_coordinates_from_row(row),
         **adoption_expectations(row.get("backend_metadata")),

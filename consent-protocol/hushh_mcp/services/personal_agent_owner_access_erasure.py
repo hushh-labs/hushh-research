@@ -48,7 +48,6 @@ def _snapshot_spec(row: dict[str, Any]) -> PodSpec:
         phone_e164_hash=str(row.get("phone_e164_hash") or ""),
         pod_pubkey=str(row.get("pod_pubkey") or ""),
         billing_space_id=row.get("billing_space_id"),
-        expected_service_uid=metadata.get("serviceUid"),
         deployment_target=row.get("deployment_target"),
         model_credential_mode=row.get("model_credential_mode"),
         **spec_coordinates_from_row(row),

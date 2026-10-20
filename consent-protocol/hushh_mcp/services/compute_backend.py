@@ -14,7 +14,12 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
+
+from hushh_mcp.services.pod_adoption import adoption_expectations as adoption_expectations
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.azure_vm_host_binding import AzureVmHostBinding
 
 # Tiers a pod can run at: a logical stamp against a shared runtime (mass tier, no
 # per-user deploy), or a dedicated/attested instance (premium/regulated tier).
@@ -120,6 +125,9 @@ class PodSpec:
     # registry for adoption; a backend that can read both refuses a pod that differs.
     expected_runtime_principal: Optional[str] = None
     expected_image_digest: Optional[str] = None
+    # Frozen registry binding for an explicitly installed Azure VM. Absence keeps
+    # existing Container Apps; no host is inferred from a name or deployment flag.
+    azure_vm_host: AzureVmHostBinding | None = None
     # Opaque binding to the existing registry upgrade reservation.
     upgrade_attempt_id: Optional[str] = None
     # Durable owner approval operation used by the pod lifecycle handoff.
@@ -268,19 +276,6 @@ class PodSpec:
             self.on_stage(stage)
         except Exception:  # noqa: BLE001 - a listener's bug is not the pod's problem
             pass
-
-
-def adoption_expectations(metadata: object) -> dict[str, Optional[str]]:
-    """What a registry row recorded about its pod, as the PodSpec fields adoption checks.
-
-    Copied, never inferred: a backend that can read a pod's workload identity and
-    image refuses to adopt one that differs. Malformed metadata records nothing.
-    """
-    recorded = metadata if isinstance(metadata, dict) else {}
-    return {
-        "expected_runtime_principal": str(recorded.get("runtime_principal_id") or "") or None,
-        "expected_image_digest": str(recorded.get("image_digest") or "") or None,
-    }
 
 
 @dataclass(frozen=True)
@@ -450,6 +445,8 @@ def resolve_compute_backend_for_spec(spec: PodSpec) -> ComputeBackend:
     instead of their own. That is the one failure mode worth being noisy about.
     """
     target = (spec.deployment_target or "").strip() or None
+    if spec.azure_vm_host is not None and target != BACKEND_USER_AZURE:
+        raise ValueError("Azure VM host cannot be used with another deployment target")
     if target == BACKEND_USER_AZURE:
         return _owner_azure_backend(spec)
     if target != BACKEND_USER_GCP:
@@ -480,11 +477,9 @@ def resolve_compute_backend_for_spec(spec: PodSpec) -> ComputeBackend:
 
 
 def _owner_azure_backend(spec: PodSpec) -> ComputeBackend:
-    """The person's own Azure subscription, from their spec alone. Fails closed.
+    """Resolve recorded owner coordinates and host binding, without a fleet default.
 
-    There is no deployment default for this target at all: a subscription is never a
-    property of the hub, so a missing coordinate is refused rather than defaulted, for
-    the same reason the GCP branch refuses a missing project.
+    Missing coordinates refuse; a destination is never inferred from the hub.
     """
     coordinates = {
         "tenant_id": spec.user_cloud_tenant_id,
@@ -498,6 +493,11 @@ def _owner_azure_backend(spec: PodSpec) -> ComputeBackend:
             "a user_azure pod needs the person's own tenant, subscription, resource group "
             f"and location on its spec, and none is ever inferred (missing: {missing})."
         )
+
+    if spec.azure_vm_host is not None:
+        from hushh_mcp.services.user_azure_vm_backend import UserAzureVmBackend
+
+        return UserAzureVmBackend(spec)
 
     from hushh_mcp.services.user_azure_backend import UserAzureBackend
 

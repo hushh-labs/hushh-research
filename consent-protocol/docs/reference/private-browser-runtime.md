@@ -246,6 +246,15 @@ restart again. Host acknowledgement reports `application_verified=false` until
 the existing controller independently verifies recovery and installed identity.
 This new action is source-tested, not live owner-update acceptance.
 
+The shared Azure factory now recognizes an explicitly retained VM host through
+the typed adoption contract; it never infers VM hosting from a name or redirects
+it into Container Apps operations. Observation checks the exact VM, generation,
+UAMI and image tags, distinguishes denied reads from confirmed absence, and joins
+cancelled readers. Provider power state does not establish application health.
+Generic orphan adoption, key rotation and metadata replacement are refused for
+VM hosts. Customer attachment, update and erasure still need their exact-key,
+owner-approved lifecycle composition before an offer becomes available.
+
 The existing pod handoff now reports the retained sealed idle cursor separately
 from the current runtime's idle receipt. VM recovery can release only that exact
 cursor; lost release responses reconcile from the same sealed marker, including
@@ -261,7 +270,10 @@ transcript or hub telemetry. The model/screens review explicitly includes keepin
 the result in the encrypted owner log. A new `browser_task_closed_v1` record is
 written only after joined shutdown. Same-incarnation restart recovers its terminal
 code and completed result without executing the task again. A lost append response
-is read back before retrying, so it cannot overwrite a committed result with failure.
+is reconciled with the original frozen payload. If readback also fails, the task
+keeps that intent and update permit; a later owner read repairs it through the
+sealed log's conditional append. Stale reads cannot duplicate completion or
+overwrite a committed result with failure. Joined teardown is not repeated.
 Old completion records that still describe an active browser recover as uncertain;
 a replacement incarnation receives metadata only. Log erasure fences result access.
 Cancel, expiry and update drain join one

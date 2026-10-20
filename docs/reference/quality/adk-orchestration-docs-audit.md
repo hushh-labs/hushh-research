@@ -171,8 +171,11 @@ checks live session authority, unchanged keys/image and the original sealed idle
 cursor, then releases the same operation. It reconciles the original ARM dispatch
 and lost release responses across restart; cancellation joins its real worker.
 Parked dev migration 967 fences competing lifecycle changes and reserves receipt
-capacity. The customer VM installer, scoped external grant, unattended idle trigger
-and installed owner journey remain unqualified.
+capacity. The normal installer has separate controlled HTTPS/recovery proof.
+Source now routes explicit VM bindings to read-only observation and refuses
+generic key-rotating adoption. The customer host offer, scoped external grant,
+update/erasure composition, unattended idle trigger and installed owner journey
+remain unqualified.
 
 **Local evidence:** 66 focused VM/recovery/control cases pass, including both
 restart boundaries, active-work drain, wrong key/digest/cursor/lease refusals and

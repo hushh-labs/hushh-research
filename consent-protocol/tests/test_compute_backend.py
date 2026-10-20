@@ -241,3 +241,185 @@ def test_the_gcp_branch_is_unchanged_by_the_azure_branch():
         **{k: v for k, v in _AZURE_COORDINATES.items() if k != "user_cloud_region"},
     )
     assert isinstance(resolve_compute_backend_for_spec(spec), UserGcpBackend)
+
+
+def _vm_spec_and_metadata():
+    from hushh_mcp.services.compute_backend import adoption_expectations
+    from tests.test_azure_vm_host import installation
+
+    config = installation()
+    host = config["installation"]
+    group = host["resource_id"].split("/providers/")[0]
+    principal = "33333333-3333-3333-3333-333333333333"
+    metadata = {
+        "hostKind": "azure_vm",
+        "vmHost": {
+            "installation": host,
+            "identityResourceId": group
+            + "/providers/Microsoft.ManagedIdentity/userAssignedIdentities/agent",
+            "principalId": principal,
+            "location": "northcentralus",
+        },
+        "url": "https://owner.example.com",
+        "image": config["image"],
+        "image_digest": host["image_digest"],
+        "serviceUid": host["generation"],
+        "runtime_principal_id": principal,
+        "runtime_client_id": host["client_id"],
+    }
+    spec = _azure_spec(
+        user_cloud_resource_group="owner",
+        user_cloud_region="northcentralus",
+        **adoption_expectations(metadata),
+    )
+    from dataclasses import replace
+
+    return replace(spec, hushh_id=host["hushh_id"]), metadata
+
+
+@pytest.mark.parametrize(
+    "fault", ["kind", "missing", "principal", "client", "digest", "tag", "url", "extra"]
+)
+def test_retained_vm_host_cannot_silently_resolve_as_container_apps(fault):
+    from hushh_mcp.services.compute_backend import adoption_expectations
+
+    _, metadata = _vm_spec_and_metadata()
+    if fault == "missing":
+        metadata.pop("vmHost")
+    elif fault == "kind":
+        metadata["hostKind"] = "unqualified"
+    elif fault == "extra":
+        metadata["vmHost"]["runCommand"] = "unapproved"
+    else:
+        field = {
+            "principal": "runtime_principal_id",
+            "client": "runtime_client_id",
+            "digest": "image_digest",
+            "tag": "image",
+            "url": "url",
+        }[fault]
+        metadata[field] = "changed"
+    with pytest.raises(ValueError):
+        adoption_expectations(metadata)
+
+
+@pytest.mark.asyncio
+async def test_vm_backend_attaches_exact_host_without_wake_or_false_health(monkeypatch):
+    from hushh_mcp.services.azure_arm_client import ArmClient
+    from hushh_mcp.services.compute_backend import (
+        RestartableBackend,
+        resolve_compute_backend_for_spec,
+    )
+    from hushh_mcp.services.user_azure_vm_backend import UserAzureVmBackend
+    from tests.test_azure_vm_power import Provider
+
+    spec, metadata = _vm_spec_and_metadata()
+    resolved = resolve_compute_backend_for_spec(spec)
+    assert isinstance(resolved, UserAzureVmBackend)
+    assert isinstance(resolved, ComputeBackend) and not isinstance(resolved, RestartableBackend)
+    assert resolved.live is False
+    provider = Provider(spec.azure_vm_host.target())
+    monkeypatch.setattr("requests.Session", lambda: provider)
+    backend = UserAzureVmBackend(spec, observer=lambda: ArmClient("synthetic"))
+    sleeping = await backend.get(resolved.app_id)
+    assert sleeping.status == "sleeping" and sleeping.healthy is False
+    provider.power = "running"
+    running = await backend.get(resolved.app_id)
+    assert running.status == "running" and running.healthy is False
+    with pytest.raises(RuntimeError, match="exact owner-approved recovery"):
+        await backend.provision(spec)
+    assert not hasattr(backend, "discover")  # Generic recovery must not rotate retained VM keys.
+    assert spec.azure_vm_host.record() == metadata["vmHost"]
+    assert provider.posts == [] and provider.closed
+    with pytest.raises(ValueError):
+        await backend.get(resolved.app_id + "-other")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fault", ["forbidden", "absent", "incarnation", "principal", "image"])
+async def test_vm_observation_refuses_changed_identity_and_does_not_call_denial_absence(
+    monkeypatch, fault
+):
+    from hushh_mcp.services.azure_arm_client import ArmClient, ArmError
+    from hushh_mcp.services.azure_vm_power import AzureVmPowerRefused
+    from hushh_mcp.services.user_azure_vm_backend import UserAzureVmBackend
+    from tests.test_azure_vm_power import Provider, _Response
+
+    spec, _ = _vm_spec_and_metadata()
+    target = spec.azure_vm_host.target()
+    provider = Provider(target)
+    if fault in {"forbidden", "absent"}:
+        provider.request = lambda *_a, **_k: _Response(403 if fault == "forbidden" else 404, {})
+    elif fault == "incarnation":
+        provider.vm["properties"]["vmId"] = "99999999-9999-9999-9999-999999999999"
+    elif fault == "principal":
+        provider.vm["identity"]["userAssignedIdentities"][target.identity_resource_id][
+            "principalId"
+        ] = "different"
+    else:
+        provider.vm["tags"]["husshPodImage"] = "sha256:" + "f" * 64
+    monkeypatch.setattr("requests.Session", lambda: provider)
+    backend = UserAzureVmBackend(spec, observer=lambda: ArmClient("synthetic"))
+    if fault == "absent":
+        assert (await backend.get(backend.app_id)).status == "gone"
+    else:
+        with pytest.raises(ArmError if fault == "forbidden" else AzureVmPowerRefused):
+            await backend.get(backend.app_id)
+    assert provider.posts == [] and provider.closed
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "hushh_id",
+        "expected_service_uid",
+        "expected_runtime_principal",
+        "user_cloud_subscription_id",
+        "user_cloud_region",
+        "deployment_target",
+    ],
+)
+def test_vm_host_cannot_be_retargeted_after_registry_capture(field):
+    from dataclasses import replace
+
+    from hushh_mcp.services.compute_backend import resolve_compute_backend_for_spec
+
+    spec, _ = _vm_spec_and_metadata()
+    with pytest.raises(ValueError):
+        resolve_compute_backend_for_spec(replace(spec, **{field: "changed"}))
+
+
+@pytest.mark.asyncio
+async def test_vm_status_cancellation_joins_and_closes_its_real_reader(monkeypatch):
+    import asyncio
+    from threading import Event
+
+    from hushh_mcp.services.azure_arm_client import ArmClient
+    from hushh_mcp.services.user_azure_vm_backend import UserAzureVmBackend
+    from tests.test_azure_vm_power import Provider
+
+    spec, _ = _vm_spec_and_metadata()
+    provider = Provider(spec.azure_vm_host.target())
+    original, entered, release = provider.request, Event(), Event()
+
+    def blocked(*args, **kwargs):
+        entered.set()
+        assert release.wait(2)
+        return original(*args, **kwargs)
+
+    provider.request = blocked
+    monkeypatch.setattr("requests.Session", lambda: provider)
+    backend = UserAzureVmBackend(spec, observer=lambda: ArmClient("synthetic"))
+    task = asyncio.create_task(backend.get(backend.app_id))
+    try:
+        assert await asyncio.to_thread(entered.wait, 1)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()  # A cancelled executor proxy is not reader exit.
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 2)
+        assert provider.closed and provider.posts == []
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
