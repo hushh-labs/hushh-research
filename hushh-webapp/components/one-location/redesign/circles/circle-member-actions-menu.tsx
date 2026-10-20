@@ -4,8 +4,8 @@ import { DirectMessageLink } from "@/components/direct-messages/direct-message-l
 import Link from "next/link";
 
 /**
- * A share-only row acts directly; rows with additional choices retain their
- * responsive action surface, using the Profile icon palette.
+ * Every actionable row uses the same three-dot trigger. The action surface
+ * keeps sharing in the Profile palette and removal in destructive red.
  *
  * The two things you can do TO one person in a Circle -- Share location and
  * Remove from Circle -- and the surface that offers them.
@@ -65,6 +65,7 @@ import Link from "next/link";
 import { useState, useSyncExternalStore } from "react";
 import {
   MessageCircle,
+  MoreVertical,
   Trash2,
   UserRound,
 } from "@/components/icons";
@@ -81,8 +82,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
-  ProfilePaneDeleteIcon,
-  ProfilePaneMessageIcon,
   ProfilePaneShareIcon,
 } from "@/components/profile/profile-pane-icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
@@ -283,28 +282,6 @@ export function CircleMemberActionsMenu({
     );
   }
 
-  // A single valid action needs no intermediate menu. Retain the existing
-  // multi-action surfaces whenever profile, message or removal is available.
-  if (canShare && !canRemove && !messageHref && !profileHref) {
-    return (
-      <Button
-        type="button"
-        size="icon"
-        variant="ghost"
-        disabled={busy}
-        aria-label={`Share location with ${displayName}`}
-        className={CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME}
-        onClick={onShare}
-      >
-        <ProfilePaneShareIcon size={24} />
-      </Button>
-    );
-  }
-
-  const TriggerIcon = canShare
-    ? ProfilePaneShareIcon
-    : canRemove ? ProfilePaneDeleteIcon : ProfilePaneMessageIcon;
-
   const closeSheet = () => {
     setSheetOpen(false);
     setSheetConfirmingRemove(false);
@@ -327,7 +304,7 @@ export function CircleMemberActionsMenu({
             setSheetOpen(true);
           }}
         >
-          <TriggerIcon size={24} />
+          <MoreVertical size={24} aria-hidden="true" />
         </Button>
 
         <Drawer
@@ -517,7 +494,7 @@ export function CircleMemberActionsMenu({
             aria-label={menuLabel}
             className={CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME}
           >
-            <TriggerIcon size={24} />
+            <MoreVertical size={24} aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent data-profile-type-scale="circles"

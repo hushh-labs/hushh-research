@@ -842,9 +842,20 @@ test.describe("Circle roster row", () => {
       await expect(
         page.getByRole("menuitem", { name: "Share location" }),
       ).toBeVisible();
-      await expect(
-        page.getByRole("menuitem", { name: "Remove from Circle" }),
-      ).toBeVisible();
+      const remove = page.getByRole("menuitem", { name: "Remove from Circle" });
+      await expect(remove).toBeVisible();
+      // Dropdowns use the shared destructive text token (a deeper red for
+      // small text); the phone's standalone action uses app-destructive.
+      const destructiveColor = await page.evaluate(() => {
+        const reference = document.createElement("span");
+        reference.style.color = "var(--destructive)";
+        document.body.appendChild(reference);
+        const color = getComputedStyle(reference).color;
+        reference.remove();
+        return color;
+      });
+      await expect(remove).toHaveCSS("color", destructiveColor);
+      await expect(remove.locator("svg")).toHaveCSS("color", destructiveColor);
 
       const [menuBox, triggerBox, selectedRow, selectedIdentity, relationship] =
         await Promise.all([
@@ -918,7 +929,7 @@ test.describe("Circle roster row", () => {
 
   for (const owner of [false, true]) {
     for (const width of [320, 390, 600]) {
-      test(`${owner ? "shares directly for the owner" : "opens the production phone sheet for a member"} at ${width}px`, async ({
+      test(`opens the production phone sheet for ${owner ? "the owner" : "a member"} at ${width}px`, async ({
         page,
       }, testInfo) => {
         const fixture = await startProductionMemberActionsFixture(owner);
@@ -934,26 +945,6 @@ test.describe("Circle roster row", () => {
           await expect(page.getByRole("heading", { name: "SMS Circle" }))
             .toBeVisible({ timeout: 15_000 });
           await awaitProductFont(page);
-
-          if (owner) {
-            const share = page.getByRole("button", { name: `Share location with ${fixture.memberName}` });
-            await expect(share).toBeVisible();
-            const box = await share.boundingBox();
-            expect(box!.width).toBeGreaterThanOrEqual(44);
-            expect(box!.height).toBeGreaterThanOrEqual(44);
-            await expect(share.locator("svg.profile-pane-icon")).toBeVisible();
-            const colors = await share.locator("svg").evaluate(svg => ({
-              outline: getComputedStyle(svg.querySelector("path")!).stroke,
-              accent: getComputedStyle(svg.querySelector(".profile-pane-icon-accent")!).stroke,
-            }));
-            expect(colors.outline).not.toBe(colors.accent);
-            expect(colors.accent).not.toBe("none");
-            await share.click();
-            await expect(page.getByTestId("circle-member-actions-sheet")).toHaveCount(0);
-            await expect(page.getByRole("menu")).toHaveCount(0);
-            expect(browserErrors).toEqual([]);
-            return;
-          }
 
           await page
             .getByRole("button", { name: `Actions for ${fixture.memberName}` })
@@ -979,6 +970,7 @@ test.describe("Circle roster row", () => {
           } else {
             await expect(remove).toBeVisible();
             await expect(remove).toHaveCSS("color", "rgb(255, 59, 48)");
+            await expect(remove.locator("svg")).toHaveCSS("color", "rgb(255, 59, 48)");
           }
           await expect(sheet).toContainText(owner ? "Owner" : "Connected");
           await expect(sheet).toHaveCSS("background-color", "rgb(255, 255, 255)");

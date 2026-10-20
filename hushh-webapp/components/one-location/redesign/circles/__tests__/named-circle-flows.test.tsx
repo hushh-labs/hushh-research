@@ -2464,13 +2464,20 @@ describe("named Circle flows", () => {
           secureLocationReady: true,
         },
         {
-          // Not phone-verified yet: Share is invalid and must not appear,
-          // even though Remove still does.
+          // A missing Location key still excludes sharing.
           userId: "pending-user",
           displayName: "Pending Priya",
           role: "member" as const,
           phoneVerified: false,
           secureLocationReady: false,
+        },
+        {
+          // A verified phone is only needed for SMS. Location setup is ready.
+          userId: "no-phone-user",
+          displayName: "No Phone Nina",
+          role: "member" as const,
+          phoneVerified: false,
+          secureLocationReady: true,
         },
       ],
     };
@@ -2508,6 +2515,21 @@ describe("named Circle flows", () => {
       expect(
         screen.queryByRole("menuitem", { name: /Remove from Circle/i }),
       ).toBeNull(),
+    );
+
+    const ninaTrigger = screen.getByRole("button", {
+      name: "Actions for No Phone Nina",
+    });
+    fireEvent.keyDown(ninaTrigger, { key: "Enter" });
+    expect(
+      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: /Share location/i }),
+    );
+    expect(onShareWithMember).toHaveBeenCalledWith("circle-1", "no-phone-user");
+    await waitFor(() =>
+      expect(screen.queryByRole("menuitem", { name: /Share location/i })).toBeNull(),
     );
 
     // Ready Ronnie's row offers both, and triggering Share calls back with

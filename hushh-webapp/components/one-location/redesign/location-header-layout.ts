@@ -19,9 +19,9 @@ export const LOCATION_HEADER_STATUS_CLASSNAME =
 export const LOCATION_HEADER_TOGGLE_LABEL_CLASSNAME =
   "flex min-h-11 w-full cursor-pointer flex-col items-center justify-center";
 
-/** Keep the shared compact height and thumb, extending only this track/travel. */
+/** Widen and slightly heighten this track; keep its thumb inset at both ends. */
 export const LOCATION_HEADER_SWITCH_CLASSNAME =
-  "shrink-0 data-[size=default]:w-15 [&_[data-slot=switch-thumb][data-state=checked]]:!translate-x-10";
+  "shrink-0 data-[size=default]:h-6 data-[size=default]:w-15 [&_[data-slot=switch-thumb]]:!size-5 [&_[data-slot=switch-thumb][data-state=checked]]:!translate-x-9";
 
 export const LOCATION_HUB_PAGE_HEADER_CLASSNAME =
   "[&>div:first-child]:!gap-3 sm:[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center [&_[data-slot=page-header-row]]:!gap-2 min-[400px]:[&_[data-slot=page-header-row]]:!gap-3 sm:[&_[data-slot=page-header-row]]:!justify-start sm:[&_[data-slot=page-header-row]]:!gap-0 sm:[&_[data-slot=page-header-copy]]:!flex-none sm:[&_[data-slot=page-header-actions]]:!ml-5 sm:[&_[data-slot=page-header-actions]]:!justify-start lg:[&_[data-slot=page-header-row]]:!justify-between lg:[&_[data-slot=page-header-actions]]:!ml-auto lg:[&_[data-slot=page-header-actions]]:!justify-end";

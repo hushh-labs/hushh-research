@@ -1303,8 +1303,9 @@ function CircleMemberRow({
   cancelling?: boolean;
 }) {
   const isCurrentUser = member.userId === currentUserId;
-  const canShare =
-    !isCurrentUser && member.phoneVerified && member.secureLocationReady;
+  // Phone verification is required for emergency SMS, not private location
+  // shares. The sharing flow rechecks the current recipient key before review.
+  const canShare = !isCurrentUser && member.secureLocationReady;
   const canRemove = isOwner && member.role !== "owner";
 
   const relationship =

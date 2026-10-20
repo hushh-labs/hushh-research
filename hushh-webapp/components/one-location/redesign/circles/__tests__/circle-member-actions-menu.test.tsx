@@ -100,23 +100,31 @@ const triggerName = `Actions for ${MEMBER_NAME}`;
 describe.each(["phone", "desktop"] as const)("a share-only Circle row on %s", (viewport) => {
   beforeEach(() => setViewport(viewport));
 
-  it("shares directly using the Profile icon without opening another surface", () => {
+  it("keeps the three-dot menu even when sharing is the only action", async () => {
     const { onShare } = renderMenu({ canRemove: false });
-    const share = screen.getByRole("button", { name: `Share location with ${MEMBER_NAME}` });
+    const trigger = screen.getByRole("button", { name: triggerName });
+    expect(onShare).not.toHaveBeenCalled();
+    if (viewport === "phone") fireEvent.click(trigger);
+    else fireEvent.keyDown(trigger, { key: "Enter" });
+    const share = await screen.findByRole("menuitem", { name: "Share location" });
     expect(share.querySelector("svg.profile-pane-icon")).toBeTruthy();
     expect(share.querySelector(".profile-pane-icon-accent")).toBeTruthy();
-    expect(share).not.toHaveAttribute("aria-haspopup");
+    expect(screen.queryByText("Remove from Circle")).toBeNull();
     fireEvent.click(share);
     expect(onShare).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId(MEMBER_ACTIONS_SHEET_TESTID)).toBeNull();
-    expect(screen.queryByRole("menu")).toBeNull();
+    if (viewport === "phone") {
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      expect(screen.getByTestId(MEMBER_ACTIONS_SHEET_TESTID)).toHaveAttribute("data-state", "closed");
+    } else {
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    }
   });
 
   it("blocks sharing while the Circle is busy", () => {
     const { onShare } = renderMenu({ canRemove: false, busy: true });
-    const share = screen.getByRole("button", { name: `Share location with ${MEMBER_NAME}` });
-    expect(share).toBeDisabled();
-    fireEvent.click(share);
+    const trigger = screen.getByRole("button", { name: triggerName });
+    expect(trigger).toBeDisabled();
+    fireEvent.click(trigger);
     expect(onShare).not.toHaveBeenCalled();
   });
 

@@ -201,7 +201,9 @@ for (const width of [320, 393, 430, 1440]) {
     await page.addScriptTag({ content: script });
     const toggle = page.getByRole("switch");
     await expect(toggle).toHaveCSS("width", "60px");
-    await expect(toggle).toHaveCSS("height", "20px");
+    await expect(toggle).toHaveCSS("height", "24px");
+    await expect(toggle.locator('[data-slot="switch-thumb"]')).toHaveCSS("width", "20px");
+    await expect(toggle.locator('[data-slot="switch-thumb"]')).toHaveCSS("height", "20px");
     await awaitProductFont(page);
     const status = page.getByTestId("one-location-header-status");
     const geometry = await status.evaluate((node) => ({ size: parseFloat(getComputedStyle(node).fontSize), width: node.clientWidth, scrollWidth: node.scrollWidth, tapHeight: node.closest("label")!.getBoundingClientRect().height }));
