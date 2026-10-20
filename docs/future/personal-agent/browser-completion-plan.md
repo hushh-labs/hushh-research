@@ -227,10 +227,13 @@ That diagnostic selection does not change the user's selected hosting region.
 | Update / transition | Exact owner hosting offer, immutable image, predecessor recovery, old-writer fence and installed-digest readback. Preserve keys/storage; do not automatically move current ACA owners |
 | Erasure | Inventory VM, disks, network, identity, registry and custody through existing cleanup authority; retain repairable state until absence/retention is established |
 
-The existing HTTP wake assumes a platform that starts on an incoming request.
-A deallocated VM needs an authenticated, coalesced start operation bound to the
-recorded service identity and installation generation. Preserve accepted provider
-receipts across retry; do not reuse the owner's setup/update slot as a wake lock.
+The source VM wake coordinator now adopts a dedicated registry power operation,
+verifies current session authority, and reconciles the original provider dispatch
+before releasing its exact sealed fence. The customer installer, external grant
+and live wake/idle acceptance remain prerequisites. Exact VM start/deallocate
+permission alone does not prove long-running-operation polling access: qualify
+[the required operation-status permission](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/async-operations#permission-for-tracking-async-status)
+without silently broadening the Container Apps observer role.
 Deletion of a sleeping VM must first recover the existing cryptographic-erasure
 path, or remain repairable. A provider DELETE alone is not that receipt.
 

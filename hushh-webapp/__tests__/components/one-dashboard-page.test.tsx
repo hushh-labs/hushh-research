@@ -126,6 +126,12 @@ describe("OneDashboardPage", () => {
     render(<OneDashboardPage userId="owner" />);
     expect(screen.queryByTestId("dashboard-pod-presence")).toBeNull();
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
+    expect(screen.getByTestId("one-agents-section")).toContainElement(
+      screen.getByRole("button", { name: "Scheduled tasks" }),
+    );
+    const files = screen.getByRole("link", { name: "Open Files" }).querySelector("svg");
+    const messages = screen.getByRole("link", { name: "Open Messages" }).querySelector("svg");
+    expect(files?.innerHTML).not.toEqual(messages?.innerHTML);
   });
 
   it.each([null, 0, 1, 2, 100, 137])("shows the Messages unread count %s rather than its completed setup status", (count) => {

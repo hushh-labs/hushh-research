@@ -19942,7 +19942,7 @@
       "limit": 500,
       "path": "consent-protocol/pod_server.py",
       "symbol": null,
-      "value": 766
+      "value": 770
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23758,7 +23758,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/dashboard/one-agent-roster.tsx",
       "symbol": null,
-      "value": 805
+      "value": 809
     },
     {
       "detail": "module exceeds the advisory operon budget",

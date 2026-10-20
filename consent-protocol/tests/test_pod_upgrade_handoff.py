@@ -15,6 +15,36 @@ def test_service_incarnation_uses_ready_revision_then_traffic() -> None:
     assert service_incarnation({"status": {}}) is None
 
 
+def test_handoff_rechecks_authority_after_identity_token_acquisition():
+    admitted = [True]
+    sent = []
+
+    def budget():
+        if not admitted[0]:
+            raise PermissionError("worker cancelled during token acquisition")
+        return 10.0
+
+    def token(_):
+        admitted[0] = False
+        return "synthetic-machine"
+
+    class Session:
+        def post(self, *args, **kwargs):
+            sent.append(args)
+            pytest.fail("cancelled lifecycle POST dispatched")
+
+    client = PodUpgradeHandoffClient(
+        url="https://pod.example",
+        hushh_id="ha1-owner",
+        session=Session(),
+        identity_token_provider=token,
+        request_budget=budget,
+    )
+    with pytest.raises(PermissionError, match="cancelled"):
+        client.release(operation_id="synthetic-operation", incarnation="synthetic-generation")
+    assert sent == []
+
+
 def test_handoff_wait_rechecks_its_authority_before_each_observation():
     calls = []
 

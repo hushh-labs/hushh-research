@@ -44,6 +44,8 @@ BEGIN
  AND host->>'principalId'=m->>'runtime_principal_id' AND host->>'location'=agent->>'user_cloud_region'
  AND right(m->>'image',71)=i->>'image_digest'
  AND nullif(agent->>'pod_key_id','') IS NOT NULL AND nullif(agent->>'pod_pubkey','') IS NOT NULL
+ AND nullif(agent->>'pod_signing_key_id','') IS NOT NULL
+ AND nullif(agent->>'pod_signing_pubkey','') IS NOT NULL
  AND NOT m ?| ARRAY['erasure','upgradeLease','provisionAttempt']
  AND NOT EXISTS(SELECT 1 FROM personal_agent_deletion_tombstones WHERE hushh_id=agent->>'hushh_id')
  AND NOT EXISTS(SELECT 1 FROM account_deletion_tombstones
@@ -90,6 +92,9 @@ BEGIN
    AND ((phase='drained' AND event->>'path'=resource||'/deallocate'
      AND event->>'purpose'='vm_deallocate')
     OR (phase='starting' AND event->>'path'=resource||'/start' AND event->>'purpose'='vm_start'))
+   -- Reserve the remaining acknowledgement, terminal and recovery events before
+   -- dispatch. Nondispatch retries must not consume the last release slots.
+   AND jsonb_array_length(events)+CASE WHEN phase='drained' THEN 10 ELSE 6 END<=16
    AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(events) e WHERE e->>'kind'='request'
      AND (e->>'requestId'=event->>'requestId' OR (e->>'purpose'=event->>'purpose'
        AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(events) terminal
@@ -115,7 +120,7 @@ BEGIN
    AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(events) e
      WHERE e->>'kind'='power' AND e->>'state'=event->>'state'),false);
  ELSIF kind='recovery' THEN
-  RETURN coalesce(phase='starting'
+  RETURN coalesce(phase IN ('starting','recovered')
    AND event-ARRAY['kind','incarnation','podKeyId','imageDigest','retainedIdleRecord','runtimeEpoch']='{}'::jsonb
    AND event->>'incarnation'=state->'binding'->>'serviceUid'
    AND event->>'podKeyId'=state->'binding'->>'podKeyId'
@@ -125,7 +130,10 @@ BEGIN
    AND EXISTS(SELECT 1 FROM jsonb_array_elements(events) e WHERE e->>'kind'='drain'
      AND e->'receipt'->'idleRecord'=event->'retainedIdleRecord'
      AND e->'receipt'->>'runtimeEpoch'<>event->>'runtimeEpoch')
-   AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(events) e WHERE e->>'kind'='recovery'),false);
+   AND jsonb_array_length(events)+2<=16
+   AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(events) e WHERE e->>'kind'='released')
+   AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(events) e WHERE e->>'kind'='recovery'
+     AND e->>'runtimeEpoch'=event->>'runtimeEpoch'),false);
  ELSIF kind='released' THEN
   RETURN coalesce(phase='recovered'
    AND event-ARRAY['kind','operationId','incarnation','runtimeEpoch','releaseRecord']='{}'::jsonb
@@ -134,8 +142,9 @@ BEGIN
    AND jsonb_typeof(event->'releaseRecord'->'seq')='number'
    AND event->'releaseRecord'->>'sha' ~ '^[a-f0-9]{64}$'
    AND (event->'releaseRecord')-ARRAY['seq','sha']='{}'::jsonb
-   AND EXISTS(SELECT 1 FROM jsonb_array_elements(events) e WHERE e->>'kind'='recovery'
-     AND e->>'runtimeEpoch'=event->>'runtimeEpoch')
+   AND event->>'runtimeEpoch'=(SELECT e->>'runtimeEpoch'
+     FROM jsonb_array_elements(events) WITH ORDINALITY items(e,n)
+     WHERE e->>'kind'='recovery' ORDER BY n DESC LIMIT 1)
    AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(events) e WHERE e->>'kind'='released'),false);
  END IF;
  RETURN false;
@@ -151,7 +160,10 @@ RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
  WHEN 'starting' THEN state->>'phase'='deallocated'
  WHEN 'recovered' THEN EXISTS(SELECT 1 FROM jsonb_array_elements(state->'events') e WHERE e->>'kind'='recovery')
    AND EXISTS(SELECT 1 FROM jsonb_array_elements(state->'events') e WHERE e->>'kind'='power' AND e->>'state'='running')
- WHEN 'ready' THEN EXISTS(SELECT 1 FROM jsonb_array_elements(state->'events') e WHERE e->>'kind'='released')
+ WHEN 'ready' THEN EXISTS(SELECT 1 FROM jsonb_array_elements(state->'events') e
+   WHERE e->>'kind'='released' AND e->>'runtimeEpoch'=(SELECT r->>'runtimeEpoch'
+     FROM jsonb_array_elements(state->'events') WITH ORDINALITY items(r,n)
+     WHERE r->>'kind'='recovery' ORDER BY n DESC LIMIT 1))
  ELSE false END
  AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(state->'events') request
    WHERE request->>'kind'='request' AND NOT EXISTS(

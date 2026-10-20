@@ -61,6 +61,9 @@ async def wake_pod(
     _require_enabled()
     repo = PersonalAgentRegistryRepo()
     row = registry_host_snapshot(await repo.get(user_id))
+    metadata = (row or {}).get("backend_metadata") or {}
+    if metadata.get("hostKind") == "azure_vm":
+        return await _wake_vm(user_id, metadata)
     url = _pod_url(row or {})
     if not url:
         # No host is not a wakeable state, and pretending otherwise would put a
@@ -121,9 +124,12 @@ async def _host_is_gone(row: dict) -> bool:
     NOT proof of gone -- it defaults to False (cold/waking), because a spurious
     fresh setup would change the user's agent identity and A2A address, which must
     never happen on a transient blip."""
+    if (row.get("backend_metadata") or {}).get("hostKind") == "azure_vm":
+        return False  # VM absence must never be inferred through the ACA adapter.
     external_agent_id = str((row or {}).get("external_agent_id") or "").strip()
     if not external_agent_id:
         return False
+
     try:
         from hushh_mcp.services.compute_backend import (  # noqa: PLC0415
             PodSpec,
@@ -144,3 +150,31 @@ async def _host_is_gone(row: dict) -> bool:
     except Exception as exc:  # noqa: BLE001 - uncertainty is NOT gone; stay cold/waking
         logger.info("pod_wake.gone_check_failed err=%s", type(exc).__name__)
         return False
+
+
+async def _wake_vm(owner: str, metadata: dict) -> dict:
+    from hushh_mcp.services.azure_vm_lifecycle import run_vm_lifecycle
+    from hushh_mcp.services.azure_vm_power import AzureVmPowerRefused
+    from hushh_mcp.services.pod_azure_vm_identity import AzureVmInstallation
+
+    try:
+        installation = AzureVmInstallation.model_validate(
+            metadata.get("vmHost", {}).get("installation")
+        )
+        return await run_vm_lifecycle(owner=owner, expected_vm_id=installation.vm_id, action="wake")
+    except AzureVmPowerRefused as exc:
+        if exc.code == "VM_POWER_WORKER_ACTIVE":
+            return {"state": "waking", "etaMs": 0}
+        raise HTTPException(
+            status_code=503,
+            detail={"code": exc.code, "message": "Your agent could not reconnect. Try again."},
+        ) from None
+    except Exception as exc:
+        logger.info("pod_wake.vm_unavailable err=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "VM_WAKE_UNAVAILABLE",
+                "message": "Your agent could not reconnect. Try again.",
+            },
+        ) from None

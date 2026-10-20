@@ -165,24 +165,24 @@ PostgreSQL owner approval, pre/post-commit response loss, duplicate discovery,
 takeover/handback and sealed update drain. The old consume implementation fails
 the pre-commit retry control. Browser/model execution is substituted in this
 check; cloud and installed-owner evidence remains separate. The internal Azure
-VM power port passes 91 focused ARM/identity/dispatch cases, preserving uncertain
-requests and authenticated drain. It has no customer wake caller yet and never
-equates a running VM with application readiness. Three additional real-PostgreSQL
-cases now prove one operation across worker restart, uncertain-dispatch refusal
-and retry after confirmed nondispatch. Parked dev migration 967 fences conflicting
-upgrade, placement and deletion admissions; removing the fence fails the negative
-control. All 51 dev-manifest checks and the new authority's typecheck pass.
-The pod's sealed handoff now preserves the original idle cursor and reconciles
-lost release responses without duplicate markers or reopening a completed VM
-cycle. All 45 focused admission/control/handoff cases and the composed Browser
-ledger journey pass; removing the cursor comparison fails its negative control.
-The independently reviewed dev bridge adds one runtime configuration mapping
-(1425→1426 lines) and one specialist authority case (568→575 lines); global
-architecture budgets stay unchanged.
+VM power port retains uncertain requests and authenticated drain. The new
+coordinator connects the existing owner wake route to exact installed VM records,
+checks live session authority, unchanged keys/image and the original sealed idle
+cursor, then releases the same operation. It reconciles the original ARM dispatch
+and lost release responses across restart; cancellation joins its real worker.
+Parked dev migration 967 fences competing lifecycle changes and reserves receipt
+capacity. The customer VM installer, scoped external grant, unattended idle trigger
+and installed owner journey remain unqualified.
 
-Cancellation coverage adds three cases: all 22 nearest admission cases pass;
-restoring early hydration fails the negative control.
-These are source checks, not a newly installed VM wake journey.
+**Local evidence:** 66 focused VM/recovery/control cases pass, including both
+restart boundaries, active-work drain, wrong key/digest/cursor/lease refusals and
+GET-only provider reconciliation. Seven changed source modules typecheck. Prior
+22 admission cases and their failed-broken-code control remain valid.
+The reviewed dev inference bridge configuration and specialist test ceilings keep
+global architecture budgets unchanged. The dashboard now integrates Scheduled
+tasks in its header and uses the folder glyph for Files: 26 focused UI cases pass
+(two existing skips), plus compiled-CSS layout checks at 320/393/430/768/1440 px.
+These are source/fixture results; no serving pod or owner installation changed.
 
 ### Local integration candidate — 2026-10-19 UTC
 

@@ -45,6 +45,7 @@ class PodUpgradeHandoffClient:
         hushh_id: str,
         session: Any = None,
         identity_token_provider: Callable[[str], str] | None = None,
+        request_budget: Callable[[], float] | None = None,
     ) -> None:
         value = str(url or "").strip().rstrip("/")
         if not value.startswith("https://"):
@@ -55,6 +56,7 @@ class PodUpgradeHandoffClient:
         self._hushh_id = str(hushh_id).strip()[:256]
         self._session = session
         self._identity_token_provider = identity_token_provider
+        self._request_budget = request_budget
 
     def _request(
         self, method: str, path: str, *, body: Optional[dict[str, Any]] = None
@@ -62,6 +64,9 @@ class PodUpgradeHandoffClient:
         import requests  # type: ignore[import-untyped]
 
         client = self._session or requests
+        budget = min(60.0, self._request_budget()) if self._request_budget else 60.0
+        if budget <= 0:
+            raise PodUpgradeHandoffUnavailable("pod lifecycle deadline exceeded")
         try:
             import google.auth.transport.requests as google_requests  # type: ignore[import-untyped]
             import google.oauth2.id_token as google_id_token  # type: ignore[import-untyped]
@@ -80,6 +85,11 @@ class PodUpgradeHandoffClient:
             "X-Hushh-Pod-Id": self._hushh_id,
             "Content-Type": "application/json",
         }
+        # Token acquisition may block. Recheck cancellation and authority at the
+        # actual dispatch boundary, rather than submitting with an earlier grant.
+        budget = min(60.0, self._request_budget()) if self._request_budget else 60.0
+        if budget <= 0:
+            raise PodUpgradeHandoffUnavailable("pod lifecycle deadline exceeded")
         try:
             response = getattr(client, method.lower())(
                 f"{self._url}{path}",
@@ -87,7 +97,7 @@ class PodUpgradeHandoffClient:
                 headers=headers,
                 # The owner's scale-to-zero pod can take over 35 seconds to
                 # start. Keep connection setup bounded while allowing startup.
-                timeout=(10, 60),
+                timeout=(min(10.0, budget), budget),
                 allow_redirects=False,
             )
         except Exception as exc:  # noqa: BLE001 - the pod may be cold or unavailable
@@ -209,6 +219,14 @@ class PodUpgradeHandoffClient:
             "endpoint": result.get("endpoint"),
             "revision": expected_revision,
             "reachable": True,
+        }
+
+    def recovery_snapshot(self) -> dict[str, dict[str, Any]]:
+        """Authenticated runtime, public keys and sealed lifecycle projection."""
+        return {
+            "info": self._request("GET", "/pod/info"),
+            "keys": self._request("GET", "/pod/public-key"),
+            "status": self._request("GET", "/api/one/pod/upgrade/status"),
         }
 
     def verify_maintenance_access(

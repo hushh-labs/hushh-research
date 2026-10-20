@@ -12,6 +12,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from copy import deepcopy
 from typing import Any
 from uuid import uuid4
 
@@ -101,6 +102,10 @@ class AzureVmPowerAuthority:
     def operation_id(self) -> str:
         return self._operation
 
+    @property
+    def binding(self) -> dict:
+        return deepcopy(self._binding)
+
     async def _current(self) -> dict:
         row = await _locked_row(self._connection, self._owner)
         state = (row.get("backend_metadata") or {}).get("vmPower")
@@ -134,6 +139,12 @@ class AzureVmPowerAuthority:
     def require_operation(self) -> None:
         asyncio.run_coroutine_threadsafe(self.read(), self._loop).result(30)
 
+    def read_from_thread(self) -> dict:
+        return asyncio.run_coroutine_threadsafe(self.read(), self._loop).result(30)
+
+    def advance_from_thread(self, phase: str) -> dict:
+        return asyncio.run_coroutine_threadsafe(self.advance(phase), self._loop).result(30)
+
     async def _replace(self, previous: dict, updated: dict) -> None:
         value = await self._connection.fetchval(
             """UPDATE personal_agent_registry SET backend_metadata=jsonb_set(
@@ -164,11 +175,11 @@ class AzureVmPowerAuthority:
                 state = updated
             return state
 
-    def _from_thread(self, event: dict) -> bool:
+    def record_from_thread(self, event: dict) -> bool:
         return asyncio.run_coroutine_threadsafe(self.retain(event), self._loop).result(30)
 
     def admit(self, request_id: str, request: ArmMutationRequest) -> bool:
-        return self._from_thread(
+        return self.record_from_thread(
             {
                 "kind": "request",
                 "requestId": request_id,
@@ -180,7 +191,7 @@ class AzureVmPowerAuthority:
         )
 
     def acknowledge(self, request_id: str, receipt: ArmMutationAcknowledgement) -> bool:
-        return self._from_thread(
+        return self.record_from_thread(
             {
                 "kind": "ack",
                 "requestId": request_id,
@@ -192,7 +203,7 @@ class AzureVmPowerAuthority:
         )
 
     def terminal(self, request_id: str, outcome: ArmMutationOutcome) -> bool:
-        return self._from_thread(
+        return self.record_from_thread(
             {
                 "kind": "terminal",
                 "requestId": request_id,
@@ -206,6 +217,7 @@ async def azure_vm_power_authority(
     *,
     owner: str,
     expected_vm_id: str,
+    create_cycle: bool = True,
     connection_factory: Callable[[], AbstractAsyncContextManager[Any]] = dedicated_connection,
 ) -> AsyncIterator[AzureVmPowerAuthority]:
     """Coalesce the exact cycle; never replace an unresolved provider receipt."""
@@ -238,7 +250,9 @@ async def azure_vm_power_authority(
                 if not acquired:
                     raise AzureVmPowerRefused("VM_POWER_WORKER_ACTIVE")
                 state = row["backend_metadata"].get("vmPower")
-                if state is None or state["phase"] == "ready":
+                if state is None and not create_cycle:
+                    raise AzureVmPowerRefused("VM_POWER_RECOVERY_RECEIPT_REQUIRED")
+                if create_cycle and (state is None or state["phase"] == "ready"):
                     previous = state
                     state = {
                         "version": 1,

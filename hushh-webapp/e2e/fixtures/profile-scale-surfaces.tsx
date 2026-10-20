@@ -94,7 +94,7 @@ function Fixture() {
         </section>
       </SettingsPresentationProvider>
       <div data-testid="fx-agents" className="mb-8">
-        <OneAgentRoster capabilityStatusById={statuses} userId={null} />
+        <OneAgentRoster capabilityStatusById={statuses} userId="layout-owner" />
       </div>
       <div data-testid="fx-circles" data-profile-type-scale="" className="mb-8">
         <CircleDiscoveryCard

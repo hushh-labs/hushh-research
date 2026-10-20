@@ -15,6 +15,7 @@ import pytest
 
 import api.routes.one.pod_wake as wake
 import hushh_mcp.services.compute_backend as cb
+from tests.test_azure_vm_power import setup as setup
 
 _ROW = {"external_agent_id": "one-pod-x", "hushh_id": "ha1_test"}
 
@@ -134,6 +135,40 @@ def _wake_client(monkeypatch, *, reg, gone, gate=True):
     app.include_router(wake.router)
     app.dependency_overrides[require_firebase_auth] = lambda: "uid1"
     return TestClient(app)
+
+
+@pytest.mark.parametrize("active", [False, True])
+def test_vm_wake_never_routes_through_container_apps(monkeypatch, setup, active):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import azure_vm_lifecycle
+    from hushh_mcp.services.azure_vm_power import AzureVmPowerRefused
+
+    installation = setup[0].installation
+    row = {
+        **_ROW,
+        "backend_metadata": {
+            "hostKind": "azure_vm",
+            "vmHost": {"installation": installation.model_dump()},
+        },
+    }
+    reg = _Reg(row)
+    client = _wake_client(monkeypatch, reg=reg, gone=True)
+
+    async def forbidden_probe(*args):
+        pytest.fail("VM attempted an ACA/health probe")
+
+    run = AsyncMock(return_value={"state": "awake", "etaMs": 0})
+    if active:
+        run.side_effect = AzureVmPowerRefused("VM_POWER_WORKER_ACTIVE")
+    monkeypatch.setattr(azure_vm_lifecycle, "run_vm_lifecycle", run)
+    monkeypatch.setattr(wake, "_proxy_get", forbidden_probe)
+    monkeypatch.setattr(wake, "_host_is_gone", forbidden_probe)
+    result = client.post("/api/one/pod/wake")
+    assert result.status_code == 200
+    assert result.json()["state"] == ("waking" if active else "awake")
+    run.assert_awaited_once_with(owner="uid1", expected_vm_id=installation.vm_id, action="wake")
+    assert reg.reinit_calls == []
 
 
 def test_confirmed_gone_writes_needs_reinit_exactly_once(monkeypatch):

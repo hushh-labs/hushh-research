@@ -205,14 +205,25 @@ conflicting placement, update and erasure admission. Requests are journaled befo
 dispatch. Only confirmed nondispatch permits replacement; an uncertain provider
 response must be reconciled. Deallocation is an intermediate state, not completion:
 authenticated recovery and release of the same sealed drain fence are required.
-These locally verified ports do not enable a customer VM offer or wake route.
+`azure_vm_lifecycle.py` now composes authenticated drain, provider power and
+verified recovery. The existing owner wake route selects recorded VM hosts before
+HTTP or Container Apps probes. Wake adopts the same registry operation; it never
+creates a new drain cycle. `/pod/info` reports the verified VM installation;
+upgrade status separately proves the current owner-session lease is held.
+Unchanged encryption/signing keys, image, incarnation and the original sealed
+idle cursor are required before release. Historical release survives another
+restart without being rewritten as a new receipt. Original ARM operation URLs
+settle through bounded GETs; an unknown response cannot trigger another POST.
+Cancellation joins the provider thread before releasing registry authority.
+The customer VM offer, installer and unattended idle trigger remain unavailable;
+these source checks are not an installed owner wake or external grant receipt.
 
 The existing pod handoff now reports the retained sealed idle cursor separately
 from the current runtime's idle receipt. VM recovery can release only that exact
 cursor; lost release responses reconcile from the same sealed marker, including
 after restart. Legacy failed-update retries keep their previous behavior. The
-hub still must verify recovered identity, image and readiness before requesting
-this release; provider `running` never establishes application recovery.
+coordinator verifies recovered identity, image and current admission before
+requesting release; provider `running` never establishes application recovery.
 
 `task_lifecycle.py` owns execution, expiry and joined shutdown; authenticated owner
 operations remain in `task_runtime.py`. Cancel, expiry and update drain join one

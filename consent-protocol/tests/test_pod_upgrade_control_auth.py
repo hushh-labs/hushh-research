@@ -11,6 +11,43 @@ from api.routes.one.pod_session import router
 from hushh_mcp.services import pod_upgrade_admission
 
 
+@pytest.mark.parametrize("authority_state", ["held", "missing", "fenced", "foreign"])
+async def test_vm_machine_readiness_requires_the_live_owner_lease(monkeypatch, authority_state):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import pod_azure_vm_identity, pod_session_authority
+    from hushh_mcp.services.pod_vm_readiness import vm_session_readiness
+
+    installation = SimpleNamespace(hushh_id="ha1-owner", generation="vm_synthetic")
+    require_held = AsyncMock(
+        side_effect=RuntimeError("fenced") if authority_state == "fenced" else None
+    )
+    authority = SimpleNamespace(
+        hushh_id="foreign" if authority_state == "foreign" else "ha1-owner",
+        pod_key_id="synthetic-key",
+        epoch=3,
+        require_held=require_held,
+    )
+    monkeypatch.setattr(pod_azure_vm_identity, "active_vm_installation", lambda: installation)
+    monkeypatch.setattr(
+        pod_session_authority,
+        "active_session_authority",
+        lambda: None if authority_state == "missing" else authority,
+    )
+    result = await vm_session_readiness()
+    assert result["state"] == ("held" if authority_state == "held" else "unavailable")
+    if authority_state != "missing":
+        require_held.assert_awaited_once()
+    if authority_state == "held":
+        assert result == {
+            "state": "held",
+            "hushhId": "ha1-owner",
+            "podKeyId": "synthetic-key",
+            "incarnation": "vm_synthetic",
+            "epoch": 3,
+        }
+
+
 @pytest.fixture
 def lifecycle(monkeypatch):
     monkeypatch.setenv("HUSSH_ID", "ha1-owner")

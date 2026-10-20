@@ -23,6 +23,7 @@ import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { CalendarClock } from "@/components/icons";
 
 const labels: Record<ScheduledTask["state"], string> = {
   pending_delivery: "Scheduling",
@@ -173,9 +174,13 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
       <DialogTrigger asChild>
         <ShellActionSurface
           variant="pill"
+          aria-label="Scheduled tasks"
+          title="Scheduled tasks"
+          className="h-11 w-11 shrink-0 p-0 min-[520px]:w-auto min-[520px]:px-3.5"
           data-voice-control-id="one_scheduled_tasks"
         >
-          Scheduled tasks
+          <CalendarClock className="h-5 w-5 shrink-0" aria-hidden="true" />
+          <span className="hidden min-[520px]:inline">Scheduled tasks</span>
         </ShellActionSurface>
       </DialogTrigger>
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">

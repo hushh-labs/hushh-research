@@ -29,6 +29,7 @@ def vm_installation(cleanup_pg):
     metadata = {
         **row["backend_metadata"],
         "hostKind": "azure_vm",
+        "url": "https://pod.example",
         "serviceUid": installation.generation,
         "image": "registry.azurecr.io/pod@" + installation.image_digest,
         "runtime_client_id": installation.client_id,
@@ -43,6 +44,7 @@ def vm_installation(cleanup_pg):
     }
     pg.execute(
         "UPDATE personal_agent_registry SET external_agent_id=%s,pod_key_id='synthetic-key',"
+        "pod_signing_key_id='pods_ffffffffffffffffffffffffffffffff',pod_signing_pubkey='AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',"
         "pod_pubkey='synthetic-public',backend_metadata=%s::jsonb WHERE user_id=%s",
         (installation.resource_id, json.dumps(metadata), owner),
     )

@@ -14,6 +14,11 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
 
 let script: string;
 let css: string;
+let fixtureDirectory: string | undefined;
+
+test.afterAll(() => {
+  if (fixtureDirectory) fs.rmSync(fixtureDirectory, { recursive: true, force: true });
+});
 
 test.beforeAll(async () => {
   const root = process.cwd();
@@ -22,6 +27,7 @@ test.beforeAll(async () => {
   const scanner = new Scanner({});
   const candidates = new Set<string>();
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "profile-scale-surfaces-"));
+  fixtureDirectory = outDir;
   const boundary = path.join(root, "e2e/fixtures/profile-scale-boundaries.tsx");
   await build({
     configFile: false,
@@ -45,7 +51,7 @@ test.beforeAll(async () => {
         { find: "@", replacement: root },
       ],
     },
-    define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
+    define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env.NEXT_PUBLIC_APP_ENV": JSON.stringify("development"), "process.env": "{}" },
     build: {
       copyPublicDir: false,
       outDir,
@@ -79,6 +85,7 @@ test.beforeAll(async () => {
     stripAppFontFaces(compiler.build([...candidates])) +
     productFontStyle() +
     fs.readdirSync(outDir).filter((name) => name.endsWith(".css")).map((name) => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
+  fs.rmSync(outDir, { recursive: true, force: true });
 });
 
 type Flags = { long?: boolean; single?: boolean; dialog?: boolean };
@@ -118,6 +125,24 @@ const read = (page: Page, selector: string, index = 0) =>
     const s = getComputedStyle(node);
     return { size: s.fontSize, weight: s.fontWeight, line: s.lineHeight, color: s.color, background: s.backgroundColor };
   });
+
+async function assertRosterControls(page: Page) {
+  const section = page.getByTestId("one-agents-section");
+  const scheduled = section.getByRole("button", { name: "Scheduled tasks" });
+  const view = section.getByRole("group", { name: "Agent roster view" });
+  const [button, toggle, title, grid] = await Promise.all([
+    scheduled.boundingBox(), view.boundingBox(),
+    section.getByRole("heading").boundingBox(), page.getByTestId("one-agents-grid").boundingBox(),
+  ]);
+  expect(button!.width).toBeGreaterThanOrEqual(44);
+  expect(button!.height).toBeGreaterThanOrEqual(44);
+  expect(button!.x + button!.width).toBeLessThanOrEqual(toggle!.x);
+  expect(title!.x + title!.width).toBeLessThanOrEqual(button!.x);
+  expect(Math.abs(button!.y + button!.height / 2 - toggle!.y - toggle!.height / 2)).toBeLessThanOrEqual(1);
+  expect(Math.abs(title!.x - grid!.x)).toBeLessThanOrEqual(1);
+  const glyph = (name: string) => section.getByRole("link", { name }).locator("svg").evaluate(node => node.innerHTML);
+  expect(await glyph("Open Files")).not.toBe(await glyph("Open Messages"));
+}
 
 for (const width of [320, 393, 430, 768]) {
   test(`Feed "Needs you" rows use Profile roles and keep each action beside its request at ${width}px`, async ({ page }) => {
@@ -182,6 +207,7 @@ for (const width of [320, 393, 430, 768]) {
 
   test(`Agents roster follows the Profile header, label and count roles at ${width}px`, async ({ page }) => {
     await open(page, width);
+    await assertRosterControls(page);
     expect(await read(page, '[data-testid="one-agents-section"] [data-profile-role="header"]')).toMatchObject({ size: "20px", weight: "600", line: "23px" });
     await expect(page.getByRole("heading", { name: /^Agents \(\d+\)$/ })).toBeVisible();
     expect(await read(page, '[data-testid="one-agent-tile-location"] [data-profile-role="label"]')).toMatchObject({ size: "13px", weight: "550", line: "15.6px" });
@@ -225,6 +251,12 @@ for (const width of [320, 393, 430, 768]) {
     if (width === 393) await shoot(page, "circles-393", "fx-circles");
   });
 }
+
+test("Agents roster keeps its task control aligned at desktop width", async ({ page }) => {
+  await open(page, 1440);
+  await assertRosterControls(page);
+  await shoot(page, "agents-grid-1440", "fx-agents");
+});
 
 test("Circles footer keeps the count dynamic and singular", async ({ page }) => {
   await open(page, 393, false, { single: true });

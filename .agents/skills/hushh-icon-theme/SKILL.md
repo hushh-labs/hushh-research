@@ -54,6 +54,7 @@ Hussh interfaces demand an aesthetic of **quiet luxury, high-contrast clarity, a
 | `calendar` | **Calendar** | `CalendarBlank` | `regular` | `#0284C7` |
 | `email` | **KYC** | `IdentificationCard` | `regular` | `#2563EB` |
 | `pkm` | **Memory** | `Graph` | `regular` | `#6366F1` |
+| `files` | **Files** | `FolderSimple` (`FolderRowIcon`) | `regular` | Indigo |
 | `consent` | **Consent** | `LockKey` | `regular` | `#F97316` |
 | `marketplace` | **Marketplace** | `Storefront` | `regular` | `#059669` |
 | `connected-systems` | **Connected Systems** | `PlugsConnected` | `regular` | `#00E5FF` |

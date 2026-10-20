@@ -298,8 +298,11 @@ def pod_info() -> dict:
     # the one question an operator probing a silent pod needs answered with one
     # authenticated GET (a BYOC pod once served for days with memory silently
     # broken and nothing observable saying so).
+    from hushh_mcp.services.pod_azure_vm_identity import active_vm_installation
     from hushh_mcp.services.pod_memory_bank import memory_bank_status, pod_memory_backend
     from hushh_mcp.services.pod_memory_service import resolve_pod_memory_service
+
+    installation = active_vm_installation()
 
     return {
         "role": "sovereign-pod",
@@ -318,6 +321,7 @@ def pod_info() -> dict:
         "capabilities": pod_capabilities(),
         **memory_bank_status(),
         **_self_report(),
+        **({"vmInstallation": installation.model_dump()} if installation else {}),
     }
 
 

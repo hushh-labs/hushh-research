@@ -337,8 +337,11 @@ async def pod_upgrade_status(
     """Return redacted active-work and idle-receipt evidence."""
     await _upgrade_control_authorized(request, authorization)
     from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
+    from hushh_mcp.services.pod_vm_readiness import vm_session_readiness
 
-    return cast(dict[str, Any], await ADMISSION.status(incarnation=pod_incarnation()))
+    result = cast(dict[str, Any], await ADMISSION.status(incarnation=pod_incarnation()))
+    readiness = await vm_session_readiness()
+    return {**result, **({"sessionAuthority": readiness} if readiness is not None else {})}
 
 
 @router.post("/upgrade/release")
