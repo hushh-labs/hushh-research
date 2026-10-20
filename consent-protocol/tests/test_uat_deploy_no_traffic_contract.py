@@ -239,6 +239,86 @@ def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize(
+    "failure",
+    ["", "missing_cpu", "missing_memory", "invalid_cpu", "invalid_memory", "lookup", "execute"],
+)
+def test_candidate_pkm_evaluator_inherits_exact_revision_resources(
+    tmp_path: Path, failure: str
+) -> None:
+    cloud = tmp_path / "gcloud"
+    calls_path = tmp_path / "calls.jsonl"
+    cloud.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "args = sys.argv[1:]\n"
+        "failure = os.environ['PROBE_FAILURE']\n"
+        "with open(os.environ['CLOUD_CALLS'], 'a') as log:\n"
+        "    log.write(json.dumps(args) + '\\n')\n"
+        "if args[:3] == ['run', 'revisions', 'describe']:\n"
+        "    assert args[3] == 'candidate-revision'\n"
+        "    if failure == 'lookup': sys.exit(1)\n"
+        "    projection = next(arg for arg in args if arg.startswith('--format='))\n"
+        "    values = {'--format=value(spec.containers[0].image)': 'image@sha256:123',\n"
+        "              '--format=value(spec.containers[0].resources.limits.cpu)': '2',\n"
+        "              '--format=value(spec.containers[0].resources.limits.memory)': '6Gi'}\n"
+        "    field = projection.split('.')[-1].removesuffix(')')\n"
+        "    print('' if failure == 'missing_' + field else 'invalid' if failure == 'invalid_' + field else values[projection])\n"
+        "elif args[:3] == ['run', 'services', 'describe']:\n"
+        "    print('runtime@example.test')\n"
+        "elif args[:3] == ['run', 'jobs', 'execute'] and failure == 'execute':\n"
+        "    sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    cloud.chmod(0o700)
+    result = subprocess.run(  # noqa: S603 - real wrapper, isolated synthetic gcloud
+        ["bash", str(REPO_ROOT / "scripts/ci/run-candidate-pkm-structure-agent-eval.sh")],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "CLOUD_CALLS": str(calls_path),
+            "PROBE_FAILURE": failure,
+            "GCP_PROJECT_ID": "test-project",
+            "GCP_REGION": "test-region",
+            "BACKEND_SERVICE": "backend",
+            "BACKEND_REVISION": "candidate-revision",
+            "GITHUB_RUN_ID": "123",
+            "GITHUB_RUN_ATTEMPT": "1",
+        },
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    calls = [json.loads(line) for line in calls_path.read_text().splitlines()]
+    creates = [call for call in calls if call[:3] == ["run", "jobs", "create"]]
+    executes = [call for call in calls if call[:3] == ["run", "jobs", "execute"]]
+    assert (result.returncode == 0) is (not failure), result.stderr
+    if failure not in ("", "execute"):
+        assert not creates and not executes, (
+            "Missing or invalid resources must fail before job creation"
+        )
+        return
+    assert len(creates) == len(executes) == 1
+    create = creates[0]
+    for flag, value in (
+        ("--cpu", "2"),
+        ("--memory", "6Gi"),
+        ("--image", "image@sha256:123"),
+        ("--tasks", "1"),
+        ("--parallelism", "1"),
+        ("--max-retries", "0"),
+        ("--task-timeout", "45m"),
+    ):
+        assert create[create.index(flag) + 1] == value
+    assert create[create.index("--args") + 1] == (
+        "scripts/eval_pkm_structure_agent.py,--phase,release_chain_24,--skip-shadow,--reps,3,"
+        "--enforce-gates,--fail-fast,--json-out,/tmp/pkm-structure-agent-eval.json"
+    )
+    assert not any("secret" in arg or "cloudsql" in arg for arg in create)
+    assert calls[-1][:4] == ["run", "jobs", "delete", "uat-pkm-eval-123-1"]
+
+
 def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict(
     tmp_path: Path,
 ) -> None:
