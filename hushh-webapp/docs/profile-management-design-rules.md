@@ -40,7 +40,7 @@ helper text and compact controls use `managedContent` from the same owner.
 - Compose rows with `SettingsGroup` and `SettingsRow`, including transaction
   summaries. Use the shared `PROFILE_ICONS` registry's approved neutral outlines
   and restrained accent details. Generated native artwork uses that same mapping;
-  capability-launcher palettes and branded provider logos remain separate.
+  capability-launcher palettes and branded provider logos remain separate. Preferences Appearance, Accent and Voice use the same approved mapping, including their native artwork.
 - Import that Profile-specific mapping from `components/icons/profile-icons`.
   Keep it out of the generic icon barrel so unrelated surfaces do not evaluate
   Profile's feature modules. Both Profile renderers and the artwork generator
