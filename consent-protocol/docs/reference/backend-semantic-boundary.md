@@ -991,8 +991,15 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
 - Azure UAT: GPT-5 mini owns planning, candidate assessment, attribution and report
   meaning using that same manifest. Adapter instructions select the execution
   stage and conservative citation-only identity boundary; native JSON schema and
-  host validation reject malformed or unreceived evidence. Candidate/source ID
-  namespaces and observed-attempt gates enforce evidence provenance, not meaning.
+  host validation reject malformed or unreceived evidence, not semantic
+  duplicates. Provisional extraction and final compilation use
+  bounded instruction blocks authored in the same PWM manifest, with no
+  retrieval, identity-verification or save authority; it does not inherit the
+  whole research task's unrelated duties. The model chooses which distinct
+  findings remain, and final compilation still audits its proposals. Stage
+  instruction and reasoning changes enter the existing policy fingerprint.
+  Candidate/source ID namespaces and observed-attempt gates enforce evidence
+  provenance, not meaning.
   The policy fingerprint includes active stage instructions and transport bounds,
   invalidating old drafts while preserving paid-attempt accounting. The existing
   no-traffic candidate probe evaluates six synthetic attribution cases and the

@@ -146,8 +146,19 @@ call for an indexed URL/handle search. Unreadable pages remain unavailable. Fina
 compilation audits proposed batches for distinct, owner-reviewable personal
 statements; structural receipt validation does not make a proposal a verified fact.
 
+Provisional extraction and final compilation use their scoped instructions
+authored inside the PWM manifest, rather than the whole research prompt. The
+model still chooses every fact; there is no host semantic deduplication or
+replacement. Both stages and report repair retain the same manifest-owned output
+privacy exclusions and owner-decision rules: never repropose confirmed/rejected
+equivalents or infer their opposite. Missing contacts, identity decisions and source availability belong
+in identity or gaps, never findings. A fixed-evidence Azure experiment returned
+one account–repository attribution with scoped extraction, while the whole
+research instruction returned four padded rows even with high reasoning. This
+is a limited stage experiment, not owner-account or general quality acceptance.
 Identity assessment/repair uses medium reasoning with an 8,192-token ceiling.
-Only final compilation/repair uses high reasoning. Other stages keep low effort,
+Provisional extraction also uses medium reasoning, retaining its 2,048-token and
+35-second bounds. Only final compilation/repair uses high reasoning. Other stages keep low effort,
 and every call retains the existing 90-second outer cap. The SDK deadline matches
 that cap; planner and provisional limits remain shorter. Optional sections contain
 positive personal findings, with no placeholder facts or minimum count. Empty

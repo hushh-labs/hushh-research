@@ -1907,17 +1907,23 @@ async def test_primary_planner_uses_native_schema_and_needs_no_phi_credentials()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("contract", ["assessment", "findings", "report"])
+@pytest.mark.parametrize("contract", ["assessment", "findings", "report", "report_repair"])
 async def test_native_schema_preserves_resolvable_refs_and_host_bounds(contract):
     from jsonschema import Draft202012Validator
 
-    from hushh_mcp.one_adk.world_model_azure import _FINDING_SCHEMA
+    from hushh_mcp.one_adk.world_model_azure import (
+        _FINDING_SCHEMA,
+        _finding_instruction,
+        _report_instruction,
+        manifest,
+    )
     from hushh_mcp.one_adk.world_model_contracts import IdentityAssessment, WorldModelReport
 
     schema = {
         "assessment": IdentityAssessment.model_json_schema(),
         "findings": _FINDING_SCHEMA,
         "report": WorldModelReport.model_json_schema(),
+        "report_repair": WorldModelReport.model_json_schema(),
     }[contract]
     gateway = AzurePwmGateway(
         primary_endpoint="https://synthetic.openai.azure.com/openai/v1/",
@@ -1960,8 +1966,13 @@ async def test_native_schema_preserves_resolvable_refs_and_host_bounds(contract)
                 "assessment": "identity_assessment",
                 "findings": "provisional_findings",
                 "report": "world_model_report",
+                "report_repair": "world_model_report_repair",
             }[contract],
-            instruction="Synthetic evaluation",
+            instruction=_finding_instruction()
+            if contract == "findings"
+            else _report_instruction(repair=contract == "report_repair")
+            if contract in {"report", "report_repair"}
+            else "Synthetic evaluation",
             payload={},
             schema=schema,
             max_output_tokens=2048,
@@ -1970,11 +1981,29 @@ async def test_native_schema_preserves_resolvable_refs_and_host_bounds(contract)
     )
     assert create.call_args.kwargs["reasoning"] == {
         "effort": "high"
-        if contract == "report"
+        if contract in {"report", "report_repair"}
         else "medium"
-        if contract == "assessment"
+        if contract in {"assessment", "findings"}
         else "low"
     }
+    if contract in {"findings", "report", "report_repair"}:
+        # Compilation must not inherit the whole research task's unrelated
+        # duties. That composition produced padding even with high reasoning.
+        assert create.call_args.kwargs["instructions"] == (
+            _finding_instruction()
+            if contract == "findings"
+            else _report_instruction(repair=contract == "report_repair")
+        )
+        assert "AZURE EXECUTION STAGE" not in create.call_args.kwargs["instructions"]
+        # Prompt compaction must retain authored privacy and owner-decision
+        # boundaries in extraction, compilation AND its failure repair.
+        shared_boundaries = (
+            manifest()
+            .system_instruction.split("BEGIN AZURE OUTPUT BOUNDARIES INSTRUCTION\n", 1)[1]
+            .split("\nEND AZURE OUTPUT BOUNDARIES INSTRUCTION", 1)[0]
+            .strip()
+        )
+        assert shared_boundaries in create.call_args.kwargs["instructions"]
     native = create.call_args.kwargs["text"]["format"]["schema"]
     Draft202012Validator(native).validate({"result": value})
     assert "$defs" not in native["properties"]["result"]
@@ -1984,5 +2013,6 @@ async def test_native_schema_preserves_resolvable_refs_and_host_bounds(contract)
             "assessment": IdentityAssessment.model_json_schema(),
             "findings": _FINDING_SCHEMA,
             "report": WorldModelReport.model_json_schema(),
+            "report_repair": WorldModelReport.model_json_schema(),
         }[contract]
     )
