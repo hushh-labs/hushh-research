@@ -562,7 +562,7 @@ async def _assert_batched_outcomes(url):
         assert actual["other"] == expected["other"]
         assert all(actual[uid]["count"] == 0 for uid in owners[2:])
         # The SQL limit belongs to each owner, never to the flattened page.
-        owners = [f"dense-page-owner-{n}" for n in range(25)]
+        owners = ["dense-owner' OR 1=1 --", *[f"dense-page-owner-{n}" for n in range(24)]]
         await conn.executemany(
             "INSERT INTO actor_profiles(user_id) VALUES($1)", [(uid,) for uid in owners]
         )

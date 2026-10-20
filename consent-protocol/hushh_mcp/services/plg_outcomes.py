@@ -197,6 +197,7 @@ async def value_summaries(
     LATERAL retains each owner's ordering and 1,001-row overflow sentinel. The
     existing lifecycle transaction/locks remain owned by the audience caller.
     One needs eleven database round trips for the page, rather than per person.
+    Only this module's static SQL is composed; owner IDs and times stay bound.
     """
     if len(user_ids) > 25 or len(set(user_ids)) != len(user_ids):
         raise ValueError("Outcome page exceeds its owner bound")
@@ -214,7 +215,7 @@ async def value_summaries(
         queries.extend(query for agent, query, _ in SOURCE_QUERIES if _focus(agent_id, agent))
         if _focus(agent_id, "agent_calendar", "agent_nav", "agent_location"):
             capacity = await conn.fetch(
-                "SELECT owners.user_id AS _plg_user_id,("
+                "SELECT owners.user_id AS _plg_user_id,("  # nosec B608
                 + CAPACITY_SQL.replace("$1", "owners.user_id")
                 + ") AS capped FROM unnest($1::text[]) AS owners(user_id)",
                 user_ids,
@@ -234,7 +235,7 @@ async def value_summaries(
             for uid in user_ids:
                 cache[(uid, since, now, query)] = []
             rows = await conn.fetch(
-                "SELECT owners.user_id AS _plg_user_id,effect.* "
+                "SELECT owners.user_id AS _plg_user_id,effect.* "  # nosec B608
                 "FROM unnest($1::text[]) AS owners(user_id) CROSS JOIN LATERAL ("
                 + query.replace("$1", "owners.user_id")
                 + ") AS effect",

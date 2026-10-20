@@ -730,11 +730,12 @@ async def test_domain_outcomes_classify_saved_artifacts_and_deduplicate_shared_o
     assert capped["supported"] and capped["limited"] and capped["count"] == 1
 
     # A full default audience page must not multiply eleven sources by 25 owners.
-    owners = [uid, *[f"page-owner-{n}" for n in range(24)]]
+    owners = [uid, "owner' OR 1=1 --", *[f"page-owner-{n}" for n in range(23)]]
     batch_calls = []
 
     async def batch_fetch(query, ids, since, now, **_):
         assert ids == owners and since == now == NOW
+        assert owners[1] not in query  # Identity values are bound, never SQL source.
         batch_calls.append(query)
         if "AS capped" in query:
             return [{"_plg_user_id": owner, "capped": owner == uid} for owner in owners]
