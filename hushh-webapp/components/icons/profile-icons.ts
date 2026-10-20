@@ -4,6 +4,7 @@ import {
   ProfilePaneDevicesIcon, ProfilePaneConnectorsIcon, ProfilePaneInviteIcon,
   ProfilePaneHelpIcon, ProfilePanePrivacyIcon, ProfilePaneTermsIcon,
   ProfilePaneSignOutIcon, ProfilePaneWalletIcon, ProfilePaneWorldModelIcon,
+  ProfilePreferenceAppearanceIcon, ProfilePreferenceAccentIcon, ProfilePreferenceVoiceIcon,
 } from "../profile/profile-pane-icons";
 import {
   ProfileAccountNameIcon, ProfileAccountMailIcon, ProfileAccountPhoneIcon,
@@ -35,4 +36,6 @@ export const PROFILE_ICONS = {
   inbox: ProfileSecondaryInboxIcon, location: ProfileSecondaryLocationIcon,
   visibility: ProfileSecondaryVisibilityIcon, people: ProfileInnerPeopleIcon,
   review: ProfileInnerReviewIcon,
+  appearance: ProfilePreferenceAppearanceIcon, accent: ProfilePreferenceAccentIcon,
+  voice: ProfilePreferenceVoiceIcon,
 } as const;

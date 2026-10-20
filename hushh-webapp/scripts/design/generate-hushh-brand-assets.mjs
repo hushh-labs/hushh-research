@@ -469,7 +469,6 @@ const profileLoader = await createServer({
 try {
   const { PROFILE_MENU_GROUPS } = await profileLoader.ssrLoadModule("/components/profile/profile-menu-model.ts");
   const rows = await profileLoader.ssrLoadModule("/components/icons/agents/row-icons.tsx");
-  const accountIcons = await profileLoader.ssrLoadModule("/components/icons/agents/index.ts");
   const { PROFILE_ICONS } = await profileLoader.ssrLoadModule("/components/icons/profile-icons.ts");
   const payoutInnerIcons = await profileLoader.ssrLoadModule("/components/profile/profile-inner-icons.tsx");
   const payoutSecondaryIcons = await profileLoader.ssrLoadModule("/components/profile/profile-secondary-icons.tsx");
@@ -486,9 +485,9 @@ try {
     { id: "account-wallet", icon: PROFILE_ICONS.wallet },
     { id: "account-reset", icon: PROFILE_ICONS.reset },
     { id: "account-delete", icon: PROFILE_ICONS.delete },
-    { id: "appearance", icon: accountIcons.AppearanceRowIcon },
-    { id: "accent", icon: accountIcons.AccentRowIcon },
-    { id: "voice", icon: accountIcons.VoiceRowIcon },
+    { id: "appearance", icon: PROFILE_ICONS.appearance },
+    { id: "accent", icon: PROFILE_ICONS.accent },
+    { id: "voice", icon: PROFILE_ICONS.voice },
     { id: "vault-methods", icon: PROFILE_ICONS.vault },
     { id: "vault-password", icon: PROFILE_ICONS.passphrase },
     { id: "payout-receipt", icon: payoutSecondaryIcons.ProfileSecondaryReceiptIcon },

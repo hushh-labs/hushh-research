@@ -23,7 +23,6 @@ import {
   UserCircleIcon as User,
 } from "@/components/icons";
 import { PROFILE_ICONS } from "@/components/icons/profile-icons";
-import { VoiceRowIcon } from "@/components/icons/agents";
 import accountStyles from "@/components/profile/profile-your-account.module.css";
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
@@ -3760,7 +3759,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={VoiceRowIcon}
+          icon={PROFILE_ICONS.voice}
           iconTone="capability"
           title="Voice"
           description="What One's voice can do, and its safety controls."

@@ -42,9 +42,9 @@ enum NativeProfileArtwork {
         case "account-wallet": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "account-reset": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "account-delete": colorHex = nil; accentColorHex = nil; hasAccent = false; original = false
-        case "appearance": colorHex = "#6366F1"; accentColorHex = nil; hasAccent = false; original = false
+        case "appearance": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "accent": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
-        case "voice": colorHex = "#8B5CF6"; accentColorHex = nil; hasAccent = false; original = false
+        case "voice": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "vault-methods": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "vault-password": colorHex = nil; accentColorHex = "#007aff"; hasAccent = true; original = false
         case "payout-receipt": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false

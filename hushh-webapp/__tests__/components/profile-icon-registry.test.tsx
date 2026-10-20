@@ -1,5 +1,5 @@
-import { render, cleanup } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { render, cleanup, screen } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { XIcon, PlusIcon, ShieldIcon, WalletIcon, Key, KeyRound, KeyIcon, AccentedKeyIcon } from "@/components/icons";
@@ -7,6 +7,15 @@ import { PROFILE_MENU_GROUPS } from "@/components/profile/profile-menu-model";
 import * as RowIcons from "@/components/icons/agents/row-icons";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import { GiftIcon } from "@/components/icons/ui/detail-icons";
+
+import { PROFILE_ICONS } from "@/components/icons/profile-icons";
+import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
+
+vi.mock("@/components/theme-toggle", () => ({ ThemeToggleLean: () => null }));
+vi.mock("@/components/app-ui/native-accent-choice", () => ({ NativeAccentChoice: () => null }));
+vi.mock("@/lib/services/settings-service", () => ({ useSettings: () => [null, vi.fn()] }));
+vi.mock("@/lib/capacitor/app-haptics", () => ({ usesNativeHapticPreference: () => false, appHaptic: vi.fn() }));
+vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 
 afterEach(cleanup);
 
@@ -46,7 +55,8 @@ it("crossfades canonical menu/close icons with reduced-motion support", () => {
 });
 
 it("keeps the actual shared Profile roster neutral with authored accent details", () => {
-  const entries = PROFILE_MENU_GROUPS.flatMap(group => [...group.entries]);
+  const entries = [...PROFILE_MENU_GROUPS.flatMap(group => [...group.entries]),
+    ...(["appearance", "accent", "voice"] as const).map(id => ({ id, icon: PROFILE_ICONS[id] }))];
   const { container } = render(<>{entries.map(({ id, icon: Icon }) => <Icon key={id} />)}</>);
   const icons = [...container.querySelectorAll("svg")];
   expect(icons).toHaveLength(entries.length);
@@ -82,5 +92,17 @@ it("keeps Codex and Claude icon skill bridges identical and resolvable", () => {
   for (const bridge of bridges) {
     expect(bridge.startsWith(frontmatter!)).toBe(true);
     expect(bridge).toContain("../../../skills/hushh-icon-theme/SKILL.md");
+  }
+});
+
+it("renders the approved outline artwork in the actual Preferences controls", () => {
+  render(<ProfileAppearanceControls value="blue" nativeContext={{ owner: null, context: "test", eligible: false }} />);
+  for (const title of ["Appearance", "Accent"]) {
+    const row = screen.getByText(title).closest("[data-row-layout]");
+    const svg = row?.querySelector("[data-slot=settings-row-icon] svg");
+    expect(svg, title).toHaveAttribute("viewBox", "0 0 24 24");
+    expect(svg, title).toHaveAttribute("fill", "none");
+    expect(svg, title).toHaveAttribute("stroke", "currentColor");
+    expect(svg?.querySelector(".profile-pane-icon-accent, .profile-pane-icon-accent-fill"), title).not.toBeNull();
   }
 });
