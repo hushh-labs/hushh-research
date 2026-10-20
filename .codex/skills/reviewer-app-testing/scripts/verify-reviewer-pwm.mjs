@@ -6,11 +6,12 @@ import { fileURLToPath } from "node:url";
 import { createCipheriv, createPublicKey, publicEncrypt, randomBytes } from "node:crypto";
 import { prepareReviewerRehearsal } from "./reviewer-rehearsal-preflight.mjs";
 import { createReviewerSessionHarness } from "./reviewer-session-harness.mjs";
-import { installPwmBrowserProof, hasIncrementalPwmStream, admitPwmStore } from "./pwm-browser-proof.mjs";
+import { installPwmBrowserProof, hasIncrementalPwmStream, admitOwnerConfirmedPwmClaim, admitPwmStore } from "./pwm-browser-proof.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const appOrigin = String(process.env.REVIEWER_APP_ORIGIN || "https://uat.one.hussh.ai").replace(/\/$/, "");
 const expectedEmails = String(process.env.PWM_EXPECTED_EMAILS || "").toLowerCase().split(",").map(value => value.trim()).filter(Boolean);
+const confirmedProfile = String(process.env.PWM_OWNER_CONFIRMED_PROFILE || "").trim();
 const pane = "/one?profile_pane=1&profile_panel=world-model";
 const evidence = { schema: "pwm_uat_acceptance.v1", stages: {}, public_result: null, usage: null };
 let phase = "preflight", session, cold, browser, reviewer, planId = null, storeAttempts = 0, baselineRevision = null;
@@ -61,12 +62,12 @@ async function snapshot(active) {
 }
 
 if (process.argv.includes("--help")) {
-  process.stdout.write("Authorized UAT PWM research, one reviewed save, browser-only preservation and cold readback. Requires PWM_EXPECTED_EMAILS and REVIEWER_ALLOW_SHARED_MUTATIONS=true. CI evidence requires PWM_EVIDENCE_PUBLIC_KEY (base64 DER SPKI).\n");
+  process.stdout.write("Authorized UAT PWM research, one reviewed save, browser-only preservation and cold readback. Requires PWM_EXPECTED_EMAILS, PWM_OWNER_CONFIRMED_PROFILE (human-confirmed GitHub profile) and REVIEWER_ALLOW_SHARED_MUTATIONS=true. CI evidence requires PWM_EVIDENCE_PUBLIC_KEY (base64 DER SPKI).\n");
   process.exit(0);
 }
 try {
   check(appOrigin === "https://uat.one.hussh.ai", "uat_only");
-  check(expectedEmails.length > 0 && process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true", "explicit_owner_and_mutation_required");
+  check(expectedEmails.length > 0 && confirmedProfile && process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true", "explicit_owner_and_mutation_required");
   check(!process.env.GITHUB_ACTIONS || process.env.PWM_EVIDENCE_PUBLIC_KEY, "ci_evidence_key_required");
   await prepareReviewerRehearsal({ repoRoot, appOrigin });
   reviewer = await createReviewerSessionHarness({ repoRoot, appOrigin, timeoutMs: 360_000,
@@ -140,16 +141,20 @@ try {
   evidence.stages.azure_citations = true;
   await session.page.getByTestId("pwm-fact-row").first().waitFor();
   evidence.stages.visible_results = true;
-  check(offered.report.match_status === "matched" && offered.research.identity.state === "owner_linked" &&
-    offered.research.candidates.some(candidate => candidate.id === offered.research.identity.selected_candidate_id && candidate.blocking_conflicts.length === 0), "owner_link_not_established");
+  // Azure deliberately retains candidate_for_review. The human's separate
+  // ownership confirmation authorizes reviewing this exact profile only.
+  evidence.review_basis = { kind: "owner_confirmed_public_profile", url: confirmedProfile,
+    model_identity: offered.research.identity.state, model_match_status: offered.report.match_status };
   // Model assesses meaning. Independently require a reachable primary source;
   // report this as availability evidence, never as an independent semantic judge.
   for (const section of offered.report.sections) {
     for (const fact of section.facts) {
-      if (fact.confidence !== "supported") continue;
+      if (!admitOwnerConfirmedPwmClaim(offered, fact, confirmedProfile)) continue;
       for (const source of fact.sources) {
         const url = new URL(source.url);
-        if (url.protocol !== "https:" || !["github.com", "www.linkedin.com", "in.linkedin.com"].includes(url.hostname)) continue;
+        const confirmation = new URL(confirmedProfile);
+        if (url.protocol !== "https:" || url.hostname !== "github.com" || url.username || url.password || url.port ||
+            url.pathname.replace(/\/$/, "").toLowerCase() !== confirmation.pathname.replace(/\/$/, "").toLowerCase()) continue;
         const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(20_000) });
         if (response.ok) {
           const claim = { statement: fact.statement, topic: section.kind, source: source.url };
