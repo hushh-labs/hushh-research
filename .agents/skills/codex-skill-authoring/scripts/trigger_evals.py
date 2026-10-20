@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""trigger_evals.py — deterministic skill-routing evals for the .codex fleet.
+"""trigger_evals.py — deterministic skill-routing evals for the .agents fleet.
 
 Ported from addyosmani/agent-skills run-evals.js (Tier 2) and adapted to the
 hushh-research skill contract (skill.json manifests + SKILL.md frontmatter).
 
 What it checks (zero tokens, CI-safe, stdlib only):
 
-  1. Trigger evals — for every case file in .codex/evals/cases/<skill>.json,
+  1. Trigger evals — for every case file in .agents/evals/cases/<skill>.json,
      each positive prompt must rank the skill within top_k (default 3) when
      scored against every skill description; each negative prompt must NOT
      rank it #1. A negative may declare an "owner" skill that must outrank
@@ -36,7 +36,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 SKILLS_ROOT = REPO_ROOT / ".agents" / "skills"
-CASES_DIR = REPO_ROOT / ".codex" / "evals" / "cases"
+CASES_DIR = REPO_ROOT / ".agents" / "evals" / "cases"
 
 DEFAULT_TOP_K = 3
 

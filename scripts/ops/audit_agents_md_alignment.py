@@ -134,11 +134,8 @@ SOURCE_INVENTORY = ".agents/skills/agent-orchestration-governance/references/pla
 
 
 def bridge_findings(root: Path) -> list[str]:
-    """Verify canonical discovery, with explicit host-template exceptions."""
+    """Verify one canonical skill source and exact native discovery links."""
     findings = []
-    path = root / SOURCE_INVENTORY
-    inventory = json.loads(path.read_text()) if path.is_file() else {}
-    adapters = {entry["target"] for entry in inventory.get("host_adapters", {}).values()}
     for canonical in sorted((root / ".agents/skills").glob("*/SKILL.md")):
         source = canonical.read_text(encoding="utf-8")
         match = re.match(r"\A---\n(.*?)\n---(?:\n|$)", source, re.S)
@@ -148,18 +145,6 @@ def bridge_findings(root: Path) -> list[str]:
         name = re.search(r"^name:\s*(.+)$", match.group(1), re.M)
         if not name or name.group(1).strip().strip("\"'") != canonical.parent.name:
             findings.append(f"{canonical.relative_to(root)}: canonical name differs from directory")
-        for host in (".claude", ".codex"):
-            bridge = root / host / "skills" / canonical.parent.name / "SKILL.md"
-            if not bridge.is_file() or bridge.relative_to(root).as_posix() in adapters:
-                continue
-            text = bridge.read_text(encoding="utf-8")
-            front = re.match(r"\A---\n(.*?)\n---(?:\n|$)", text, re.S)
-            if not front or front.group(1) != match.group(1):
-                findings.append(f"{bridge.relative_to(root)}: canonical frontmatter differs")
-            body = text[front.end():].strip() if front else text
-            target = canonical.relative_to(root).as_posix()
-            if body != f"Read `{target}` and follow it.":
-                findings.append(f"{bridge.relative_to(root)}: bridge must point only to {target}")
     generator = root / ".agents/skills/agent-orchestration-governance/scripts/sync_host_adapters.py"
     if generator.is_file():
         import runpy
@@ -203,17 +188,33 @@ def classification_findings(root: Path) -> list[str]:
     for host in (".claude", ".codex"):
         for path in sorted((root / host / "skills").glob("*/SKILL.md")):
             key = path.relative_to(root).as_posix()
+            if path.parent.is_symlink():
+                try:
+                    key = path.resolve(strict=True).relative_to(root.resolve()).as_posix()
+                except (ValueError, OSError):
+                    findings.append(f"{key}: host discovery escapes the repository or is missing")
+                    continue
             if key in adapters or (root / ".agents/skills" / path.parent.name / "SKILL.md").is_file():
                 continue
             if key not in sources:
                 findings.append(f"{key}: unclassified platform behavior")
-        for path in sorted((root / host / "agents").rglob("*.toml")):
+        directory = root / host / "agents"
+        native_fleet = host == ".codex" and directory.is_symlink() and directory.resolve() == (root / ".agents/subagents").resolve()
+        for path in ([] if native_fleet else sorted(directory.rglob("*.toml"))):
             findings.append(f"{path.relative_to(root)}: unclassified host-local engineering agent")
     expected_agents = inventory.get("imported_agents", {})
     nested = {p.relative_to(root).as_posix(): p for host in (".claude", ".codex")
               for p in (root / host / "skills").glob("**/agents/*.toml")}
     nested.update({p.relative_to(root).as_posix(): p for p in (root / ".agents/skills").glob("*/agents/*.toml")})
     nested.update({p.relative_to(root).as_posix(): p for p in (root / ".agents/adapters").glob("**/agents/*.toml")})
+    nested.update({p.relative_to(root).as_posix(): p for p in (root / ".agents/imports").glob("**/agents/*.toml")})
+    canonical_nested = {}
+    for path in nested.values():
+        try:
+            canonical_nested[path.resolve(strict=True).relative_to(root.resolve()).as_posix()] = path
+        except (ValueError, OSError):
+            findings.append(f"{path.relative_to(root)}: imported agent target is outside the repository or missing")
+    nested = canonical_nested
     for key, path in nested.items():
         if expected_agents.get(key) != hashlib.sha256(path.read_bytes()).hexdigest():
             findings.append(f"{key}: unclassified or changed imported agent resource")
@@ -373,10 +374,6 @@ def self_test() -> int:
         source = root / ".agents/skills/example/SKILL.md"
         source.parent.mkdir(parents=True)
         source.write_text("---\nname: example\ndescription: Example\n---\nBehavior.\n")
-        bridge = root / ".codex/skills/example/SKILL.md"
-        bridge.parent.mkdir(parents=True)
-        valid = "---\nname: example\ndescription: Example\n---\n\nRead `.agents/skills/example/SKILL.md` and follow it.\n"
-        bridge.write_text(valid)
         generator_path = Path('.agents/skills/agent-orchestration-governance/scripts/sync_host_adapters.py')
         generator = root / generator_path
         generator.parent.mkdir(parents=True)
@@ -386,47 +383,36 @@ def self_test() -> int:
         inventory.write_text(json.dumps({"practice_sources": {
             source.relative_to(root).as_posix(): {"classification": "portable_practice"}
         }}))
-        claude = root / ".claude/skills/example/SKILL.md"
-        claude.parent.mkdir(parents=True, exist_ok=True)
-        claude.write_text(valid)
+        native = {".agents/adapters/codex/config.toml": "", ".agents/adapters/claude/settings.json": "{}"}
+        for name, value in native.items():
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(value)
+        (root / ".agents/subagents").mkdir()
+        (root / ".agents/adapters/claude/agents").mkdir()
+        import runpy
+        runpy.run_path(str(generator))["write_links"](root)
+        claude = root / ".claude/skills/example"
         assert bridge_findings(root) == []
-        bridge.write_text(valid.replace("description: Example", "description: Drift"))
-        assert any("frontmatter differs" in item for item in bridge_findings(root))
-        bridge.write_text(valid.replace(".agents/skills/example/SKILL.md", "missing/SKILL.md"))
-        assert any("bridge must point only" in item for item in bridge_findings(root))
-        bridge.write_text(valid + "\n```sh\necho duplicate procedure\n```\n")
-        assert any("bridge must point only" in item for item in bridge_findings(root))
-        bridge.write_text(valid)
-        claude = root / ".claude/skills/example/SKILL.md"
-        claude.parent.mkdir(parents=True, exist_ok=True)
-        claude.write_text(valid)
-        assert bridge_findings(root) == []
-        bridge.write_text(valid + "Deploy now.\n")
-        assert any("bridge must point only" in item for item in bridge_findings(root))
-        bridge.write_text(valid)
+        claude.unlink()
+        claude.symlink_to("../../.agents/skills/missing", target_is_directory=True)
+        assert any("must link" in x for x in bridge_findings(root))
+        claude.unlink()
+        claude.mkdir()
+        (claude / "SKILL.md").write_text(source.read_text())
+        assert any("must link" in x for x in bridge_findings(root))
+        (claude / "SKILL.md").unlink()
+        claude.rmdir()
+        claude.symlink_to("../../.agents/skills/example", target_is_directory=True)
+        duplicate = root / ".codex/skills/example/SKILL.md"
+        duplicate.parent.mkdir(parents=True)
+        duplicate.write_text(source.read_text())
+        assert any("duplicate discovery" in x for x in bridge_findings(root))
+        shutil.rmtree(root / ".codex/skills")
         source.write_text("---\nname: wrong\ndescription: Example\n---\nBehavior.\n")
-        assert any("name differs" in item for item in bridge_findings(root))
-        source.unlink()
-        assert any("invalid portable-practice" in item for item in classification_findings(root))
+        assert any("name differs" in x for x in bridge_findings(root))
         source.write_text("No frontmatter\n")
-        assert any("missing YAML" in item for item in bridge_findings(root))
-        rogue = root / ".claude/skills/rogue/SKILL.md"
-        rogue.parent.mkdir(parents=True)
-        for body in ("Do this.", "Do this.\n" * 30):
-            rogue.write_text(body)
-            assert any("rogue" in x and "unclassified" in x for x in classification_findings(root))
-        inventory = root / SOURCE_INVENTORY
-        inventory.parent.mkdir(parents=True, exist_ok=True)
-        inventory.write_text(json.dumps({"sources": {rogue.relative_to(root).as_posix(): {
-            "classification": "host_adapter", "sha256": hashlib.sha256(rogue.read_bytes()).hexdigest()
-        }}}))
-        assert not any("rogue" in x for x in classification_findings(root))
-        rogue.write_text("Changed behavior")
-        assert any("rogue" in x and "changed" in x for x in classification_findings(root))
-        imported = root / ".claude/skills/bundle/agents/unclassified.toml"
-        imported.parent.mkdir(parents=True)
-        imported.write_text('name = "unexpected"')
-        assert any("unclassified.toml" in x for x in classification_findings(root))
+        assert any("missing YAML" in x for x in bridge_findings(root))
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         adapter = root / ".claude/skills/adapter/SKILL.md"
@@ -465,8 +451,15 @@ def self_test() -> int:
         local_agent.parent.mkdir(parents=True)
         local_agent.write_text('name = "second-authored-copy"')
         assert any("host-local engineering" in x for x in classification_findings(root))
+        with tempfile.TemporaryDirectory() as external:
+            outside = Path(external)
+            (outside / "SKILL.md").write_text("Outside source")
+            escape = root / ".claude/skills/escape"
+            escape.symlink_to(outside, target_is_directory=True)
+            assert any("escapes the repository" in x for x in classification_findings(root))
+            escape.unlink()
         RESULTS.clear()
-    print("Portable bridge regression checks passed (both hosts, metadata, target, procedure, malformed source).")
+    print("Unified discovery regression checks passed (exact links, duplicates, malformed sources, imported authority).")
     return 0
 
 

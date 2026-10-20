@@ -7,5 +7,16 @@ for this repository and inherited by every development subagent.
 Package-local instructions refine that contract within their scope. Host settings
 and discovery files are adapters; they do not create a second operating policy.
 
+All development sources belong in **`.agents/`**:
+
+- [skills](.agents/skills/): reusable procedures and their supporting tools.
+- [workflows](.agents/workflows/): ownership, routing and verification.
+- [subagents](.agents/subagents/): the unified read-only engineering fleet.
+- [adapters](.agents/adapters/): native host configuration and generated projections.
+
+Create or evolve these through the existing governance workflow. Do not create
+another host-specific skill or subagent fleet. Native `.claude` and `.codex`
+entrypoints are checked compatibility links; they contain no authored policy.
+
 Start with [the development-system map](.agents/README.md), then the existing
 `./bin/hushh codex route-task <workflow-id>` command for the owning workflow.

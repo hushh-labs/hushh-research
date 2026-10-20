@@ -162,7 +162,7 @@ authority, scheduler or patch queue.
 ### Platform-source ratchet
 
 `skill_lint.py` reuses the alignment audit's bridge and classification checks.
-Canonical twins are discovered from `skills/`; governed owners from `skill.json`.
+Canonical procedures are discovered from `.agents/skills`; governed owners from `skill.json`. Native host paths are exact relative links to `.agents`, not copied procedures.
 Remaining host aliases, adapters and imported resources are explicitly inventoried in
 `.agents/skills/agent-orchestration-governance/references/platform-source-inventory.json`.
 Unclassified additions (including short files), changed classified behavior, broken

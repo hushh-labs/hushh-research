@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Compatibility entrypoint. Native environment and execution remain owner-governed.
 set -euo pipefail
-SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "$SKILL_DIR/../../../.." && pwd)"
 source "$REPO_ROOT/.agents/skills/mobile-native/scripts/native-node22.sh"
 # Preserve the legacy UAT default; callers select dev explicitly for private audit.

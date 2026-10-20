@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "reviewed_on": "2026-10-19",
+  "reviewed_on": "2026-10-20",
   "note": "Authored development sources live under .agents. Host adapters are generated or thin pointers. Pinned imports remain separately classified and are not approved or activated by relocation.",
   "sources": {
     ".agents/adapters/claude/access-explained/SKILL.md": {
@@ -47,7 +47,7 @@
       "classification": "owner_alias",
       "sha256": "1a215f22f7a9028b3e9f7c04f94dc6ab13167295efb5e448a8a1b60afe50baf8"
     },
-    ".claude/skills/impeccable/SKILL.md": {
+    ".agents/imports/impeccable/SKILL.md": {
       "classification": "imported_dependency_pending_review",
       "sha256": "a1ea82ce80f4db6f53757a84fc37b639fdc2354ca25e54a30ab6d45dcf944628"
     },
@@ -113,25 +113,25 @@
     }
   },
   "imported_agents": {
-    ".claude/skills/impeccable/agents/impeccable_asset_producer.toml": "327e6f53d377ebe297748a603777d496b08be0e77565dd62a4ae26cf632af244",
-    ".claude/skills/impeccable/agents/impeccable_documenter.toml": "d5922228b571900e21a47855d7de9e081c2246fc9cec6c6235b1a6da31098896",
-    ".claude/skills/impeccable/agents/impeccable_finish_reviewer.toml": "f09f9d44730ab6b3942620242e64e3197d7dc06ecb40da83cd20dfcffc480dbd",
-    ".claude/skills/impeccable/agents/impeccable_manual_edit_applier.toml": "7c519ed4a94aa01677b741afa9ae56c71d3b9bc19f48f4166d87b1e4579613ed"
+    ".agents/imports/impeccable/agents/impeccable_asset_producer.toml": "327e6f53d377ebe297748a603777d496b08be0e77565dd62a4ae26cf632af244",
+    ".agents/imports/impeccable/agents/impeccable_documenter.toml": "d5922228b571900e21a47855d7de9e081c2246fc9cec6c6235b1a6da31098896",
+    ".agents/imports/impeccable/agents/impeccable_finish_reviewer.toml": "f09f9d44730ab6b3942620242e64e3197d7dc06ecb40da83cd20dfcffc480dbd",
+    ".agents/imports/impeccable/agents/impeccable_manual_edit_applier.toml": "7c519ed4a94aa01677b741afa9ae56c71d3b9bc19f48f4166d87b1e4579613ed"
   },
   "imports": {
     "impeccable": {
       "import_commit": "f844e6b66",
       "declared_version": "4.0.4",
       "license_verification": "upstream LICENSE and NOTICE.md retained byte-for-byte from the exact matching revision",
-      "disposition": "retain pinned original executable paths and nested imported agents; do not promote imported writers or activate bypassing host subprocesses through the governed evidence fleet",
+      "disposition": "Retain pinned upstream bytes under .agents/imports with a native discovery link; imported writers remain outside the approved engineering fleet.",
       "source": "https://github.com/pbakaus/impeccable",
       "upstream_commit": "ae5e95101a6979e7f7973a4ff57680b3c7adc1ec",
       "upstream_path": ".agents/skills/impeccable",
       "imported_tree": "cb64801c3c3ee2e00324ce6f5ded1e1100326155",
       "provenance_verification": "all 152 original imported files match the upstream Git tree exactly",
       "license": "Apache-2.0; upstream NOTICE identifies MIT-derived platform references",
-      "license_file": ".claude/skills/impeccable/LICENSE",
-      "notice_file": ".claude/skills/impeccable/NOTICE.md",
+      "license_file": ".agents/imports/impeccable/LICENSE",
+      "notice_file": ".agents/imports/impeccable/NOTICE.md",
       "execution_review": {
         "nested_authored_agents": 4,
         "discovery_metadata": "agents/openai.yaml",
@@ -158,7 +158,9 @@
           "svelte/compiler"
         ],
         "coverage_boundary": "missing parser dependencies can downgrade detection; fallback success is not equivalent coverage"
-      }
+      },
+      "local_skill_path": ".agents/imports/impeccable",
+      "discovery_path": ".claude/skills/impeccable"
     },
     "impeccable/modern-screenshot": {
       "package": "modern-screenshot",
@@ -169,9 +171,9 @@
       "matching_path": "package/dist/index.js",
       "declared_version": "4.7.0",
       "license": "MIT",
-      "license_file": ".claude/skills/impeccable/THIRD_PARTY_LICENSES/modern-screenshot.txt",
+      "license_file": ".agents/imports/impeccable/THIRD_PARTY_LICENSES/modern-screenshot.txt",
       "source": "https://github.com/qq15725/modern-screenshot",
-      "local_path": ".claude/skills/impeccable/scripts/modern-screenshot.umd.js",
+      "local_path": ".agents/imports/impeccable/scripts/modern-screenshot.umd.js",
       "provenance_verification": "vendored bytes match package/dist/index.js in the published npm 4.7.0 tarball exactly"
     },
     "impeccable/platform-design-skills": {
@@ -181,8 +183,8 @@
       "scope": "upstream original license for references attributed in Impeccable NOTICE; no exact derivative-source revision inferred",
       "declared_version": "derived references; original revision not recorded by importer",
       "license": "MIT",
-      "license_file": ".claude/skills/impeccable/THIRD_PARTY_LICENSES/platform-design-skills.txt",
-      "notice_file": ".claude/skills/impeccable/NOTICE.md",
+      "license_file": ".agents/imports/impeccable/THIRD_PARTY_LICENSES/platform-design-skills.txt",
+      "notice_file": ".agents/imports/impeccable/NOTICE.md",
       "provenance_verification": "derivation attributed by pinned Impeccable upstream NOTICE; original permission text retained from pinned upstream license commit"
     }
   },

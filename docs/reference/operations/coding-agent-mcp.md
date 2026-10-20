@@ -179,11 +179,11 @@ python3 .agents/skills/agent-orchestration-governance/scripts/subagent_budget.py
 
 15. Govern repo-scoped agent files, limits, and handoff rules through `.agents/skills/agent-orchestration-governance/`.
 16. The self-maintenance model is validation plus CI enforcement through the existing `Governance` job, not autonomous rewrite or scheduled mutation. Runtime topology maintenance uses the generated metadata-only index and profile-selected existing evidence lanes; it does not add a runtime maintenance agent.
-17. Repo custom agents inherit the Principal Craft Kernel from `AGENTS.md`; TOML prompts should add role-specific taste and evidence focus without duplicating the full personalization block.
+17. Repo custom agents inherit the Principal Craft Kernel from `.agents/instructions.md` (loaded by `AGENTS.md`); TOML prompts should add role-specific taste and evidence focus without duplicating the full personalization block.
 
 ### Subagent close freeze RCA
 
-Observed failure: the host-level `close_agent` operation can block the parent Codex turn while trying to close an old child thread. This is a host lifecycle-management issue, not a repo config issue: `.codex/config.toml` correctly caps threads at six with depth one, and local validation passes.
+Observed failure: the host-level `close_agent` operation can block the parent Codex turn while trying to close an old child thread. This is a host lifecycle-management issue, not a repo config issue: `.agents/adapters/codex/config.toml` correctly caps threads at six with depth one, and local validation passes.
 
 Operational conclusion:
 

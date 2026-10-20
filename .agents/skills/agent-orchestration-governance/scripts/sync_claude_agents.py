@@ -29,7 +29,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 CODEX_AGENTS = REPO_ROOT / ".agents/subagents"
-CLAUDE_AGENTS = REPO_ROOT / ".claude" / "agents"
+CLAUDE_AGENTS = REPO_ROOT / ".agents/adapters/claude/agents"
 
 GENERATED_MARKER = "<!-- generated from .agents/subagents/"
 
@@ -90,10 +90,9 @@ def render(path: Path) -> str:
         f"- Mirror of `.agents/subagents/{path.name}`, which stays the source of truth for this lane.",
         f"- Sandbox posture: `{sandbox}`. Inspect the repo and run verification commands; do not edit tracked",
         "  files. Hand proposed edits back to the parent session as a diff or a precise instruction.",
-        "- The skills listed above are codex skills, not Claude skills. Load one with",
-        "  `python3 .agents/adapters/claude/codex-bridge/scripts/route.py <skill-id>` and follow its Read First and",
-        "  Required Checks.",
-        "- Fan-out limits come from `.codex/config.toml`: `max_threads = 6`, `max_depth = 1`. You are a leaf",
+        "- Shared skills live in `.agents/skills`. Load the named `SKILL.md` and follow its Read First,",
+        "  owning workflow and Required Checks; host aliases do not create another authority.",
+        "- Fan-out limits come from `.agents/adapters/codex/config.toml`: `max_threads = 6`, `max_depth = 1`. You are a leaf",
         "  lane; do not spawn further subagents.",
         "- Your final message is the handoff. It must carry every field named in the truth-first protocol",
         "  above, and it must cite the files or commands that produced each conclusion.",

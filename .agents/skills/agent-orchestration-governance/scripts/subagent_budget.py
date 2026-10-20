@@ -20,7 +20,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[4]
-CONFIG_RELATIVE_PATH = Path(".codex/config.toml")
+CONFIG_RELATIVE_PATH = Path(".agents/adapters/codex/config.toml")
 DEFAULT_RECOVERY_SLOT = 1
 DEFAULT_MAX_NEW_LANES = 2
 EXPECTED_MAX_THREADS = 6
@@ -100,7 +100,7 @@ def compute_budget(
     recommended = min(max(requested_lanes, 0), max_new_lanes, effective_available)
     safe = requested_lanes <= recommended and not errors
     guidance = [
-        "Keep .codex/config.toml at max_threads=6 and max_depth=1.",
+        "Keep .agents/adapters/codex/config.toml at max_threads=6 and max_depth=1.",
         "Reserve one thread for recovery, synthesis, or governor-style follow-up.",
         "Default to two read-only evidence lanes; use more only after closing stale children.",
         "Close or summarize old child threads sequentially before spawning a new wave.",

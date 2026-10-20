@@ -14,12 +14,19 @@ pointer or refines it; nothing overrides it except a rule that is genuinely more
 | `.agents/skills/` | Canonical portable and governed **skills**; host discovery uses checked bridges |
 | `.agents/subagents/` | Canonical authored **subagent** lanes (`*.toml`). `.claude/agents/*.md` is generated from these and verified byte-for-byte in CI |
 | `.agents/skills/`, `.agents/workflows/` | The governed **routing brain** — manifests with owned paths, required reads, verification bundles, risk tags |
+| `.agents/adapters/`, `.agents/evals/`, `.agents/imports/` | Native settings/projections, routing cases, and pinned third-party resources; host entrypoints are checked relative links |
 | `docs/reference/architecture/private-agent-north-star.md` | Private-agent requirements and qualified implementation evidence |
 | `docs/reference/quality/adk-orchestration-docs-audit.md` | Current Founder/CTO readiness decision: source, serving revisions, measured journeys and blockers |
 | `docs/future/personal-agent/` | Private-agent designs, parity matrix and divergence register; verify implementation claims against current source |
 | `docs/project_context_map.md` | Orientation: which platform layer maps to which repo anchor |
 | `CLAUDE.md` | Claude-Code-specific operating context; it never contradicts this file |
 | `docs/reference/architecture/runtime-topology-maintenance.md` | Recurring revision-bound audit cadence and existing workflow composition |
+
+**One development tree.** Author skills, workflows and subagents only under
+`.agents`. Codex uses native `.agents/skills` discovery; its agent/config entrypoints
+and Claude discovery are relative links to this tree. Never recreate copied host
+skills or a second fleet. Preserve active worktrees and local host state when
+consolidating; they are not portable policy.
 
 **Anti-drift rule.** Verify disagreements against source, contracts and dated evidence.
 Correct inaccurate instructions in the change that discovers them. When satisfying a
@@ -217,17 +224,19 @@ bundles and risk tags. Portable practices are explicitly classified in the exist
 platform-source inventory; missing governed manifests must never silently become
 practices. Keep supporting references and scripts with their owning skill.
 
-Host-required files remain at their native paths. Canonical skill discovery bridges
-copy frontmatter verbatim and contain only `Read` followed by the backtick-quoted
-canonical `.agents/skills/<id>/SKILL.md` path and `and follow it.` Host-specific
-invocation templates may have generated projections; edit only their `.agents`
-source. Generated command shims delegate to that source. The host adapter generator
-checks projections byte-for-byte and rejects stale output. Pinned third-party
+Host-required paths are relative compatibility links into `.agents`. Codex reads
+`.agents/skills` directly; Claude skill directories link to canonical procedures
+or explicitly classified invocation adapters. Never recreate copied frontmatter,
+prompt bodies or command wrappers. The adapter generator rejects incorrect links
+and duplicate discovery. Pinned third-party
 imports retain licenses, provenance and explicit pending-review classifications;
 relocation never grants their writers authority.
 
-`.codex/config.toml` and `.claude/settings.json` remain native host settings.
-`.claude/agents/` is generated from `.agents/subagents/`; never hand-edit a mirror.
+Native configuration sources live under `.agents/adapters`; `.codex/config.toml`
+and `.claude/settings.json` link there. `.codex/agents` links to the authored fleet.
+Claude projections live in `.agents/adapters/claude/agents`, exposed by a native
+link and generated from `.agents/subagents/`; never hand-edit a mirror. Read-only
+lane instructions do not create OS isolation; host permissions still govern execution.
 Run `.agents/skills/agent-orchestration-governance/scripts/sync_claude_agents.py --write`
 and `--check` after authored lane changes. Run the owning host-adapter generator
 when discovery or invocation templates change. Preserve read-only lane authority,

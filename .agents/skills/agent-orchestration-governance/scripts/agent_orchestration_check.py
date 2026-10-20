@@ -16,7 +16,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[4]
-CONFIG_RELATIVE_PATH = Path(".codex/config.toml")
+CONFIG_RELATIVE_PATH = Path(".agents/adapters/codex/config.toml")
 AGENTS_RELATIVE_PATH = Path(".agents/subagents")
 SKILLS_RELATIVE_PATH = Path(".agents/skills")
 WORKFLOWS_RELATIVE_PATH = Path(".agents/workflows")
@@ -345,7 +345,10 @@ def validate_agent_file(path: Path, skill_ids: set[str], seen_names: set[str], e
 
 def validate_platform_agent_sources(root: Path, errors: list[str]) -> None:
     for host in (".codex", ".claude"):
-        for path in sorted((root / host / "agents").glob("*.toml")):
+        directory = root / host / "agents"
+        if host == ".codex" and directory.is_symlink() and directory.resolve() == (root / AGENTS_RELATIVE_PATH).resolve():
+            continue  # Native discovery of the same authored fleet, not a copy.
+        for path in sorted(directory.glob("*.toml")):
             errors.append(f"{path}: authored agents belong in .agents/subagents/; host mirrors must be generated")
 
 
@@ -516,28 +519,7 @@ def run_self_test() -> list[str]:
         else:
             failures.append("a root entrypoint bypass must be rejected")
     adapter = runpy.run_path(str(DEFAULT_ROOT / ".agents/skills/agent-orchestration-governance/scripts/sync_host_adapters.py"))
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        source = root / ".agents/skills/fixture/SKILL.md"
-        source.parent.mkdir(parents=True)
-        source.write_text("---\nname: fixture\ndescription: Explicit fixture practice.\n---\n\nCanonical behavior.\n")
-        inventory = root / adapter["INVENTORY"]
-        inventory.parent.mkdir(parents=True)
-        inventory.write_text(json.dumps({"practice_sources": {".agents/skills/fixture/SKILL.md": {"classification": "portable_practice"}}}))
-        for target, content in adapter["expected_outputs"](root).items():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(content)
-        if adapter["findings"](root):
-            failures.append("generated discovery fixture must pass")
-        orphan = root / ".claude/skills/removed/scripts/stale.py"
-        orphan.parent.mkdir(parents=True)
-        orphan.write_text("# Generated compatibility shim; edit .agents/adapters/claude/removed/scripts/stale.py.\n")
-        if not any("orphan generated" in error for error in adapter["findings"](root)):
-            failures.append("an orphan compatibility executable must be rejected")
-        orphan.unlink()
-        target.write_text("Unreviewed behavior.\n")
-        if not adapter["findings"](root):
-            failures.append("a modified discovery adapter must be rejected")
+    failures.extend(adapter["self_test"]())
     return failures
 
 

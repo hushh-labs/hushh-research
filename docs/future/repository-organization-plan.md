@@ -2,7 +2,7 @@
 
 ## Status
 
-**Implementation candidate — updated 2026-10-19.** Main and frozen local ADK
+**Implementation candidate — updated 2026-10-20.** Main and frozen local ADK
 were integrated through `f3132dff38`; canonical-source consolidation is under local verification.
 Continue on `claude/hushh-infrastructure-analysis-7o991c`; preserve concurrent work.
 The current execution authorization permits a verified dev release. Main merge,
@@ -26,7 +26,7 @@ and domain ownership, with deeper folders only for distinct responsibilities.
 
 The canonical operating contract now lives in `.agents/instructions.md`, loaded
 explicitly by root `AGENTS.md`. Skill, workflow, and lane consumers move together;
-host settings and generated discovery remain at their required native paths.
+host settings and projections live under `.agents/adapters`, exposed through checked relative native links. Codex reads canonical skills directly; copied discovery is removed.
 
 ## Inspected baseline
 
@@ -36,7 +36,8 @@ host settings and generated discovery remain at their required native paths.
 | Governed owner/spoke skills | 45 under `.agents/skills/` | Preserve `skill.json`, ownership, routing and verification contracts |
 | Development subagents | 19 authored TOML files under `.agents/subagents/` | Preserve lane IDs, read-only authority and generated host mirrors |
 | Recurring workflows | 40 under `.agents/workflows/` | Preserve workflow IDs and existing CLI commands |
-| Host discovery | Thin skill bridges and generated host invocation/lane projections | Check against canonical sources; retain native settings and the classified pinned import |
+| Host discovery | Exact relative links; 19 Claude projections under `.agents/adapters` | No copied skill discovery. Preserve native settings, current MCP entries and classified imports |
+| Routing cases / pinned imports | 45 cases under `.agents/evals`; 156 unchanged imported files under `.agents/imports/impeccable` | Preserve case bytes, original licenses/hashes and pending-review restrictions |
 | Maintained documentation | 321 pages in the existing inventory | Classify every page; 37 flagged review candidates are not deletion decisions |
 | Concurrent work | Ten dirty/untracked peer paths; active ADK worktree | Preserve hashes, coordinate ownership and reconcile before relocation |
 
@@ -58,7 +59,9 @@ documentation and host discovery: a directory rename alone is insufficient.
     scripts/                  # existing bounded tooling
   subagents/<lane-id>.toml    # authored development lanes
   workflows/<workflow-id>/    # routing metadata and playbooks
-  adapters/<host>/            # authored discovery/generation integration
+  adapters/<host>/            # native settings and generated projections
+  evals/cases/                # shared deterministic routing evidence
+  imports/<dependency>/       # pinned resources, licenses and review classification
 ```
 
 Root `AGENTS.md` remains the required repository entrypoint and explicitly loads
@@ -68,11 +71,13 @@ Verify loading and scoped package instructions before moving the root kernel.
 Existing policy validators must inspect both the root pointer and canonical body;
 a missing target must fail. Preserve package-level instruction precedence.
 
-Keep host-native settings where the host requires them, including `.codex/config.toml`
-and `.claude/settings.json`. Keep generated discovery files where required; they
-contain no independently maintained procedure. Use generated pointers rather than
-dependency symlinks as the default compatibility mechanism. Test resource resolution
-before removing old entrypoints. Do not retain two authored versions.
+Native `.codex` and `.claude` entrypoints are relative compatibility links to
+`.agents`. Codex skills need no bridge. Claude skill directories resolve to the
+canonical procedure or classified invocation adapter. Settings, engineering lane
+projections, evals and pinned imports have one physical home under `.agents`.
+Validators reject copied discovery, wrong targets and a second authored fleet.
+The active `.claude/worktrees/adk-orchestration` remains untouched; this local
+worktree is not portable policy and is not removed while another agent uses it.
 
 Product-agent manifests in `consent-protocol/hushh_mcp/agents/` retain their existing
 ownership and generators. They are runtime product code, separate from development

@@ -6,8 +6,8 @@
   "description": "Use when changing repo-scoped Codex custom agents, subagent concurrency or depth, delegation policy, or handoff verification rules in hushh-research.",
   "owned_paths": [
     ".agents/subagents",
-    ".claude/agents",
-    ".codex/config.toml",
+    ".agents/adapters/claude/agents",
+    ".agents/adapters/codex/config.toml",
     ".agents/skills/agent-orchestration-governance",
     ".agents/workflows/agent-orchestration-governance",
     "AGENTS.md",

@@ -2,7 +2,7 @@
 
 **Status:** local integration plan, refreshed 2026-10-20. Main `f47a4832dbc` and
 frozen ADK `42bb9823005` are integrated through `b14bc29901`; the current local
-checkpoint is `70e154e956` plus the bounded Gemini native-action repair. Browser composition, Shared continuity, exact-attempt
+checkpoint is `0bb98bd384` plus unified development-source consolidation. Browser composition, Shared continuity, exact-attempt
 release acceptance and VM identity/recovery evidence are committed locally.
 Browser approval recovery and the bounded VM power port now have focused local
 proof. Durable power-cycle composition and a disposable normal-entrypoint VM now
@@ -45,6 +45,10 @@ The [repository organization plan](../repository-organization-plan.md) adds the
 requested canonical `.agents/` migration, bounded folder consolidation and linked
 documentation cleanup. It preserves this plan's implementation and release gates;
 neither a cleaner tree nor passing documentation checks proves pod readiness.
+The local consolidation removes copied Codex skill discovery, moves settings,
+routing cases and pinned imports into `.agents`, and checks exact native links.
+Peer MCP definitions and the active ADK worktree are preserved. Existing owner
+resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 

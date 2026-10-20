@@ -1,109 +1,139 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hussh
-"""Reproduce host discovery and command adapters from the canonical .agents sources."""
+"""Validate native host entrypoints as links to the unified .agents tree.
+
+Codex discovers .agents/skills natively. Claude still needs .claude discovery;
+relative links expose canonical content without copying prompts or scripts.
+Writing never removes a regular file/directory or another session's worktree.
+"""
 from __future__ import annotations
 
 import argparse
 import json
-import re
+import os
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 INVENTORY = Path('.agents/skills/agent-orchestration-governance/references/platform-source-inventory.json')
-MARKER = '<!-- Generated host adapter; edit the canonical .agents source. -->'
 
 
-def frontmatter(source: str) -> str:
-    match = re.match(r'\A---\n.*?\n---(?:\n|$)', source, re.S)
-    if not match:
-        raise ValueError('Canonical discovery source has no YAML frontmatter')
-    return match[0].rstrip()
-
-
-def command_shim(root: Path, destination: Path, canonical: str) -> bytes:
-    if destination.suffix == '.py':
-        shim = f'''#!/usr/bin/env python3
-# Generated compatibility shim; edit {canonical}.
-from pathlib import Path
-import runpy
-import sys
-root = next(p for p in Path(__file__).resolve().parents if (p / "AGENTS.md").is_file() and (p / ".agents").is_dir())
-source = root / {canonical!r}
-sys.path.insert(0, str(source.parent))
-runpy.run_path(str(source), run_name="__main__")
-'''
-    else:
-        ascent = '/'.join(['..'] * (len(destination.relative_to(root).parts) - 1))
-        shim = f'''#!/usr/bin/env bash
-# Generated compatibility shim; edit {canonical}.
-set -euo pipefail
-root="$(cd "$(dirname "${{BASH_SOURCE[0]}}")/{ascent}" && pwd)"
-exec bash "$root/{canonical}" "$@"
-'''
-    return shim.encode()
-
-
-def expected_outputs(root: Path) -> dict[Path, bytes]:
+def expected_links(root: Path) -> dict[Path, Path]:
     inventory = json.loads((root / INVENTORY).read_text())
-    outputs: dict[Path, bytes] = {}
-    skills = root / '.agents/skills'
-    for source in sorted(skills.glob('*/SKILL.md')):
-        relative = source.relative_to(root).as_posix()
-        targets = []
-        if source.with_name('skill.json').is_file():
-            targets.append(root / '.codex/skills' / source.parent.name / 'SKILL.md')
-        if relative in inventory.get('practice_sources', {}):
-            targets.append(root / '.claude/skills' / source.parent.name / 'SKILL.md')
-            installed = root / '.codex/skills' / source.parent.name / 'SKILL.md'
-            if installed.is_file():
-                targets.append(installed)
-        for target in targets:
-            outputs[target] = (frontmatter(source.read_text()) + f'\n\nRead `{relative}` and follow it.\n').encode()
+    links = {
+        root / '.claude/skills' / source.parent.name: source.parent
+        for source in sorted((root / '.agents/skills').glob('*/SKILL.md'))
+    }
     for entry in inventory.get('host_adapters', {}).values():
-        source = root / entry['source']
-        target = root / entry['target']
-        text = source.read_text()
-        # Keep host-native inline shell expansion and frontmatter reproducible.
-        fm = frontmatter(text)
-        outputs[target] = (fm + '\n\n' + MARKER + '\n' + text[len(fm):].lstrip()).encode()
-        for command in sorted(source.parent.rglob('*')):
-            if not command.is_file() or '__pycache__' in command.parts:
-                continue
-            suffix = command.relative_to(source.parent)
-            if suffix.suffix not in {'.py', '.sh'}:
-                continue
-            destination = target.parent / suffix
-            canonical = command.relative_to(root).as_posix()
-            outputs[destination] = command_shim(root, destination, canonical)
-    for entry in inventory.get('compatibility_commands', []):
-        source = root / entry['source']
-        if not source.is_file():
-            raise ValueError(f'Missing canonical command: {entry["source"]}')
-        destination = root / entry['target']
-        outputs[destination] = command_shim(root, destination, entry['source'])
-    return outputs
+        target, source = root / entry['target'], root / entry['source']
+        # An explicitly classified host alias may adapt a governed skill's
+        # invocation syntax, as the previous generator already did.
+        links[target.parent] = source.parent
+    for entry in inventory.get('imports', {}).values():
+        if entry.get('discovery_path'):
+            links[root / entry['discovery_path']] = root / entry['local_skill_path']
+    native = {
+        '.codex/config.toml': '.agents/adapters/codex/config.toml',
+        '.codex/agents': '.agents/subagents',
+        '.claude/settings.json': '.agents/adapters/claude/settings.json',
+        '.claude/agents': '.agents/adapters/claude/agents',
+    }
+    links.update({root / host: root / source for host, source in native.items()})
+    return links
 
 
 def findings(root: Path) -> list[str]:
     try:
-        outputs = expected_outputs(root)
+        links = expected_links(root)
     except (OSError, ValueError, KeyError) as error:
         return [f'Cannot resolve canonical host adapters: {error}']
-    errors = [f'{path.relative_to(root)}: missing or stale generated host adapter'
-              for path, expected in outputs.items()
-              if not path.is_file() or path.read_bytes() != expected]
-    for host in ('.claude', '.codex'):
-        for path in sorted((root / host / 'skills').rglob('*')):
-            if path.suffix not in {'.py', '.sh', '.md'} or not path.is_file() or path in outputs:
-                continue
-            if '__pycache__' in path.parts:
-                continue
-            with path.open(encoding='utf-8') as source:
-                prefix = source.read(2048)
-            if MARKER in prefix or '# Generated compatibility shim; edit .agents/' in prefix:
-                errors.append(f'{path.relative_to(root)}: orphan generated host adapter')
+    errors = []
+    for target, source in links.items():
+        valid = target.is_symlink() and str(target.readlink()) == os.path.relpath(source, target.parent)
+        try:
+            valid = valid and target.resolve(strict=True) == source.resolve(strict=True)
+            source.resolve(strict=True).relative_to((root / '.agents').resolve())
+        except (OSError, ValueError):
+            valid = False
+        if not valid:
+            errors.append(f'{target.relative_to(root)}: must link to {source.relative_to(root)}')
+    obsolete = root / '.codex/skills'
+    if obsolete.exists() and any(obsolete.iterdir()):
+        errors.append('.codex/skills: duplicate discovery; use native .agents/skills')
+    discovery = root / '.claude/skills'
+    if discovery.is_dir():
+        errors.extend(f'{p.relative_to(root)}: unregistered host discovery entry'
+                      for p in discovery.iterdir() if p not in links)
     return errors
+
+
+def write_links(root: Path) -> None:
+    links = expected_links(root)
+    # Preflight all entries before changing any link. Local files are never
+    # overwritten, even if they resemble a former generated bridge.
+    occupied = [str(p.relative_to(root)) for p in links if p.exists() and not p.is_symlink()]
+    if occupied:
+        raise ValueError('Preserve and migrate existing entries first: ' + ', '.join(occupied))
+    for target, source in links.items():
+        source.resolve(strict=True).relative_to((root / '.agents').resolve())
+        target.parent.resolve().relative_to(root.resolve())
+        if target.is_symlink() and str(target.readlink()) != os.path.relpath(source, target.parent):
+            raise ValueError(f'Preserve the existing local link first: {target.relative_to(root)}')
+    for target, source in links.items():
+        if not source.exists():
+            raise ValueError(f'Missing canonical source: {source.relative_to(root)}')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        relative = os.path.relpath(source, target.parent)
+        if target.is_symlink() and target.readlink().as_posix() == relative:
+            continue
+        target.symlink_to(relative, target_is_directory=source.is_dir())
+
+
+def self_test() -> list[str]:
+    """Core boundary: no lost settings, duplicate discovery or local-link overwrite."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        inventory = root / INVENTORY
+        inventory.parent.mkdir(parents=True)
+        inventory.write_text('{}')
+        for name in ('.agents/subagents', '.agents/adapters/claude/agents'):
+            (root / name).mkdir(parents=True)
+        for name in ('.agents/adapters/codex/config.toml', '.agents/adapters/claude/settings.json',
+                     '.agents/skills/example/SKILL.md'):
+            source = root / name
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text('Synthetic source')
+        write_links(root)
+        assert not findings(root)
+        source = root / '.agents/adapters/codex/config.toml'
+        source.unlink()
+        assert any('.codex/config.toml' in x for x in findings(root))
+        source.write_text('Synthetic source')
+        target = root / '.claude/skills/example'
+        target.unlink()
+        target.symlink_to('../outside')
+        assert findings(root)
+        try:
+            write_links(root)
+        except ValueError:
+            pass
+        else:
+            return ['a redirected local link must not be overwritten']
+        assert target.readlink().as_posix() == '../outside'
+        target.unlink()
+        target.mkdir()
+        private = target / 'SKILL.md'
+        private.write_text('Unreviewed local work')
+        try:
+            write_links(root)
+        except ValueError:
+            pass
+        else:
+            return ['a regular local source must not be overwritten']
+        assert private.read_text() == 'Unreviewed local work'
+        assert findings(root)
+    return []
 
 
 def main() -> int:
@@ -111,17 +141,16 @@ def main() -> int:
     parser.add_argument('--write', action='store_true')
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
-    if args.write:
-        for path, content in expected_outputs(REPO_ROOT).items():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(content)
-            if path.suffix in {'.py', '.sh'}:
-                path.chmod(0o755)
-    errors = findings(REPO_ROOT)
+    try:
+        if args.write:
+            write_links(REPO_ROOT)
+        errors = findings(REPO_ROOT)
+    except (OSError, ValueError, KeyError) as error:
+        errors = [str(error)]
     if errors:
         print('\n'.join(errors))
         return 1
-    print('Host discovery and command adapters match canonical .agents sources.')
+    print('Host entrypoints link to unified .agents sources; no copied skill discovery.')
     return 0
 
 

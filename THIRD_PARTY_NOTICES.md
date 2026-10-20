@@ -1576,9 +1576,9 @@ Package count: 3
 
 ### Package inventory
 
-- `impeccable` `4.0.4` — Apache-2.0; upstream NOTICE identifies MIT-derived platform references; [License](.claude/skills/impeccable/LICENSE); [Upstream notice](.claude/skills/impeccable/NOTICE.md)
-- `impeccable/modern-screenshot` `4.7.0` — MIT; [License](.claude/skills/impeccable/THIRD_PARTY_LICENSES/modern-screenshot.txt)
-- `impeccable/platform-design-skills` `derived references; original revision not recorded by importer` — MIT; [License](.claude/skills/impeccable/THIRD_PARTY_LICENSES/platform-design-skills.txt); [Upstream notice](.claude/skills/impeccable/NOTICE.md)
+- `impeccable` `4.0.4` — Apache-2.0; upstream NOTICE identifies MIT-derived platform references; [License](.agents/imports/impeccable/LICENSE); [Upstream notice](.agents/imports/impeccable/NOTICE.md)
+- `impeccable/modern-screenshot` `4.7.0` — MIT; [License](.agents/imports/impeccable/THIRD_PARTY_LICENSES/modern-screenshot.txt)
+- `impeccable/platform-design-skills` `derived references; original revision not recorded by importer` — MIT; [License](.agents/imports/impeccable/THIRD_PARTY_LICENSES/platform-design-skills.txt); [Upstream notice](.agents/imports/impeccable/NOTICE.md)
 
 ## Private pod runtime resources
 

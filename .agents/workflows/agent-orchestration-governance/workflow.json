@@ -6,8 +6,8 @@
   "default_spoke": null,
   "task_type": "agent-orchestration-governance",
   "affected_surfaces": [
-    "agents",
-    ".codex/config.toml",
+    ".agents/subagents",
+    ".agents/adapters",
     ".agents/skills/agent-orchestration-governance",
     ".agents/workflows/agent-orchestration-governance",
     "docs/vision/bacterial-software-architecture.md",
