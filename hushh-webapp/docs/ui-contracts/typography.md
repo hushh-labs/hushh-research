@@ -1,5 +1,8 @@
 # Profile, Navigation, and Feed Typography Contract
 
+Mail's page-specific heading overrides, dialogs, editor, phone/desktop sizing
+and cascade boundaries are recorded in the [Mail contract](./mail.md#font-schema-what-to-use-where-and-actual-override-boundaries).
+
 Status: current source-backed usage map, checked against revision
 `296d7769c83176739e4db8d3ad549b0521894f52` on 20 October 2026. Owner: frontend design system. Classification:
 `canonical`, package-local. This answers **when to use what** in these product
