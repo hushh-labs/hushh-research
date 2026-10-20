@@ -22,24 +22,8 @@ import {
   ArrowsClockwiseIcon as RefreshCw,
   UserCircleIcon as User,
 } from "@/components/icons";
-import {
-  AccountProfileIcon,
-  ConsentAgentIcon,
-  DeleteRowIcon,
-  DiscoverableRowIcon,
-  FingerprintProfileIcon,
-  GmailAgentIcon,
-  InboxRowIcon,
-  LocationAgentIcon,
-  MarketplaceAgentIcon,
-  PhoneRowIcon,
-  ResetRowIcon,
-  SignOutProfileIcon,
-  SyncRowIcon,
-  VaultRowIcon,
-  VoiceRowIcon,
-  WalletAgentIcon,
-} from "@/components/icons/agents";
+import { PROFILE_ICONS } from "@/components/icons/profile-icons";
+import { VoiceRowIcon } from "@/components/icons/agents";
 import accountStyles from "@/components/profile/profile-your-account.module.css";
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
@@ -3579,7 +3563,7 @@ function ProfilePageContent({
 
       <SettingsGroup>
         <SettingsRow
-          icon={LocationAgentIcon}
+          icon={PROFILE_ICONS.location}
           iconTone="capability"
           title="Location sharing"
           description="Manage live location."
@@ -3589,7 +3573,7 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.ONE_LOCATION)}
         />
         <SettingsRow
-          icon={ConsentAgentIcon}
+          icon={PROFILE_ICONS.review}
           iconTone="capability"
           title="Consent center"
           description="Review sharing."
@@ -3599,7 +3583,7 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.CONSENTS)}
         />
         <SettingsRow
-          icon={DiscoverableRowIcon}
+          icon={PROFILE_ICONS.people}
           iconTone="capability"
           title="Find and connect me by phone number"
           description={contactDiscoverableStatusText}
@@ -3617,7 +3601,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={MarketplaceAgentIcon}
+          icon={PROFILE_ICONS.visibility}
           iconTone="capability"
           title="Marketplace visibility"
           description={marketplaceStatusText}
@@ -3658,7 +3642,7 @@ function ProfilePageContent({
       {presentation === "native-page" && nativeAccountException !== "photo" ? <ProfileAvatarEditor /> : null}
       <SettingsGroup title="Identity">
         <SettingsRow
-          icon={AccountProfileIcon}
+          icon={PROFILE_ICONS.name}
           iconTone="capability"
           title="Display name"
           description={user.displayName || "Not available"}
@@ -3685,13 +3669,13 @@ function ProfilePageContent({
           </div>
         ) : null}
         <SettingsRow
-          icon={GmailAgentIcon}
+          icon={PROFILE_ICONS.mail}
           iconTone="capability"
           title="Mail"
           description={user.email || "Not available"}
         />
         <SettingsRow
-          icon={PhoneRowIcon}
+          icon={PROFILE_ICONS.phone}
           iconTone="capability"
           title="Phone number"
           description={phoneSummaryText}
@@ -3723,7 +3707,7 @@ function ProfilePageContent({
         />
         {walletCardEntryEnabled ? (
           <SettingsRow
-            icon={WalletAgentIcon}
+            icon={PROFILE_ICONS.wallet}
             iconTone="capability"
             className="profile-account-service-row"
             title={WALLET_CARD_COPY.profileEntry.title}
@@ -3735,7 +3719,7 @@ function ProfilePageContent({
       </SettingsGroup>
       <SettingsGroup title="Account actions">
         <SettingsRow
-          icon={ResetRowIcon}
+          icon={PROFILE_ICONS.reset}
           iconTone="capability"
           className="profile-account-reset-row"
           title="Reset account"
@@ -3744,7 +3728,7 @@ function ProfilePageContent({
           onClick={() => void handleResetClick()}
         />
         <SettingsRow
-          icon={DeleteRowIcon}
+          icon={PROFILE_ICONS.delete}
           iconTone="capability"
           className="profile-account-delete-row"
           testId="profile-account-delete-row"
@@ -3800,7 +3784,7 @@ function ProfilePageContent({
     <div className="space-y-4">
       <SettingsGroup>
         <SettingsRow
-          icon={FingerprintProfileIcon}
+          icon={PROFILE_ICONS.vault}
           iconTone="capability"
           title="Vault methods"
           description="Password, passkey, and unlock method."
@@ -3987,7 +3971,7 @@ function ProfilePageContent({
     >
       <SettingsGroup>
         <SettingsRow
-          icon={GmailAgentIcon}
+          icon={PROFILE_ICONS.mail}
           iconTone="capability"
           title="Connection"
           description={gmailSettingsDescription}
@@ -4002,7 +3986,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={SyncRowIcon}
+          icon={PROFILE_ICONS.refresh}
           iconTone="capability"
           title="Actions"
           description="Sync, receipts, or disconnect."
@@ -4043,7 +4027,7 @@ function ProfilePageContent({
       <SettingsGroup title="Vault">
         {vaultAccess.needsVaultCreation ? (
           <SettingsRow
-            icon={VaultRowIcon}
+            icon={PROFILE_ICONS.security}
             iconTone="capability"
             title="Create your vault"
             description="Secure saved details."
@@ -4063,7 +4047,7 @@ function ProfilePageContent({
           <>
             {!vaultAccess.canMutateSecureData ? (
               <SettingsRow
-                icon={VaultRowIcon}
+                icon={PROFILE_ICONS.security}
                 iconTone="capability"
                 title="Unlock vault"
                 description="Change methods or password."
@@ -4099,7 +4083,7 @@ function ProfilePageContent({
     >
       <SettingsGroup title="Connection">
         <SettingsRow
-          icon={GmailAgentIcon}
+          icon={PROFILE_ICONS.mail}
           iconTone="capability"
           title="Status"
           description={gmailSettingsDescription}
@@ -4107,7 +4091,7 @@ function ProfilePageContent({
           stackTrailingOnMobile
         />
         <SettingsRow
-          icon={InboxRowIcon}
+          icon={PROFILE_ICONS.inbox}
           iconTone="capability"
           title="Inbox"
           description={
@@ -4119,7 +4103,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={SyncRowIcon}
+          icon={PROFILE_ICONS.refresh}
           iconTone="capability"
           title="Latest sync"
           description={gmailLastSyncText}
@@ -4565,7 +4549,7 @@ function ProfilePageContent({
         content: (
           <SettingsGroup title={PROFILE_LABELS.accountAccess}>
             <SettingsRow
-              icon={SignOutProfileIcon}
+              icon={PROFILE_ICONS.signOut}
               iconTone="capability"
               title="Sign out"
               description="Sign out on this device."
@@ -5010,7 +4994,7 @@ function ProfilePageContent({
         ...(nativePortrait ? { portraitData: nativePortrait } : {}) },
     ] },
     { id: "account-identity", title: "Identity", rows: [
-      { id: "account-name", label: "Display name", detail: user.displayName || "Not available", enabled: true, artworkId: "account", trailing: "Edit" },
+      { id: "account-name", label: "Display name", detail: user.displayName || "Not available", enabled: true, artworkId: "account-name", trailing: "Edit" },
       { id: "account-mail", label: "Mail", detail: user.email || "Not available", enabled: true, readOnly: true, artworkId: "account-mail" },
       { id: "account-phone", label: "Phone number", detail: phoneSummaryText, enabled: !!phoneNumber || phoneNumberStatus !== "loading", artworkId: "account-phone", trailing: phoneNumber ? "Change" : phoneLookupPending ? "Retry" : "Add", chevron: true },
       { id: "account-provider", label: "Sign-in provider", detail: provider.name, enabled: true, readOnly: true },

@@ -50,8 +50,9 @@ export function useAgentDockSurface() {
 
 /** The canonical composer is projected into the same retained bar. Embedded
  * workspaces keep their local composer. A missing host is not a second input. */
-export function AgentDockPortal({ enabled, visible, suppressed = false, children }: {
+export function AgentDockPortal({ enabled, active = true, visible, suppressed = false, children }: {
   enabled: boolean;
+  active?: boolean;
   visible: boolean;
   suppressed?: boolean;
   children: ReactNode;
@@ -61,17 +62,29 @@ export function AgentDockPortal({ enabled, visible, suppressed = false, children
   const claim = dock?.claim;
   const release = dock?.release;
   useLayoutEffect(() => {
-    if (!enabled || !claim || !release) return;
+    if (!enabled || !active || !claim || !release) return;
     const identity = id.current;
     claim(identity, visible, suppressed);
     return () => release(identity);
-  }, [enabled, visible, suppressed, claim, release]);
+  }, [enabled, active, visible, suppressed, claim, release]);
   if (!enabled) return children;
-  return dock?.host ? createPortal(children, dock.host) : null;
+  // Placement belongs to the workspace lifetime, not the selected agent.
+  // Keep each editor's node/selection while only the active owner claims and
+  // exposes it. Moving between inline and portal children remounts the editor.
+  return dock?.host ? createPortal(
+    <div data-agent-dock-owner hidden={!active} inert={!active} className={active ? "contents" : "hidden"}>
+      {children}
+    </div>, dock.host) : null;
 }
 
 export function useAgentDockHost() { return useContext(DockContext)?.host ?? null; }
 export function useAgentDockState() { return useContext(DockContext); }
+
+/** Retained inactive editors have no layout. Native measures the authored
+ * active seat, never the first editor from another agent/conversation. */
+export function activeAgentDockSeat(host: HTMLElement): HTMLElement | null {
+  return host.querySelector<HTMLElement>("[data-agent-dock-owner]:not([hidden]):not([inert]) [data-agent-dock-embedded]");
+}
 
 /** Geometry only: include the retained voice panel as well as the form. The
  * hidden form's zero rectangle cannot describe the visible dock's occlusion. */
