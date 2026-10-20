@@ -69,6 +69,11 @@ class ScheduledTaskJournal:
             for _ in range(4):
                 rows, seq = await self.snapshot()
                 row = edit(rows)
+                # Refuse an invalid/oversized projection before it poisons recovery.
+                try:
+                    _ScheduleRecord.model_validate(row)
+                except (ValueError, TypeError, ZoneInfoNotFoundError):
+                    raise ScheduleRefused("SCHEDULE_RECOVERY_INVALID") from None
                 await self.check()
                 if authorize is not None:
                     await authorize(row)

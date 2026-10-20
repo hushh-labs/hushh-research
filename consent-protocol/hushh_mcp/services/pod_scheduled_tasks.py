@@ -19,6 +19,7 @@ from hushh_mcp.services.pod_scheduled_contracts import (
     ScheduledDelivery,
     ScheduleRefused,
     ScheduleRequest,
+    capability_scopes,
     occurrence_id,
 )
 from hushh_mcp.services.pod_scheduled_contracts import (
@@ -63,6 +64,8 @@ class ScheduledTasks:
         capability = self.capabilities.get(request.capability)
         if capability is None:
             raise ScheduleRefused("SCHEDULE_CAPABILITY_UNAVAILABLE")
+        # Authored adapter scopes, never a caller assertion or a model result.
+        grant = {**grant, "scopes": capability_scopes(capability)}
         await self.check()
 
         async def authorize(row):
@@ -174,6 +177,7 @@ class ScheduledTasks:
         *,
         confirmed: bool = False,
         caller_check: Callable[[], Awaitable[None]] | None = None,
+        caller_grant: dict | None = None,
     ) -> dict:
         if operation not in {"pause", "resume", "cancel"}:
             raise ScheduleRefused("SCHEDULE_CONTROL_REFUSED")
@@ -219,6 +223,13 @@ class ScheduledTasks:
                 await caller_check()
             if operation == "resume":
                 await self._check_horizon(row)
+                if caller_grant is not None:
+                    await self.check_grant(
+                        {
+                            **caller_grant,
+                            "scopes": row["grant"].get("scopes", ["pod.act", "files.manage"]),
+                        }
+                    )
 
         row = await self._change(edit, authorize=authorize)
         if operation == "resume":

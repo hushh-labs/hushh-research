@@ -21,6 +21,7 @@ async def test_scheduled_owner_control_refuses_device_and_read_only_app(
     tmp_path, hub_key, monkeypatch
 ):
     from api.routes.one import pod_scheduled_tasks as routes
+    from hushh_mcp.services.pod_scheduled_authority import ScheduledGrantAuthority
     from hushh_mcp.services.pod_scheduled_tasks import ScheduleAccess, ScheduledTasks
     from tests.test_pod_scheduled_tasks import schedule_request
     from tests.test_pod_session_authority import OWNER, USER
@@ -42,7 +43,9 @@ async def test_scheduled_owner_control_refuses_device_and_read_only_app(
         ]
     ]
     capability = SimpleNamespace(
-        prepare=AsyncMock(return_value={"file_revision": 1}), run=AsyncMock()
+        required_scopes=("pod.act", "files.manage"),
+        prepare=AsyncMock(return_value={"file_revision": 1}),
+        run=AsyncMock(),
     )
     runtime = ScheduledTasks(
         access=ScheduleAccess(USER, OWNER, "epoch", AsyncMock()),
@@ -50,7 +53,7 @@ async def test_scheduled_owner_control_refuses_device_and_read_only_app(
         capabilities={"agent_files.organize_file.v1": capability},
         delivery=SimpleNamespace(require_ready=lambda: None, offer=AsyncMock()),
         admission=SimpleNamespace(acquire_turn=AsyncMock()),
-        check_grant=AsyncMock(return_value=10_000_000),
+        check_grant=ScheduledGrantAuthority(authority, USER, authority.require_held).check_grant,
         clock=lambda: 1000,
     )
     monkeypatch.setattr(routes, "active_scheduled_tasks", lambda: runtime)
@@ -86,10 +89,12 @@ async def test_scheduled_owner_control_refuses_device_and_read_only_app(
         assert invalid.json()["detail"]["code"] == "SCHEDULE_REQUEST_INVALID"
 
 
-async def test_revoked_request_caller_cannot_resume_another_valid_apps_schedule(
-    tmp_path, hub_key, monkeypatch
+@pytest.mark.parametrize("failure", ["revoked", "missing_scope"])
+async def test_unadmitted_caller_cannot_resume_another_valid_apps_schedule(
+    tmp_path, hub_key, monkeypatch, failure
 ):
     from api.routes.one import pod_scheduled_tasks as routes
+    from hushh_mcp.services.pod_scheduled_authority import ScheduledGrantAuthority
     from hushh_mcp.services.pod_scheduled_tasks import ScheduleAccess, ScheduledTasks
     from tests.test_pod_scheduled_tasks import schedule_request
     from tests.test_pod_session_authority import OWNER, USER
@@ -99,18 +104,22 @@ async def test_revoked_request_caller_cannot_resume_another_valid_apps_schedule(
     monkeypatch.setattr("api.routes.one.pod_session.authority_or_503", lambda: authority)
     original, caller = Subject("original", "web"), Subject("caller", "web")
     original_token, _ = await world.admit(original, _binding(original))
-    caller_token, _ = await world.admit(caller, _binding(caller))
+    caller_token, _ = await world.admit(
+        caller, _binding(caller, **({"scopes": ["pod.act"]} if failure == "missing_scope" else {}))
+    )
     runtime = ScheduledTasks(
         access=ScheduleAccess(USER, OWNER, "epoch", AsyncMock()),
         log=world.log,
         capabilities={
             "agent_files.organize_file.v1": SimpleNamespace(
-                prepare=AsyncMock(return_value={}), run=AsyncMock()
+                required_scopes=("pod.act", "files.manage"),
+                prepare=AsyncMock(return_value={}),
+                run=AsyncMock(),
             )
         },
         delivery=SimpleNamespace(require_ready=lambda: None, offer=AsyncMock()),
         admission=SimpleNamespace(acquire_turn=AsyncMock()),
-        check_grant=AsyncMock(return_value=10000000),
+        check_grant=ScheduledGrantAuthority(authority, USER, authority.require_held).check_grant,
         clock=lambda: 1000,
     )
     monkeypatch.setattr(routes, "active_scheduled_tasks", lambda: runtime)
@@ -130,7 +139,7 @@ async def test_revoked_request_caller_cannot_resume_another_valid_apps_schedule(
         async def interleaved_snapshot():
             nonlocal revoked
             rows = await snapshot()
-            if not revoked:
+            if not revoked and failure == "revoked":
                 revoked = True
                 await authority.revoke_subject(caller.subject_id)
             return rows

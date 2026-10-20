@@ -57,6 +57,7 @@ class ScheduleAccess:
 class ScheduledCapability(Protocol):
     # Trusted adapter limit, never a model/request-supplied authority extension.
     max_active_seconds: int
+    required_scopes: tuple[str, ...]
 
     async def prepare(self, parameters: dict) -> dict:
         """Exact current capability terms. No model/client assertion of authority."""
@@ -75,6 +76,19 @@ class ScheduledDelivery(Protocol):
     async def offer(self, schedule_id: str, revision: int, occurrence_id: str, due_at: int) -> None:
         """Identifier-only, named/deduplicated due-time delivery."""
         ...
+
+
+def capability_scopes(capability: ScheduledCapability) -> list[str]:
+    scopes = capability.required_scopes
+    if (
+        not isinstance(scopes, tuple)
+        or not 1 <= len(scopes) <= 32
+        or any(not isinstance(s, str) or not s or len(s) > 64 for s in scopes)
+        or len(set(scopes)) != len(scopes)
+        or "pod.act" not in scopes
+    ):
+        raise ScheduleRefused("SCHEDULE_CAPABILITY_GRANT_INVALID")
+    return list(scopes)
 
 
 def next_run_after(
@@ -162,10 +176,21 @@ class _ScheduleRecord(BaseModel):
     @model_validator(mode="after")
     def bounded(self):
         ZoneInfo(self.timezone)
+        scopes = self.grant.get("scopes")
         if (
             self.delivery_revision > self.revision
             or len(json.dumps({"terms": self.terms, "grant": self.grant}, allow_nan=False).encode())
             > 8192
+            or (
+                scopes is not None
+                and (
+                    not isinstance(scopes, list)
+                    or not 1 <= len(scopes) <= 32
+                    or any(not isinstance(s, str) or not s or len(s) > 64 for s in scopes)
+                    or len(set(scopes)) != len(scopes)
+                    or "pod.act" not in scopes
+                )
+            )
         ):
             raise ValueError("Invalid recovered schedule")
         if self.state == "running" and (self.last_run is None or self.last_run.state != "running"):

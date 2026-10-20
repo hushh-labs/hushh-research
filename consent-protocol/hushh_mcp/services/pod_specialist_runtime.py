@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -449,6 +449,35 @@ class PodEmailReadPort:
         return PodMailMetadataReader(read=read, require_access=require_access)
 
 
+def _invocation_deadline(deadline_ms: int | None) -> int:
+    now = int(time.time() * 1000)
+    if deadline_ms is None:
+        return now + 180_000
+    if type(deadline_ms) is not int or not now < deadline_ms <= now + 900_000:
+        raise PermissionError("Pod invocation deadline unavailable")
+    return deadline_ms
+
+
+def _metadata_admission(
+    admit_owner: Callable[[str, str], Awaitable[int]],
+    verifier: Any,
+    token: str,
+    owner_read_admission: Callable[[str, str], Awaitable[None]] | None,
+) -> Callable[[str, str], Awaitable[None]]:
+    async def check(owner: str, credential: str) -> None:
+        from hushh_mcp.services.pod_session_authority import LOCAL_TOKEN_PREFIX
+
+        if verifier is None or (
+            owner_read_admission is None and not token.startswith(LOCAL_TOKEN_PREFIX)
+        ):
+            raise PermissionError("Consent review requires the owner's local authority")
+        await admit_owner(owner, credential)
+        if owner_read_admission is not None:
+            await owner_read_admission(owner, credential)
+
+    return check
+
+
 def build_pod_specialist_runtime(
     *,
     user_id: str,
@@ -466,6 +495,8 @@ def build_pod_specialist_runtime(
     puppy_catalog_version: str | None = None,
     verifier: Any = None,
     session_owner_id: str | None = None,
+    invocation_deadline_ms: int | None = None,
+    owner_read_admission: Callable[[str, str], Awaitable[None]] | None = None,
 ) -> SpecialistRuntime:
     # Construction does no storage/provider I/O. Admission precedes resolution.
     # ``verifier``: a turn admitted by the pod's own session authority threads its
@@ -473,6 +504,7 @@ def build_pod_specialist_runtime(
     # tombstones rather than asking the hub. None keeps the hub-verified path.
     log: Any = None
     client: Any = None
+    invocation_expires_at = _invocation_deadline(invocation_deadline_ms)
 
     # The hub keeps authority-sensitive specialists unwired at import time. A pod has
     # crossed its owner-bound admission here, so opt those handlers in for this runtime.
@@ -498,6 +530,8 @@ def build_pod_specialist_runtime(
     )
 
     async def require_access() -> None:
+        if int(time.time() * 1000) >= invocation_expires_at:
+            raise PermissionError("Pod invocation authority expired")
         trace = _TRACE.get()
         if trace is not None:
             trace.record_consent_verify()
@@ -511,8 +545,6 @@ def build_pod_specialist_runtime(
                 raise PermissionError("Pod storage owner mismatch")
             await log.require_open()
 
-    invocation_expires_at = int(time.time() * 1000) + 180_000
-
     async def admit_owner(owner: str, credential: str) -> int:
         # Local session authority, never a fabricated VAULT_OWNER; information needs its grant.
         if (
@@ -524,14 +556,11 @@ def build_pod_specialist_runtime(
         await require_access()
         return invocation_expires_at
 
-    async def require_local_metadata_read(owner: str, token: str) -> None:
-        from hushh_mcp.services.pod_session_authority import LOCAL_TOKEN_PREFIX
-
-        # Feed availability proves no invocation authority. Only ingress's local
-        # session verifier can admit the owner, including live tombstone checks.
-        if verifier is None or not consent_token.startswith(LOCAL_TOKEN_PREFIX):
-            raise PermissionError("Consent review requires the owner's local session")
-        await admit_owner(owner, token)
+    # Scheduled admission is an explicit claim-bound port, never a fabricated
+    # session prefix. Existing ingress retains its local-session check.
+    require_local_metadata_read = _metadata_admission(
+        admit_owner, verifier, consent_token, owner_read_admission
+    )
 
     ports = owner_read_ports(
         user_id, data_door_grants, owner_read_authority=require_local_metadata_read

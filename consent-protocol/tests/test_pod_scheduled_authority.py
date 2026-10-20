@@ -1,0 +1,216 @@
+"""Real sealed claims and signed bindings, without minting a browser session."""
+
+import asyncio
+import time
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+from hushh_mcp.services.pod_scheduled_authority import ScheduledGrantAuthority
+from hushh_mcp.services.pod_scheduled_lease import ScheduledExecutionLease
+from hushh_mcp.services.pod_scheduled_tasks import ScheduleAccess, ScheduledTasks
+from tests.test_pod_scheduled_tasks import schedule_request
+from tests.test_pod_session_authority import OWNER, USER, Subject, World, _binding
+from tests.test_pod_session_authority import hub_key as hub_key
+
+
+@pytest.fixture
+async def admitted_task(tmp_path, hub_key, monkeypatch):
+    world = World(tmp_path)
+    authority = await world.boot()
+    subject = Subject("scheduled-owner", "web")
+    await world.admit(subject, _binding(subject, scopes=["pod.act", "pkm.read", "pod.status"]))
+    monkeypatch.setenv("HUSSH_ID", OWNER)
+    clock = [int(time.time())]
+    grants = ScheduledGrantAuthority(
+        authority, USER, authority.require_held, clock=lambda: clock[0]
+    )
+    runtime = ScheduledTasks(
+        access=ScheduleAccess(USER, OWNER, "epoch", authority.require_held),
+        log=world.log,
+        capabilities={
+            "agent_one.execute_task.v1": SimpleNamespace(
+                required_scopes=("pod.act", "pkm.read"),
+                max_active_seconds=600,
+                prepare=AsyncMock(return_value={"source_revision": 1}),
+            )
+        },
+        delivery=SimpleNamespace(require_ready=lambda: None, offer=AsyncMock()),
+        admission=SimpleNamespace(),
+        check_grant=grants.check_grant,
+        clock=lambda: clock[0],
+    )
+    created = await runtime.create(
+        schedule_request(
+            capability="agent_one.execute_task.v1",
+            first_run_at=clock[0] + 1,
+            authorization_expires_at=clock[0] + 600,
+        ),
+        grant={"subject_id": subject.subject_id, "version": 1, "scopes": ["pod.upgrade"]},
+    )
+    clock[0] += 2
+    delivery = runtime.delivery.offer.call_args.args
+    claimed = await runtime.runner._claim(*delivery[:3], 600)
+    lease = ScheduledExecutionLease(runtime.journal, claimed)
+    return SimpleNamespace(
+        world=world,
+        authority=authority,
+        subject=subject,
+        runtime=runtime,
+        invocation=grants.invocation(lease),
+        lease=lease,
+        clock=clock,
+        row=created,
+    )
+
+
+async def test_task_admission_attenuates_scopes_and_closes_the_private_handle(admitted_task):
+    task = admitted_task
+    invocation = task.invocation
+    with invocation.bind() as reference:
+        token = resolve_request_secret(reference)
+        assert not token.startswith("pod-session:")
+        from hushh_mcp.services.pod_session_authority import PodSessionRefused
+
+        with pytest.raises(PodSessionRefused):
+            task.authority.verify_session(token)
+        assert (await invocation.verify(token, expected_scope="pkm.read")).valid
+        assert not (await invocation.verify(reference, expected_scope="pkm.read")).valid
+        for scope in ("pod.status", "pod.upgrade", "files.manage", "browser.invoke", ""):
+            assert not (await invocation.verify(token, expected_scope=scope)).valid
+        await invocation.owner_read_admission(USER, token)
+        with pytest.raises(PermissionError):
+            await invocation.owner_read_admission("another-owner", token)
+        public = await task.runtime.get(task.row["id"])
+        assert "grant" not in public and "terms" not in public
+        assert token not in str(await task.world.log.replay())
+    assert resolve_request_secret(reference) == ""
+    assert not (await invocation.verify(token, expected_scope="pkm.read")).valid
+
+
+async def test_closing_task_handle_during_authority_read_refuses(admitted_task, monkeypatch):
+    invocation = admitted_task.invocation
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = invocation.grants.binding
+
+    async def delayed(grant):
+        binding = await original(grant)
+        entered.set()
+        await release.wait()
+        return binding
+
+    monkeypatch.setattr(invocation.grants, "binding", delayed)
+    with invocation.bind() as reference:
+        token = resolve_request_secret(reference)
+        reading = asyncio.create_task(invocation.verify(token, expected_scope="pkm.read"))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+        except BaseException:
+            reading.cancel()
+            await asyncio.gather(reading, return_exceptions=True)
+            raise
+    release.set()
+    assert not (await asyncio.wait_for(reading, 2)).valid
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "revoked",
+        "superseded",
+        "expiry",
+        "lease",
+        "terms",
+        "claim",
+        "scopes",
+        "owner",
+        "incarnation",
+        "horizon",
+    ],
+)
+async def test_current_occurrence_and_grant_required_on_every_access(admitted_task, change):
+    task = admitted_task
+    with task.invocation.bind() as reference:
+        token = resolve_request_secret(reference)
+        assert (await task.invocation.verify(token, expected_scope="pkm.read")).valid
+        if change == "revoked":
+            await task.authority.revoke_subject(task.subject.subject_id)
+        elif change == "superseded":
+            await task.world.admit(task.subject, _binding(task.subject, version=2))
+        elif change in {"expiry", "lease"}:
+            task.clock[0] = task.lease.claimed["last_run"][
+                "deadline_at" if change == "expiry" else "lease_until"
+            ]
+        else:
+
+            def edit(rows):
+                row = rows[task.row["id"]]
+                if change == "claim":
+                    row["last_run"]["claim_id"] = "a" * 32
+                elif change == "scopes":
+                    row["grant"]["scopes"].append("pod.upgrade")
+                else:
+                    key, value = {
+                        "terms": ("terms", {"source_revision": 2}),
+                        "owner": ("owner_id", "different-owner"),
+                        "incarnation": ("incarnation", "replacement"),
+                        "horizon": ("authorization_expires_at", task.clock[0] + 1200),
+                    }[change]
+                    row[key] = value
+                row["revision"] += 1
+                return row
+
+            await task.runtime.journal.change(edit)
+        assert not (await task.invocation.verify(token, expected_scope="pkm.read")).valid
+
+
+async def test_task_authority_uses_specialist_owner_read_port_without_a_fake_session(
+    admitted_task, monkeypatch
+):
+    from hushh_mcp.services import pod_owner_read_ports
+    from hushh_mcp.services.pod_specialist_runtime import build_pod_specialist_runtime
+
+    task = admitted_task
+    captured = []
+    original = pod_owner_read_ports.owner_read_ports
+
+    def ports(*args, **kwargs):
+        result = original(*args, feed=SimpleNamespace(), **kwargs)
+        captured.append(result)
+        return result
+
+    monkeypatch.setattr(pod_owner_read_ports, "owner_read_ports", ports)
+    with task.invocation.bind() as reference:
+        token = resolve_request_secret(reference)
+        runtime = build_pod_specialist_runtime(
+            user_id=USER,
+            hushh_id=OWNER,
+            consent_token=token,
+            provider="gemini",
+            model="synthetic",
+            runtime_mode="byok",
+            credential=None,
+            credential_transport="developer_api",
+            vertex_project=None,
+            vertex_location=None,
+            data_door_grants={},
+            verifier=task.invocation.verify,
+            invocation_deadline_ms=task.invocation.deadline_ms,
+            owner_read_admission=task.invocation.owner_read_admission,
+        )
+        assert await runtime.admit_owner(USER, token) == task.invocation.deadline_ms
+        assert task.invocation.deadline_ms > int(time.time() * 1000) + 180_000
+        await captured[0].consent_center.authorize_owner_tool(USER, token)
+        await task.authority.revoke_subject(task.subject.subject_id)
+        with pytest.raises(PermissionError):
+            await captured[0].consent_center.authorize_owner_tool(USER, token)
+
+
+@pytest.mark.parametrize("deadline", [True, 0, -1, 10**15])
+def test_specialist_refuses_an_unbounded_task_deadline(deadline):
+    from hushh_mcp.services.pod_specialist_runtime import _invocation_deadline
+
+    with pytest.raises(PermissionError):
+        _invocation_deadline(deadline)

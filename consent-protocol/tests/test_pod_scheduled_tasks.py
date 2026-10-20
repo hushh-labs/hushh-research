@@ -6,6 +6,20 @@ from types import SimpleNamespace
 import pytest
 
 
+@pytest.mark.parametrize("scopes", [(), ("files.manage",), ("pod.act", "pod.act")])
+async def test_unscoped_adapter_cannot_prepare_private_information(scheduled_tasks, scopes):
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused
+
+    world = scheduled_tasks
+    world.capability.required_scopes = scopes
+    with pytest.raises(ScheduleRefused, match="SCHEDULE_CAPABILITY_GRANT_INVALID"):
+        await world.runtime.create(
+            schedule_request(), grant={"subject_id": "browser", "version": 1}
+        )
+    world.capability.prepare.assert_not_awaited()
+    assert await world.log.replay() == []
+
+
 @pytest.fixture
 def scheduled_tasks(tmp_path):
     from unittest.mock import AsyncMock
@@ -17,6 +31,7 @@ def scheduled_tasks(tmp_path):
     log = PodCommitLog(LocalObjectStore(str(tmp_path / "schedule")), b"s" * 32, owner_id="pod")
     capability = SimpleNamespace(
         max_active_seconds=180,
+        required_scopes=("pod.act", "files.manage"),
         prepare=AsyncMock(return_value={"file_revision": 1}),
         run=AsyncMock(return_value="completed"),
     )

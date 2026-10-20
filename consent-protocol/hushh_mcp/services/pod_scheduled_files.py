@@ -9,6 +9,7 @@ from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused
 
 class ScheduledFileOrganization:
     max_active_seconds = 180
+    required_scopes = ("pod.act", "files.manage")
 
     def __init__(self, check):
         self.check = check

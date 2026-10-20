@@ -48,8 +48,6 @@ def owner(authorization, *, write=False):
     authority, claims = verified_session(
         authorization, role=ROLE_APP, scope="pod.act" if write else "pod.status"
     )
-    if write and "files.manage" not in claims.get("scopes", []):
-        raise HTTPException(403, detail={"code": "SCHEDULE_GRANT_REFUSED"})
     runtime = active_scheduled_tasks()
     if claims["user_id"] != runtime.access.owner_id or authority.hushh_id != runtime.access.pod_id:
         raise HTTPException(403, detail={"code": "SCHEDULE_OWNER_REFUSED"})
@@ -58,12 +56,8 @@ def owner(authorization, *, write=False):
         current, fresh = verified_session(
             authorization, role=ROLE_APP, scope="pod.act" if write else "pod.status"
         )
-        if (
-            current is not authority
-            or any(
-                fresh.get(key) != claims.get(key) for key in ("user_id", "subject_id", "version")
-            )
-            or (write and "files.manage" not in fresh.get("scopes", []))
+        if current is not authority or any(
+            fresh.get(key) != claims.get(key) for key in ("user_id", "subject_id", "version")
         ):
             raise HTTPException(403, detail={"code": "SCHEDULE_CALLER_CHANGED"})
 
@@ -80,7 +74,11 @@ async def list_tasks(response: Response, authorization: str | None = Header(defa
         try:
             runtime.delivery.require_ready()
             authorization_limit_at = await runtime.check_grant(
-                {"subject_id": claims["subject_id"], "version": claims["version"]}
+                {
+                    "subject_id": claims["subject_id"],
+                    "version": claims["version"],
+                    "scopes": ["pod.act"],
+                }
             )
         except ScheduleRefused as exc:
             code = exc.code
@@ -128,8 +126,12 @@ async def control_task(
 ):
     no_store(response)
     try:
-        runtime, _, caller_check = owner(authorization, write=True)
-        result = await runtime.control(**body.model_dump(), caller_check=caller_check)
+        runtime, claims, caller_check = owner(authorization, write=True)
+        result = await runtime.control(
+            **body.model_dump(),
+            caller_check=caller_check,
+            caller_grant={"subject_id": claims["subject_id"], "version": claims["version"]},
+        )
         await caller_check()
         return result
     except ScheduleRefused as exc:

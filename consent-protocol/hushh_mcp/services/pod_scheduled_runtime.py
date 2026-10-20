@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import time
-
 from hushh_mcp.services.pod_scheduled_tasks import ScheduleAccess, ScheduledTasks, ScheduleRefused
 
 
 def active_scheduled_tasks() -> ScheduledTasks:
     from hushh_mcp.services.pod_memory_service import _resolve_log
     from hushh_mcp.services.pod_role import require_serving_role
+    from hushh_mcp.services.pod_scheduled_authority import ScheduledGrantAuthority
     from hushh_mcp.services.pod_scheduled_delivery import GcpScheduledDelivery
     from hushh_mcp.services.pod_scheduled_files import ScheduledFileOrganization
     from hushh_mcp.services.pod_session_authority import active_session_authority
@@ -35,27 +34,7 @@ def active_scheduled_tasks() -> ScheduledTasks:
         await require_serving_role()
         await authority.require_held()
 
-    async def grant_check(grant):
-        await check()
-        subject = authority.store.subject(grant.get("subject_id", ""))
-        trust = subject.trust
-        if (
-            subject.state != "trusted"
-            or trust is None
-            or trust.role != "app"
-            or trust.version != grant.get("version")
-        ):
-            raise ScheduleRefused("SCHEDULE_GRANT_REVOKED")
-        binding = trust.binding
-        if (
-            binding.get("user_id") != owner
-            or binding.get("hushh_id") != authority.hushh_id
-            or not {"pod.act", "files.manage"}.issubset(binding.get("scopes", []))
-            or type(binding.get("expires_at_ms")) is not int
-            or binding["expires_at_ms"] <= time.time() * 1000
-        ):
-            raise ScheduleRefused("SCHEDULE_GRANT_REFUSED")
-        return binding["expires_at_ms"] // 1000
+    grants = ScheduledGrantAuthority(authority, owner, check)
 
     runtime = ScheduledTasks(
         access=ScheduleAccess(owner, authority.hushh_id, incarnation, check),
@@ -63,7 +42,7 @@ def active_scheduled_tasks() -> ScheduledTasks:
         capabilities={"agent_files.organize_file.v1": ScheduledFileOrganization(check)},
         delivery=GcpScheduledDelivery(log._store),
         admission=ADMISSION,
-        check_grant=grant_check,
+        check_grant=grants.check_grant,
     )
     authority.scheduled_tasks = runtime
     return runtime

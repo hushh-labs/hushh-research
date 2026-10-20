@@ -33,6 +33,19 @@ class ScheduledExecutionLease:
             or run["id"] != expected["id"]
             or run.get("claim_id") != expected["claim_id"]
             or run.get("deadline_at") != expected["deadline_at"]
+            or any(
+                row.get(key) != self.claimed.get(key)
+                for key in (
+                    "owner_id",
+                    "pod_id",
+                    "capability",
+                    "terms",
+                    "grant",
+                    "authorization_expires_at",
+                    "request_fingerprint",
+                    "delivery_revision",
+                )
+            )
             or row["authorization_expires_at"] <= now
             or run["lease_until"] <= now
             or expected["deadline_at"] <= now

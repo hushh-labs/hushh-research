@@ -252,6 +252,15 @@ a one-time run in the owner's timezone against the existing Files analysis opt-i
 The existing `agent_files` task specialist remains the semantic decision-maker.
 General goals and scheduled browser tasks are not registered execution templates.
 
+Each authored adapter now declares its required scopes. Creation freezes them
+before preparing private information; resume checks both the original grant and
+the calling app's current capability scopes. Old schedules retain their Files-only
+requirements. A claim-bound invocation port checks the current subject, exact
+terms, occurrence and original deadline on every access. Its memory-only handle
+is neither a browser session nor an action approval and is removed at scope exit.
+The specialist owner-read port accepts this explicit admission without a fabricated
+session token. General One composition and exact review continuation remain open.
+
 The sealed pod log owns the schedule, occurrence claim, cancellation and settlement.
 The due-time delivery contains identifiers only; an exact authenticated worker route
 checks current owner, pod incarnation, signed grant version and expiry. Exact file,
