@@ -102,11 +102,16 @@ def _filesystem(native: ctypes.CDLL, scratch: Path) -> int:
     return abi
 
 
-def _stream_types_only(library: ctypes.CDLL, context: int, deny: int, number: int) -> None:
+def _local_socket_types(
+    library: ctypes.CDLL, context: int, deny: int, number: int, *, paired: bool
+) -> None:
     # Denying connect alone does not constrain Unix datagrams: sendto/sendmsg
     # can name an external abstract/path recipient. Preserve CLOEXEC/NONBLOCK
-    # flags while permitting only connection-oriented streams.
-    for kind in (value for value in range(16) if value != socket.SOCK_STREAM):
+    # flags. Chromium's sandbox needs connected SEQPACKET socketpairs for its
+    # zygote IPC. Only socketpair may create them: no external recipient is
+    # selectable, and connect/bind/listen remain denied independently.
+    permitted = {socket.SOCK_STREAM, socket.SOCK_SEQPACKET} if paired else {socket.SOCK_STREAM}
+    for kind in (value for value in range(16) if value not in permitted):
         comparison = _Comparison(1, 7, 0xF, kind)  # SCMP_CMP_MASKED_EQ
         if library.seccomp_rule_add_array(context, deny, number, 1, ctypes.byref(comparison)) != 0:
             raise ProcessGuardRefused("BROWSER_SYSCALL_GUARD_REFUSED")
@@ -177,7 +182,7 @@ def _syscalls() -> None:
             ):
                 raise ProcessGuardRefused("BROWSER_SYSCALL_GUARD_REFUSED")
             if conditional:
-                _stream_types_only(library, context, deny, number)
+                _local_socket_types(library, context, deny, number, paired=name == "socketpair")
         if library.seccomp_load(context) != 0:
             raise ProcessGuardRefused("BROWSER_SYSCALL_GUARD_REFUSED")
     finally:

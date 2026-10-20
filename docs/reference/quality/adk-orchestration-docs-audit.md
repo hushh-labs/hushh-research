@@ -9,6 +9,11 @@ Shared deletion and Browser execution prevent a complete readiness claim.
 Cold latency remains a measured usability constraint; the former 30-second target
 is an optimization goal, not a release gate. Economy hosting remains selected.
 
+Browser's immediate milestone is the [public-research MVP](../../future/personal-agent/browser-completion-plan.md#immediate-mvp--critical-path-first):
+protected execution, one ADK task, preview/takeover and reconnect/stop.
+Remembered sessions, PKM autofill, transfers and scheduled browsing follow that
+proof. This prioritization does not change either cloud's disabled status.
+
 Private execution stays in the selected owner cloud. The hub coordinates identity,
 consent, placement and updates. Puppy inference executes on the explicitly granted
 trusted machine through its bound pod; it never silently falls back to cloud AI.
@@ -33,7 +38,7 @@ Operating detail stays in the [dev pod runbook](../operations/dev-pod-first-ligh
 | Files | Dedicated ADK specialist and explorer. Personal and fresh Shared Move, stable identity, byte-exact download and Undo pass; earlier interrupted 4,195,328-byte transfer and selected analysis pass | Finish the retained synthetic deletion after the guarded correction serves; qualify fresh setup and current-image organization without disturbing owners |
 | Software updates | Personal Azure Dev 25 approved in Settings; same durable operation, recovery, installed digest, unchanged incarnation and exactly one Feed completion verified | Preserve exact tested predecessor compatibility; broader interruption and rollback acceptance stays distinct |
 | Puppy | Existing Hermes identity and grant; signed binding, sealed WSS, streamed Gemma 12B response and idle UI. Previous Stop, withdrawal, refusal and re-enable receipts retained | Keep the default and existing relay. No model sweep. Independent-network and cold-model percentiles are unclaimed; phone testing was waived |
-| Browser Use | ADK model port, responsive control and session boundaries tested locally. Built-in Azure process controls now pass on an ordinary application | **Disabled on both clouds.** Azure refuses Chromium's user namespace before our guard; GCP Gen 2 lacks the proposed Landlock mechanism. Production composition and Azure model adaptation also remain open. No sandbox weakening |
+| Browser Use | GCP's real Playwright executor renders through a private connection and handles click/type/scroll with clean shutdown. Synthetic fixture only. Azure process guards pass | **Disabled on both clouds.** Production broker/approval/ADK composition remains open. Azure refuses Chromium's user namespace before our guard; native model adaptation also remains open |
 | Background / continuity | Files queue delivery and preservation of originals previously demonstrated on both clouds; durable update and command/MCP recovery owners exist | Prove current-image connectors/recorded commands and supported continuation. General goals, Azure due-time delivery and scheduled browser work are not qualified |
 | Erasure / transitions | Earlier Shared erasure verified object/Firebase absence. The retained fixture now receives the intended safe 409 instead of 500 on deployed `28a0fa1091` | Its upload remains unverified; account/vault stay fenced and retained. No direct provider deletion, SQL override or automatic retry. Migration, external revocation and cloud cleanup still need receipts |
 | Security | Runtime/authority negative controls and the critical Capacitor patch have source evidence | Dependency alerts, including companion alerts, remain an independent clearance requirement; green CI does not close them |
@@ -76,11 +81,16 @@ The approved built-in Browser probe ran on ordinary cloud containers. Azure's
 application service passes UID 10002, filesystem denial, direct-socket and Unix
 datagram denial, worker exit and scratch cleanup. Its independent user-namespace
 check returns `EPERM` before our guard; sandboxed Chromium has emitted no frame.
-GCP Gen 2 passes inherited socket denial but returns `ENOSYS` for the proposed
-Landlock filesystem mechanism. Another filesystem mechanism requires qualification;
-none has been enabled. The disposable GCP job/identities and all four Azure groups
-were removed with absence readback. Owner pods and images are unchanged. Both
-clouds remain disabled; production composition and the private bridge remain open.
+GCP Gen 2 returns `ENOSYS` for Landlock, but the alternative private namespace
+boundary now produces a real sandboxed frame with agent-file, environment, process
+and direct-socket restrictions intact. A second probe used the actual Playwright
+executor over a preconnected private stream: navigation, click, typing and scrolling
+returned distinct frames; worker exit and process-group absence passed. Both
+disposable jobs, identities and images were removed with absence readback. Owner
+pods and images are unchanged. Five focused transport cases pass, including
+concurrent Stop; the correlation and shutdown regressions fail on broken source.
+Production broker/approval/ADK wiring and Azure execution remain open. Both clouds
+stay disabled; synthetic evidence does not qualify an installed owner capability.
 Earlier provider-managed probes are historical. See the
 [Browser qualification record](../../../consent-protocol/docs/reference/private-browser-runtime.md#built-in-process-qualification--2026-10-20-utc).
 
@@ -172,7 +182,7 @@ records CI consolidation, Shared continuity and changelog promotion. The complet
 candidate must pass the approved gates before a governed dev rollout; main, UAT,
 production and stable publication remain separate decisions.
 
-1. **P0 Engineering:** qualify built-in Browser execution, compose its real authority/runtime ports, then complete all-family scheduling. Both-cloud Browser completion remains blocked by observed platform restrictions, not a missing administrator login. The historical app release/readback is complete. A fresh pod image must remove the deliberate Dev 25 reuse pin, qualify recovery from the actual installed digest and use exact owner approval. Do not describe the reused image as the new source.
+1. **P0 Engineering:** compose GCP Browser's real broker/approval/ADK ports around the proved synthetic execution path; resolve Azure's observed namespace restriction. Finish the public-research MVP before advanced browser features or all-family scheduling. The historical app release/readback is complete. A fresh pod image must remove the deliberate Dev 25 reuse pin, qualify recovery from the actual installed digest and use exact owner approval. Do not describe the reused image as the new source.
 2. **Engineering + Operations:** finish retained synthetic erasure, GCP native model authority and recorded commands/connectors. Measure startup changes with three cold and three warm samples per cloud; do not claim a new percentile. Keep Browser disabled until each native gate passes.
 3. **Release owner:** decide dev readiness from actual journey receipts. Production still requires migration/release-channel graduation, IAM, erasure, recovery, hub capacity and independent UAT acceptance.
 

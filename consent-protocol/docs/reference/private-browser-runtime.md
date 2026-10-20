@@ -66,12 +66,18 @@ Apps with this built-in process boundary.
 | Target | Observed result | Qualification boundary |
 | --- | --- | --- |
 | Ordinary Cloud Run Gen 2 Job | The inherited syscall filter denied IPv4, IPv6, netlink, packet and VSOCK sockets. Landlock returned `ENOSYS` | The proposed Landlock filesystem mechanism is unavailable on this observed host. This is not a Chromium/frame or service qualification |
+| Cloud Run namespace prerequisite | A separate disposable job at UID 10001 successfully executed both `unshare(CLONE_NEWUSER)` and `unshare(CLONE_NEWUSER \| CLONE_NEWPID \| CLONE_NEWNET)` before our guard | Supports testing a namespace filesystem boundary instead of Landlock. Does not prove mount setup, UID 10002, nested Chromium namespaces, a frame or production composition |
+| Cloud Run protected headless frame | At UID 10002, bubblewrap's private filesystem/PID/network boundary and the inherited syscall filter passed. Chromium headless-shell rendered an 8,493-byte PNG and exited zero with its sandbox enabled. Public, metadata and private socket creation returned `EACCES`; agent path/environment were absent | Exact synthetic image `sha256:c8f107828583641a8de8785a9807af0677eabc964bf50f90fc9fa072fc38f5a6`. This proves protected rendering, not broker transport, ADK research, service readiness or Azure compatibility |
 | Ordinary Azure Container App, 1 vCPU / 2 GiB, min 0 / max 1 | Separate UID 10002, zero inherited authority, Landlock ABI 3, world-readable unrelated-file denial, all five network families, and the external Unix datagram negative control pass. Worker exit and scratch removal pass | These process protections work; they do not establish a working browser |
 | Azure Chromium prerequisite | The separate non-root `unshare(CLONE_NEWUSER)` check returns `EPERM` before our guard, on the ordinary application as well as Jobs. The earlier sandboxed Chromium attempt emitted no frame | Chromium's required sandbox remains unavailable. No weakened launch or readiness receipt is permitted |
 
 The Unix datagram negative control closes a reviewed bypass: denying `connect`
-alone does not prevent addressed Unix datagrams. New sockets/socketpairs admit
-stream types only, with standard nonblocking/close-on-exec flags. Probe output
+alone does not prevent addressed Unix datagrams. New sockets admit stream types
+only. Connected Unix socketpairs additionally admit `SOCK_SEQPACKET`, which
+Chromium's sandbox uses for local IPC; standalone sequenced-packet sockets and
+datagrams remain denied. Standard nonblocking/close-on-exec flags are preserved.
+The nearest regression passes and fails against the former stream-only guard.
+Probe output
 contains fixed outcomes and synthetic hashes, never owner information or keys.
 Source coverage also checks missing-guard refusal before Chromium starts.
 The guard's `/proc/self` filesystem rule identifies its installing process;
@@ -96,6 +102,50 @@ SQLite/WAL/SHM to 0600; the image applies umask 077 before imports. A complete
 private-file/mount inventory and browser-UID read tests remain necessary before
 that mechanism can replace Landlock. Chromium's independent sandbox requirement
 still applies on both clouds.
+
+`namespace_probe.py` and `Dockerfile.namespace-probe` qualify an alternative
+filesystem mechanism inside the same service: unprivileged bubblewrap with a
+fresh root, PID/proc and network namespaces, read-only browser dependencies and
+private temporary mounts. The browser remains UID 10002 with no new privileges;
+its own sandbox stays enabled. This is a synthetic probe, not a production
+launcher or readiness receipt. The production image still needs a trusted startup
+path separating host UID 10001 (One) from host UID 10002 (Browser); changing only
+the UID inside a user namespace does not establish that separation.
+
+The protected frame used Cloud Build `9884acbe-485f-4f52-99d1-785d230d5e6d`.
+Frame SHA-256 is
+`773e8d158a728e97815d0eb189cb4d7ccb34872ba2c5627c714711a9779be1ba`.
+Job, disposable identity and qualification image absence were read back.
+The earlier full-Chrome attempt exited 21 without a frame; it remains a failed
+receipt. The passing probe matches [Playwright's default headless-shell executor](https://playwright.dev/python/docs/browsers#chromium),
+without disabling Chromium's sandbox or lifting the network restrictions.
+
+`connected_transport.py` adds bounded duplex messages over one preconnected Unix
+stream. Network replies can arrive while a browser action waits; unknown replies,
+oversized frames and cancellation fence the connection without replay. Existing
+typed requests and task/consent/dispatch authorities retain their ownership.
+`namespace_bridge_probe.py` qualifies that transport with the existing Playwright
+executor against a fixed synthetic page. It does not contact a website or model,
+issue a readiness receipt, or install the production runtime.
+
+Cloud Build `6e24ae6a-b9d0-4b36-ae52-e1da118bedde` produced bridge-probe image
+`sha256:bd64daa0803a811c8f128ade17208e216037ab0d53ed83138e7758dc8b471b7f`.
+The GCP job initialized the real `SandboxedPlaywrightExecutor`, loaded a parent-served
+HTML fixture through the preconnected Unix stream, and returned four distinct
+1280×720 frames after navigation, click, typing and scrolling. All namespace and
+direct-socket controls passed; worker exit was zero and its process group was
+absent. Job, identity and image absence were read back. This proves the synthetic
+transport and input path, not public-network broker policy, ADK research or owner
+service readiness.
+
+Later local review fixed concurrent bridge shutdown: all external Stop callers
+now join one bounded cleanup, instead of returning on an early closed flag.
+The regression fails against the probe's earlier transport snapshot. Local probe
+acceptance also now requires socket-creation denial and verified cleanup before
+emitting a passing code. The cloud receipt's raw fields satisfy these conditions,
+but its digest does not qualify the newer source. A completed production image
+still requires exact-image acceptance; do not rebuild this synthetic probe merely
+to relabel the prior evidence.
 
 ### Historical provider-managed qualification
 

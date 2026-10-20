@@ -105,3 +105,53 @@ def test_builtin_probe_never_starts_chromium_after_a_missing_process_guard(monke
         "frame_verified": False,
         "code": "BROWSER_FILESYSTEM_GUARD_UNAVAILABLE",
     }
+
+
+def test_syscall_guard_preserves_chromium_connected_ipc_without_external_datagrams(monkeypatch):
+    import ctypes
+    import socket
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.pod_browser import process_guard
+
+    calls = []
+    numbers = {}
+
+    def resolve(name):
+        numbers.setdefault(name, len(numbers) + 1)
+        return numbers[name]
+
+    def add(_context, _action, number, count, pointer):
+        if count:
+            comparison = ctypes.cast(pointer, ctypes.POINTER(process_guard._Comparison)).contents
+            calls.append(
+                (
+                    number,
+                    comparison.argument,
+                    comparison.operation,
+                    comparison.value,
+                    comparison.mask,
+                )
+            )
+        return 0
+
+    library = SimpleNamespace(
+        seccomp_init=lambda _action: 17,
+        seccomp_release=lambda _context: None,
+        seccomp_load=lambda _context: 0,
+        seccomp_syscall_resolve_name=resolve,
+        seccomp_rule_add_array=add,
+        seccomp_attr_set=lambda *_args: 0,
+    )
+    monkeypatch.setattr(process_guard.ctypes, "CDLL", lambda *_args, **_kwargs: library)
+    process_guard._syscalls()
+
+    def denied_kinds(name):
+        return {row[4] for row in calls if row[0] == numbers[name] and row[1:4] == (1, 7, 0xF)}
+
+    assert socket.SOCK_SEQPACKET not in denied_kinds(b"socketpair")
+    assert socket.SOCK_SEQPACKET in denied_kinds(b"socket")
+    for name in (b"socket", b"socketpair"):
+        assert socket.SOCK_DGRAM in denied_kinds(name)
+        assert socket.SOCK_STREAM not in denied_kinds(name)
+        assert (numbers[name], 0, 1, socket.AF_UNIX, 0) in calls

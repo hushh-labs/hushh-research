@@ -2,7 +2,7 @@
 
 ## Status
 
-**Implementation in progress — 2026-10-19; integration baseline `6178eea2c0`.**
+**Implementation in progress — MVP narrowed 2026-10-20; integration baseline `6178eea2c0`.**
 Browser is the P0 capability. Both adapters remain disabled until
 their own acceptance passes. Preserve the infrastructure branch, owner resources,
 selected configuration and concurrent work. Broader release-plan changes follow
@@ -15,6 +15,50 @@ requirements. Preserve economy scale-to-zero: no always-on wake service or artif
 keepalive. Cold response under thirty seconds is an optimization goal, not a release
 gate. Reuse prior timings; after relevant changes, measure three cold and three warm
 turns per cloud without claiming a new percentile.
+
+## Immediate MVP — critical path first
+
+This section narrows the immediate Browser milestone. The fuller design below
+remains the follow-on scope, not a prerequisite for demonstrating the MVP.
+Neither cloud is currently Browser-qualified. Complete one vertical journey
+through the existing runtime before expanding capabilities.
+
+| Order | Deliverable | Acceptance |
+| --- | --- | --- |
+| 1 | Protected browser in the existing pod image | Sandboxed Chromium loads one approved synthetic public page and produces a frame. Browser cannot read pod secrets, inspect One, obtain workload tokens or bypass the broker. Teardown is verified. |
+| 2 | One delegates a public research task | Existing ADK specialist observes, navigates, clicks and scrolls within approved origins; it returns a bounded outcome through the approved result boundary. No cloud/model fallback. |
+| 3 | Owner can watch and intervene | View browser, Take control, Resume agent and Stop share the same task. Mouse, touch, scroll and keyboard map to the displayed frame. Takeover fences autonomous actions and model observations; handback requires a fresh observation. |
+| 4 | Reconnect and failure are truthful | Refresh discovers the same live task without resubmitting the goal. Interrupted execution is reported explicitly. Stop terminates owned browser work; idle teardown releases resources. |
+
+Use one page and one active task, with the existing 60-action/15-minute bound.
+Start with a fixed remote viewport scaled responsively to the preview container;
+explicit remote resizing is a follow-on capability. Preview streaming remains
+separate from model calls. Retain current owner consent, incarnation checks,
+revocation, model-processing disclosure and bounded error states.
+
+The first fixture is public research: open an approved site, find a stated fact,
+watch progress, take control, hand back, refresh and stop. Qualify that same
+journey independently on GCP and Azure with their actual model connections.
+One cloud's result cannot enable the other. Resolve the measured execution
+prerequisite before repeating its probe; do not add more interface work while
+neither cloud can produce a protected frame.
+
+**Defer from this milestone:** remembered login/Forget UI, PKM autofill, Files
+upload/download, scheduled browsing, multi-page/SSO support, automatic recovery
+across pod replacement and advanced viewport presets. Keep existing source
+foundations; do not expose deferred controls as available.
+
+Autonomous sending, submitting, purchasing, deletion and other consequential
+effects remain unavailable in this MVP. Existing broker policy must enforce
+that restriction, including transmissions through autosaving fields; hiding
+controls is insufficient. Owner input must retain its current authority and
+disclosure checks. Real manual-login acceptance follows the public fixture and
+requires verified observation suppression; remembered state remains off.
+
+Verify only this changed journey and its essential negatives: wrong owner or
+incarnation, revoked authority, denied destinations, stale input after takeover,
+duplicate start/reconnect and terminal cleanup. Reuse existing unchanged tests.
+This smaller milestone does not establish full Browser or main readiness.
 
 ## Product scope: Browser is One's capability
 
@@ -154,7 +198,11 @@ immutable component provenance and teardown. Timeouts are not network-denial pro
 Azure's current identity/policy probe cannot qualify the private bridge. Admit no
 real owner information before the complete cloud boundary passes.
 
-## Implementation and verification order
+## Full capability follow-on order
+
+Execute the immediate MVP above first. The following table retains the broader
+completion requirements for subsequent slices; it must not expand the first
+acceptance window.
 
 | Stage | Deliverable | Exit proof |
 | --- | --- | --- |
@@ -179,7 +227,7 @@ completion, CPU/RAM, preview bandwidth, model tokens and 429/retry outcomes. Kee
 the controlled input-to-frame p95 target of 250 ms separate from measured internet
 results. Record sample counts and failures; one task is not reliability evidence.
 
-## Completion and later release handoff
+## Full completion and later release handoff
 
 Browser is complete only after **both clouds** pass installed-image journeys.
 Until then, keep truthful unavailable states for Shared and unqualified pods.
