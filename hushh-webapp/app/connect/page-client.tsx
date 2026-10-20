@@ -35,6 +35,7 @@ import {
 } from "@/components/app-ui/settings-ui";
 import { ConnectCirclesTab } from "@/components/connect/circles/connect-circles-tab";
 import {
+  ConnectDirectoryPersonRow,
   ConnectPersonRow,
   DirectoryMutualLine,
 } from "@/components/connect/connect-person-row";
@@ -146,10 +147,6 @@ import {
   VOICE_DISAMBIGUATION_DATA_KEY,
 } from "@/lib/kai/actions/voice-action-card";
 import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
-import {
-  getDirectoryPersonDescription,
-  getDirectoryPersonEmail,
-} from "./directory-person-label";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
   CONNECT_DIRECTORY_CONTENT_CLASSNAME,
@@ -2633,14 +2630,9 @@ export default function ConnectPageClient() {
                 candidates: exactMatches.map((c) => ({
                   id: c.userId,
                   name: c.displayName || "Someone",
-                  // The same description the Connect list renders under each
-                  // name. Reading `email` alone showed "No other details" on
-                  // rows the list behind the card was captioning correctly:
-                  // the directory usually returns the masked variants, not the
-                  // raw address. This helper already falls through
-                  // email -> maskedEmail -> maskedPhone, so contact sync's phone
-                  // numbers land here without another change.
-                  detail: getDirectoryPersonDescription(c) ?? null,
+                  // Match the name-only directory; contact identifiers stay out
+                  // of visible result cards as well as the list.
+                  detail: null,
                   ...connectCandidateAffordance(c.relationship),
                 })),
               },
@@ -2708,7 +2700,7 @@ export default function ConnectPageClient() {
           data: {
             subject: {
               name: person.displayName || "Someone",
-              detail: getDirectoryPersonDescription(person) ?? null,
+              detail: null,
             },
           },
         };
@@ -2851,7 +2843,7 @@ export default function ConnectPageClient() {
                 candidates: matches.map((entry) => ({
                   id: entry.connectionId,
                   name: entry.displayName || "Someone",
-                  detail: getDirectoryPersonDescription(entry) ?? null,
+                  detail: null,
                   actionLabel: "Remove",
                 })),
               },
@@ -2877,7 +2869,7 @@ export default function ConnectPageClient() {
                 prompt: `Remove your connection with ${displayName}?`,
                 subject: {
                   name: displayName,
-                  detail: getDirectoryPersonDescription(connection) ?? null,
+                  detail: null,
                 },
                 // The action's own words from the generated contract, so what
                 // the person is warned about cannot drift from what happens.
@@ -3644,8 +3636,9 @@ export default function ConnectPageClient() {
                                     person.userId,
                                   );
                                   return (
-                                    <ConnectPersonRow
+                                    <ConnectDirectoryPersonRow
                                       key={person.userId}
+                                      person={person}
                                       testId="directory-person-row"
                                       // Verified is a state, and green is what this design
                                       // system already spends on a verified one. It is on the
@@ -3661,11 +3654,6 @@ export default function ConnectPageClient() {
                                           verified={Boolean(person.isRia)}
                                         />
                                       }
-                                      title={title}
-                                      // An email the server already returned for this viewer
-                                      // (masked when it is not theirs to see), or no line.
-                                      // Never a phone number, never a phone fallback.
-                                      description={getDirectoryPersonEmail(person)}
                                       openLabel={`Open ${title}'s profile`}
                                       onOpen={
                                         !isSelectionMode &&
