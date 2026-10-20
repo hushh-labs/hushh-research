@@ -4,6 +4,9 @@ import { DirectMessageLink } from "@/components/direct-messages/direct-message-l
 import Link from "next/link";
 
 /**
+ * Every actionable row uses the same three-dot trigger. The action surface
+ * keeps sharing in the Profile palette and removal in destructive red.
+ *
  * The two things you can do TO one person in a Circle -- Share location and
  * Remove from Circle -- and the surface that offers them.
  *
@@ -30,9 +33,8 @@ import Link from "next/link";
  *
  *   desktop (>=640px)  an anchored menu immediately outside the row, to the
  *                      right of the kebab and vertically centred on the
- *                      selected member. It visibly repeats the member name,
- *                      so a collision-flip on a narrower pointer viewport
- *                      does not make the actions ambiguous. A cursor makes
+ *                      selected member. Only action rows are visible; the
+ *                      accessible menu name identifies the member. A cursor makes
  *                      the anchor unambiguous, and a bottom sheet on a 1440px
  *                      window is the wrong trade in the other direction.
  *
@@ -63,7 +65,6 @@ import { useState, useSyncExternalStore } from "react";
 import {
   MessageCircle,
   MoreVertical,
-  Share2,
   Trash2,
   UserRound,
 } from "@/components/icons";
@@ -79,6 +80,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  ProfilePaneShareIcon,
+} from "@/components/profile/profile-pane-icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
   Drawer,
@@ -90,7 +94,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -115,8 +118,6 @@ export const MEMBER_ACTIONS_SHEET_QUERY = "(max-width: 639.98px)";
 
 export const MEMBER_ACTIONS_SHEET_TESTID = "circle-member-actions-sheet";
 export const MEMBER_ACTIONS_MENU_TESTID = "circle-member-actions-menu";
-export const MEMBER_ACTIONS_MENU_CONTEXT_TESTID =
-  "circle-member-actions-menu-context";
 
 /**
  * The anchored menu's surface, on the app's card grammar rather than the
@@ -299,7 +300,7 @@ export function CircleMemberActionsMenu({
             setSheetOpen(true);
           }}
         >
-          <MoreVertical className="h-5 w-5" weight="regular" />
+          <MoreVertical size={24} aria-hidden="true" />
         </Button>
 
         <Drawer
@@ -310,7 +311,7 @@ export function CircleMemberActionsMenu({
             if (!next) setSheetConfirmingRemove(false);
           }}
         >
-          <DrawerContent
+          <DrawerContent data-profile-type-scale="circles"
             data-testid={MEMBER_ACTIONS_SHEET_TESTID}
             className={
               sheetConfirmingRemove
@@ -430,8 +431,8 @@ export function CircleMemberActionsMenu({
                         onShare();
                       }}
                     >
-                      <Share2
-                        className="h-5 w-5 shrink-0 text-[#0071E3]"
+                      <ProfilePaneShareIcon
+                        className="h-5 w-5 shrink-0"
                         aria-hidden="true"
                       />
                       Share location
@@ -489,10 +490,10 @@ export function CircleMemberActionsMenu({
             aria-label={menuLabel}
             className={CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME}
           >
-            <MoreVertical className="h-5 w-5" weight="regular" />
+            <MoreVertical size={24} aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent
+        <DropdownMenuContent data-profile-type-scale="circles"
           data-testid={MEMBER_ACTIONS_MENU_TESTID}
           aria-label={menuLabel}
           side={CIRCLE_MEMBER_ACTIONS_MENU_SIDE}
@@ -501,14 +502,6 @@ export function CircleMemberActionsMenu({
           collisionPadding={CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX}
           className={MEMBER_ACTIONS_MENU_SURFACE_CLASSNAME}
         >
-          <DropdownMenuLabel
-            data-testid={MEMBER_ACTIONS_MENU_CONTEXT_TESTID}
-            className="px-4 pb-1 pt-1.5 text-[12px] font-medium leading-4 text-[color:var(--app-secondary-label)]"
-          >
-            <span className="block whitespace-normal [overflow-wrap:anywhere]">
-              Actions for {displayName}
-            </span>
-          </DropdownMenuLabel>
           {messageHref ? (
             <DropdownMenuItem asChild className={MEMBER_ACTIONS_MENU_ITEM_CLASSNAME}>
               <DirectMessageLink href={messageHref} data-testid="circle-member-message">
@@ -522,7 +515,7 @@ export function CircleMemberActionsMenu({
               className={MEMBER_ACTIONS_MENU_ITEM_CLASSNAME}
               onSelect={() => onShare()}
             >
-              <Share2 className="h-4 w-4 text-current" />
+              <ProfilePaneShareIcon className="h-4 w-4" />
               Share location
             </DropdownMenuItem>
           ) : null}
@@ -553,7 +546,7 @@ export function CircleMemberActionsMenu({
           open={confirmRemoveOpen}
           onOpenChange={setConfirmRemoveOpen}
         >
-          <AlertDialogContent size="sm">
+          <AlertDialogContent data-profile-type-scale="circles" size="sm">
             <AlertDialogHeader>
               <AlertDialogTitle>
                 {memberRemoveConfirmTitle(displayName)}

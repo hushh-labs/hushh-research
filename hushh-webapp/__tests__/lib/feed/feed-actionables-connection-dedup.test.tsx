@@ -448,6 +448,10 @@ describe("useFeedActionables — connection request de-duplication", () => {
       "decline",
       "confirm",
     ]);
+    expect(row.phoneActions?.map(action => action.key)).toEqual(["report", "review"]);
+    expect(row.phoneActions?.[0]).toBe(row.actions[0]);
+    row.phoneActions?.[1]?.run();
+    expect(mocks.push).toHaveBeenCalledWith(expect.stringContaining("requestId=conn-req-1"));
     // A report is irreversible for the sender, so it needs a second tap.
     expect(row.actions.find((action) => action.key === "report")?.confirm).toBe(
       true,
@@ -541,6 +545,11 @@ describe("useFeedActionables — connection request de-duplication", () => {
       displayName: "Priya Nair",
       photoUrl: "https://example.test/priya.png",
     });
+    const row = result.current.actionables[0];
+    expect(row.actions.map(action => action.key)).toEqual(["decline", "accept"]);
+    expect(row.phoneActions?.map(action => action.key)).toEqual(["review"]);
+    row.phoneActions?.[0]?.run();
+    expect(mocks.push).toHaveBeenCalledWith(row.todo?.href);
   });
 
   it("links to the full Consent Center when pending requests exceed the loaded page", () => {

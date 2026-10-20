@@ -42,7 +42,6 @@ import {
 } from "@/lib/one-location/people-search";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { cn } from "@/lib/utils";
-import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { CONTACT_SHEET_MAX_HEIGHT_CLASSNAME } from "@/components/connections/contact-sheet-layout";
 import {
@@ -278,6 +277,7 @@ export function CircleInvitePeopleSheet({
       }}
     >
       <SheetContent
+        data-profile-type-scale="circles"
         side="bottom"
         data-circle-invite-picker
         // The primitive lifts above the native keyboard. Keep only the results
@@ -315,7 +315,7 @@ export function CircleInvitePeopleSheet({
               </div>
             ) : loadError ? (
               <div className="space-y-3 rounded-2xl bg-muted/45 p-4">
-                <p className="text-sm text-muted-foreground">{loadError}</p>
+                <p data-profile-role="description" className="text-sm text-muted-foreground">{loadError}</p>
                 <Button
                   type="button"
                   variant="outline"
@@ -354,12 +354,12 @@ export function CircleInvitePeopleSheet({
                               photoUrl={connection.photoUrl ?? null}
                               label={connection.displayName}
                               verified={Boolean(connection.isRia)}
+                              fromContacts={connection.connectedFromContacts}
                             />
                           }
                           title={
                             <span className="flex min-w-0 items-center gap-1.5">
                               <span className="min-w-0 truncate">{connection.displayName}</span>
-                              {connection.connectedFromContacts ? <ContactSourceBadge /> : null}
                             </span>
                           }
                           description="Connected on One"

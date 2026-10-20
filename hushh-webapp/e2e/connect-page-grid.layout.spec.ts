@@ -117,6 +117,8 @@ test.beforeAll(async () => {
       .filter((name) => name.endsWith(".css"))
       .map((name) => fs.readFileSync(path.join(outDir, name), "utf8"))
       .join("\n");
+  const { transform } = await import("lightningcss");
+  css = transform({ filename: "connect-page-grid.css", code: Buffer.from(css), minify: true }).code.toString();
 });
 
 type Timings = { connectionsMs: number; circlesMs: number; directoryMs: number };
@@ -184,7 +186,26 @@ for (const dark of [false, true]) {
       if (width >= 768) expect(workspaceBox!.width).toBe(728);
       await page.getByRole("tab", { name: /My connections/ }).click();
       const connectionGroup = page.getByTestId("connect-my-connections-group");
-      await expect(connectionGroup.getByRole("heading", { name: "From contacts", exact: true })).toHaveCount(1);
+      const contactsHeading = connectionGroup.getByRole("heading", { name: "From contacts", exact: true });
+      await expect(contactsHeading).toHaveCount(1);
+      const contactIcon = await contactsHeading.locator("svg").evaluate((icon) => {
+        const box = icon.getBoundingClientRect();
+        const reference = document.createElement("span");
+        icon.parentElement!.appendChild(reference);
+        reference.style.color = "var(--ios-account-accent)";
+        const accent = getComputedStyle(reference).color;
+        reference.style.color = "var(--ios-account-label)";
+        const outline = getComputedStyle(reference).color;
+        reference.remove();
+        return { width: box.width, height: box.height, accent, outline,
+          fill: getComputedStyle(icon.querySelector("g[fill]")!).fill,
+          stroke: getComputedStyle(icon.querySelector("g[stroke]")!).stroke };
+      });
+      expect(contactIcon.width).toBe(16);
+      expect(contactIcon.height).toBe(16);
+      expect(contactIcon.fill).toBe(contactIcon.accent);
+      expect(contactIcon.stroke).toBe(contactIcon.outline);
+      expect(contactIcon.fill).not.toBe(contactIcon.stroke);
       await expect(connectionGroup.getByRole("heading", { name: "Other connections", exact: true })).toHaveCount(1);
       await expect(connectionGroup.getByLabel("Connected from your contacts")).toHaveCount(0);
       await expect(page.getByTestId("connection-source-contacts").getByText("Jordan Lee", { exact: true })).toHaveCount(1);

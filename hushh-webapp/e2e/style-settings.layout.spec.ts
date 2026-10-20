@@ -8,7 +8,7 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
  * Profile > Preferences > "How One writes to you" at the pixel grid (founder
  * bar, 2026-09-29): rows on the shared SettingsRow geometry with symmetric
  * 16 px sides and 8 px top and bottom, one 60 px row rhythm on a wide screen
- * and a 12 px label-to-control step on a phone, every control 44 px tall with
+ * with labels and fields side by side at every width, every control 44 px tall with
  * one shared right edge, the note block and footer on the same 16 px inset, a flat surface (no glass blur), the ripple on the Save
  * press with no scale, duotone row glyphs and no em dash in the copy. Light and
  * dark, phone and desktop, then again with every row's text widened a little,
@@ -62,7 +62,8 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() + moduleCss;
+  const { transform } = await import("lightningcss");
+  css = transform({ filename: "style-settings.css", code: Buffer.from(stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() + moduleCss), minify: true }).code.toString();
 });
 
 async function open(page: Page, theme: "light" | "dark", state = "saved", reducedMotion: "reduce" | "no-preference" = "reduce", pane = false) {
@@ -89,7 +90,7 @@ const onGrid = (value: number, unit: number) => Math.abs(value / unit - Math.rou
 type Geometry = {
   rowPadding: number[][];
   rowHeights: number[];
-  /** Phone: the gap from a row's label block to the control stacked under it. */
+  /** A positive gap would mean a field has slipped below its label. */
   stackGaps: number[];
   notePadding: number[];
   textareaHeight: number;
@@ -151,17 +152,11 @@ async function measure(page: Page): Promise<Geometry> {
   });
 }
 
-function assertGeometry(geometry: Geometry, label: string, width: number) {
+function assertGeometry(geometry: Geometry, label: string) {
   for (const padding of geometry.rowPadding) expect(padding, `${label} row padding`).toEqual([8, 16, 8, 16]);
-  if (width >= 640) {
-    // One 60 px rhythm: 8 + 44 + 8, every row, whatever its control.
-    for (const height of geometry.rowHeights) expect(height, `${label} row height`).toBeCloseTo(60, 0);
-    expect(geometry.stackGaps, `${label} nothing stacks`).toEqual([]);
-  } else {
-    // Text sets the label block's own height; the step under it is the grid's.
-    expect(geometry.stackGaps.length, `${label} stacked controls`).toBe(4);
-    for (const gap of geometry.stackGaps) expect(gap, `${label} label-to-control step`).toBeCloseTo(12, 0);
-  }
+  // One 60 px rhythm: 8 + 44 + 8, every row, on phone and desktop.
+  for (const height of geometry.rowHeights) expect(height, `${label} row height`).toBeCloseTo(60, 0);
+  expect(geometry.stackGaps, `${label} nothing stacks`).toEqual([]);
   expect(geometry.notePadding, `${label} note padding`).toEqual([16, 16, 16, 16]);
   expect(onGrid(geometry.textareaHeight, 8), `${label} note field ${geometry.textareaHeight}`).toBe(true);
   for (const inset of geometry.iconInsets) expect(inset, `${label} icon inset`).toBeCloseTo(16, 0);
@@ -186,7 +181,7 @@ for (const theme of ["light", "dark"] as const)
       await open(page, theme);
       const label = `${width}px ${theme}`;
       const geometry = await measure(page);
-      assertGeometry(geometry, label, width);
+      assertGeometry(geometry, label);
 
       // Flat Morphy surfaces: no backdrop blur on any group or row.
       const blurred = await page.locator("[data-testid='style-settings'] *").evaluateAll((nodes) =>
@@ -217,29 +212,89 @@ for (const theme of ["light", "dark"] as const)
       }
 
       await page.addStyleTag({ content: "[data-slot='settings-row-title'],[data-slot='settings-row-description'],[data-testid='style-settings-status']{letter-spacing:0.3px}" });
-      assertGeometry(await measure(page), `${label} widened`, width);
+      assertGeometry(await measure(page), `${label} widened`);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
       expect(errors).toEqual([]);
     });
 
-test("writing controls align below readable labels in a narrow desktop profile pane", async ({ page }) => {
+test("writing controls stay beside readable labels in a narrow desktop profile pane", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await open(page, "light");
+  await open(page, "light", "saved", "reduce", true);
   const section = page.getByTestId("style-settings");
+  await page.getByRole("combobox", { name: "Tone", exact: true }).click();
+  await page.getByRole("option", { name: "No preference", exact: true }).click();
   for (const width of [272, 342, 398]) {
     await section.evaluate((node, width) => { node.style.width = `${width}px`; }, width);
     for (const row of await page.locator(".profile-preferences-control-row").all()) {
       const title = await box(row.locator("[data-slot='settings-row-title']"));
-      const description = await box(row.locator("[data-slot='settings-row-description']"));
       const control = await box(row.locator("input, [data-slot='select-trigger']"));
-      expect(title.width).toBeGreaterThan(150);
-      expect(Math.abs(control.x - title.x)).toBeLessThan(1);
-      expect(control.y).toBeGreaterThanOrEqual(description.y + description.height);
+      expect(control.x).toBeGreaterThanOrEqual(title.x + title.width);
+      expect(Math.abs((control.y + control.height / 2) - (title.y + title.height / 2))).toBeLessThan(1);
+      const text = await row.locator("[data-slot='settings-row-title']").evaluate(node => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        return { lines: range.getClientRects().length, text: range.getBoundingClientRect().width, width: node.clientWidth,
+          height: node.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(node).lineHeight) };
+      });
+      expect(text.lines).toBe(1);
+      expect(text.text).toBeLessThanOrEqual(text.width);
+      expect(text.height).toBeLessThanOrEqual(text.lineHeight + 1);
       expect(control.height).toBeGreaterThanOrEqual(44);
     }
+    const selectedText = section.getByRole("combobox", { name: "Tone", exact: true }).locator('[data-slot="select-value"]');
+    expect(await selectedText.evaluate(node => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      return range.getBoundingClientRect().width <= node.clientWidth + 1;
+    })).toBe(true);
     expect(await section.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
   }
 });
+
+for (const width of [320, 390]) {
+  for (const theme of ["light", "dark"] as const) {
+    test(`Profile writing fields stay on one line at ${width}px ${theme}`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 1000 });
+      await open(page, theme, "saved", "reduce", true);
+      const name = page.getByRole("textbox", { name: "Name One calls you" });
+      await name.fill("A longer preferred name");
+      for (const label of ["Tone", "Length", "Language"]) {
+        await page.getByRole("combobox", { name: label, exact: true }).click();
+        await page.getByRole("option", { name: "No preference", exact: true }).click();
+      }
+      await page.addStyleTag({ content: "[data-slot='settings-row-title'] { letter-spacing: 0.3px !important; }" });
+      const metrics = await page.locator(".profile-preferences-control-row").evaluateAll(rows => rows.map(row => {
+        const title = row.querySelector('[data-slot="settings-row-title"]')!;
+        const control = row.querySelector('input, [data-slot="select-trigger"]')!;
+        const value = control.querySelector('[data-slot="select-value"]');
+        const range = document.createRange();
+        range.selectNodeContents(title);
+        const titleBox = title.getBoundingClientRect();
+        const controlBox = control.getBoundingClientRect();
+        const titleFits = titleBox.height <= parseFloat(getComputedStyle(title).lineHeight) + 1 && range.getBoundingClientRect().width <= title.clientWidth + 1;
+        if (value) range.selectNodeContents(value);
+        return { titleFits, valueFits: !value || range.getBoundingClientRect().width <= value.clientWidth + 1,
+          valueWidth: value?.clientWidth, valueTextWidth: value ? range.getBoundingClientRect().width : undefined,
+          valueFont: value ? getComputedStyle(value).fontSize : undefined, controlWidth: controlBox.width,
+          titleRight: titleBox.right, controlLeft: controlBox.left, controlRight: controlBox.right,
+          centerDifference: Math.abs((titleBox.top + titleBox.height / 2) - (controlBox.top + controlBox.height / 2)),
+          controlHeight: controlBox.height };
+      }));
+      expect(metrics).toHaveLength(4);
+      for (const metric of metrics) {
+        expect(metric.titleFits, JSON.stringify(metric)).toBe(true);
+        expect(metric.valueFits, JSON.stringify(metric)).toBe(true);
+        expect(metric.controlLeft).toBeGreaterThan(metric.titleRight);
+        expect(metric.centerDifference).toBeLessThan(1);
+        expect(metric.controlHeight).toBeGreaterThanOrEqual(44);
+        expect(metric.controlRight).toBeCloseTo(metrics[0]!.controlRight, 0);
+      }
+      await expect(name).toHaveValue("A longer preferred name");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      await page.screenshot({ path: testInfo.outputPath("profile-writing-preferences.png"), animations: "disabled" });
+    });
+  }
+}
 
 test("Profile pane writing preferences use the Your account type scale", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -263,9 +318,9 @@ test("Profile pane writing preferences use the Your account type scale", async (
     groupHeading: "10px",
     groupDescription: "12px",
     rowTitles: Array(5).fill("13px"),
-    rowDescriptions: Array(5).fill("12px"),
-    input: "13px",
-    select: "13px",
+    rowDescriptions: [],
+    input: "12px",
+    select: "12px",
     note: "13px",
     noteCount: "10px",
     status: "12px",

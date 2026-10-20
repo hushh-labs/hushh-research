@@ -164,6 +164,17 @@ describe("layoutMapNameLabels", () => {
     ).toEqual(["farther"]);
   });
 
+  it("keeps pills off multiple avatars while retaining each avatar's own name", () => {
+    const labels = [person("owner", 0, 0), person("nearby", -0.3, 0), person("farther", -0.3, 0.7)];
+    const placed = layoutMapNameLabels({ labels, camera: camera(), viewport: VIEWPORT,
+      reservedMarkers: [
+        { key: "owner", point: labels[0].point, radiusPx: 22 },
+        { key: "farther", point: labels[2].point, radiusPx: 22, offsetYPx: -22 },
+      ],
+    });
+    expect(placed.map(label => label.key)).toEqual(["owner", "farther"]);
+  });
+
   it("draws nothing over a rotated or tilted map", () => {
     // The projection is flat. Under a bearing every name would sit over
     // somebody else's pin, and a wrong name is worse than no name.

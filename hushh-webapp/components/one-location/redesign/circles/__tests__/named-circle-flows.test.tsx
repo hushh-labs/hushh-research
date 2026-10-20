@@ -111,6 +111,26 @@ describe("named Circle flows", () => {
     vi.clearAllMocks();
   });
 
+  it("retains the 20-person batch cap and allows deselection at capacity", async () => {
+    const props = createProps();
+    const people = Array.from({ length: 21 }, (_, index) => ({
+      connectionId: `connection-${index}`, userId: `person-${index}`, displayName: `Person ${index}`, isRia: false,
+    }));
+    const onLoad = vi.fn(async () => ({ eligibleConnections: people, pendingInvites: [], remainingCapacity: 99, page: 1, hasMore: false, totalCount: people.length }));
+    const { result } = renderHook(() => useCreateCirclePeopleModel({
+      circleId: "new-circle", circleName: "Roommates", active: true,
+      onLoad, onAdd: props.onAddPeople, onComplete: props.onComplete, onBack: vi.fn(), onSavingChange: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => { people.forEach(person => result.current.add(person.userId)); });
+    expect(result.current.limit).toBe(20);
+    expect(result.current.selected).toHaveLength(20);
+    act(() => result.current.remove("person-0"));
+    act(() => result.current.add("person-20"));
+    await act(async () => result.current.finish(true));
+    expect(props.onAddPeople).toHaveBeenCalledWith("new-circle", people.slice(1).map(person => person.userId));
+  });
+
   it.each([true, false])("settles the retained people model before creating another Circle (add selected: %s)", async (addSelected) => {
     const props = createProps();
     const { result, rerender } = renderHook(({ circleId }) => useCreateCirclePeopleModel({
@@ -778,7 +798,7 @@ describe("named Circle flows", () => {
     expect(within(roster).getByLabelText("Verified advisor")).toBeTruthy();
     const badge = within(roster).getByLabelText("Connected from your contacts");
     expect(badge).toBeTruthy();
-    expect(badge.previousElementSibling).toHaveTextContent("Asha Contact");
+    expect(badge.closest('[data-slot="avatar"]')).toBeTruthy();
     expect(badge.querySelector("svg")).toBeTruthy();
     expect(screen.getByText("Asha Contact")).toHaveAttribute("title", "Asha Contact");
   });
@@ -1014,6 +1034,7 @@ describe("named Circle flows", () => {
     fireEvent.click(screen.getByRole("button", { name: "Review Circle" }));
 
     expect(await screen.findByText("Meena Family")).toBeTruthy();
+    expect(screen.queryByText("You're already in this Circle.")).toBeNull();
     expect(screen.queryByText(/current and future Circle members/i)).toBeNull();
     expect(screen.getByText(/Location and SMS stay private/i)).toBeTruthy();
     expect(onResolve).toHaveBeenCalledWith("2345-6789-ABCD");
@@ -1059,6 +1080,7 @@ describe("named Circle flows", () => {
 
     expect(await screen.findByRole("button", { name: "Open Circle" })).toBeTruthy();
     expect(screen.getByText("Meena · 1 member")).toBeTruthy();
+    expect(screen.getByText("You're already in this Circle.")).toBeTruthy();
 
     // "Use Another Code" asks first so an accidental tap cannot wipe the
     // reviewed preview. Answering Yes runs the same clear-and-refocus flow.
@@ -1890,6 +1912,7 @@ describe("named Circle flows", () => {
     );
 
     expect(await screen.findByText("Meena Family")).toBeTruthy();
+    expect(screen.queryByText("You're already in this Circle.")).toBeNull();
     expect(screen.queryByLabelText("Circle name")).toBeNull();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 
@@ -1948,6 +1971,7 @@ describe("named Circle flows", () => {
     render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
 
     expect(await screen.findByText("Meena Family")).toBeTruthy();
+    expect(screen.queryByText("You're already in this Circle.")).toBeNull();
     expect(screen.queryByLabelText("Circle name")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     const save = await screen.findByRole("button", { name: "Save" });
@@ -2440,13 +2464,20 @@ describe("named Circle flows", () => {
           secureLocationReady: true,
         },
         {
-          // Not phone-verified yet: Share is invalid and must not appear,
-          // even though Remove still does.
+          // A missing Location key still excludes sharing.
           userId: "pending-user",
           displayName: "Pending Priya",
           role: "member" as const,
           phoneVerified: false,
           secureLocationReady: false,
+        },
+        {
+          // A verified phone is only needed for SMS. Location setup is ready.
+          userId: "no-phone-user",
+          displayName: "No Phone Nina",
+          role: "member" as const,
+          phoneVerified: false,
+          secureLocationReady: true,
         },
       ],
     };
@@ -2484,6 +2515,21 @@ describe("named Circle flows", () => {
       expect(
         screen.queryByRole("menuitem", { name: /Remove from Circle/i }),
       ).toBeNull(),
+    );
+
+    const ninaTrigger = screen.getByRole("button", {
+      name: "Actions for No Phone Nina",
+    });
+    fireEvent.keyDown(ninaTrigger, { key: "Enter" });
+    expect(
+      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: /Share location/i }),
+    );
+    expect(onShareWithMember).toHaveBeenCalledWith("circle-1", "no-phone-user");
+    await waitFor(() =>
+      expect(screen.queryByRole("menuitem", { name: /Share location/i })).toBeNull(),
     );
 
     // Ready Ronnie's row offers both, and triggering Share calls back with

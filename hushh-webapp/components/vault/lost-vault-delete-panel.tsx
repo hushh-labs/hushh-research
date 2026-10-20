@@ -192,14 +192,14 @@ export function LostVaultDeletePanel({ user, onBack }: { user: User; onBack: () 
           <h2 className="type-title-2 font-semibold text-[color:var(--app-label)]">{stageTitle}</h2>
           {stage === "review" && (
             <p className="type-footnote text-[color:var(--app-secondary-label)]">
-              Sign in again to continue.
+              Sign in again, then confirm deletion.
             </p>
           )}
         </div>
 
         {stage === "review" && (
           <p className="type-footnote text-[color:var(--app-secondary-label)]">
-            This permanently deletes your account. If you connected a bank, remove access in bank settings; required records may remain.
+            Account deletion is permanent. Remove One’s bank access in bank settings. Required records may remain.
           </p>
         )}
 

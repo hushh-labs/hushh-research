@@ -38,6 +38,18 @@ describe("canonical person avatar", () => {
     expect(connectionAvatarInitials(name)).toBe(initials);
   });
 
+  it("keeps contact and verification badges on separate visible avatar corners", () => {
+    const { container } = render(<ConnectionPersonAvatar label="Aadhi" fromContacts verified />);
+    const avatar = container.querySelector('[data-slot="avatar"]');
+    const contact = screen.getByLabelText("Connected from your contacts");
+    const verification = screen.getByLabelText("Verified advisor");
+    expect(avatar).toContainElement(contact);
+    expect(avatar).toContainElement(verification);
+    expect(avatar).toHaveClass("overflow-visible");
+    expect(contact).toHaveClass("-bottom-0.5", "-right-0.5", "size-3");
+    expect(verification).toHaveClass("-top-0.5");
+  });
+
   it("preserves a complete uploaded image, and shows initials after an image error", async () => {
     const photo = "data:image/png;base64," + "YWJj".repeat(400);
     const { container } = render(

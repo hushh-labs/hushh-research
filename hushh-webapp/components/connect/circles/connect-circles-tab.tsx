@@ -704,6 +704,7 @@ export function ConnectCirclesTab({
         }}
       >
         <DialogContent
+          className="sm:has-[[data-circle-create-step=people]]:max-w-2xl [&:has([data-circle-create-step=people])>[data-slot=dialog-header]]:sr-only"
           showCloseButton={!busy}
           srDescription="Name your Circle and choose its type. Next, add people now or later."
           onEscapeKeyDown={(event) => {
@@ -969,7 +970,7 @@ export function ConnectCirclesTab({
   };
 
   return (
-    <div className="space-y-4" data-testid="connect-circles-tab">
+    <div className="space-y-4" data-profile-type-scale="circles" data-testid="connect-circles-tab">
       {vaultOwnerToken ? (
         <>
           <label className={styles.circleSearch}>
