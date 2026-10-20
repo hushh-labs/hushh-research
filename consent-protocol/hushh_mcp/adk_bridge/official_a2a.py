@@ -206,6 +206,7 @@ def create_kai_official_a2a_app(*, host: str = "localhost", port: int = 8001) ->
     )
     agent = get_kai_agent()
     from hushh_mcp.hushh_adk.product_activity import product_activity_plugins
+
     # ``kai`` is the ADK app identity inferred from the checked-in agent
     # directory. Supplying it explicitly avoids a mismatched inferred runner
     # identity and makes local transport behavior deterministic.

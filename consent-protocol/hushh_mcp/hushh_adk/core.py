@@ -234,7 +234,12 @@ class HushhAgent(LlmAgent):
         app_name = f"hushh_{self.name}"
         session_id = f"turn_{uuid.uuid4().hex}"
         session_service = InMemorySessionService()
-        runner = Runner(app_name=app_name, agent=self, session_service=session_service, plugins=product_activity_plugins())
+        runner = Runner(
+            app_name=app_name,
+            agent=self,
+            session_service=session_service,
+            plugins=product_activity_plugins(),
+        )
         await session_service.create_session(
             app_name=app_name,
             user_id=user_id,
