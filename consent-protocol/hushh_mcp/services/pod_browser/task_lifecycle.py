@@ -81,7 +81,9 @@ class BrowserTaskLifecycle:
             result = BrowserTaskResultV1.model_validate(result)
             await task.control.require_model_observation()
             task.phase, task.summary = result.outcome, result.summary
-            close = result.outcome in {"unavailable", "outcome_uncertain", "cancelled"}
+            # A completed task is terminal in the owner interface. Release its
+            # browser now, rather than retaining invisible compute until idle.
+            close = result.outcome in {"completed", "unavailable", "outcome_uncertain", "cancelled"}
             if not close:
                 await self._checkpoint(task)
         except asyncio.CancelledError:
@@ -159,7 +161,7 @@ class BrowserTaskLifecycle:
         if task.closing is None or (task.closing.done() and not task.closed):
             if task.closed:
                 return
-            if phase is not None:
+            if phase is not None and task.close_payload is None:
                 task.phase, task.code = phase, code
             task.closing = asyncio.create_task(
                 self._close_once(task, asyncio.current_task()), name="owner-browser-close"
@@ -172,44 +174,45 @@ class BrowserTaskLifecycle:
         # Close is out-of-band. The update permit remains held until shutdown
         # and pending-provider termination both acknowledge success.
         try:
-            if task.control:
-                async with asyncio.timeout(35):
-                    await task.control.stop()
-            # The initiating worker/monitor is parked awaiting this close and
-            # returns without another checkpoint. Other callers are terminated.
-            await self.cancel_worker(task, except_task=initiator)
-            monitor = task.monitor
-            if monitor and monitor is not initiator:
-                monitor.cancel()
-                try:
-                    await monitor
-                except asyncio.CancelledError:
-                    pass
-            if task.stop_refusal:
-                raise BrowserRefused(task.stop_refusal)
-            if task.control and task.control.outcome_uncertain:
-                task.phase, task.code = "outcome_uncertain", "BROWSER_OUTCOME_UNCERTAIN"
-            await self._reviews.release(task.binding)
+            if task.close_payload is None:
+                await self._quiesce(task, initiator)
+                task.revision += 1
             task.closed, task.review = True, None
-            task.revision += 1
             await self._checkpoint(task)  # sealed shutdown state precedes any update idle receipt
         except BaseException:
             task.closed = False
             task.review = None
-            task.revision += 1
-            task.code = task.stop_refusal or "BROWSER_CLOSE_UNCONFIRMED"
-            task.phase = (
-                "outcome_uncertain"
-                if task.control and task.control.outcome_uncertain
-                else "unavailable"
-            )
-            raise BrowserRefused(task.code) from None
+            if task.close_payload is None:
+                task.revision += 1
+                task.code = task.stop_refusal or "BROWSER_CLOSE_UNCONFIRMED"
+                task.phase = (
+                    "outcome_uncertain"
+                    if task.control and task.control.outcome_uncertain
+                    else "unavailable"
+                )
+            raise BrowserRefused(task.stop_refusal or "BROWSER_CLOSE_UNCONFIRMED") from None
         # Keep only the terminal owner-visible result and a keyed deduplication
         # commitment. The original session closure captures a bearer credential.
         # Successful teardown must release it, the private goal and all ports.
-        task.terminal = self._snapshot(task)
-        task.revision = task.terminal.revision
-        task.request = task.access = task.processing = task.consent = None
-        task.sessions = task.authority = task.control = None
-        task.worker = task.monitor = None
+        task.detach_terminal(self._snapshot(task))
+        task.close_payload = None
         await task.permit.release()
+
+    async def _quiesce(self, task: BrowserTaskState, initiator: asyncio.Task | None) -> None:
+        if task.control:
+            async with asyncio.timeout(35):
+                await task.control.stop()
+        # Initiating worker/monitor awaits this close and cannot checkpoint again.
+        await self.cancel_worker(task, except_task=initiator)
+        monitor = task.monitor
+        if monitor and monitor is not initiator:
+            monitor.cancel()
+            try:
+                await monitor
+            except asyncio.CancelledError:
+                pass
+        if task.stop_refusal:
+            raise BrowserRefused(task.stop_refusal)
+        if task.control and task.control.outcome_uncertain:
+            task.phase, task.code = "outcome_uncertain", "BROWSER_OUTCOME_UNCERTAIN"
+        await self._reviews.release(task.binding)

@@ -1337,11 +1337,19 @@ async def _composed_browser_owner_journey(db, monkeypatch, tmp_path, post, fail_
             )
         assert duplicate["binding"] == created["binding"]
         assert fixture.launcher.launch.await_count == 1 and len(fixture.model_calls) == 1
-        held = await runtime.control(owner, task_id, "takeover", completed.control_epoch)
-        assert held.control_owner == "owner"
-        await runtime.control(owner, task_id, "resume", held.control_epoch)
-        await wait_phase(runtime, owner, task_id, "completed")
-        assert fixture.launcher.launch.await_count == 1 and len(fixture.model_calls) == 2
+        # Completed means the owner can start another task immediately, while
+        # retrying the original request still returns its single terminal receipt.
+        assert fixture.admission._states["revision-a"].active == 0
+        assert (await runtime.read(owner, task_id)).control_owner == "stopped"
+        with pytest.raises(BrowserRefused, match="CONTROL_UNAVAILABLE"):
+            await runtime.control(owner, task_id, "takeover", completed.control_epoch)
+        with browser_task_invocation(runtime, owner):
+            next_task = await start_browser_task(
+                "composed-next-request", "another synthetic research", ["https://example.com"]
+            )
+        assert next_task["binding"]["task_id"] != task_id
+        await wait_phase(runtime, owner, next_task["binding"]["task_id"], "needs_owner")
+        assert fixture.launcher.launch.await_count == 1 and len(fixture.model_calls) == 1
         # The real update admission owns joined Browser teardown and sealed idle.
         await fixture.admission.prepare(operation_id="synthetic-update", incarnation="revision-a")
         idle = await fixture.admission.wait_idle(

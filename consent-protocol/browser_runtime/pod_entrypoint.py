@@ -12,12 +12,34 @@ import errno
 import os
 import signal
 import socket
+import stat
 import sys
 
 _SOURCE = "/opt/browser/source"
 _SELF = "/opt/browser/pod_entrypoint.py"
 _PYTHON = "/opt/browser/venv/bin/python"
 _FD = 3
+
+
+def host_secret() -> None:
+    """VM bootstrap only; never persist the signing value in Docker's config.
+
+    Read AFTER the clean helper has execed/forked, before the agent identity drop.
+    Existing Cloud Run/Container Apps secret injection is unchanged.
+    """
+    if not os.path.exists("/run/hussh-host/pod.json"):
+        return
+    if os.environ.get("APP_SIGNING_KEY"):
+        raise RuntimeError("VM_SIGNING_SECRET_SOURCE_CONFLICT")
+    descriptor = os.open("/run/hussh-secrets/app-signing-key", os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "rb") as source:
+        info = os.fstat(source.fileno())
+        if info.st_uid != 0 or info.st_mode & 0o077 or not stat.S_ISREG(info.st_mode):
+            raise RuntimeError("VM_SIGNING_SECRET_UNPROTECTED")
+        value = source.read(16385)
+    if not 32 <= len(value) <= 16384 or b"\x00" in value:
+        raise RuntimeError("VM_SIGNING_SECRET_INVALID")
+    os.environ["APP_SIGNING_KEY"] = value.decode("utf-8")
 
 
 def inherit_channel(descriptor: int) -> None:
@@ -116,6 +138,7 @@ def main() -> None:
             descriptor = parent.detach()
             inherit_channel(descriptor)
             os.environ["HUSSH_BROWSER_LAUNCH_FD"] = str(_FD)
+        host_secret()
         drop(10001)
         port = int(os.environ.get("PORT", "8080"))
         if not 1 <= port <= 65535:

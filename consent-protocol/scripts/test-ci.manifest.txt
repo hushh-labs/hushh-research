@@ -1034,6 +1034,8 @@ tests/test_azure_openai_turn_doors.py
 tests/test_azure_arm_client.py
 tests/test_azure_vm_power.py
 tests/test_azure_vm_lifecycle.py
+tests/test_azure_vm_host.py
+tests/test_azure_vm_host_tls.py
 tests/test_azure_setup_authority_postgres.py
 tests/test_azure_resource_teardown.py
 tests/test_azure_resource_teardown_postgres.py

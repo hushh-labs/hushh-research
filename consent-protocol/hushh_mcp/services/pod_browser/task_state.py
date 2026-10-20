@@ -30,6 +30,7 @@ class BrowserTaskState:
     request_id: str
     request_commitment: str = field(repr=False)
     terminal: BrowserTaskSnapshot | None = field(default=None, repr=False)
+    close_payload: dict | None = field(default=None, repr=False)
     consent: TaskConsent | None = field(default=None, repr=False)
     authority: TaskAuthority | None = field(default=None, repr=False)
     control: BrowserControl | None = field(default=None, repr=False)
@@ -49,3 +50,10 @@ class BrowserTaskState:
     operation: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     review_ready: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     review_waiting: bool = False
+
+    def detach_terminal(self, snapshot: BrowserTaskSnapshot) -> None:
+        """Joined browser is gone; retain no bearer closure, goal or private port."""
+        self.terminal, self.revision, self.summary = snapshot, snapshot.revision, snapshot.summary
+        self.request = self.access = self.processing = self.consent = None
+        self.sessions = self.authority = self.control = None
+        self.worker = self.monitor = None

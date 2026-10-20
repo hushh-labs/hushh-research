@@ -19,6 +19,8 @@ export type ComputerUseSnapshot = Readonly<{
   controlEpoch: number;
   nextSequence: number;
   revision: number;
+  /** Owner-only task result; never insert into One's transcript or telemetry. */
+  summary?: string;
   review?: ComputerUseReview;
   approvedOrigins?: readonly string[];
   rememberedSessionsAvailable?: boolean;
@@ -31,6 +33,7 @@ export type ComputerUseReview = Readonly<{
   purpose: "model_process" | "disclose" | "session_remember" | "session_restore" | "provider_safety";
   model?: string;
   taskGoal?: string;
+  resultStorage?: "owner_encrypted_log";
   origins: string[];
   destination?: string;
   details: Array<{ label: string; value: string }>;

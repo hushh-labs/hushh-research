@@ -4,7 +4,7 @@
 
 The executable lifecycle route is `./bin/hushh codex route-task product-agent-development`.
 Runtime product agents live under `consent-protocol/hushh_mcp/agents`; repo-scoped
-engineering evidence agents are authored under root `agents/`; host mirrors are
+engineering evidence agents are authored under root `.agents/subagents/`; host mirrors are
 generated. They
 are separate namespaces.
 

@@ -21931,7 +21931,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_binding_transactions.py",
       "symbol": null,
-      "value": 1355
+      "value": 1363
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28615,7 +28615,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/azure_arm_client.py",
       "symbol": null,
-      "value": 562
+      "value": 563
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30947,7 +30947,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/computer-use-task-card.test.tsx",
       "symbol": null,
-      "value": 503
+      "value": 522
     }
   ],
   "inspected_files": 6625,
@@ -75863,5 +75863,33 @@
         "source_sha256": "c4102dc2b9aa3ebbc0e634c9f60eb99fd0884c7bb1cf54c28acf3d628767ebd9"
       }
     ]
+  },
+  "azure_vm_network_api_review_20261020": {
+    "approved_ceiling": 563,
+    "global_budgets_unchanged": true,
+    "path": "consent-protocol/hushh_mcp/services/azure_arm_client.py",
+    "previous_ceiling": 562,
+    "prior_commit": "5f871ee7d471d33c5f57017dcc8c9962429406ae",
+    "reviewer": "browser_p0_plan_review (independent read-only review)",
+    "scope": "Only the canonical Microsoft.Network API_VERSIONS entry (2024-05-01), no new version-map authority or global budget change",
+    "source_sha256": "cef1105244fd96df97857897e645241c307f0713f5637b365e2e552ed46f227f"
+  },
+  "browser_terminal_cleanup_review_20261020": {
+    "path": "consent-protocol/tests/test_pod_binding_transactions.py",
+    "previous_ceiling": 1355,
+    "approved_ceiling": 1363,
+    "source_sha256": "9a26d336508c5bae576d9787af7479f36e7172d644ad2cb950574849d0094da5",
+    "reviewer": "browser_p0_plan_review (independent read-only review)",
+    "scope": "Existing real-ledger journey: completed Browser teardown, released update permit, retry deduplication and immediate next-task admission; private closing wait removed after review identified premature completion. Public snapshots withhold completion until joined cleanup ends.",
+    "global_budgets_unchanged": true
+  },
+  "browser_owner_result_review_20261020": {
+    "path": "hushh-webapp/__tests__/components/computer-use-task-card.test.tsx",
+    "previous_ceiling": 503,
+    "approved_ceiling": 522,
+    "source_sha256": "6ef3e34d57bab83f82dcad0ee48c0a937aaad37e7ab2cc482624c8907c0bf439",
+    "reviewer": "adk_frontend_conflicts (independent read-only review)",
+    "scope": "Completed owner Browser result rendering and plain-text/XSS boundary; bounded wire summaries with Unicode code-point parity; no default launcher or transcript persistence. Exact encrypted-result consent enum propagation and unknown-value refusal.",
+    "global_budgets_unchanged": true
   }
 }

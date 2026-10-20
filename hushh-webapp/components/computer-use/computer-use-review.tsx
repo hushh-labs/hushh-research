@@ -36,7 +36,8 @@ export function ComputerUseReview({ review, pending, open, onClose, onConfirm }:
       <DialogContent>
         <DialogHeader className="pr-8 text-left">
           <DialogTitle>{copy.title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogDescription>{description}{review.resultStorage === "owner_encrypted_log"
+            ? " Save this task’s result encrypted in your private agent." : ""}</DialogDescription>
         </DialogHeader>
         {review.taskGoal ? <p className="whitespace-pre-wrap break-words text-sm">{review.taskGoal}</p> : null}
         {review.destination || review.origins.length ? (

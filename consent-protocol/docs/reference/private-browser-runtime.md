@@ -215,8 +215,36 @@ idle cursor are required before release. Historical release survives another
 restart without being rewritten as a new receipt. Original ARM operation URLs
 settle through bounded GETs; an unknown response cannot trigger another POST.
 Cancellation joins the provider thread before releasing registry authority.
-The customer VM offer, installer and unattended idle trigger remain unavailable;
-these source checks are not an installed owner wake or external grant receipt.
+The normal host installer is now authored in `browser_runtime/azure_host`: pinned
+container policy, original pod entrypoint, root-owned installation, memory-only
+signing-secret hydration and direct Gunicorn TLS. Atomic certificate renewal
+changes new handshakes without interrupting existing connections. The deterministic
+VM/network plan and ownership readback live beside the existing Azure setup plan;
+a generic create-only skip is not an ownership receipt. Focused tests cover image,
+identity, credential recipients, policy, teardown and interrupted renewal.
+Disposable normal-entrypoint qualification now passes trusted HTTPS, the machine
+wall, exact CORS, durable keys, held authority, authenticated drain, deallocation
+and same-key restart. Image `sha256:9af375f6e1db1d94b870c1b27383a82662f41520214343ead4073b1823033600`
+uses Cloud Build `dda35172-7d8b-4478-b638-03c0955aa0d0`. Initial HTTPS readiness
+was 75.202 s after installer acknowledgement; restart power state took 20.574 s
+and subsequent HTTPS 24.467 s. These exclude provisioning and are not chat
+latency. Group, deleted vault, DNS, disposable caller, uploaded build source and
+the task-only qualification image/package absence are verified.
+The customer VM offer and unattended idle trigger remain unavailable. Exact
+broker grants, installed owner Browser/model execution, updates and erasure still
+need their own receipts; retained idle-cursor presence was not positively proved
+by this run. No existing owner changed.
+
+Image-only VM replacement has a distinct fixed host action. It binds the original
+configuration, installation, target digest, operation and retained idle cursor;
+the existing JIT worker must authenticate and retain that drain before dispatch.
+It prefetches immutable bytes, stops and joins the existing service, verifies
+container absence, atomically promotes configuration, then starts the same unit.
+No package installation or policy/custody/resource change occurs. Interrupted
+stopping/promotion requires reconciliation; an exact acknowledged retry does not
+restart again. Host acknowledgement reports `application_verified=false` until
+the existing controller independently verifies recovery and installed identity.
+This new action is source-tested, not live owner-update acceptance.
 
 The existing pod handoff now reports the retained sealed idle cursor separately
 from the current runtime's idle receipt. VM recovery can release only that exact
@@ -226,7 +254,17 @@ coordinator verifies recovered identity, image and current admission before
 requesting release; provider `running` never establishes application recovery.
 
 `task_lifecycle.py` owns execution, expiry and joined shutdown; authenticated owner
-operations remain in `task_runtime.py`. Cancel, expiry and update drain join one
+operations remain in `task_runtime.py`. Completed tasks now join browser teardown,
+sealed settlement and permit release before public completion. Their bounded
+result is shown only in the authenticated owner task card; it never becomes One's
+transcript or hub telemetry. The model/screens review explicitly includes keeping
+the result in the encrypted owner log. A new `browser_task_closed_v1` record is
+written only after joined shutdown. Same-incarnation restart recovers its terminal
+code and completed result without executing the task again. A lost append response
+is read back before retrying, so it cannot overwrite a committed result with failure.
+Old completion records that still describe an active browser recover as uncertain;
+a replacement incarnation receives metadata only. Log erasure fences result access.
+Cancel, expiry and update drain join one
 close operation. Its terminal sealed checkpoint and private-reference cleanup
 precede permit release; model completion cannot overwrite a chosen cancellation.
 An unconfirmed close retains admission and permits a later explicit repair retry.

@@ -2,8 +2,9 @@
 
 There is deliberately no ambient launcher/model/export/approval fallback. Cloud
 qualification is trusted startup input. Screens, goals, review terms, selected
-values and model events live only in this process; recovery records are sealed
-by the existing pod log and never authorize an automatic effect replay.
+values and model events live only in this process. A completed owner summary is
+sealed by the existing pod log after joined shutdown; recovery never authorizes
+an automatic effect replay or returns private output to One's model.
 """
 
 from __future__ import annotations
@@ -46,7 +47,7 @@ from .task_contracts import (
 )
 from .task_lifecycle import BrowserTaskLifecycle
 from .task_recovery import KIND as KIND
-from .task_recovery import recover_browser_tasks
+from .task_recovery import checkpoint_browser_task, recover_browser_tasks
 from .task_state import BrowserTaskState as _Task
 
 
@@ -166,7 +167,7 @@ class BrowserTaskRuntime:
         if self._hydrated:
             return
         self._recovered, self._requests = await recover_browser_tasks(
-            self._log, self._owner, self._pod
+            self._log, self._owner, self._pod, incarnation=self._incarnation
         )
         self._hydrated = True
 
@@ -201,14 +202,17 @@ class BrowserTaskRuntime:
         )
 
     async def _checkpoint(self, task: _Task) -> None:
-        task.revision += 1
-        snapshot = self._snapshot(task).model_copy(
-            update={"summary": None, "review": None, "approved_origins": ()}
-        )
-        await self._log.append(
-            KIND,
-            {"request_id": task.request_id, "snapshot": snapshot.model_dump(mode="json")},
-        )
+        await checkpoint_browser_task(self._log, task, self._snapshot)
+
+    def _owner_snapshot(self, task: _Task) -> BrowserTaskSnapshot:
+        snapshot = self._snapshot(task)
+        # Model completion precedes joined browser shutdown, sealed settlement
+        # and permit release. Publish completion only after that same close ends.
+        if (task.close_payload is not None and not task.closed) or (
+            snapshot.phase == "completed" and task.closing is not None and not task.closing.done()
+        ):
+            return snapshot.model_copy(update={"phase": "running", "summary": None})
+        return snapshot
 
     async def _metadata_task(self, access: BrowserOwnerAccess, task_id: str) -> _Task:
         await self._access(access)
@@ -252,7 +256,7 @@ class BrowserTaskRuntime:
                     raise BrowserRefused("BROWSER_TASK_REQUEST_CONFLICT")
                 if prior.access is not None:
                     await prior.access.check()
-                return self._snapshot(prior)
+                return self._owner_snapshot(prior)
             if len(self._tasks) >= 128 or len(self._requests) >= 10000:
                 raise BrowserRefused("BROWSER_TASK_LIMIT")
             if any(not task.closed for task in self._tasks.values()):
@@ -348,14 +352,17 @@ class BrowserTaskRuntime:
             await self._hydrate()
         await self._access(access)
         if task_id in self._recovered:
-            return self._recovered[task_id]
+            return self._recovered[task_id].model_copy(update={"capability": self.capability()})
         task = await self._metadata_task(access, task_id)
+        if task.close_payload is not None and not task.closed:
+            # Reconcile an already stopped task; never launch or rerun its goal.
+            await self._lifecycle.close(task)
         async with task.operation:
             if task.review is not None and not task.closed:
                 task.review = owner_review(
                     await self._reviews.refresh_review(task.binding, task.review.review_id)
                 )
-        return self._snapshot(task)
+        return self._owner_snapshot(task)
 
     async def list_tasks(self, access: BrowserOwnerAccess) -> list[BrowserTaskReceipt]:
         """Bounded rediscovery; private goals, reviews and frames stay in their ports.
@@ -367,7 +374,7 @@ class BrowserTaskRuntime:
         async with self._lock:
             await self._hydrate()
             snapshots = list(self._recovered.values()) + [
-                self._snapshot(task) for task in self._tasks.values()
+                self._owner_snapshot(task) for task in self._tasks.values()
             ]
             receipts = [self.delegation_receipt(item) for item in snapshots[-20:]]
         await self._access(access)

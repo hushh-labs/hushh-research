@@ -1,0 +1,24 @@
+[Unit]
+Description=Owner private agent
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=900
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=root
+UMask=0077
+WorkingDirectory=/opt/hussh-host
+ExecStart=/usr/bin/python3 -E -s -m azure_host.runner
+TimeoutStartSec=750
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=15
+KillMode=control-group
+StandardOutput=null
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

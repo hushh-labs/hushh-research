@@ -194,6 +194,7 @@ class BrowserInformation:
             if not isinstance(task_goal, str) or not 1 <= len(task_goal) <= 4096:
                 raise BrowserRefused("BROWSER_PROCESSING_TERMS_INVALID")
             terms["task_goal"] = task_goal
+            terms["result_storage"] = "owner_encrypted_log"
         await self._consent.require(binding, "model_process", terms)
         # Recheck source revisions after approval and refuse a changed projection.
         if values != await self._read(binding, fields):

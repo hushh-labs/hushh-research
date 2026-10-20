@@ -37,6 +37,9 @@ function reviewTerms(value: unknown): ComputerUseReview | undefined {
     throw new Error("BROWSER_REVIEW_REFUSED");
   }
   const details: ComputerUseReview["details"] = [];
+  if (purpose === "model_process" && terms.result_storage !== undefined && terms.result_storage !== "owner_encrypted_log") {
+    throw new Error("BROWSER_REVIEW_REFUSED");
+  }
   if (purpose === "provider_safety") {
     if (typeof terms.tool !== "string" || !terms.tool || terms.tool.length > 128
       || !Array.isArray(terms.warnings) || !terms.warnings.length || terms.warnings.length > 8) {
@@ -88,6 +91,7 @@ function reviewTerms(value: unknown): ComputerUseReview | undefined {
     id: review.review_id, purpose, origins: origins as string[], details,
     model: typeof terms.model === "string" ? terms.model.slice(0, 128) : undefined,
     taskGoal: purpose === "model_process" ? terms.task_goal as string : undefined,
+    ...(purpose === "model_process" && terms.result_storage === "owner_encrypted_log" ? { resultStorage: terms.result_storage } : {}),
     destination: typeof terms.destination === "string" ? terms.destination.slice(0, 4096) : undefined,
   };
 }
@@ -112,6 +116,9 @@ export function parseComputerUseSnapshot(value: unknown, expected: ComputerUseBi
   }
   const available = record(wire.capability).available;
   if (typeof available !== "boolean") throw new Error("BROWSER_RESPONSE_REFUSED");
+  if (wire.summary != null && (typeof wire.summary !== "string" || Array.from(wire.summary).length > 2000)) {
+    throw new Error("BROWSER_RESPONSE_REFUSED");
+  }
   const origins = wire.approved_origins;
   if (origins !== undefined && (!Array.isArray(origins) || origins.length > 20
     || origins.some((origin) => typeof origin !== "string" || !origin || origin.length > 4096))) {
@@ -128,6 +135,7 @@ export function parseComputerUseSnapshot(value: unknown, expected: ComputerUseBi
   return {
     ...(viewport ? { viewport: { width: viewport.width as number, height: viewport.height as number } } : {}),
     binding, phase: wire.phase as ComputerUsePhase,
+    ...(wire.phase === "completed" && typeof wire.summary === "string" ? { summary: wire.summary } : {}),
     capability: available ? "ready" : "unavailable",
     controlOwner: wire.control_owner as ComputerUseSnapshot["controlOwner"],
     controlEpoch: integer(wire.control_epoch, 1), nextSequence: integer(wire.next_sequence, 1),

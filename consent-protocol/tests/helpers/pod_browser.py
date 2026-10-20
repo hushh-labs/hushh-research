@@ -1,6 +1,7 @@
 """Synthetic ports for the browser's owner and transport boundary tests."""
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 
 from hushh_mcp.services.pod_browser.contracts import (
@@ -292,9 +293,34 @@ def browser_export_package():
     return package, field
 
 
+class _TaskLog:
+    """Immutable in-memory records with the sealed log's conditional append contract."""
+
+    def __init__(self):
+        self.records = []
+
+    async def require_open(self):
+        return None
+
+    async def replay(self):
+        return list(self.records)
+
+    async def append(self, kind, payload, *, expected_seq=None):
+        if expected_seq is not None and expected_seq != len(self.records):
+            from hushh_mcp.services.pod_commit_log import PodLogConflict
+
+            raise PodLogConflict("synthetic changed head")
+        record = {
+            "seq": len(self.records) + 1,
+            "kind": kind,
+            "payload": json.loads(json.dumps(payload)),
+        }
+        self.records.append(record)
+        return record
+
+
 def task_runtime_fixture(monkeypatch, *, ready=None, model=None, log=None):
     """Synthetic adapters prove composition, never provider qualification."""
-    import json
     from types import SimpleNamespace
 
     from hushh_mcp.services.pod_browser.consent import private_commitment
@@ -308,22 +334,6 @@ def task_runtime_fixture(monkeypatch, *, ready=None, model=None, log=None):
 
     monkeypatch.setenv("POD_COMPUTER_USE_ENABLED", "true")
     auth, driver = Authority(approved=True), Executor()
-
-    class Log:
-        def __init__(self):
-            self.records = []
-
-        async def require_open(self):
-            return None
-
-        async def replay(self):
-            return list(self.records)
-
-        async def append(self, kind, payload):
-            # Simulate an immutable sealed-log record, never retaining DTO references.
-            record = {"kind": kind, "payload": json.loads(json.dumps(payload))}
-            self.records.append(record)
-            return record
 
     class Reviews:
         def __init__(self):
@@ -402,7 +412,7 @@ def task_runtime_fixture(monkeypatch, *, ready=None, model=None, log=None):
         if auth.revoked:
             raise BrowserRefused("BROWSER_OWNER_REFUSED")
 
-    log, reviews, launcher, model = log or Log(), Reviews(), Launcher(), model or Model()
+    log, reviews, launcher, model = log or _TaskLog(), Reviews(), Launcher(), model or Model()
     admission = PodUpgradeAdmission(log_resolver=lambda: None)
     runtime = BrowserTaskRuntime(
         owner_id="owner",

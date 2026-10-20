@@ -230,6 +230,15 @@ def load_vendored_packages() -> list[dict[str, str]]:
     ]
 
 
+def load_pod_runtime_resources() -> list[dict[str, str]]:
+    directory = REPO_ROOT / "consent-protocol/browser_runtime/azure_host"
+    item = json.loads((directory / "policy-provenance.json").read_text(encoding="utf-8"))
+    for name, digest in item["files"].items():
+        if Path(name).name != name or hashlib.sha256((directory / name).read_bytes()).hexdigest() != digest:
+            raise ValueError("Pod runtime policy provenance changed")
+    return [{key: item[key] for key in ("name", "version", "license", "license_file", "notice_file")}]
+
+
 def load_python_packages() -> list[dict[str, str]]:
     result = subprocess.run(
         [
@@ -353,6 +362,7 @@ def main() -> int:
             ("Frontend npm packages", web_packages),
             ("Backend Python packages", python_packages),
             ("Vendored engineering resources", load_vendored_packages()),
+            ("Private pod runtime resources", load_pod_runtime_resources()),
         ],
     )
 
@@ -360,7 +370,7 @@ def main() -> int:
         PROTOCOL_NOTICES,
         "Third-Party Notices",
         "Third-party dependency inventory for the Hushh Consent Protocol.",
-        [("Python packages", python_packages)],
+        [("Python packages", python_packages), ("Private pod runtime resources", load_pod_runtime_resources())],
     )
     return 0
 

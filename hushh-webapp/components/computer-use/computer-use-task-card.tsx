@@ -134,6 +134,9 @@ export function ComputerUseTaskCard({ binding, transport, route = "/" }: {
           </ShellActionSurface>
         )}
       </div>
+      {state.verified && snapshot?.phase === "completed" && snapshot.summary ? (
+        <p className="whitespace-pre-wrap break-words text-sm">{snapshot.summary}</p>
+      ) : null}
       {usable && snapshot?.review ? (
         <div className="flex flex-wrap items-center gap-2">
           <ShellActionSurface variant="pill" className="min-h-11" disabled={state.pending}

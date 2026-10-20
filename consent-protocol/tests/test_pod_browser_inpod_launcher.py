@@ -200,7 +200,10 @@ async def test_browser_failed_launch_cleanup_cannot_release_update_admission(mon
     await task.worker
     pending = await fixture.runtime.read(fixture.owner, pending.binding.task_id)
     await fixture.runtime.confirm_review(
-        fixture.owner, pending.binding.task_id, pending.review.review_id
+        fixture.owner,
+        pending.binding.task_id,
+        pending.review.review_id,
+        "synthetic-owner-receipt-" + "x" * 32,
     )
     with pytest.raises(BrowserRefused, match="LAUNCH_STOP_UNCONFIRMED"):
         await task.worker

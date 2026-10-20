@@ -1,0 +1,14 @@
+{
+  "name": "moby-container-profiles",
+  "version": "4b8214fc4971e06172938a1f1554ccff6647ee80",
+  "license": "Apache-2.0",
+  "license_file": "consent-protocol/browser_runtime/azure_host/LICENSE.moby",
+  "notice_file": "consent-protocol/browser_runtime/azure_host/NOTICE.moby",
+  "source": "https://github.com/moby/profiles/tree/4b8214fc4971e06172938a1f1554ccff6647ee80",
+  "files": {
+    "seccomp.json": "fc543d68d4b46b8a42e23b62ce8aaddd9e3e313f96a4f29fbe6fb9d23233e5e2",
+    "apparmor.profile": "300299ca607fd9e624c764963a784fcca530698337cbcf2045454c181ce39bae",
+    "LICENSE.moby": "e06a3cea7d38d1fed95e528128c554640e0f49e259b2fc4a4b563bc32816b926",
+    "NOTICE.moby": "ca4719481bb58e893375f508c5bf1913dae68e6012c5196cd6546d092611010f"
+  }
+}

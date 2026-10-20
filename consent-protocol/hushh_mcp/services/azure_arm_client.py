@@ -47,6 +47,7 @@ API_VERSIONS: dict[str, str] = {
     # Stable schema with CustomScaleRule.identity for secretless Files queue wake.
     "container_apps": "2025-01-01",
     "virtual_machines": "2024-03-01",
+    "network": "2024-05-01",
     "authorization": "2022-04-01",
 }
 

@@ -139,6 +139,19 @@ describe("private browser control", () => {
     await waitFor(() => expect(discover).toHaveBeenCalledOnce());
     expect(view.container).toBeEmptyDOMElement();
   });
+  it("shows the latest completed owner result without restarting or uploading the task", async () => {
+    vi.spyOn(ComputerUseClient.prototype, "tasks").mockResolvedValue([{ binding, phase: "completed", current: true }]);
+    const direct = transport();
+    vi.mocked(direct.read).mockResolvedValue(snapshot({ phase: "completed", controlOwner: "stopped", summary: "Found the requested public result. <script>example</script>" }));
+    vi.spyOn(ComputerUseClient.prototype, "transport").mockReturnValue(direct);
+    const start = vi.spyOn(ComputerUseClient.prototype, "start");
+    const view = render(<ComputerUseActiveTasks ownerId="owner" refreshKey={1} route="/one" />);
+    expect(await screen.findByText("Found the requested public result. <script>example</script>")).toBeVisible();
+    expect(view.container.querySelector("script")).toBeNull();
+    expect(screen.getByRole("button", { name: "View browser" })).toBeDisabled();
+    expect(start).not.toHaveBeenCalled();
+    expect(api.apiFetch).not.toHaveBeenCalled();
+  });
   it("Back closes preview before leaving chat without stopping the owner's task", async () => {
     const api = transport();
     const view = render(<ComputerUseTaskCard binding={binding} transport={api} route="/" />);
@@ -457,6 +470,10 @@ describe("private browser control", () => {
       phase: "running", capability: { available: true }, control_owner: "agent", control_epoch: 1, next_sequence: 1, revision: 1,
     };
     expect(parseComputerUseSnapshot(wire, binding)).toEqual(snapshot());
+    expect(parseComputerUseSnapshot({ ...wire, phase: "completed", summary: "A private task result." }, binding).summary).toBe("A private task result.");
+    expect(() => parseComputerUseSnapshot({ ...wire, summary: "x".repeat(2001) }, binding)).toThrow();
+    expect(parseComputerUseSnapshot({ ...wire, phase: "completed", summary: "🌍".repeat(2000) }, binding).summary).toBe("🌍".repeat(2000));
+    expect(() => parseComputerUseSnapshot({ ...wire, summary: "🌍".repeat(2001) }, binding)).toThrow();
     expect(() => parseComputerUseSnapshot({ ...wire, capability: { available: "true" } }, binding)).toThrow();
     expect(() => parseComputerUseSnapshot({ ...wire, binding: { ...wire.binding, pod_id: "other" } }, binding)).toThrow();
     expect(parseComputerUseSnapshot({ ...wire, capability: { available: true, public_research_only: true } }, binding).publicResearchOnly).toBe(true);
@@ -468,11 +485,13 @@ describe("private browser control", () => {
       binding: { owner_id: "owner", pod_id: "pod", incarnation: "incarnation", task_id: "task", environment: "development" },
       phase: "needs_owner", capability: { available: true }, control_owner: "agent", control_epoch: 1, next_sequence: 1, revision: 1,
       review: { review_id: "review", purpose: "model_process", terms: {
-        model: "Gemini", task_goal: "Prepare a synthetic form", origins: ["https://example.com"], fields: [{ domain: "profile", path: "name" }],
+        model: "Gemini", task_goal: "Prepare a synthetic form", result_storage: "owner_encrypted_log", origins: ["https://example.com"], fields: [{ domain: "profile", path: "name" }],
         values: { "attr.profile.name": { profile: { name: "Synthetic Owner", unrelated: "not selected" } } },
       } },
     };
     expect(parseComputerUseSnapshot(wire, binding).review?.details).toEqual([{ label: "profile · name", value: "Synthetic Owner" }]);
+    expect(parseComputerUseSnapshot(wire, binding).review?.resultStorage).toBe("owner_encrypted_log");
+    expect(() => parseComputerUseSnapshot({ ...wire, review: { ...wire.review, terms: { ...wire.review.terms, result_storage: "hub_plaintext" } } }, binding)).toThrow();
     expect(() => parseComputerUseSnapshot({ ...wire, review: { ...wire.review,
       terms: { ...wire.review.terms, values: { "attr.profile.name": { profile: { name: { nested: "not scalar" } } } } } } }, binding)).toThrow();
     const remembered = parseComputerUseSnapshot({ ...wire, review: { review_id: "session", purpose: "session_remember",
