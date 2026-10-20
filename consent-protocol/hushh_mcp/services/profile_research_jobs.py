@@ -335,7 +335,12 @@ class ProfileResearchJobs:
         )
 
     async def start(
-        self, user_id: str, consent_token: str, *, inputs: dict | None = None
+        self,
+        user_id: str,
+        consent_token: str,
+        *,
+        inputs: dict | None = None,
+        refresh_completed: bool = False,
     ) -> dict[str, Any]:
         # Slow setup/identity/provider admission belongs to the bounded worker,
         # not the initiating exchange. Exact owner authority still gates even
@@ -347,7 +352,13 @@ class ProfileResearchJobs:
         context = await self.job_context(user_id, consent_token)
         state = self.prepare_start_state(await self.store.get(user_id))
         same_context = all((state or {}).get(key) == value for key, value in context.items())
-        if state and same_context and self.reusable(state):
+        fresh_discovery = bool(
+            refresh_completed
+            and state
+            and same_context
+            and state["status"] in {"offered", "low_confidence"}
+        )
+        if state and same_context and self.reusable(state) and not fresh_discovery:
             if state["status"] == "pending":
                 self.decision("start", "reused_pending", None, state)
                 return pending()
@@ -441,6 +452,13 @@ class ProfileResearchJobs:
                 "discovery_started_at", (state or {}).get("started_at", self.clock())
             ),
         }
+        if fresh_discovery:
+            # Explicit refresh buys a new bounded discovery, not another slice
+            # with the completed run's spent slots. Validate the prior ledger
+            # above and retain hourly starts plus the original CAS fence.
+            next_state["attempted_combinations"] = []
+            next_state["discovery_started_at"] = self.clock()
+            next_state["resume_binding"] = ""
         # Only continuing a paused or lease-expired slice is free. A retry after
         # a failure is a new paid start even when it reuses saved evidence;
         # otherwise any saved evidence lifted the hourly start budget for the

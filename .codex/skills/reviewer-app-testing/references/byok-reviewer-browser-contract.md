@@ -37,6 +37,33 @@ node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.
 
 Domain rehearsals import the harness and add only their domain assertions. They must not duplicate secret-resolution or navigation logic.
 
+### PWM streaming and reviewed-save acceptance
+
+`scripts/verify-reviewer-pwm.mjs` composes this harness for an explicitly
+authorized UAT research-and-save run. It requires the intended verified email,
+matching reviewer UID, bounded mutations, live incremental progress before a
+terminal result, original Azure citations and a supported owner-linked finding.
+It preserves the existing email preference. It never resets a fixture or
+accepts an ambiguous identity to manufacture a save.
+
+The existing Download Memory action supplies the browser-only preservation
+check. Its armed Blob download is intercepted before disk access; the full
+baseline and post-save `one_memory` stay in that browser. Only one exact bullet,
+its accepted owner-declaration claim and authored timestamps may change.
+A matching newer encrypted snapshot receipt, same-session saved row and fresh
+authenticated/unlocked context provide separate persistence checks. The shared
+reviewer's authorized new claim is retained.
+
+GitHub UAT runs opt in with `run_pwm_acceptance`. They require an operator's
+RSA public key in `pwm_evidence_public_key` (base64 DER SPKI); research results
+are sealed using an ephemeral AES-GCM key wrapped with RSA-OAEP-SHA256 before
+artifact upload. The corresponding private key stays with the operator. Logs
+contain fixed stage/status codes only. This does not export old Memory, keys,
+tokens, private baselines or request bodies, even inside the sealed report.
+`pwm_expected_emails` binds the configured reviewer to the intended owner.
+An opaque salted commitment crosses contexts in process memory only, letting
+the cold export prove exact whole-domain equality; it is never an artifact.
+
 ### Additive Memory preservation proof
 
 The Memory panel can install `window.__HUSHH_NATIVE_TEST__.pkmProof` only for

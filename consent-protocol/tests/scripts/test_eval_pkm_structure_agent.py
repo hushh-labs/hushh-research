@@ -32,6 +32,14 @@ def test_evaluator_timeout_outlives_runtime_preview_budget(monkeypatch):
     assert args.per_prompt_timeout_seconds > pkm_agent_lab_module._PREVIEW_TOTAL_BUDGET_SECONDS
 
 
+def test_default_model_follows_fleet_switch_and_preserves_explicit_override(monkeypatch):
+    monkeypatch.setattr(eval_script, "fleet_text_model_from_env", lambda: "fleet-next-flash")
+    monkeypatch.setattr("sys.argv", ["eval_pkm_structure_agent.py"])
+    assert eval_script.parse_args().model == "fleet-next-flash"
+    monkeypatch.setattr("sys.argv", ["eval_pkm_structure_agent.py", "--model", "explicit-model"])
+    assert eval_script.parse_args().model == "explicit-model"
+
+
 def test_release_chain_is_small_but_covers_all_storage_decisions_and_domains():
     personas, chain_state = eval_script.build_phase_personas(
         phase="release_chain_24", max_prompts_per_persona=120
