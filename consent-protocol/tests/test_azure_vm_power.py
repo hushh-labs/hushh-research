@@ -15,6 +15,19 @@ from hushh_mcp.services.azure_vm_power import (
     AzureVmPowerTarget,
 )
 from hushh_mcp.services.pod_azure_vm_identity import AzureVmInstallation
+from tests.fixtures.azure_vm_power import (
+    cleanup_connection as cleanup_connection,
+)
+from tests.fixtures.azure_vm_power import (
+    cleanup_pg as cleanup_pg,
+)
+from tests.fixtures.azure_vm_power import (
+    idle_receipt,
+    power_receipt,
+)
+from tests.fixtures.azure_vm_power import (
+    vm_installation as vm_installation,
+)
 
 
 class _Response:
@@ -264,3 +277,220 @@ def test_drain_expiring_during_final_identity_read_refuses_post(setup):
         power.deallocate(require_drained=drain)
     assert not provider.posts
     assert journal.events[-1][-1] == "not_dispatched"
+
+
+@pytest.mark.parametrize("cleanup_pg", ["unreserved"], indirect=True)
+async def test_vm_cycle_retains_exact_registry_authority_across_worker_restart(
+    vm_installation, cleanup_connection
+):
+    import asyncio
+
+    import asyncpg
+
+    from hushh_mcp.services.azure_vm_power_authority import azure_vm_power_authority
+
+    pg, owner, installation = vm_installation
+    args = dict(
+        owner=owner, expected_vm_id=installation.vm_id, connection_factory=cleanup_connection
+    )
+    async with azure_vm_power_authority(**args) as authority:
+        operation = authority.operation_id
+        with pytest.raises(AzureVmPowerRefused, match="WORKER_ACTIVE"):
+            async with azure_vm_power_authority(**args):
+                pytest.fail("second worker admitted")
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await authority.advance("drained")
+        receipt = idle_receipt(authority)
+        await authority.retain({"kind": "drain", "receipt": receipt})
+        await authority.advance("drained")
+        await _assert_vm_conflicts_refused(pg, owner, authority, cleanup_connection)
+        provider = Provider(authority.target)
+        provider.power = "running"
+        with AzureVmPower(
+            target=authority.target,
+            arm=ArmClient("synthetic", session=provider),
+            journal=authority,
+            require_operation=authority.require_operation,
+            sleep=lambda _: None,
+        ) as power:
+            await asyncio.to_thread(power.deallocate, require_drained=authority.require_operation)
+        await authority.retain(power_receipt(authority, "deallocated"))
+        await authority.advance("deallocated")
+    # A new local process adopts the same durable cycle, without repeating sleep.
+    async with azure_vm_power_authority(**args) as authority:
+        assert authority.operation_id == operation
+        assert (await authority.read())["phase"] == "deallocated"
+        await authority.advance("starting")
+        with AzureVmPower(
+            target=authority.target,
+            arm=ArmClient("synthetic", session=provider),
+            journal=authority,
+            require_operation=authority.require_operation,
+            sleep=lambda _: None,
+        ) as power:
+            await asyncio.to_thread(power.start)
+        await authority.retain(power_receipt(authority, "running"))
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await authority.advance("ready")
+        await authority.retain(
+            {
+                "kind": "recovery",
+                "incarnation": installation.generation,
+                "podKeyId": "synthetic-key",
+                "imageDigest": installation.image_digest,
+                "runtimeEpoch": "after-restart",
+                "retainedIdleRecord": receipt["idleRecord"],
+            }
+        )
+        await authority.advance("recovered")
+        await authority.retain(
+            {
+                "kind": "released",
+                "operationId": operation,
+                "incarnation": installation.generation,
+                "runtimeEpoch": "after-restart",
+                "releaseRecord": {"seq": 3, "sha": "f" * 64},
+            }
+        )
+        assert (await authority.advance("ready"))["phase"] == "ready"
+        assert len(provider.posts) == 2
+    async with azure_vm_power_authority(**args) as following:
+        state = await following.read()
+        assert following.operation_id != operation and state["previousOperationId"] == operation
+
+
+async def _assert_vm_conflicts_refused(pg, owner, authority, connection):
+    import json
+
+    import asyncpg
+    import psycopg2
+
+    for sql in (
+        'UPDATE personal_agent_registry SET backend_metadata=backend_metadata||\'{"upgradeLease":"competing"}\'::jsonb WHERE user_id=%s',
+        "UPDATE personal_agent_registry SET status='suspended' WHERE user_id=%s",
+        "UPDATE personal_agent_registry SET backend_metadata=backend_metadata-'vmPower' WHERE user_id=%s",
+        "SELECT reserve_personal_agent_erasure(%s,'competing-erasure')",
+        "UPDATE byoc_setup_jobs SET status='running' WHERE user_id=%s",
+        "INSERT INTO account_deletion_tombstones(user_id_hash,firebase_uid) VALUES ('sha256:'||encode(sha256(convert_to(%s,'UTF8')),'hex'),NULL)",
+    ):
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+            pg.execute(sql, (owner,))
+    async with connection() as other:
+        state = await authority.read()
+        async with other.transaction():
+            assert (
+                await other.fetchval("SELECT pg_try_advisory_lock(hashtextextended($1,206))", owner)
+                is False
+            )
+        # The operation holder cannot corrupt phase or rewrite prior receipts.
+    for changed in (
+        {k: v for k, v in state.items() if k != "phase"},
+        {**state, "phase": "ready"},
+        {**state, "events": [{"kind": "drain", "receipt": {}}]},
+    ):
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            async with authority._connection.transaction():
+                await authority._connection.execute(
+                    "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,'{vmPower}',$2::jsonb) WHERE user_id=$1",
+                    owner,
+                    json.dumps(changed),
+                )
+
+
+@pytest.mark.parametrize("cleanup_pg", ["unreserved"], indirect=True)
+async def test_vm_uncertain_dispatch_survives_worker_exit_without_provider_replay(
+    vm_installation, cleanup_connection
+):
+    import asyncio
+
+    import asyncpg
+
+    from hushh_mcp.services.azure_vm_power_authority import azure_vm_power_authority
+
+    _, owner, installation = vm_installation
+    args = dict(
+        owner=owner, expected_vm_id=installation.vm_id, connection_factory=cleanup_connection
+    )
+    async with azure_vm_power_authority(**args) as authority:
+        await authority.retain({"kind": "drain", "receipt": idle_receipt(authority)})
+        await authority.advance("drained")
+        provider = Provider(authority.target)
+        provider.power, provider.failure = "running", OSError("lost provider response")
+        with (
+            AzureVmPower(
+                target=authority.target,
+                arm=ArmClient("synthetic", session=provider),
+                journal=authority,
+                require_operation=authority.require_operation,
+            ) as power,
+            pytest.raises(OSError),
+        ):
+            await asyncio.to_thread(power.deallocate, require_drained=authority.require_operation)
+        previous = await authority.read()
+    async with azure_vm_power_authority(**args) as authority:
+        assert await authority.read() == previous
+        provider.failure = None
+        with (
+            AzureVmPower(
+                target=authority.target,
+                arm=ArmClient("synthetic", session=provider),
+                journal=authority,
+                require_operation=authority.require_operation,
+            ) as power,
+            pytest.raises(asyncpg.InsufficientPrivilegeError),
+        ):
+            await asyncio.to_thread(power.deallocate, require_drained=authority.require_operation)
+        assert len(provider.posts) == 1
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await authority.advance("deallocated")
+
+
+@pytest.mark.parametrize("cleanup_pg", ["unreserved"], indirect=True)
+async def test_vm_confirmed_not_dispatched_can_retry_same_cycle_after_worker_restart(
+    vm_installation, cleanup_connection
+):
+    import asyncio
+
+    from hushh_mcp.services.azure_vm_power_authority import azure_vm_power_authority
+
+    _, owner, installation = vm_installation
+    args = dict(
+        owner=owner, expected_vm_id=installation.vm_id, connection_factory=cleanup_connection
+    )
+    provider = None
+    operation = None
+
+    def transient_final_fence():
+        raise PermissionError("final drain check unavailable")
+
+    for attempt in range(2):
+        async with azure_vm_power_authority(**args) as authority:
+            if attempt == 0:
+                operation = authority.operation_id
+                await authority.retain({"kind": "drain", "receipt": idle_receipt(authority)})
+                await authority.advance("drained")
+                provider = Provider(authority.target)
+                provider.power = "running"
+            else:
+                assert authority.operation_id == operation
+                assert (await authority.read())["events"][-1]["outcome"] == "not_dispatched"
+            with AzureVmPower(
+                target=authority.target,
+                arm=ArmClient("synthetic", session=provider),
+                journal=authority,
+                require_operation=authority.require_operation,
+                sleep=lambda _: None,
+            ) as power:
+                if attempt == 0:
+                    with pytest.raises(PermissionError, match="final drain"):
+                        await asyncio.to_thread(
+                            power.deallocate, require_drained=transient_final_fence
+                        )
+                    assert not provider.posts
+                else:
+                    await asyncio.to_thread(
+                        power.deallocate, require_drained=authority.require_operation
+                    )
+                    await authority.retain(power_receipt(authority, "deallocated"))
+                    await authority.advance("deallocated")
+                    assert len(provider.posts) == 1

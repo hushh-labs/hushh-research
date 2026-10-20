@@ -81,7 +81,8 @@
     "963_personal_agent_operator_mail_custody.sql",
     "964_personal_agent_runtime_quota_grant.sql",
     "965_one_inferred_shared_correction.sql",
-    "966_pod_browser_action_authority.sql"
+    "966_pod_browser_action_authority.sql",
+    "967_azure_vm_power_admission.sql"
   ],
   "deferred_release_migrations": [
     {

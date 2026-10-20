@@ -2,12 +2,14 @@
 
 **Status:** local integration plan, refreshed 2026-10-20. Main `f47a4832dbc` and
 frozen ADK `42bb9823005` are integrated through `b14bc29901`; the current local
-checkpoint is `8d87e9e8d7`. Browser composition, Shared continuity, exact-attempt
+checkpoint is `494827b132`. Browser composition, Shared continuity, exact-attempt
 release acceptance and VM identity/recovery evidence are committed locally.
-The next local slice repairs Browser approval recovery and adds a bounded VM
-power port. Customer VM lifecycle and installed Browser acceptance remain open.
-The GCP qualification project's current refusal is a confirmed provider dunning
-denial despite open, linked billing; additional IAM grants are not a supported fix.
+Browser approval recovery and the bounded VM power port now have focused local
+proof. Durable power-cycle integration, customer VM lifecycle and installed Browser
+acceptance remain open. GCP dev acceptance uses the explicitly approved Gemini
+bridge: the owner confirms the organizational AI restriction is why it exists.
+Native project Vertex is not a dev release prerequisite; additional IAM grants
+are not a supported fix for the recorded provider dunning denial.
 The approved Browser-first implementation permits
 exact-SHA validation and governed dev acceptance after the candidate is complete.
 Application main merge, UAT/production and stable publication remain separate.
@@ -240,7 +242,8 @@ and deployed owner acceptance must stay separately recorded.
 4. **Production:** separate approval after UAT, capacity, migration/release-channel
    graduation, provenance, recovery, erasure and rollback-boundary evidence pass.
 
-Current external failures remain explicit: GCP native owner-project AI returns 403;
-Azure's customer host adapter and both clouds' installed composition remain open; retained synthetic erasure and
+Current gaps remain explicit: the approved GCP bridge still needs the affected
+owner journey; Azure's customer host adapter and both clouds' installed composition
+remain open; retained synthetic erasure and
 current-image journeys still need live receipts. Do not manufacture a pass, default
 owners to Shared, weaken isolation or publish a stable offer to remove a blocker.

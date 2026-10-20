@@ -4,8 +4,9 @@
 
 **Continue dev qualification. Hold application promotion.** Azure owner chat,
 Files and an exact-approved update have live receipts. Puppy has a streamed
-Gemma 12B response through the same owner pod. GCP native AI access, retained
-Shared deletion and Browser production composition prevent a complete readiness claim.
+Gemma 12B response through the same owner pod. GCP dev acceptance uses the approved
+Gemini bridge. Retained Shared deletion and Browser production composition still
+prevent a complete readiness claim.
 Cold latency remains a measured usability constraint; the former 30-second target
 is an optimization goal, not a release gate. Economy hosting remains selected.
 
@@ -33,7 +34,7 @@ Operating detail stays in the [dev pod runbook](../operations/dev-pod-first-ligh
 
 | Journey | Demonstrated outcome | Next measurable result |
 | --- | --- | --- |
-| Owner cloud / AI | Azure normal owner chat completes; provider-aware GCP/Azure onboarding and encrypted custom-key choices serve dev | GCP qualification Vertex returns an explicit dunning denial despite an open, linked billing account. Provider billing resolution is required; no implicit bridge substitution |
+| Owner cloud / AI | Azure normal owner chat completes; provider-aware GCP/Azure onboarding and encrypted custom-key choices serve dev. Approved dev Gemini bridge access returns 200 | Complete the GCP owner journey through its explicitly configured bridge. Native project Vertex is restricted and is not a dev release prerequisite; bridge access does not prove native access |
 | Voice | Deployed app selects GCP recorded commands and disables Azure capture. Source-qualified pod guards refuse Azure transcription/Live and a shared Live key | The workflow reused reviewed Dev 25; pod guards are not installed. A fresh image needs exact-predecessor recovery and owner approval. GCP recorded audio remains live-unverified; conversational Live also needs a compatible native model |
 | Files | Dedicated ADK specialist and explorer. Personal and fresh Shared Move, stable identity, byte-exact download and Undo pass; earlier interrupted 4,195,328-byte transfer and selected analysis pass | Finish the retained synthetic deletion after the guarded correction serves; qualify fresh setup and current-image organization without disturbing owners |
 | Software updates | Personal Azure Dev 25 approved in Settings; same durable operation, recovery, installed digest, unchanged incarnation and exactly one Feed completion verified | Preserve exact tested predecessor compatibility; broader interruption and rollback acceptance stays distinct |
@@ -78,13 +79,15 @@ no budget, assertion, security or consent gate was weakened.
 The disposable GCP workload has the declared Vertex/Consumer roles. A bounded
 native request on 20 October confirms the expected workload identity and an
 explicit provider **dunning denial** in **0.074 s**. The billing API independently
-reports the project linked and the account open. This is a provider billing
-restriction; the earlier generic 403 did not establish an IAM defect. No additional
-grant, model retry or project substitution was made. The diagnostic Job is absent.
+reports the project linked and the account open. The owner confirms the organization's
+AI restriction is the reason for the approved dev bridge. Native access is not a dev
+release prerequisite; the earlier generic 403 did not establish an IAM defect. No
+additional grant, model retry or project substitution was made. The diagnostic Job is absent.
 A separate approved bridge diagnostic returned HTTP 200 in 1.046 s (3 input /
-1 output tokens). That proves bridge access only, not the selected owner-project
-connection. The existing dependency classifier already recognizes this denial;
-its advisory release classification does not turn an unperformed journey into a pass.
+1 output tokens). This is the intended dev AI path, with explicit configuration and
+processing disclosure. It proves bridge access, not a completed owner chat or native
+owner-project Vertex. GCP recorded voice and Browser model acceptance retain their
+own transport and capability checks.
 
 The approved built-in Browser probe ran on ordinary cloud containers. Azure's
 application service passes UID 10002, filesystem denial, direct-socket and Unix
@@ -156,7 +159,11 @@ the pre-commit retry control. Browser/model execution is substituted in this
 check; cloud and installed-owner evidence remains separate. The internal Azure
 VM power port passes 91 focused ARM/identity/dispatch cases, preserving uncertain
 requests and authenticated drain. It has no customer wake caller yet and never
-equates a running VM with application readiness.
+equates a running VM with application readiness. Three additional real-PostgreSQL
+cases now prove one operation across worker restart, uncertain-dispatch refusal
+and retry after confirmed nondispatch. Parked dev migration 967 fences conflicting
+upgrade, placement and deletion admissions; removing the fence fails the negative
+control. All 51 dev-manifest checks and the new authority's typecheck pass.
 
 ### Local integration candidate — 2026-10-19 UTC
 

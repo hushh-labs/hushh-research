@@ -192,6 +192,15 @@ updates and erasure. The synthetic identity/custody receipt above does not quali
 those product paths. The diagnostic wrapper and temporary policy installation
 are not the production host runner.
 
+The internal `azure_vm_power_authority.py` port retains a bounded power cycle in
+the existing registry's `backend_metadata.vmPower`. Dev-only migration 967 binds
+it to the exact VM, pod incarnation, keys and image; unresolved cycles fence
+conflicting placement, update and erasure admission. Requests are journaled before
+dispatch. Only confirmed nondispatch permits replacement; an uncertain provider
+response must be reconciled. Deallocation is an intermediate state, not completion:
+authenticated recovery and release of the same sealed drain fence are required.
+These locally verified ports do not enable a customer VM offer or wake route.
+
 `task_lifecycle.py` owns execution, expiry and joined shutdown; authenticated owner
 operations remain in `task_runtime.py`. Cancel, expiry and update drain join one
 close operation. Its terminal sealed checkpoint and private-reference cleanup
