@@ -100,13 +100,25 @@ class BrowserControl:
                 self._initialized = True
 
     async def execute(
-        self, action: BrowserAction, *, actor: Literal["agent", "owner"] = "agent"
+        self,
+        action: BrowserAction,
+        *,
+        actor: Literal["agent", "owner"] = "agent",
+        native_focus: bool = False,
     ) -> BrowserFrame:
         async with self._lock:
             await self._check()
             if actor != self._mode or action.control_epoch != self._epoch:
                 raise BrowserRefused("BROWSER_CONTROL_CHANGED")
-            if actor != "owner" and (action.focus_existing or action.operation == "resize"):
+            qualified_native_focus = (
+                native_focus
+                and self.readiness.cloud == "azure"
+                and self.readiness.model_transport
+                == "hushh_mcp.runtime_providers.azure_browser_adk.AzureBrowserAdkModel"
+            )
+            if actor != "owner" and (
+                action.operation == "resize" or action.focus_existing and not qualified_native_focus
+            ):
                 raise BrowserRefused("BROWSER_OWNER_INPUT_REQUIRED")
             expected = viewport_for_action(self.viewport, action)
             if action.sequence != self.next_sequence:

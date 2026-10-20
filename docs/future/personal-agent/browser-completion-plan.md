@@ -2,13 +2,13 @@
 
 ## Status
 
-**Implementation in progress — MVP narrowed 2026-10-20; integration baseline `6178eea2c0`.**
+**Implementation in progress — updated 2026-10-20; integration baseline `468c0206c0`.**
 Browser is the P0 capability. Both adapters remain disabled until
 their own acceptance passes. Preserve the infrastructure branch, owner resources,
 selected configuration and concurrent work. Broader release-plan changes follow
 actual Browser implementation evidence, not this proposed design.
 
-The approved execution order is built-in process qualification, Browser production composition
+The approved execution order is Azure whole-deployment qualification, Browser production composition
 and owner control, all-family One scheduling, lifecycle corrections, then one
 combined dev candidate. Scheduled actions retain their existing confirmation
 requirements. Preserve economy scale-to-zero: no always-on wake service or artificial
@@ -40,8 +40,8 @@ The first fixture is public research: open an approved site, find a stated fact,
 watch progress, take control, hand back, refresh and stop. Qualify that same
 journey independently on GCP and Azure with their actual model connections.
 One cloud's result cannot enable the other. Resolve the measured execution
-prerequisite before repeating its probe; do not add more interface work while
-neither cloud can produce a protected frame.
+prerequisite before repeating its probe. GCP's successful synthetic execution
+and broker evidence can be reused; installed owner acceptance remains separate.
 
 **Defer from this milestone:** remembered login/Forget UI, PKM autofill, Files
 upload/download, scheduled browsing, multi-page/SSO support, automatic recovery
@@ -85,16 +85,16 @@ access to the agent's keys, workload identity or private endpoints.
 The [architecture index](../../reference/architecture/README.md) provides the
 platform context and canonical maps.
 The [private browser runtime map](../../../consent-protocol/docs/reference/private-browser-runtime.md#visual-map)
-owns existing authority and execution boundaries. Its model adapter is currently
-Gemini-only. Extend that subsystem for Azure; retain one authored specialist,
-ADK task lifecycle, control authority, action ledger and recovery owner.
+owns existing authority and execution boundaries. Source includes native Gemini
+and Azure adapters under one authored specialist, ADK task lifecycle, control
+authority, action ledger and recovery owner. Installed acceptance remains open.
 
 ## Documented integration and models
 
 | Cloud | Initial qualification target | Integration |
 | --- | --- | --- |
 | GCP | Owner-authorized Gemini 3.8 Flash through the verified owner-project connection | ADK task-mode `LlmAgent`, `ComputerUseToolset`, existing `PodComputer(BaseComputer)` |
-| Azure | Owner's verified `gpt-6-luna` Computer Use deployment | Same ADK task lifecycle, browser-specific native Responses `BaseLlm` adapter and provider toolset adaptation over existing `BrowserControl` |
+| Azure | Qualify an owner-authorized `gpt-6-luna` Computer Use deployment | Same ADK task lifecycle, browser-specific native Responses `BaseLlm` adapter and provider toolset adaptation over existing `BrowserControl` |
 
 Google documents [ComputerUseToolset/BaseComputer](https://adk.dev/integrations/computer-use/)
 and lists Gemini 3.8 Flash among [supported browser models](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/computer-use#supported-models).
@@ -103,6 +103,16 @@ Microsoft lists Computer Use for GPT-6 Luna and GPT-6.1 Sol in its
 Its [native Computer Use guide](https://learn.microsoft.com/en-us/azure/foundry-classic/openai/how-to/computer-use)
 documents Responses actions, screenshots and safety checks. Catalog support does
 not prove entitlement, region capacity or a functioning owner deployment.
+The current owner deployment remains `one-chat`, `gpt-5-mini` version
+`2025-08-07`. Its actual workload identity received HTTP 400 for a native
+`computer` tool request. A temporary `gpt-6-luna` deployment in the same account
+returned a `computer_call` through that identity: HTTP 200 in 1.843 seconds,
+838 input and 20 output tokens. The deployment was deleted and absence confirmed;
+the owner's chat selection was unchanged. The corrected native ADK adapter then
+completed a two-call synthetic screenshot continuation in **2.022 / 1.309 seconds**
+through the same identity, preserving exact call identity and low reasoning.
+The second temporary deployment was also removed. This proves model transport,
+not a composed owner Browser journey or model availability in the VM.
 
 Use the two targets first, not another model sweep. Other compatible deployments
 are explicit owner choices after qualification. Preserve the working chat model;
@@ -173,11 +183,60 @@ remove inherited credentials and unrelated descriptors. Deny direct networking,
 process-memory access and unrelated filesystem reads; allow writes only to
 verified task tmpfs. Require the actual Chromium sandbox and a real frame.
 
-Use disposable synthetic resources on ordinary Cloud Run and Container Apps.
+Reuse the successful disposable ordinary Cloud Run execution. Container Apps'
+required namespace operation remains refused. The latest approved Azure candidate
+is a disposable whole-owner Linux VM, initially `Standard_B2als_v2` in westus2,
+2 vCPU / 4 GiB host with the application constrained to 1 vCPU / 2 GiB.
+That synthetic VM now renders public documentation/search through the real broker
+with Chromium's sandbox retained. Stop, container removal, deallocation, power
+restart and resource absence pass. Exact timings, image and security configuration
+are in the [runtime evidence](../../../consent-protocol/docs/reference/private-browser-runtime.md#built-in-process-qualification--2026-10-20-utc).
+The full packaged pod image now also passes protected execution, disabled
+bootstrap and teardown. It does not yet qualify Gunicorn startup, owner encrypted
+recovery or the combined model/task journey.
 Bind receipts to source, immutable image and configuration. Qualify each cloud
-independently and fail closed; there is no additional browser service, privileged
-browser or `--no-sandbox` retry. The production pod remains single-writer and
-single-worker, with its selected scale-to-zero configuration.
+independently and fail closed; there is no privileged browser or `--no-sandbox`
+retry. The VM must qualify the whole deployment's recovery, external wake,
+deallocation, updates and deletion before an owner-visible hosting offer. Existing
+owners remain on their selected configuration. Retained disk/network costs and
+burst credits are separate from application CPU limits.
+
+### Azure VM hosting proposal — qualification only
+
+Keep the existing `ComputeBackend`, Azure setup mutation journal, update
+admission and erasure reservation as the authorities. A VM requires explicit
+persisted host selection; it cannot masquerade as an ACA revision.
+
+| Boundary | Required implementation and proof |
+| --- | --- |
+| Identity / custody | Attach the owner setup's existing user-assigned identity. Read back VM resource ID, tags and identity. Add the VM's IMDS token transport, provider-derived incarnation and existing Key Vault/Blob recovery; do not synthesize ACA platform variables |
+| Private ingress | Stable HTTPS endpoint with the existing signed owner/pod admission and CORS checks. The probe's deny-all inbound policy is not customer ingress |
+| Wake / idle | Scope start/deallocate permission to the selected VM through the existing control plane. Coalesce concurrent requests. Persist scheduled work before wake; admit it only after authenticated recovery. Drain browser and relay before deallocation; verify provider power state |
+| Update / transition | Exact owner hosting offer, immutable image, predecessor recovery, old-writer fence and installed-digest readback. Preserve keys/storage; do not automatically move current ACA owners |
+| Erasure | Inventory VM, disks, network, identity, registry and custody through existing cleanup authority; retain repairable state until absence/retention is established |
+
+**Cost assumptions, 2026-10-20, westus2 USD retail:** Linux B2als_v2 host
+**2 vCPU / 4 GiB**, app **1 vCPU / 2 GiB**, single worker. The observed 30 GiB
+Standard SSD maps to the 32 GiB E4 tier. At 730 calendar hours, retained disk
+($2.40), one Standard IPv4 ($3.65) and owner Basic ACR (~$5.07) create an
+approximately **$11.12/month retained infrastructure floor**. VM compute adds
+$0.0376 per billed hour, including startup and idle grace.
+
+| Billed VM hours/month | Compute | Retained disk + IP + registry | Infrastructure subtotal |
+| ---: | ---: | ---: | ---: |
+| 30 | $1.13 | $11.12 | $12.25 |
+| 120 | $4.51 | $11.12 | $15.63 |
+| 730 | $27.45 | $11.12 | $38.57 |
+
+This is not an all-inclusive price: add Files/recovery storage and operations,
+Key Vault, queues, egress, monitoring, model calls and allocated control-plane
+cost. Reusing the owner's existing registry avoids a second registry, not its
+existing bill. No artificial keepalive is proposed. B2als_v2 has a 30% base CPU
+performance threshold and burst credits; the short probes do not establish
+sustained equivalence to Container Apps. Deallocation removes VM compute charges,
+not retained resources. Sources: [Azure retail API](https://prices.azure.com/api/retail/prices),
+[B-series specifications](https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/general-purpose/basv2-series)
+and [billing states](https://learn.microsoft.com/en-us/azure/virtual-machines/states-billing).
 
 ### Historical provider-managed sandbox probes
 

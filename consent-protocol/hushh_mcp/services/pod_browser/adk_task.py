@@ -17,6 +17,7 @@ from opentelemetry.instrumentation.utils import suppress_instrumentation
 
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2
 from hushh_mcp.one_adk.computer_use_agent import BrowserTaskResultV1, build_computer_use_agent
+from hushh_mcp.runtime_providers.azure_browser_adk import AzureBrowserAdkModel
 
 from .contracts import BrowserRefused
 from .control import BrowserControl
@@ -33,7 +34,7 @@ class NativeAdkBrowserModel:
     durable conversational session.
     """
 
-    def __init__(self, manifest: AgentManifestV2, model: Gemini) -> None:
+    def __init__(self, manifest: AgentManifestV2, model: Gemini | AzureBrowserAdkModel) -> None:
         self._manifest, self._model = manifest, model
         self.model_name = model.model
         self.transport = f"{type(model).__module__}.{type(model).__qualname__}"
@@ -63,6 +64,8 @@ class NativeAdkBrowserModel:
                 "google_genai.models",
                 "httpx",
                 "httpcore",
+                "openai",
+                "openai._base_client",
             )
         ):
             raise BrowserRefused("BROWSER_TELEMETRY_CONTENT_REFUSED")

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import {
   ComputerUseClient,
   type DiscoveredBrowserTask,
@@ -8,40 +10,62 @@ import {
 import { ComputerUseTaskCard } from "./computer-use-task-card";
 
 /** Rediscover existing tasks on reconnect; no default Browser launcher or idle polling. */
-export function ComputerUseActiveTasks({
-  ownerId,
-  refreshKey,
-  route,
-}: {
+type ActiveTasksProps = {
   ownerId: string;
   refreshKey: number;
   route: string;
-}) {
-  const client = useMemo(() => new ComputerUseClient(ownerId), [ownerId]);
+  getVaultOwnerToken?: () => string | null;
+};
+
+export function ComputerUseActiveTasks(props: ActiveTasksProps) {
+  const generation = snapshotValidatedAuthSessionOwner()?.generation;
+  return <OwnerBrowserTasks key={`${props.ownerId}:${generation}`} {...props} />;
+}
+
+function OwnerBrowserTasks({
+  ownerId,
+  refreshKey,
+  route,
+  getVaultOwnerToken,
+}: ActiveTasksProps) {
+  const client = useMemo(() => new ComputerUseClient(ownerId, getVaultOwnerToken), [ownerId, getVaultOwnerToken]);
   const transport = useMemo(() => client.transport(), [client]);
   const [tasks, setTasks] = useState<{
     owner: string;
     rows: DiscoveredBrowserTask[];
   }>({ owner: ownerId, rows: [] });
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
+    const owner = snapshotValidatedAuthSessionOwner();
+    if (owner?.userId !== ownerId) return;
     const request = new AbortController();
+    const current = () => !request.signal.aborted && isValidatedAuthSessionOwnerCurrent(owner);
+    setFailed(false);
     void client
       .tasks(request.signal)
       .then((rows) => {
-        if (!request.signal.aborted) setTasks({ owner: ownerId, rows });
+        if (current()) setTasks({ owner: ownerId, rows });
       })
       .catch(() => {
-        /* An unavailable pilot must not replace chat with an error or controls. */
+        if (current()) setFailed(true);
       });
     return () => request.abort();
-  }, [client, ownerId, refreshKey]);
+  }, [client, ownerId, refreshKey, retry]);
   if (tasks.owner !== ownerId) return null;
   const visible = tasks.rows.filter((task) =>
     ["running", "needs_owner", "outcome_uncertain"].includes(task.phase),
   );
-  if (!visible.length) return null;
+  // An unavailable pilot stays quiet on ordinary chat entry. Once a task was
+  // requested or observed, failed discovery must be recoverable, not disappear.
+  const showFailure = failed && (refreshKey > 0 || visible.length > 0);
+  if (!visible.length && !showFailure) return null;
   return (
     <div className="w-full min-w-0 space-y-3" aria-label="Browser tasks">
+      {showFailure && <div className="flex flex-wrap items-center gap-2 text-sm">
+        <p role="status">Couldn’t reconnect to Browser. Your task hasn’t been restarted.</p>
+        <Button variant="ghost" onClick={() => setRetry(value => value + 1)}>Try again</Button>
+      </div>}
       {visible.map((task) =>
         task.current ? (
           <ComputerUseTaskCard

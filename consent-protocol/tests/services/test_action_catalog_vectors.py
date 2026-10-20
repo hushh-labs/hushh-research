@@ -224,7 +224,9 @@ def test_the_backend_image_bakes_after_the_model_and_source_and_before_dropping_
     model = index_of("COPY --from=builder /opt/hushh/models /opt/hushh/models")
     source = index_of("COPY . .")
     bake = index_of("python -m scripts.ops.bake_action_catalog_vectors")
-    user = index_of("USER 10001")
+    # The pod's fixed entrypoint drops identities before importing the app;
+    # the shared backend still declares its non-root identity in the recipe.
+    user = index_of("ENTRYPOINT ") if recipe == "Dockerfile.pod" else index_of("USER 10001")
     assert download < model < source < bake < user
     assert lines[bake].startswith("RUN HF_HUB_OFFLINE=1 ")
     assert any("HUSHH_DRIVE_EMBEDDING_MODEL_DIR=" + BAKED_MODEL_DIR in line for line in lines)

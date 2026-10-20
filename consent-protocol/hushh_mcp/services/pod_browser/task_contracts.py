@@ -20,6 +20,7 @@ from .contracts import (
 from .control import BrowserControl
 from .information import BrowserModelProcessing, InformationField
 from .origin import public_origin
+from .review_contracts import BrowserHubReview
 
 Phase = Literal[
     "running", "needs_owner", "completed", "unavailable", "outcome_uncertain", "cancelled"
@@ -46,6 +47,7 @@ class BrowserTaskRequest(StrictContract):
 class BrowserCapability(StrictContract):
     available: bool
     code: str = Field(max_length=128)
+    public_research_only: bool = False
     remembered_sessions_available: bool = False
     owner_id: str | None = Field(default=None, max_length=256)
     pod_id: str | None = Field(default=None, max_length=256)
@@ -59,6 +61,7 @@ class BrowserReviewOffer(StrictContract):
     # Private terms are available only to the authenticated owner's review UI.
     # This object, like a screenshot, is never persisted in a task checkpoint.
     terms: dict = Field(repr=False)
+    coordination: BrowserHubReview | None = None
 
 
 class BrowserTaskSnapshot(StrictContract):
@@ -109,7 +112,15 @@ class BrowserReviewAuthorityPort(BrowserConsentPort, Protocol):
         self, binding: BrowserBinding, purpose: Purpose, private_terms: dict
     ) -> BrowserReviewOffer: ...
 
-    async def confirm_review(self, binding: BrowserBinding, review_id: str) -> None: ...
+    async def confirm_review(
+        self, binding: BrowserBinding, review_id: str, receipt: str
+    ) -> None: ...
+
+    async def refresh_review(
+        self, binding: BrowserBinding, review_id: str
+    ) -> BrowserReviewOffer: ...
+
+    async def release(self, binding: BrowserBinding) -> None: ...
 
 
 class BrowserLauncherPort(Protocol):

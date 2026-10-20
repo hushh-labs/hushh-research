@@ -90,13 +90,17 @@ async def owner_access(
         await check()
     except BrowserRefused as exc:
         raise refusal(exc) from None
-    return BrowserOwnerAccess(
+    access = BrowserOwnerAccess(
         owner_id=str(claims["user_id"]),
         pod_id=str(claims["hushh_id"]),
         incarnation=incarnation,
         expires_at=int(claims["exp"]),
         check=check,
     )
+    from hushh_mcp.services.pod_browser.composition import bind_browser_owner
+
+    await bind_browser_owner(request.app, access)
+    return access
 
 
 async def invoking(
@@ -182,6 +186,7 @@ class InputRequest(BrowserAction):
 
 class ReviewRequest(StrictContract):
     review_id: str = Field(min_length=1, max_length=128)
+    receipt: str = Field(pattern=r"^[A-Za-z0-9_-]{32,128}$", repr=False)
 
 
 class SessionRequest(StrictContract):
@@ -196,7 +201,8 @@ async def browser_capability(request: Request, owner: ObserveOwner):
     if not isinstance(installed, BrowserTaskRuntime):
         return BrowserCapability(
             available=False,
-            code="BROWSER_CLOUD_GATE_UNAVAILABLE",
+            code=getattr(request.app.state, "browser_unavailable_code", None)
+            or "BROWSER_CLOUD_GATE_UNAVAILABLE",
             owner_id=owner.owner_id,
             pod_id=owner.pod_id,
             incarnation=owner.incarnation,
@@ -280,7 +286,7 @@ async def task_input(request: Request, task_id: str, body: InputRequest, owner: 
 @router.post("/tasks/{task_id}/review", response_model=BrowserTaskSnapshot)
 async def task_review(request: Request, task_id: str, body: ReviewRequest, owner: ControlOwner):
     try:
-        return await runtime(request).confirm_review(owner, task_id, body.review_id)
+        return await runtime(request).confirm_review(owner, task_id, body.review_id, body.receipt)
     except BrowserRefused as exc:
         raise refusal(exc) from None
 

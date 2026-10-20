@@ -9,7 +9,7 @@ Both disposable cloud fixtures completed current-image automatic organization an
 preserved original bytes. Personal Dev 17 synthetic organization also reached its terminal outcome and
 preserved original bytes. Semantic move/undo has separate dated Dev 15 evidence. Normal-owner Google provisioning and
 production acceptance are not established by isolated fixtures. Read the
-[readiness memo](../quality/adk-orchestration-docs-audit.md#acceptance-matrix)
+[readiness memo](../quality/adk-orchestration-docs-audit.md#what-works--what-must-change)
 and [private-agent north star](../architecture/private-agent-north-star.md) together.
 
 ## Visual Map

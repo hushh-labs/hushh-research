@@ -1,8 +1,8 @@
-"""Sandbox-only Chromium executor. It is never a pod-side fallback.
+"""Chromium executor inside the pod's qualified, isolated Browser process.
 
-The component image contains this package only. All network goes through the
-broker port; Cloud Run sandbox deny-egress (or verified Azure policy) is the
-independent backstop. Installing Playwright on the core pod does not enable it.
+All network goes through the broker port; the inherited process restrictions
+independently deny direct sockets and access to agent state. Chromium's own
+sandbox stays enabled. Packaging Playwright alone does not enable Browser.
 """
 
 from __future__ import annotations

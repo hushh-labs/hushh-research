@@ -157,7 +157,7 @@ discovery paths; document the checkpointed refresh boundary and test fresh disco
   readiness memo and release transition. Folder cleanup is not product readiness.
   Its [Shared defaults and UX](./personal-agent/NORMAL-RELEASE-TRANSITION.md#shared-defaults-and-unavailable-state-copy)
   define unavailable actions without blocking supported Shared journeys. Its
-  [native Browser completion sequence](./personal-agent/NORMAL-RELEASE-TRANSITION.md#5-complete-native-browser-independently-on-gcp-and-azure)
+  [built-in Browser completion sequence](./personal-agent/NORMAL-RELEASE-TRANSITION.md#5-complete-built-in-browser-independently-on-gcp-and-azure)
   requires separate GCP and Azure execution, responsive control and lifecycle proof;
   both remain unavailable until their own evidence passes.
 

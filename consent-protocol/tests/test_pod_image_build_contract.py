@@ -284,15 +284,49 @@ def test_the_pod_runs_exactly_one_worker():
     answered. Anything the hub sealed to that key had a coin-flip chance of being
     unreadable by the worker serving the next turn.
 
-    Asserted against the Dockerfile rather than against a constant this file also
-    owns, because a test that restates the value it guards agrees with the bug for
-    exactly as long as both are wrong together.
+    Execute the image's fixed bootstrap with its OS effects captured. This
+    verifies the worker arguments and identity drop at the real exec boundary.
     """
-    dockerfile = (REPO_ROOT / "consent-protocol" / "Dockerfile.pod").read_text(encoding="utf-8")
-    command = next(line for line in dockerfile.splitlines() if line.startswith("CMD"))
+    import json
+    import runpy
+    from types import SimpleNamespace
 
-    assert " -w 1 " in command, f"pod must run exactly one worker; got: {command}"
-    assert " -w 2 " not in command
+    dockerfile = (REPO_ROOT / "consent-protocol" / "Dockerfile.pod").read_text(encoding="utf-8")
+    entry = json.loads(
+        next(line[11:] for line in dockerfile.splitlines() if line.startswith("ENTRYPOINT "))
+    )
+    assert entry == ["/usr/local/bin/python", "-I", "-S", "/opt/browser/pod_entrypoint.py"]
+    bootstrap = runpy.run_path(
+        str(REPO_ROOT / "consent-protocol/browser_runtime/pod_entrypoint.py")
+    )
+    effects = []
+
+    class Executed(Exception):
+        pass
+
+    def execute(path, arguments, environment):
+        effects.append(("exec", path, arguments, environment))
+        raise Executed()
+
+    bootstrap["main"].__globals__.update(
+        os=SimpleNamespace(
+            geteuid=lambda: 0,
+            umask=lambda value: effects.append(("umask", value)),
+            environ={"PORT": "8080"},
+            chdir=lambda path: effects.append(("cwd", path)),
+            execve=execute,
+        ),
+        sys=SimpleNamespace(platform="linux", argv=["pod_entrypoint.py"]),
+        drop=lambda identity: effects.append(("drop", identity)),
+    )
+    with pytest.raises(Executed):
+        bootstrap["main"]()
+    assert effects[0:2] == [("umask", 0o077), ("drop", 10001)]
+    _, executable, arguments, environment = effects[-1]
+    assert executable == "/opt/venv/bin/gunicorn"
+    assert arguments[arguments.index("-w") + 1] == "1"
+    assert "--preload" not in arguments
+    assert "HUSSH_BROWSER_LAUNCH_FD" not in environment
 
 
 # --- the hub's own readiness must not lie either -------------------------------------

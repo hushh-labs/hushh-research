@@ -131,6 +131,11 @@ class BrowserAction(StrictContract):
             optional = {"x", "y"}
             if (self.x is None) != (self.y is None):
                 raise ValueError("Both scroll coordinates are required")
+        if self.operation == "type" and self.focus_existing:
+            required = {"text"}
+            optional |= {"x", "y"}
+            if (self.x is None) != (self.y is None):
+                raise ValueError("Both typing coordinates are required when supplied")
         supplied = self.model_fields_set - {"operation", "sequence", "control_epoch"}
         if not required <= supplied or supplied - required - optional:
             raise ValueError("Invalid browser action arguments")

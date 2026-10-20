@@ -30,7 +30,7 @@ def owner_review(offer: BrowserReviewOffer) -> BrowserReviewOffer:
             for origin in state.get("origins", [])
             if isinstance(origin, dict)
         )
-    return BrowserReviewOffer(review_id=offer.review_id, purpose=offer.purpose, terms=terms)
+    return offer.model_copy(update={"terms": terms})
 
 
 class TaskConsent(BrowserConsentPort):
@@ -42,6 +42,7 @@ class TaskConsent(BrowserConsentPort):
         pending: Callable[[BrowserReviewOffer], None],
         clock: Callable[[], float] = time.time,
         check_runtime: Callable[[], Awaitable[None]] | None = None,
+        wait_for_review: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._binding, self._access, self._reviews, self._pending = (
             binding,
@@ -51,6 +52,7 @@ class TaskConsent(BrowserConsentPort):
         )
         self._clock = clock
         self._check_runtime = check_runtime
+        self._wait_for_review = wait_for_review
 
     async def check_binding(self, binding: BrowserBinding) -> None:
         if binding != self._binding or binding.expires_at <= self._clock():
@@ -74,7 +76,14 @@ class TaskConsent(BrowserConsentPort):
             if offer.purpose != purpose:
                 raise BrowserRefused("BROWSER_REVIEW_INVALID")
             self._pending(owner_review(offer))
-            raise
+            if purpose != "provider_safety" or self._wait_for_review is None:
+                raise
+            # Keep the exact native invocation paused in this bounded task.
+            # A confirmation wakes this stack, not a new interpretation of the
+            # goal. Takeover, stop, expiry and drain cancel the waiting worker.
+            await self._wait_for_review()
+            await self.check_binding(binding)
+            await self._reviews.require(binding, purpose, private_terms)
         await self.check_binding(binding)
 
 

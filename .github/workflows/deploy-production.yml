@@ -150,6 +150,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/release-tools"
+          cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
           # The deployment SHA may predate this verifier; always use main's.
@@ -341,6 +342,15 @@ jobs:
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
             --github-output "$GITHUB_OUTPUT" \
             --json
+
+      - name: Require exact-SHA UAT acceptance
+        id: predecessor-acceptance
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
+            --environment uat --sha "${{ github.event.inputs.sha }}" \
+            --scope "${{ steps.scope.outputs.scope }}" --output /tmp/prod-predecessor-acceptance.json
 
       - name: Verify production personal Gmail monitor identity
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -2174,6 +2184,10 @@ jobs:
                   "drive_jobs": "${{ steps.rollback-paused-drive-worker.outcome }}",
               },
           }
+          predecessor = Path("/tmp/prod-predecessor-acceptance.json")
+          payload["predecessor_acceptance"] = (
+              json.loads(predecessor.read_text(encoding="utf-8")) if predecessor.exists() else None
+          )
           Path("/tmp/prod-release-status.json").write_text(
               json.dumps(payload, indent=2), encoding="utf-8"
           )
@@ -2207,6 +2221,7 @@ jobs:
           name: prod-release-${{ github.run_id }}
           if-no-files-found: error
           path: |
+            /tmp/prod-predecessor-acceptance.json
             /tmp/prod-runtime-secret-sync.json
             /tmp/prod-frontend-runtime-secret-sync.json
             /tmp/prod-runtime-parity.json

@@ -1,6 +1,10 @@
 import { ApiService } from "./api-service";
 import { AuthService } from "./auth-service";
 import {
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+} from "@/lib/auth/session-owner";
+import {
   createDirectComputerUseTransport,
   parseComputerUseSnapshot,
   readComputerUseJson,
@@ -53,7 +57,21 @@ export class ComputerUseClient {
   private available = false;
   private incarnation: string | null = null;
 
-  constructor(private readonly ownerId: string) {}
+  private readonly receipts = new Map<string, string>();
+  private readonly ownerSession = snapshotValidatedAuthSessionOwner();
+
+  constructor(
+    private readonly ownerId: string,
+    private readonly getVaultOwnerToken: () => string | null = () => null,
+  ) {}
+
+  private isCurrent = (): boolean => {
+    const current = this.ownerSession?.userId === this.ownerId
+      && isValidatedAuthSessionOwnerCurrent(this.ownerSession)
+      && AuthService.getCurrentUser()?.uid === this.ownerId;
+    if (!current) this.receipts.clear();
+    return current;
+  };
 
   private request = async (
     path: string,
@@ -62,7 +80,7 @@ export class ComputerUseClient {
     const admission = this.admission;
     if (
       !admission ||
-      AuthService.getCurrentUser()?.uid !== this.ownerId ||
+      !this.isCurrent() ||
       admission.ownerId !== this.ownerId ||
       !path.startsWith("/api/one/pod/browser/")
     )
@@ -73,8 +91,9 @@ export class ComputerUseClient {
       false,
       undefined,
       admission.podId,
+      this.isCurrent,
     );
-    if (AuthService.getCurrentUser()?.uid !== this.ownerId)
+    if (!this.isCurrent())
       throw new Error("BROWSER_OWNER_CHANGED");
     return response;
   };
@@ -150,10 +169,11 @@ export class ComputerUseClient {
   private async readCapability(
     signal: AbortSignal,
   ): Promise<ComputerUseCapability> {
+    if (!this.isCurrent()) throw new Error("BROWSER_OWNER_UNAVAILABLE");
     this.available = false;
     this.incarnation = null;
     const admission = await ApiService.getComputerUseAdmission(signal);
-    if (signal.aborted) throw new Error("BROWSER_REQUEST_CANCELLED");
+    if (signal.aborted || !this.isCurrent()) throw new Error("BROWSER_REQUEST_CANCELLED");
     this.admission = admission;
     if (!admission || !["dev", "development"].includes(admission.environment)) {
       this.admission = null;
@@ -252,6 +272,72 @@ export class ComputerUseClient {
   }
 
   transport(): ComputerUseTransport {
-    return createDirectComputerUseTransport(this.request);
+    return createDirectComputerUseTransport(this.request, (binding, reviewId, signal) =>
+      boundedOwnerRequest(signal, request => this.confirmReview(binding, reviewId, request)),
+    );
   }
+
+  private async confirmReview(binding: ComputerUseBinding, reviewId: string, signal: AbortSignal): Promise<string> {
+    if (binding.ownerId !== this.ownerId || binding.podId !== this.admission?.podId
+      || binding.incarnation !== this.incarnation || !/^dir_[a-f0-9]{32}$/.test(reviewId)) {
+      throw new Error("BROWSER_REVIEW_CHANGED");
+    }
+    const token = this.getVaultOwnerToken();
+    if (!token || !this.isCurrent()) throw new Error("BROWSER_OWNER_UNAVAILABLE");
+    const response = await this.request(`/api/one/pod/browser/tasks/${encodeURIComponent(binding.taskId)}`, {
+      signal, cache: "no-store", headers: { "X-Browser-Pod-Incarnation": binding.incarnation },
+    });
+    const body = await readComputerUseJson(response) as { review?: { review_id?: unknown; purpose?: unknown; coordination?: unknown } };
+    const snapshot = parseComputerUseSnapshot(body, binding);
+    if (snapshot.review?.id !== reviewId || body.review?.review_id !== reviewId) throw new Error("BROWSER_REVIEW_CHANGED");
+    const review = browserCoordination(body.review.coordination, binding, body.review.purpose);
+    // Retain only the receipt in memory so a lost pod response can validate the
+    // same consumption. Never send another owner confirmation automatically.
+    if (signal.aborted || this.getVaultOwnerToken() !== token || !this.isCurrent()) {
+      throw new Error("BROWSER_OWNER_CHANGED");
+    }
+    const cached = this.receipts.get(reviewId);
+    if (cached) return cached;
+    if (this.receipts.size >= 256) throw new Error("BROWSER_REVIEW_LIMIT");
+    const confirmed = await ApiService.apiFetch("/api/one/pod/browser-approval/confirm", {
+      method: "POST", signal, cache: "no-store",
+      isEffectCurrent: () => this.isCurrent() && this.getVaultOwnerToken() === token && !signal.aborted,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ review, directive_id: reviewId, confirmed: true }),
+    });
+    const result = await readComputerUseJson(confirmed) as { status?: unknown; directive_id?: unknown; receipt?: unknown };
+    if (signal.aborted || this.getVaultOwnerToken() !== token || !this.isCurrent()
+      || result.status !== "confirmed" || result.directive_id !== reviewId
+      || typeof result.receipt !== "string" || !/^[A-Za-z0-9_-]{32,128}$/.test(result.receipt)) {
+      throw new Error("BROWSER_CONFIRMATION_UNVERIFIED");
+    }
+    this.receipts.set(reviewId, result.receipt);
+    return result.receipt;
+  }
+}
+
+/** Project metadata explicitly: a compromised response cannot upload private terms to the hub. */
+function browserCoordination(value: unknown, binding: ComputerUseBinding, purpose: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("BROWSER_REVIEW_CHANGED");
+  const source = value as Record<string, unknown>;
+  const selected = source.binding as Record<string, unknown> | undefined;
+  if (!selected || typeof selected !== "object" || Array.isArray(selected)
+    || selected.owner_id !== binding.ownerId || selected.pod_id !== binding.podId
+    || selected.task_id !== binding.taskId || selected.incarnation !== binding.incarnation
+    || selected.environment !== "development" || !Number.isSafeInteger(selected.expires_at)
+    || (selected.expires_at as number) <= Date.now() / 1000
+    || source.purpose !== purpose || !["model_process", "disclose", "session_remember", "session_restore", "provider_safety"].includes(String(purpose))
+    || typeof source.commitment !== "string" || !/^[a-f0-9]{64}$/.test(source.commitment)
+    || !["dev", "development"].includes(String(source.environment))
+    || typeof source.pod_key_id !== "string" || !source.pod_key_id || source.pod_key_id.length > 128
+    || typeof source.service_uid !== "string" || !source.service_uid || source.service_uid.length > 256
+    || !Number.isSafeInteger(source.epoch) || (source.epoch as number) < 1) {
+    throw new Error("BROWSER_REVIEW_CHANGED");
+  }
+  return {
+    binding: { owner_id: binding.ownerId, pod_id: binding.podId, task_id: binding.taskId,
+      incarnation: binding.incarnation, environment: "development", expires_at: selected.expires_at },
+    purpose, commitment: source.commitment, pod_key_id: source.pod_key_id,
+    environment: source.environment, epoch: source.epoch, service_uid: source.service_uid,
+  };
 }

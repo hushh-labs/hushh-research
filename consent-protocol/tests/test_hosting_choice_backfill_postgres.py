@@ -30,6 +30,18 @@ MIGRATION = Path(__file__).resolve().parents[1] / "db/migrations/parked/955_one_
 CONTINUITY = MIGRATION.with_name("958_one_shared_legacy_continuity.sql")
 RELEASE_CHOICE = MIGRATION.parent.parent / "402_one_shared_hosting_choice.sql"
 RELEASE_DOWN = MIGRATION.parent.parent / "rollback/402_one_shared_hosting_choice.rollback.sql"
+CORRECTION = MIGRATION.with_name("965_one_inferred_shared_correction.sql")
+RESOURCE_FIELDS = (
+    "pod_signing_pubkey",
+    "pod_signing_key_id",
+    "user_cloud_project",
+    "user_cloud_region",
+    "user_cloud_bootstrap_sa",
+    "user_cloud_authorized_at",
+    "user_cloud_tenant_id",
+    "user_cloud_subscription_id",
+    "user_cloud_resource_group",
+)
 
 #: The minimum neighbours 955 reads; columns match migrations 029, 900, 906 and 909.
 _SCHEMA = """
@@ -323,3 +335,67 @@ def test_canonical_reader_and_continuity_sequence_preserves_placements_and_repla
     pg.apply_file(foundation)
     pg.apply_file(continuity)
     assert _choices(pg)["later"] is None and _choices(pg)["unfinished"] is None
+
+
+@pytest.mark.parametrize("canonical", [False, True])
+def test_retained_cloud_authority_never_becomes_inferred_shared(pg, canonical):
+    for field in RESOURCE_FIELDS:
+        # Fields added after the canonical foundation are intentionally optional.
+        kind = "TIMESTAMPTZ" if field.endswith("_at") else "TEXT"
+        pg.execute(f"ALTER TABLE personal_agent_registry ADD COLUMN {field} {kind}")
+        for prefix in ("inferred", "explicit"):
+            uid = f"{prefix}-{field}"
+            _person(pg, uid, None, registry=(None, {}))
+            value = "2026-01-01" if field.endswith("_at") else "retained"
+            pg.execute(
+                f"UPDATE personal_agent_registry SET {field}=%s WHERE user_id=%s", (value, uid)
+            )
+    _person(pg, "clear", None)
+    _person(pg, "pending", None)
+    pg.execute("UPDATE vault_keys SET setup_completed=TRUE")
+    pg.apply_file(RELEASE_CHOICE)
+    pg.execute(
+        "UPDATE vault_keys SET one_hosting_choice='shared',one_hosting_choice_at='2026-01-01' "
+        "WHERE user_id LIKE 'explicit-%'"
+    )
+    pg.apply_file(
+        MIGRATION.parent.parent / "405_one_legacy_shared_continuity.sql"
+        if canonical
+        else CONTINUITY
+    )
+    # Reproduce 958's bug on the real applied SQL, then repair only that cohort.
+    if not canonical:
+        assert all(_choices(pg)[f"inferred-{field}"] == "shared" for field in RESOURCE_FIELDS)
+        pg.execute("INSERT INTO byoc_setup_jobs (user_id,stage) VALUES ('pending','starting')")
+        _person(pg, "late-explicit", None, registry=(None, {}))
+        pg.execute(
+            "UPDATE personal_agent_registry SET user_cloud_project='retained' WHERE user_id='late-explicit'"
+        )
+        pg.execute(
+            "UPDATE vault_keys SET one_hosting_choice='shared',one_hosting_choice_at='2026-02-01',"
+            "one_hosting_legacy_shared_at='2026-01-01' WHERE user_id='late-explicit'"
+        )
+        before = pg.execute(
+            "SELECT user_id,one_hosting_legacy_shared_at FROM vault_keys ORDER BY user_id"
+        )
+        pg.apply_file(CORRECTION)
+        assert (
+            pg.execute(
+                "SELECT user_id,one_hosting_legacy_shared_at FROM vault_keys ORDER BY user_id"
+            )
+            == before
+        )
+        assert _choices(pg)["pending"] is None
+        assert _choices(pg)["late-explicit"] == "shared"
+    choices = _choices(pg)
+    assert choices["clear"] == "shared"
+    for field in RESOURCE_FIELDS:
+        assert choices[f"inferred-{field}"] is None
+        assert choices[f"explicit-{field}"] == "shared"
+    registry = pg.execute("SELECT * FROM personal_agent_registry ORDER BY user_id")
+    _person(pg, "new-owner", None)
+    pg.execute("UPDATE vault_keys SET setup_completed=TRUE")
+    pg.apply_file(CORRECTION)
+    assert _choices(pg)["new-owner"] is None
+    assert {k: v for k, v in _choices(pg).items() if k != "new-owner"} == choices
+    assert pg.execute("SELECT * FROM personal_agent_registry ORDER BY user_id") == registry

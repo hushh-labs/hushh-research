@@ -1,8 +1,67 @@
 vi.mock("@/components/wallet/wallet-entry-warmup", () => ({ WalletEntryWarmup: () => null }));
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
+import { ScheduledTasksPanel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+
+const schedule = vi.hoisted(() => ({
+  owner: "owner",
+  hosting: vi.fn(),
+  status: vi.fn(),
+}));
+vi.mock("@/lib/services/api-service", () => ({
+  ApiService: { getPersonalAgentStatus: schedule.hosting },
+}));
+vi.mock("@/lib/services/auth-service", () => ({
+  AuthService: { getCurrentUser: () => ({ uid: schedule.owner }) },
+}));
+vi.mock("@/lib/services/pod-scheduled-tasks", () => ({
+  PodScheduledTasksClient: class {
+    status = schedule.status;
+  },
+}));
+vi.mock("@/lib/navigation/back-layers", () => ({ useBackLayer: () => undefined }));
+
+describe("Scheduled tasks placement", () => {
+  beforeEach(() => {
+    schedule.owner = "owner";
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner(schedule.owner);
+    schedule.hosting.mockReset();
+    schedule.status.mockReset();
+    schedule.status.mockResolvedValue({ available: true, tasks: [] });
+  });
+  it("explains the Shared limit without admitting or waking a pod", async () => {
+    schedule.hosting.mockResolvedValue({ hostingMode: "shared" });
+    render(<ScheduledTasksPanel ownerId="owner" />);
+    expect(schedule.hosting).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Scheduled tasks" }));
+    await screen.findByText("Scheduled tasks need a private agent.");
+    expect(schedule.status).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "Hosting" })).toHaveAttribute("href", "/one/profile/hosting");
+  });
+  it.each(["byoc", "hussh_pods"])("leaves %s pod availability to existing admission", async (hostingMode) => {
+    schedule.hosting.mockResolvedValue({ hostingMode });
+    render(<ScheduledTasksPanel ownerId="owner" />);
+    fireEvent.click(screen.getByRole("button", { name: "Scheduled tasks" }));
+    await screen.findByText(/No scheduled tasks/);
+    expect(schedule.status).toHaveBeenCalledTimes(1);
+  });
+  it("does not admit a pod from a delayed previous-owner response", async () => {
+    let settle!: (value: object) => void;
+    schedule.hosting.mockImplementation(() => new Promise(resolve => { settle = resolve; }));
+    const view = render(<ScheduledTasksPanel ownerId="owner" />);
+    fireEvent.click(screen.getByRole("button", { name: "Scheduled tasks" }));
+    schedule.owner = "next-owner";
+    publishValidatedAuthSessionOwner(schedule.owner);
+    view.rerender(<ScheduledTasksPanel ownerId="next-owner" />);
+    await act(async () => { settle({ hostingMode: "byoc", hushhId: "old-pod" }); });
+    expect(schedule.status).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
 
 // The dashboard renders the live agent-presence chip, which reaches for VaultProvider,
 // the Next.js router, and best-effort pod-status polling. This suite asserts nothing

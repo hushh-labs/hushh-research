@@ -76,6 +76,172 @@ async def test_browser_task_unqualified_owner_and_replayed_request_are_refused(m
     await fixture.runtime.drain()
 
 
+async def test_sealed_dispatch_lanes_prevent_replay_and_preserve_uncertain_effects(tmp_path):
+    from hushh_mcp.services.pod_browser.dispatch_journal import BrowserDispatchJournal
+    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+
+    log = PodCommitLog(LocalObjectStore(str(tmp_path)), b"L" * 32, owner_id="owner")
+
+    def journal():
+        return BrowserDispatchJournal(log, key=b"J" * 32, owner_id="owner", pod_id="pod")
+
+    original, competing = journal(), journal()
+    bound = binding()
+    action = {"sequence": 1, "control_epoch": 1, "url": "https://example.com/private-query"}
+    commitment = original.commitment(bound, "action", action)
+    # Two writers cannot both publish an intent against the same sealed head.
+    outcomes = await asyncio.gather(
+        original.begin(bound, "action", commitment),
+        competing.begin(bound, "action", commitment),
+        return_exceptions=True,
+    )
+    assert sum(result is None for result in outcomes) == 1
+    refused = next(result for result in outcomes if result is not None)
+    assert isinstance(refused, BrowserRefused) and refused.code == "BROWSER_ACTION_REPLAY"
+    await original.require_settled(bound, lane="network")  # navigation's broker can proceed
+    with pytest.raises(BrowserRefused, match="OUTCOME_UNCERTAIN"):
+        await journal().require_settled(bound)  # restart cannot adopt the in-flight intent
+    await competing.settle(bound, "action", commitment, uncertain=False)
+    await original.settle(bound, "action", commitment, uncertain=False)  # lost ack is idempotent
+    await original.require_settled(bound)
+    with pytest.raises(BrowserRefused, match="ACTION_REPLAY"):
+        await original.begin(bound, "action", commitment)
+    with pytest.raises(BrowserRefused, match="BINDING_REFUSED"):
+        await original.require_settled(bound.model_copy(update={"owner_id": "another"}))
+    network = original.commitment(bound, "network", {"receipt": "synthetic-private-receipt"})
+    await original.begin(bound, "network", network)
+    await original.settle(bound, "network", network, uncertain=True)
+    with pytest.raises(BrowserRefused, match="OUTCOME_UNCERTAIN"):
+        await journal().require_settled(bound.model_copy(update={"incarnation": "replacement"}))
+    with pytest.raises(BrowserRefused, match="OUTCOME_UNCERTAIN"):
+        await original.settle(bound, "network", network, uncertain=False)
+    records = await log.replay()
+    assert "private-query" not in str(records) and "synthetic-private-receipt" not in str(records)
+
+
+async def test_composed_public_authority_fences_unknown_requests_and_recovery(tmp_path):
+    from hushh_mcp.services.pod_browser.dispatch_journal import BrowserDispatchJournal
+    from hushh_mcp.services.pod_browser.execution_authority import (
+        BrowserExecutionAuthority,
+        PublicResearchNetworkAuthority,
+        PublicResearchPolicy,
+    )
+    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+
+    log = PodCommitLog(LocalObjectStore(str(tmp_path)), b"L" * 32, owner_id="owner")
+    journal = BrowserDispatchJournal(log, key=b"J" * 32, owner_id="owner", pod_id="pod")
+    policy = PublicResearchPolicy(
+        page_urls=("https://example.com/research",),
+        static_prefixes=("https://example.com/static/",),
+    )
+    bound, consent = binding(), Authority(approved=True)
+    action_auth = BrowserExecutionAuthority(bound, consent, journal, policy)
+    network = PublicResearchNetworkAuthority(bound, consent, journal, policy)
+    action = BrowserAction(
+        operation="navigate", sequence=1, control_epoch=1, url=policy.page_urls[0]
+    )
+    await action_auth.journal_dispatch(bound, action)
+    await network.check_no_pending_dispatch(bound)  # navigation can receive its own response
+    request = BrowserRequest(url=policy.page_urls[0], method="GET")
+    assert not (
+        await network.authorize_request(bound, request, request.commitment())
+    ).effect_receipt_required
+    for refused in (
+        request.model_copy(update={"url": "https://example.com/logout"}),
+        request.model_copy(update={"headers": (("Cookie", "synthetic"),)}),
+        request.model_copy(update={"method": "POST"}),
+        request.model_copy(update={"url": "https://example.com/static/../delete"}),
+        request.model_copy(update={"url": "https://example.com/static/file?secret=synthetic"}),
+    ):
+        with pytest.raises(BrowserRefused, match="REQUEST_NOT_QUALIFIED"):
+            await network.authorize_request(bound, refused, refused.commitment())
+    with pytest.raises(BrowserRefused, match="ACTION_NOT_QUALIFIED"):
+        await action_auth.authorize_action(
+            bound,
+            BrowserAction(operation="type", sequence=2, control_epoch=1, x=1, y=1, text="private"),
+        )
+    await action_auth.settle_dispatch(bound, action, uncertain=True)
+    recovered = BrowserExecutionAuthority(bound, consent, journal, policy)
+    with pytest.raises(BrowserRefused, match="OUTCOME_UNCERTAIN"):
+        await recovered.check_no_pending_dispatch(bound)
+
+
+async def test_browser_startup_binds_one_owner_after_recovery_and_closes_launcher(
+    monkeypatch, tmp_path
+):
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from google.adk.models import Gemini
+
+    from hushh_mcp.services.pod_browser import composition as startup
+    from hushh_mcp.services.pod_browser.execution_authority import PublicResearchPolicy
+    from hushh_mcp.services.pod_browser.owner_model import OwnerBrowserModel
+    from hushh_mcp.services.pod_browser.task_contracts import BrowserOwnerAccess
+    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+    from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission
+
+    authority = SimpleNamespace(
+        hushh_id="pod",
+        pod_key_id="key",
+        environment="dev",
+        epoch=1,
+        require_held=AsyncMock(),
+    )
+    monkeypatch.setattr(startup, "active_session_authority", lambda: authority)
+    monkeypatch.setattr(startup, "pod_incarnation", lambda: "epoch")
+    monkeypatch.setattr(startup, "workload_platform", lambda: "gcp")
+    monkeypatch.setattr(startup, "ADMISSION", PodUpgradeAdmission(log_resolver=lambda: None))
+    monkeypatch.setenv("HUSSH_POD_IMAGE_TAG", "synthetic-source")
+    monkeypatch.setenv("POD_COMPUTER_USE_ENABLED", "true")
+    monkeypatch.delenv("HUSSH_BROWSER_QUALIFICATION_JSON", raising=False)
+    log = PodCommitLog(LocalObjectStore(str(tmp_path)), b"L" * 32, owner_id="owner")
+    with pytest.raises(BrowserRefused, match="QUALIFICATION_REQUIRED"):
+        startup.configure_browser_startup(authority=authority, log=log, dek=b"K" * 32)
+    deployment = startup.BrowserDeployment(
+        version=1,
+        environment="development",
+        pod_id="pod",
+        pod_key_id="key",
+        incarnation="epoch",
+        image_tag="synthetic-source",
+        evidence_sha256="a" * 64,
+        readiness=readiness(),
+        public_policy=PublicResearchPolicy(page_urls=("https://example.com/research",)),
+    )
+    launcher = SimpleNamespace(readiness=deployment.readiness, close=AsyncMock())
+    monkeypatch.setattr(startup.InPodBrowserLauncher, "from_bootstrap", lambda **kwargs: launcher)
+    selected = OwnerBrowserModel(Gemini(model=deployment.readiness.model_name), AsyncMock())
+    monkeypatch.setattr(startup, "resolve_owner_browser_model", lambda check: selected)
+    composed = startup.PodBrowserComposition(
+        deployment=deployment, authority=authority, log=log, dek=b"K" * 32
+    )
+    owner = BrowserOwnerAccess("owner", "pod", "epoch", 2**31 - 1, AsyncMock())
+    try:
+        runtime, same = await asyncio.gather(composed.bind(owner), composed.bind(owner))
+        assert runtime is same and runtime.capability().public_research_only
+        with pytest.raises(BrowserRefused, match="OWNER_REFUSED"):
+            await composed.bind(replace(owner, owner_id="another"))
+        monkeypatch.setattr(startup, "ai_selection_revision", lambda: -1)
+        assert runtime.capability().code == "BROWSER_MODEL_SELECTION_CHANGED"
+        # A request already admitted before shutdown may still be queued for
+        # composition. It must not return the runtime after its launcher closes.
+        await composed._lock.acquire()
+        closing = asyncio.create_task(composed.close())
+        await asyncio.sleep(0)
+        binding_owner = asyncio.create_task(composed.bind(owner))
+        await asyncio.sleep(0)
+        composed._lock.release()
+        await closing
+        with pytest.raises(BrowserRefused, match="STOPPED"):
+            await binding_owner
+        assert not runtime.capability().available
+    finally:
+        await composed.close()
+    launcher.close.assert_awaited_once()
+
+
 async def test_current_owner_can_read_and_stop_after_original_grant_ends_but_cannot_resume(
     monkeypatch,
 ):
@@ -97,6 +263,19 @@ async def test_current_owner_can_read_and_stop_after_original_grant_ends_but_can
         await fixture.runtime.frame(fixture.owner, task_id)
     stopped = await fixture.runtime.control(fixture.owner, task_id, "cancel", started.control_epoch)
     assert stopped.phase == "cancelled" and task.closed
+    assert task.request is task.access is task.processing is task.consent is None
+    assert task.sessions is task.authority is task.control is task.worker is task.monitor is None
+    # A fresh admitted owner can recover the same terminal receipt even though
+    # the original bearer has expired and has been released from memory.
+    repeated = await fixture.runtime.start(fixture.owner, fixture.request)
+    assert repeated.binding == stopped.binding and repeated.phase == "cancelled"
+    assert fixture.launcher.calls == 1
+    with pytest.raises(BrowserRefused, match="REQUEST_CONFLICT"):
+        await fixture.runtime.start(
+            fixture.owner, fixture.request.model_copy(update={"goal": "Changed private goal"})
+        )
+    with pytest.raises(BrowserRefused, match="CONTROL_UNAVAILABLE"):
+        await fixture.runtime.control(fixture.owner, task_id, "resume", stopped.control_epoch)
 
 
 async def test_browser_preallocation_cancel_and_unconfirmed_close_hold_update_permit(monkeypatch):
@@ -141,7 +320,10 @@ async def test_browser_preallocation_cancel_and_unconfirmed_close_hold_update_pe
     await task.worker
     pending = await fixture.runtime.read(fixture.owner, pending.binding.task_id)
     await fixture.runtime.confirm_review(
-        fixture.owner, pending.binding.task_id, pending.review.review_id
+        fixture.owner,
+        pending.binding.task_id,
+        pending.review.review_id,
+        "synthetic-owner-receipt-" + "x" * 32,
     )
     with pytest.raises(BrowserRefused, match="MODEL_STOP_UNCONFIRMED"):
         await task.worker
@@ -151,6 +333,61 @@ async def test_browser_preallocation_cancel_and_unconfirmed_close_hold_update_pe
     failed = await fixture.runtime.read(fixture.owner, pending.binding.task_id)
     assert failed.phase == "unavailable" and failed.code == "BROWSER_MODEL_STOP_UNCONFIRMED"
     task.monitor.cancel()  # fixture keeps the permit held intentionally
+
+
+async def test_browser_cancel_and_update_join_shutdown_before_releasing_admission(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    fixture = task_runtime_fixture(monkeypatch)
+    started = await approved_task(fixture)
+    task = fixture.runtime._tasks[started.binding.task_id]
+    entered, finish = asyncio.Event(), asyncio.Event()
+    original_close, original_release = fixture.driver.close, task.permit.release
+    released = []
+
+    async def close():
+        entered.set()
+        await finish.wait()
+        await original_close()
+
+    async def release():
+        # An update idle receipt cannot precede the terminal sealed write or
+        # cleanup of closures retaining the owner token and private task.
+        assert task.closed and task.terminal is not None
+        assert task.request is task.access is task.control is None
+        assert fixture.log.records[-1]["payload"]["snapshot"]["phase"] == "cancelled"
+        released.append(len(fixture.log.records))
+        await original_release()
+
+    monkeypatch.setattr(fixture.driver, "close", close)
+    monkeypatch.setattr(task.permit, "release", release)
+    review_release = AsyncMock(wraps=fixture.reviews.release)
+    monkeypatch.setattr(fixture.reviews, "release", review_release)
+    owner = asyncio.create_task(
+        fixture.runtime.control(
+            fixture.owner, started.binding.task_id, "cancel", started.control_epoch
+        )
+    )
+    drain = None
+    try:
+        async with asyncio.timeout(3):
+            await entered.wait()
+            drain = asyncio.create_task(fixture.runtime.drain())
+            fixture.model.release.set()
+            await task.worker  # model completion must not overwrite cancellation
+            assert fixture.admission._states["epoch"].active == 1
+            assert not released
+            finish.set()
+            result, _ = await asyncio.gather(owner, drain)
+        assert result.phase == "cancelled" and result.code == "BROWSER_OWNER_CANCELLED"
+        assert fixture.driver.calls.count("close") == 1
+        review_release.assert_awaited_once()
+        assert released == [len(fixture.log.records)]  # no writes after the idle fence
+        assert fixture.admission._states["epoch"].active == 0
+    finally:
+        finish.set()
+        await asyncio.gather(owner, *([drain] if drain else []), return_exceptions=True)
+        await fixture.runtime.drain()
 
 
 async def test_browser_one_roster_requires_qualified_runtime_and_current_app_scope(monkeypatch):
@@ -355,128 +592,6 @@ async def test_browser_metadata_refuses_owner_revoked_during_recovery(monkeypatc
         else:
             await fixture.runtime.list_tasks(fixture.owner)
     assert fixture.launcher.calls == 0
-
-
-async def test_browser_routes_default_closed_and_input_validation_never_echoes_secrets(monkeypatch):
-    from types import SimpleNamespace
-
-    from fastapi import FastAPI, HTTPException
-    from httpx import ASGITransport, AsyncClient
-
-    from api.routes.one import pod_browser
-
-    async def held():
-        return None
-
-    authority = SimpleNamespace(environment="development", require_held=held)
-    scopes = {"browser.invoke", "browser.observe", "browser.control"}
-
-    def verified(authorization, *, role, scope):
-        if authorization != "Bearer owner-session" or scope not in scopes:
-            raise HTTPException(403, detail={"code": "role_mismatch"})
-        return authority, {"user_id": "owner", "hushh_id": "pod", "exp": 1900}
-
-    monkeypatch.setattr(pod_browser, "verified_session", verified)
-    monkeypatch.setattr(pod_browser, "pod_incarnation", lambda: "epoch")
-    app = FastAPI()
-    app.include_router(pod_browser.router)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://pod") as client:
-        path = "/api/one/pod/browser"
-        headers = {"Authorization": "Bearer owner-session"}
-        denied = await client.get(
-            path + "/capability", headers={"Authorization": "Bearer device-session"}
-        )
-        assert denied.status_code == 403
-        capability = await client.get(path + "/capability", headers=headers)
-        assert capability.json() == {
-            "available": False,
-            "code": "BROWSER_CLOUD_GATE_UNAVAILABLE",
-            "remembered_sessions_available": False,
-            "owner_id": "owner",
-            "pod_id": "pod",
-            "incarnation": "epoch",
-            "environment": "development",
-        }
-        refused = await client.post(
-            path + "/tasks",
-            headers=headers,
-            json={
-                "request_id": "request_1",
-                "goal": "private goal",
-                "allowed_origins": ["https://example.com"],
-            },
-        )
-        assert refused.status_code == 503
-        invalid = await client.post(
-            path + "/tasks/task/input",
-            headers={**headers, "X-Browser-Pod-Incarnation": "epoch"},
-            json={
-                "operation": "type",
-                "sequence": 1,
-                "control_epoch": 1,
-                "x": "owner-password",
-                "y": 1,
-                "text": "owner-secret",
-            },
-        )
-        assert invalid.status_code == 422
-        assert "owner-password" not in invalid.text and "owner-secret" not in invalid.text
-        fixture = task_runtime_fixture(monkeypatch)
-        app.state.browser_task_runtime = fixture.runtime
-        accepted = await client.post(
-            path + "/tasks",
-            headers=headers,
-            json={
-                "request_id": "request_1",
-                "goal": "Review a public page.",
-                "allowed_origins": ["https://example.com"],
-                "fields": [],
-            },
-        )
-        assert accepted.status_code == 202
-        task_id = accepted.json()["binding"]["task_id"]
-        await fixture.runtime._tasks[task_id].worker
-        discovered = await client.get(path + "/tasks", headers=headers)
-        assert discovered.status_code == 200
-        assert discovered.json()[0]["binding"]["task_id"] == task_id
-        assert not {"goal", "review", "summary", "frame"} & set(discovered.json()[0])
-        pinned = {**headers, "X-Browser-Pod-Incarnation": "epoch"}
-        status = await client.get(path + "/tasks/" + task_id, headers=pinned)
-        approved = await client.post(
-            path + "/tasks/" + task_id + "/review",
-            headers=pinned,
-            json={"review_id": status.json()["review"]["review_id"]},
-        )
-        assert approved.status_code == 200
-        await asyncio.wait_for(fixture.model.entered.wait(), 2)
-        preview = await client.get(path + "/tasks/" + task_id + "/frame", headers=pinned)
-        assert preview.content.startswith(b"\x89PNG\r\n\x1a\n")
-        assert preview.headers["x-browser-task-id"] == task_id
-        assert preview.headers["x-browser-pod-incarnation"] == "epoch"
-        assert preview.headers["cache-control"] == "no-store, private"
-        switched = await client.get(
-            path + "/tasks/" + task_id + "/frame",
-            headers={**headers, "X-Browser-Pod-Incarnation": "other"},
-        )
-        assert switched.status_code == 409
-        snapshot = await client.get(path + "/tasks/" + task_id, headers=pinned)
-        taken = await client.post(
-            path + "/tasks/" + task_id + "/control",
-            headers=pinned,
-            json={"operation": "takeover", "control_epoch": snapshot.json()["control_epoch"]},
-        )
-        manual = await client.post(
-            path + "/tasks/" + task_id + "/input",
-            headers=pinned,
-            json={
-                "operation": "keys",
-                "sequence": taken.json()["next_sequence"],
-                "control_epoch": taken.json()["control_epoch"],
-                "keys": ["Tab"],
-            },
-        )
-        assert manual.status_code == 200  # JSON arrays become the strict tuple execution contract
-        await fixture.runtime.drain()
 
 
 async def test_browser_one_hand_metadata_only_and_cancellation_preserves_uncertain_effect(

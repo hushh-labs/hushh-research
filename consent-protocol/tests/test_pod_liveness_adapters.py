@@ -300,6 +300,28 @@ async def test_a_refused_owner_azure_restart_reports_false(azure_row, _no_key_re
     assert arm.writes() == []
 
 
+@pytest.mark.parametrize("resolution", ["missing_capability", "refused"])
+async def test_unqualified_owner_restart_never_falls_through_to_google(monkeypatch, resolution):
+    from hushh_mcp.services import compute_backend
+
+    def resolve(_spec):
+        if resolution == "refused":
+            raise PermissionError("owner backend unavailable")
+        return object()
+
+    def google(*_args, **_kwargs):
+        pytest.fail("an unavailable Azure host must not use Google restart authority")
+
+    monkeypatch.setattr(compute_backend, "resolve_compute_backend_for_spec", resolve)
+    monkeypatch.setattr("hushh_mcp.services.gcp_run_client.GcpRunClient", google)
+    row = _row(
+        hushh_id="ha1_owner",
+        deployment_target="user_azure",
+        backend_metadata={"project": "stale-google-project", "region": "us-central1"},
+    )
+    assert await adapters.heal_pod(row) is False
+
+
 async def test_default_client_path_refuses_without_a_location(_no_key_refresh, monkeypatch):
     """A row with no recorded project must decline, not guess.
 

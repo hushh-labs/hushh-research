@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Literal
 
 from google.adk.agents import LlmAgent
 from google.adk.models import Gemini
+from google.adk.tools.base_tool import BaseTool
+from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.computer_use.computer_use_toolset import ComputerUseToolset
 from google.genai import types
 from pydantic import BaseModel, ConfigDict, Field
 
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2
+from hushh_mcp.runtime_providers.azure_browser_adk import AzureBrowserAdkModel
 from hushh_mcp.runtime_providers.gemini_config import (
     build_generate_content_config,
     is_supported_gemini_text_model,
@@ -24,6 +28,7 @@ from hushh_mcp.services.pod_browser.adk_computer import PodComputer
 from hushh_mcp.services.pod_browser.contracts import BrowserRefused
 from hushh_mcp.services.pod_browser.control import BrowserControl
 from hushh_mcp.services.pod_browser.information import BrowserModelProcessing, InformationField
+from hushh_mcp.services.pod_browser.provider_review import gemini_before_tool
 from hushh_mcp.services.pod_browser.task_contracts import BrowserOwnerAccess, BrowserTaskRequest
 
 if TYPE_CHECKING:
@@ -104,13 +109,13 @@ def build_computer_use_agent(
     # model transport. Function-only translation is insufficient. No ambient
     # One/Puppy model is substituted when ComputerUse configuration is unsupported.
     control.readiness.require_ready()
-    if not isinstance(model, Gemini):
+    if not isinstance(model, (Gemini, AzureBrowserAdkModel)):
         raise BrowserRefused("BROWSER_MODEL_TRANSPORT_UNSUPPORTED")
     model_name = model.model
     transport = f"{type(model).__module__}.{type(model).__qualname__}"
     if control.readiness.model_name != model_name or control.readiness.model_transport != transport:
         raise BrowserRefused("BROWSER_MODEL_TRANSPORT_UNVERIFIED")
-    if not is_supported_gemini_text_model(model_name):
+    if isinstance(model, Gemini) and not is_supported_gemini_text_model(model_name):
         raise BrowserRefused("BROWSER_MODEL_UNSUPPORTED")
     if (
         not isinstance(processing, BrowserModelProcessing)
@@ -119,7 +124,6 @@ def build_computer_use_agent(
         or processing.transport != transport
     ):
         raise BrowserRefused("BROWSER_PROCESSING_TERMS_MISMATCH")
-    config = manifest.model_config_for_runtime()
 
     async def before_model(callback_context, llm_request):
         # Owner preview input never goes through ADK. Even buffered previous
@@ -139,11 +143,15 @@ def build_computer_use_agent(
         # in the supported contents channel before that native adaptation.
         # This is transport normalization, not an alternate semantic policy.
         instruction = llm_request.config.system_instruction if llm_request.config else None
-        if isinstance(instruction, str) and instruction:
+        if isinstance(model, Gemini) and isinstance(instruction, str) and instruction:
             llm_request.contents.insert(
                 0, types.Content(role="user", parts=[types.Part(text=instruction)])
             )
         return None
+
+    tools, generation = _browser_tools_and_generation(
+        manifest, control=control, model=model, processing=processing, close_control=close_control
+    )
 
     return LlmAgent(
         name="computer_use",
@@ -151,7 +159,29 @@ def build_computer_use_agent(
         model=model,
         description=manifest.description,
         instruction=manifest.system_instruction,
-        tools=[
+        tools=tools,
+        output_schema=BrowserTaskResultV1,
+        before_model_callback=before_model,
+        before_tool_callback=gemini_before_tool(control, processing)
+        if isinstance(model, Gemini)
+        else None,
+        generate_content_config=generation,
+    )
+
+
+def _browser_tools_and_generation(
+    manifest: AgentManifestV2,
+    *,
+    control: BrowserControl,
+    model: Gemini | AzureBrowserAdkModel,
+    processing: BrowserModelProcessing,
+    close_control: bool,
+) -> tuple[list[Callable[..., Any] | BaseTool | BaseToolset], types.GenerateContentConfig]:
+    model_name = model.model
+    config = manifest.model_config_for_runtime()
+    tools: list[Callable[..., Any] | BaseTool | BaseToolset]
+    if isinstance(model, Gemini):
+        tools = [
             ComputerUseToolset(
                 computer=PodComputer(
                     control,
@@ -161,17 +191,26 @@ def build_computer_use_agent(
                 ),
                 excluded_predefined_functions=["initialize", "search"],
             )
-        ],
-        output_schema=BrowserTaskResultV1,
-        before_model_callback=before_model,
-        generate_content_config=build_generate_content_config(
+        ]
+        generation = build_generate_content_config(
             types,
             model_name,
             max_output_tokens=manifest.performance.max_output_tokens,
-            thinking_config=thinking_config_for(
-                model_name,
-                config.thinking_level,
-                types,
-            ),
-        ),
-    )
+            thinking_config=thinking_config_for(model_name, config.thinking_level, types),
+        )
+    else:
+        from hushh_mcp.services.pod_browser.azure_computer import AzureComputerTools
+
+        if control.readiness.cloud != "azure" or model.require_current is None:
+            raise BrowserRefused("BROWSER_MODEL_TRANSPORT_UNVERIFIED")
+        tools = list(AzureComputerTools(control, processing).tools)
+        generation = types.GenerateContentConfig(
+            max_output_tokens=manifest.performance.max_output_tokens,
+            thinking_config=types.ThinkingConfig(
+                thinking_level=types.ThinkingLevel(config.thinking_level.upper())
+            )
+            if config.thinking_level
+            else None,
+        )
+
+    return tools, generation

@@ -9,9 +9,13 @@ preview, takeover and remembered-session controls with an isolated native ADK
 runner. One exposes only a metadata-returning task hand from a qualified runtime;
 its transcript never receives screenshots, selected values or website sessions.
 Neither cloud has an installed, qualified owner Browser runtime. GCP's real
-in-pod launcher and broker now pass synthetic public browsing; owner-review,
-model and startup composition remain open. Default startup provides no browser
-runtime. Owner-admitted task rediscovery returns bounded metadata only. A current
+in-pod launcher and broker pass synthetic public browsing. Source now connects
+startup, owner-model selection, the existing approval ledger, sealed dispatch
+journal and update admission for a controlled public-research pilot. It remains
+disabled by default. Governed deployment must verify the qualification artifact
+against the immutable image, cloud, model and policy before enabling it; startup
+binding checks alone do not establish qualification. Owner-admitted task
+rediscovery returns bounded metadata only. A current
 owner can inspect or stop an old task, but cannot renew its expired processing
 grant by reconnecting. Original authorization still gates frames, input and resume.
 Preview/review Back closes the feature layer before leaving chat; it never stops
@@ -23,8 +27,9 @@ the [readiness memo](../../../docs/reference/quality/adk-orchestration-docs-audi
 owns acceptance. Source checks are not cloud isolation or deployment evidence.
 
 The [Browser completion plan](../../../docs/future/personal-agent/browser-completion-plan.md)
-specifies the next native Gemini/Azure model adapters and headless/takeover
-qualification. Its target paths are not implemented capability claims.
+specifies the remaining native Gemini/Azure and headless/takeover acceptance.
+The public pilot refuses login, typed disclosures, PKM exports and remembered
+sessions until their separate boundaries are qualified.
 
 ## Visual Map
 
@@ -35,10 +40,10 @@ flowchart TD
     UI["Source: One task card and private preview; cloud gated"]
     One["Existing: owner private agent"]
     Agent["Disabled: native ADK Computer Use task specialist"]
-    Model["Native Gemini adapter; synthetic SDK verification"]
+    Model["Source: native Gemini and Azure ADK adapters"]
     Control["Foundation: exclusive control and exact authority ports"]
     Broker["Foundation: HTTPS broker and dispatch receipts"]
-    Cloud["Unqualified: protected Chromium process in owner pod"]
+    Cloud["Synthetic execution qualified; installed pod still gated"]
     Web["Task-authorized public HTTPS origins"]
     Ledger["Existing action ledger; exact runtime review port"]
     Information["Local port: selected non-secret PKM exports"]
@@ -87,6 +92,15 @@ products. One remains the agent authority; the owner can fence it with Take
 control or Stop. This product decision does not weaken secret, workload-identity,
 network or process separation.
 
+On 2026-10-20 the owner also authorized qualification of a different Azure host
+for the whole One deployment. Container Apps' namespace refusal remains valid;
+it is not an instruction to disable Chromium's sandbox. The disposable VM probe
+uses a `Standard_B2als_v2` host (2 vCPU / 4 GiB), with the application limited to
+1 vCPU / 2 GiB. It preserves a single agent worker and starts Browser on demand.
+Existing owner pods stay on Container Apps. A qualified frame must be followed by
+encrypted recovery, authenticated external wake, deallocation, update and deletion
+proof before a concrete hosting offer can be approved.
+
 The first built-in slice adds an irreversible, separate-UID Linux process guard
 and synthetic probe. Before receiving private information, the worker must close
 unrelated descriptors, scrub its environment, require verified tmpfs, deny direct
@@ -95,7 +109,8 @@ binaries/libraries and task scratch. Only the inherited connected Unix channel
 reaches the existing broker. Chromium's own sandbox remains enabled. Kernel
 support, a real frame, broker traffic and teardown must pass on each actual
 image/configuration; neither the guard's presence nor an environment flag issues
-a positive readiness receipt. These new files are not production composition.
+a positive readiness receipt. The source composition and packaged image still
+require installed-runtime acceptance.
 
 The provider-managed probes below remain historical evidence of their specific
 failures. They do not establish the behavior of ordinary Cloud Run or Container
@@ -110,6 +125,55 @@ Apps with this built-in process boundary.
 | Cloud Run protected headless frame | At UID 10002, bubblewrap's private filesystem/PID/network boundary and the inherited syscall filter passed. Chromium headless-shell rendered an 8,493-byte PNG and exited zero with its sandbox enabled. Public, metadata and private socket creation returned `EACCES`; agent path/environment were absent | Exact synthetic image `sha256:c8f107828583641a8de8785a9807af0677eabc964bf50f90fc9fa072fc38f5a6`. This proves protected rendering, not broker transport, ADK research, service readiness or Azure compatibility |
 | Ordinary Azure Container App, 1 vCPU / 2 GiB, min 0 / max 1 | Separate UID 10002, zero inherited authority, Landlock ABI 3, world-readable unrelated-file denial, all five network families, and the external Unix datagram negative control pass. Worker exit and scratch removal pass | These process protections work; they do not establish a working browser |
 | Azure Chromium prerequisite | The separate non-root `unshare(CLONE_NEWUSER)` check returns `EPERM` before our guard, on the ordinary application as well as Jobs. The earlier sandboxed Chromium attempt emitted no frame | Chromium's required sandbox remains unavailable. No weakened launch or readiness receipt is permitted |
+| Azure whole-deployment VM candidate | Non-zonal westus2 `Standard_B2als_v2`, Ubuntu `24.04.202610160`, Docker 29.1.3, app limited to 1 vCPU / 2 GiB. Protected Chromium renders documentation/search with HTTP 200 and 24 broker requests. Stop, container removal, deallocation, power restart and resource-group absence pass | Synthetic image `sha256:b0a0b7f8207d3643b7160c9755aeb3acdabb497d4c6e8e4729438c71215a60ab`. No owner model, actual Gunicorn lifecycle, encrypted recovery or authenticated external wake is qualified |
+| Full packaged pod image on Azure VM | The actual `Dockerfile.pod` image renders two public pages through 24 broker requests; disabled bootstrap drops all capabilities and starts no browser helper. Enabled bootstrap, private worker, stop, no OOM, deallocation and resource-group absence pass | Image `sha256:438433f083bc268767e51467000e2808b443631565958c8e1e3b43f61c47c4e1`, Cloud Build `f935b393-82ab-4f62-adc3-372a71d834d2`. Probe uses packaged code with a synthetic entrypoint, not Gunicorn, owner recovery or an installed release |
+
+The Azure VM receipt records initialization at **0.759 s**, documentation frame at
+**2.544 s** and search frame at **2.153 s**. Deallocated-to-running VM power state
+took **22.021 s**; the application had been removed before this power cycle, so
+this is not an agent wake measurement. The probe group was deleted and verified
+absent. No owner information or customer resource changed.
+
+The packaged-image probe initializes Browser in **0.909 s** and returns page/frame
+results in **1.758 s / 1.371 s**, excluding image pull and cloud startup. Its VM,
+ACR, role assignment and resource group were deleted; the GCP source object and
+qualification image were also removed with absence readback. This frozen image
+predates the subsequent model-adapter and task-shutdown corrections, so its receipt
+qualifies the unchanged protected executor only.
+
+The current Azure native ADK model adapter independently completes a real two-call
+screenshot continuation through the existing workload identity: **2.022 s** for
+the computer call and **1.309 s** for interpreting a synthetic frame. Exact call
+identity, `store=false` and low reasoning are retained; no website action executes.
+The temporary Luna deployment was deleted and the owner's `one-chat` selection
+was unchanged. The rejected attempt exposed empty legacy safety fields in the
+continuation. Current serialization omits only empty fields; nonempty safety
+checks still require exact review. These separate executor/model receipts do not
+prove a composed owner task.
+
+Docker's default `/proc` submounts prevented bubblewrap from mounting its private
+proc namespace. The qualified transformation removes only those `/proc` entries,
+retains other masked/read-only paths and supplies equivalent AppArmor denials.
+It does not use `systempaths=unconfined`, privileged mode, host networking or
+`SYS_ADMIN`. AppArmor's effective hash is
+`7e4043148e70c7867600ee4c79c8f038e71a7cef7bb2d23f6b44fd302f76e3a9`;
+seccomp is `fc543d68d4b46b8a42e23b62ce8aaddd9e3e313f96a4f29fbe6fb9d23233e5e2`.
+The fixed bootstrap drops its limited UID/GID capabilities before agent and browser
+execution. Browser descendants retain the inherited network/mount restrictions.
+
+Before a customer offer, install root-owned, versioned host policy and verify it
+after every boot; qualify the actual immutable pod image and worker lifecycle;
+then prove identity, encrypted recovery, authenticated wake, idle deallocation,
+updates and erasure. The diagnostic wrapper and its temporary policy installation
+are not the production host runner.
+
+`task_lifecycle.py` owns execution, expiry and joined shutdown; authenticated owner
+operations remain in `task_runtime.py`. Cancel, expiry and update drain join one
+close operation. Its terminal sealed checkpoint and private-reference cleanup
+precede permit release; model completion cannot overwrite a chosen cancellation.
+An unconfirmed close retains admission and permits a later explicit repair retry.
+The focused regression holds driver shutdown behind a barrier while model
+completion and update drain race owner cancellation.
 
 The Unix datagram negative control closes a reviewed bypass: denying `connect`
 alone does not prevent addressed Unix datagrams. New sockets admit stream types
@@ -508,8 +572,9 @@ an immutable digest and binds its exact disk ID before execution.
 
 Real owner information and remembered logins remain refused. Native exec stdout
 and filesystem APIs are synthetic-probe channels only; they are not an accepted
-private frame/session transport. No alternate executor or unsandboxed fallback
-is permitted.
+private frame/session transport. These historical provider-managed results do
+not qualify the newly approved whole-deployment VM candidate. Unsandboxed execution
+remains prohibited.
 
 Native cloud contracts: [GCP sandbox execution](https://docs.cloud.google.com/run/docs/code-execution),
 [GCP resource allocation](https://docs.cloud.google.com/run/docs/configuring/services/sandboxes),
@@ -557,9 +622,11 @@ cloud preview latency or isolation.
    draining and idle wake. Measure cold/warm latency, 429 outcomes, memory,
    preview bandwidth and actual cost components separately on both clouds.
 
-One active task/page per owner remains the pilot target. GCP 2 vCPU / 3 GiB
-combined and Azure 1 vCPU / 2 GiB browser budgets require an owner-visible offer;
-they are unmeasured probe allocations, not minimums or changes to existing pods.
+One active task/page per owner remains the pilot target. The earlier GCP
+2 vCPU / 3 GiB sandbox probe was a diagnostic allocation, not an owner default.
+Current qualification limits the application to 1 vCPU / 2 GiB; Azure's VM host
+is 2 vCPU / 4 GiB and billed at host capacity. A different hosting configuration
+requires an owner-visible offer; these are not proven production minimums.
 The controlled-fixture p95 input-to-frame target is 250 ms, not a result.
 Warnings do not shut down service. No main/UAT/production or stable release is
 authorized by this implementation record.

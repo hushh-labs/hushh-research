@@ -56,6 +56,40 @@ async def test_not_gone_without_a_recorded_host():
     assert await wake._host_is_gone({"hushh_id": "ha1_test"}) is False
 
 
+@pytest.mark.parametrize("outcome", ["gone", "deploying", "forbidden"])
+async def test_azure_absence_check_uses_the_recorded_owner_coordinates(monkeypatch, outcome):
+    row = {
+        **_ROW,
+        "deployment_target": "user_azure",
+        "user_cloud_tenant_id": "tenant",
+        "user_cloud_subscription_id": "subscription",
+        "user_cloud_resource_group": "owner-group",
+        "user_cloud_region": "westus2",
+    }
+    observed = []
+
+    class Backend:
+        async def get(self, service):
+            assert service == row["external_agent_id"]
+            if outcome == "forbidden":
+                raise PermissionError("read denied")
+            return SimpleNamespace(status=outcome)
+
+    def resolve(spec):
+        assert (
+            spec.user_cloud_tenant_id,
+            spec.user_cloud_subscription_id,
+            spec.user_cloud_resource_group,
+            spec.user_cloud_region,
+        ) == ("tenant", "subscription", "owner-group", "westus2")
+        observed.append(spec)
+        return Backend()
+
+    monkeypatch.setattr(cb, "resolve_compute_backend_for_spec", resolve)
+    assert await wake._host_is_gone(row) is (outcome == "gone")
+    assert len(observed) == 1
+
+
 # -- the endpoint's confirmed-gone durable write -----------------------------------
 # _host_is_gone is only half the contract; the endpoint's write branch (flip to
 # needs_reinit + clear sticky auth) is what actually strands or saves a user, so it

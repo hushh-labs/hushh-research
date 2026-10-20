@@ -34,7 +34,9 @@ from hushh_mcp.services.action_directive_terms import (
 )
 from hushh_mcp.services.action_directive_terms import (
     BrowserLeaseQuery,
+    BrowserReviewQuery,
     bound_term_params,
+    confirm_browser_task,
     require_browser_task_lease,
     require_private_review_binding,
 )
@@ -862,6 +864,14 @@ class ActionDirectiveStore:
 
     async def require_consumed_browser(self, **query: Unpack[BrowserLeaseQuery]) -> None:
         await require_browser_task_lease(query, self._hmac, self._execute)
+
+    async def confirm_browser(
+        self, **query: Unpack[BrowserReviewQuery]
+    ) -> ActionConfirmationReceipt:
+        row = await confirm_browser_task(query, self._hmac, self._execute)
+        return ActionConfirmationReceipt(
+            row["directive_id"], row["receipt"], row["expires_at"], row["confirmed_at"], True
+        )
 
     async def settle(
         self,

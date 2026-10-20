@@ -23,7 +23,7 @@ function reviewTerms(value: unknown): ComputerUseReview | undefined {
   const review = record(value);
   const terms = record(review.terms);
   if (typeof review.review_id !== "string" || !review.review_id || review.review_id.length > 128
-    || !["model_process", "disclose", "session_remember", "session_restore"].includes(String(review.purpose))) {
+    || !["model_process", "disclose", "session_remember", "session_restore", "provider_safety"].includes(String(review.purpose))) {
     throw new Error("BROWSER_REVIEW_REFUSED");
   }
   const origins = terms.origins ?? [];
@@ -37,6 +37,24 @@ function reviewTerms(value: unknown): ComputerUseReview | undefined {
     throw new Error("BROWSER_REVIEW_REFUSED");
   }
   const details: ComputerUseReview["details"] = [];
+  if (purpose === "provider_safety") {
+    if (typeof terms.tool !== "string" || !terms.tool || terms.tool.length > 128
+      || !Array.isArray(terms.warnings) || !terms.warnings.length || terms.warnings.length > 8) {
+      throw new Error("BROWSER_REVIEW_REFUSED");
+    }
+    const argumentsText = JSON.stringify(record(terms.arguments));
+    if (new TextEncoder().encode(argumentsText).length > 65536) throw new Error("BROWSER_REVIEW_REFUSED");
+    details.push({ label: "Action", value: terms.tool.replaceAll("_", " ") });
+    details.push({ label: "Requested action details", value: argumentsText });
+    for (const [index, item] of terms.warnings.entries()) {
+      const warning = record(item);
+      const message = warning.message ?? warning.code;
+      if (typeof message !== "string" || !message || message.length > 4096) {
+        throw new Error("BROWSER_REVIEW_REFUSED");
+      }
+      details.push({ label: `Model warning ${index + 1}`, value: message });
+    }
+  }
   // Never copy cookies, session state, object references or commitments into view state.
   if (purpose === "model_process" || purpose === "disclose") {
     const fields = terms.fields ?? [];
@@ -101,6 +119,8 @@ export function parseComputerUseSnapshot(value: unknown, expected: ComputerUseBi
   }
   const remembered = record(wire.capability).remembered_sessions_available;
   if (remembered !== undefined && typeof remembered !== "boolean") throw new Error("BROWSER_RESPONSE_REFUSED");
+  const publicOnly = record(wire.capability).public_research_only;
+  if (publicOnly !== undefined && typeof publicOnly !== "boolean") throw new Error("BROWSER_RESPONSE_REFUSED");
   const viewport = wire.viewport == null ? undefined : record(wire.viewport);
   if (viewport && (integer(viewport.width, 320) > 1920 || integer(viewport.height, 240) > 1080)) {
     throw new Error("BROWSER_RESPONSE_REFUSED");
@@ -115,6 +135,7 @@ export function parseComputerUseSnapshot(value: unknown, expected: ComputerUseBi
     review: reviewTerms(wire.review),
     ...(origins !== undefined ? { approvedOrigins: origins as string[] } : {}),
     ...(remembered !== undefined ? { rememberedSessionsAvailable: remembered as boolean } : {}),
+    ...(publicOnly !== undefined ? { publicResearchOnly: publicOnly as boolean } : {}),
   };
 }
 
@@ -162,7 +183,10 @@ function delay(signal: AbortSignal): Promise<void> {
 }
 
 /** Inject ownerPodRequest after signed endpoint admission; never generic hub fetch. */
-export function createDirectComputerUseTransport(request: AdmittedRequest): ComputerUseTransport {
+export function createDirectComputerUseTransport(
+  request: AdmittedRequest,
+  confirmReview?: (binding: ComputerUseBinding, reviewId: string, signal: AbortSignal) => Promise<string>,
+): ComputerUseTransport {
   const path = (binding: ComputerUseBinding) => `${ROOT}/${encodeURIComponent(binding.taskId)}`;
   const snapshot = async (binding: ComputerUseBinding, suffix: string, init: RequestInit) => {
     const headers = new Headers(init.headers);
@@ -179,9 +203,15 @@ export function createDirectComputerUseTransport(request: AdmittedRequest): Comp
     input: (binding, action, signal) => snapshot(binding, "/input", {
       method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify(action),
     }),
-    review: (binding, review_id, signal) => snapshot(binding, "/review", {
-      method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ review_id }),
-    }),
+    review: async (binding, review_id, signal) => {
+      if (!confirmReview) throw new Error("BROWSER_OWNER_CONFIRMATION_UNAVAILABLE");
+      const receipt = await confirmReview(binding, review_id, signal);
+      if (signal.aborted) throw new Error("BROWSER_REQUEST_CANCELLED");
+      return snapshot(binding, "/review", {
+        method: "POST", signal, headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ review_id, receipt }),
+      });
+    },
     session: async (binding, operation, origin, account_id, signal): Promise<ComputerUseSessionReceipt> => {
       const response = await request(`${path(binding)}/session`, {
         method: "POST", signal, cache: "no-store",

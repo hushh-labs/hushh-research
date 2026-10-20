@@ -70,6 +70,21 @@ async def context(request: Request) -> PodChatContext:
         browser_runtime=getattr(request.app.state, "browser_task_runtime", None),
     )
     await result.require_access()
+    if getattr(request.app.state, "browser_composition", None) is not None:
+        from hushh_mcp.services.pod_browser.composition import bind_browser_owner
+        from hushh_mcp.services.pod_browser.task_contracts import BrowserOwnerAccess
+
+        await bind_browser_owner(
+            request.app,
+            BrowserOwnerAccess(
+                owner_id=result.owner,
+                pod_id=result.hushh_id,
+                incarnation=result._browser_incarnation,
+                expires_at=int(result.claims["exp"]),
+                check=result._browser_access,
+            ),
+        )
+        result.browser_runtime = getattr(request.app.state, "browser_task_runtime", None)
     return result
 
 

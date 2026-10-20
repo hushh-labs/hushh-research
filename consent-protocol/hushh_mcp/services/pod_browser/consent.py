@@ -19,7 +19,9 @@ from hushh_mcp.services.action_directive_ledger import ActionDirectiveStore, Bou
 
 from .contracts import BrowserBinding, BrowserRefused
 
-Purpose = Literal["model_process", "disclose", "session_remember", "session_restore"]
+Purpose = Literal[
+    "model_process", "disclose", "session_remember", "session_restore", "provider_safety"
+]
 ACTION_PREFIX = "browser."
 
 
@@ -123,7 +125,7 @@ class LedgerBrowserConsent:
     async def require(self, binding: BrowserBinding, purpose: Purpose, private_terms: dict) -> None:
         await self.check_binding(binding)
         review = self.review(binding, purpose, private_terms)
-        if purpose != "disclose" and review in self._leases:
+        if purpose not in {"disclose", "provider_safety"} and review in self._leases:
             lease = self._leases[review]
             await self._store.require_consumed_browser(
                 **review.identity,
@@ -146,7 +148,7 @@ class LedgerBrowserConsent:
         await self.check_binding(binding)
         # Website transmissions are single-use. Model/reuse grants are immutable,
         # task-bound leases; changed revisions/generations have a new commitment.
-        if purpose != "disclose":
+        if purpose not in {"disclose", "provider_safety"}:
             self._leases[review] = receipt
 
     def invalidate(self) -> None:

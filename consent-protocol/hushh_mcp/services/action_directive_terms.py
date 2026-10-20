@@ -21,6 +21,7 @@ BROWSER_ACTION_IDS = frozenset(
         "browser.disclose",
         "browser.session_remember",
         "browser.session_restore",
+        "browser.provider_safety",
     }
 )
 
@@ -74,14 +75,61 @@ def require_private_review_binding(
         raise ActionDirectiveAuthorityError("Private action requires exact pod review terms.")
 
 
-class BrowserLeaseQuery(TypedDict):
+class BrowserReviewQuery(TypedDict):
     directive_id: str
-    receipt: str
     user_id: str
     session_id: str
     action_id: str
     context_revision: str
     terms: BoundActionTerms
+
+
+class BrowserLeaseQuery(BrowserReviewQuery):
+    receipt: str
+
+
+async def confirm_browser_task(
+    query: BrowserReviewQuery,
+    digest: Callable[[Any], str],
+    execute: Callable[[str, dict], Awaitable[Any]],
+) -> dict:
+    """Recover the same exact owner confirmation after a lost acknowledgement.
+
+    The authenticated owner route calls this under the current registry lock.
+    A server-keyed receipt is reproducible without storing its plaintext. Repeats
+    never revert consumed state, renew expiry or authorize changed terms.
+    """
+    if (
+        set(query) != set(BrowserReviewQuery.__annotations__)
+        or query["action_id"] not in BROWSER_ACTION_IDS
+    ):
+        raise ActionDirectiveAuthorityError("A browser confirmation requires browser terms.")
+    params = {key: value for key, value in query.items() if key != "terms"}
+    params.update(bound_term_params(query["action_id"], query["terms"], digest))
+    receipt = digest({"purpose": "browser-confirmation-receipt-v1", **params})
+    params["receipt_hash"] = hashlib.sha256(receipt.encode()).hexdigest()
+    result = await execute(
+        """
+        UPDATE one_action_directive_ledger
+        SET state=CASE WHEN state='issued' THEN 'confirmed' ELSE state END,
+            receipt_hash=:receipt_hash, confirmed_at=COALESCE(confirmed_at, clock_timestamp())
+        WHERE directive_id=:directive_id AND user_id=:user_id
+          AND session_id=:session_id AND channel='pod_chat'
+          AND conversation_id IS NULL AND adk_app_name IS NULL
+          AND action_id=:action_id AND context_revision=:context_revision
+          AND action_contract_digest=:expected_contract AND slots_hmac=:expected_slots
+          AND resource_binding_hmac=:expected_binding
+          AND requires_confirmation AND trusted_activation_required
+          AND expires_at > clock_timestamp()
+          AND (state='issued' OR (state IN ('confirmed','consumed') AND receipt_hash=:receipt_hash))
+        RETURNING directive_id, expires_at, confirmed_at
+        """,
+        params,
+    )
+    rows = result.data or []
+    if not rows:
+        raise ActionDirectiveAuthorityError("Browser confirmation expired or changed.")
+    return {**rows[0], "receipt": receipt}
 
 
 async def require_browser_task_lease(

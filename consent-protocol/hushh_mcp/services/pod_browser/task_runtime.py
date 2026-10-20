@@ -9,21 +9,19 @@ by the existing pod log and never authorize an automatic effect replay.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import os
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from typing import Literal
 from uuid import uuid4
 
-from hushh_mcp.one_adk.computer_use_agent import BrowserTaskResultV1
 from hushh_mcp.services.pod_upgrade_admission import (
     PodUpgradeAdmission,
     PodUpgradeAdmissionRefused,
-    TurnPermit,
 )
 
-from .consent import BrowserConsentPort
+from .consent import BrowserConsentPort, private_commitment
 from .contracts import (
     BrowserAction,
     BrowserAuthorityPort,
@@ -31,10 +29,9 @@ from .contracts import (
     BrowserFrame,
     BrowserRefused,
 )
-from .control import BrowserControl
 from .information import BrowserInformation, BrowserModelProcessing, ConsentedProjectionPort
 from .sessions import BrowserSessions
-from .task_authority import TaskAuthority, TaskConsent
+from .task_authority import TaskAuthority, TaskConsent, owner_review
 from .task_contracts import (
     BrowserCapability,
     BrowserLauncherPort,
@@ -46,34 +43,11 @@ from .task_contracts import (
     BrowserTaskReceipt,
     BrowserTaskRequest,
     BrowserTaskSnapshot,
-    Phase,
 )
+from .task_lifecycle import BrowserTaskLifecycle
 from .task_recovery import KIND as KIND
 from .task_recovery import recover_browser_tasks
-
-
-@dataclass
-class _Task:
-    binding: BrowserBinding
-    request: BrowserTaskRequest = field(repr=False)
-    access: BrowserOwnerAccess = field(repr=False)
-    permit: TurnPermit = field(repr=False)
-    consent: TaskConsent | None = field(default=None, repr=False)
-    authority: TaskAuthority | None = field(default=None, repr=False)
-    control: BrowserControl | None = field(default=None, repr=False)
-    processing: BrowserModelProcessing | None = field(default=None, repr=False)
-    sessions: BrowserSessions | None = field(default=None, repr=False)
-    worker: asyncio.Task | None = field(default=None, repr=False)
-    monitor: asyncio.Task | None = field(default=None, repr=False)
-    phase: Phase = "running"
-    revision: int = 1
-    code: str | None = None
-    summary: str | None = field(default=None, repr=False)
-    review: BrowserReviewOffer | None = field(default=None, repr=False)
-    closed: bool = False
-    processing_approved: bool = False
-    stop_refusal: str | None = None
-    operation: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+from .task_state import BrowserTaskState as _Task
 
 
 class BrowserTaskRuntime:
@@ -92,16 +66,33 @@ class BrowserTaskRuntime:
         admission: PodUpgradeAdmission,
         sessions_factory: Callable[[BrowserConsentPort], BrowserSessions] | None = None,
         clock: Callable[[], float] = time.time,
+        availability_check: Callable[[], None] | None = None,
+        public_research_only: bool = False,
     ) -> None:
         self._owner, self._pod, self._incarnation = owner_id, pod_id, incarnation
         self._launcher, self._model, self._reviews, self._source = launcher, model, reviews, source
         self._authority_factory, self._log, self._admission = authority_factory, log, admission
         self._sessions_factory, self._clock = sessions_factory, clock
+        self._availability_check, self._public_research_only = (
+            availability_check,
+            public_research_only,
+        )
         self._tasks: dict[str, _Task] = {}
+        self._request_key = os.urandom(32)
         self._requests: dict[str, str] = {}
         self._recovered: dict[str, BrowserTaskSnapshot] = {}
         self._lock = asyncio.Lock()
         self._hydrated, self._draining = False, False
+        self._lifecycle = BrowserTaskLifecycle(
+            launcher=launcher,
+            model=model,
+            reviews=reviews,
+            clock=clock,
+            capability=self.capability,
+            draining=lambda: self._draining,
+            checkpoint=self._checkpoint,
+            snapshot=self._snapshot,
+        )
         admission.register_drain(incarnation=incarnation, name="pod_browser", callback=self.drain)
 
     def capability(self) -> BrowserCapability:
@@ -116,6 +107,8 @@ class BrowserTaskRuntime:
         if self._draining:
             return BrowserCapability(available=False, code="BROWSER_DRAINING", **identity)
         try:
+            if self._availability_check:
+                self._availability_check()
             ready = self._launcher.readiness
             ready.require_ready()
             if (
@@ -129,6 +122,7 @@ class BrowserTaskRuntime:
             available=True,
             code="BROWSER_QUALIFIED",
             remembered_sessions_available=self._sessions_factory is not None,
+            public_research_only=self._public_research_only,
             **identity,
         )
 
@@ -177,6 +171,15 @@ class BrowserTaskRuntime:
         self._hydrated = True
 
     def _snapshot(self, task: _Task) -> BrowserTaskSnapshot:
+        if task.terminal is not None:
+            return task.terminal.model_copy(
+                update={
+                    "phase": task.phase,
+                    "code": task.code,
+                    "revision": task.revision,
+                    "capability": self.capability(),
+                }
+            )
         control = task.control
         return BrowserTaskSnapshot(
             binding=task.binding,
@@ -191,7 +194,9 @@ class BrowserTaskRuntime:
             code=task.code,
             summary=task.summary,
             review=task.review,
-            approved_origins=task.request.allowed_origins if task.processing_approved else (),
+            approved_origins=task.request.allowed_origins
+            if task.processing_approved and task.request is not None
+            else (),
             viewport=control.viewport if control else None,
         )
 
@@ -202,7 +207,7 @@ class BrowserTaskRuntime:
         )
         await self._log.append(
             KIND,
-            {"request_id": task.request.request_id, "snapshot": snapshot.model_dump(mode="json")},
+            {"request_id": task.request_id, "snapshot": snapshot.model_dump(mode="json")},
         )
 
     async def _metadata_task(self, access: BrowserOwnerAccess, task_id: str) -> _Task:
@@ -212,8 +217,16 @@ class BrowserTaskRuntime:
             raise BrowserRefused("BROWSER_TASK_NOT_FOUND")
         return task
 
-    async def _task(self, access: BrowserOwnerAccess, task_id: str) -> _Task:
+    async def _task(
+        self,
+        access: BrowserOwnerAccess,
+        task_id: str,
+        *,
+        closed_code: str = "BROWSER_CONTROL_UNAVAILABLE",
+    ) -> _Task:
         task = await self._metadata_task(access, task_id)
+        if task.closed or task.closing is not None or task.access is None:
+            raise BrowserRefused(closed_code)
         await task.access.check()
         await self._reviews.check_binding(task.binding)
         return task
@@ -234,9 +247,11 @@ class BrowserTaskRuntime:
                 prior = self._tasks.get(prior_id)
                 if prior is None:
                     raise BrowserRefused("BROWSER_TASK_RECOVERY_REQUIRES_OWNER")
-                if prior.request != request:
+                commitment = private_commitment(self._request_key, request.model_dump(mode="json"))
+                if not hmac.compare_digest(prior.request_commitment, commitment):
                     raise BrowserRefused("BROWSER_TASK_REQUEST_CONFLICT")
-                await prior.access.check()
+                if prior.access is not None:
+                    await prior.access.check()
                 return self._snapshot(prior)
             if len(self._tasks) >= 128 or len(self._requests) >= 10000:
                 raise BrowserRefused("BROWSER_TASK_LIMIT")
@@ -254,178 +269,78 @@ class BrowserTaskRuntime:
                 permit = await self._admission.acquire_turn(incarnation=self._incarnation)
             except PodUpgradeAdmissionRefused:
                 raise BrowserRefused("BROWSER_DRAINING") from None
-            task = _Task(binding=binding, request=request, access=access, permit=permit)
-
-            def pending(offer: BrowserReviewOffer) -> None:
-                task.review, task.phase, task.code = (
-                    offer,
-                    "needs_owner",
-                    "BROWSER_OWNER_APPROVAL_REQUIRED",
-                )
-                task.revision += 1
-
-            async def check_runtime() -> None:
-                current = self.capability()
-                if not current.available:
-                    raise BrowserRefused(current.code)
-
-            task.consent = TaskConsent(
-                binding, access, self._reviews, pending, self._clock, check_runtime
+            task = _Task(
+                binding=binding,
+                request=request,
+                access=access,
+                permit=permit,
+                request_id=request.request_id,
+                request_commitment=private_commitment(
+                    self._request_key, request.model_dump(mode="json")
+                ),
             )
-            authority = self._authority_factory(binding, task.consent)
-            pending_check = getattr(authority, "check_no_pending_dispatch", None)
-            try:
-                if not callable(pending_check):
-                    raise BrowserRefused("BROWSER_DISPATCH_RECOVERY_UNAVAILABLE")
-                await task.consent.check_binding(binding)
-                await pending_check(binding)
-                task.authority = TaskAuthority(binding, task.consent, authority)
-                task.processing = BrowserModelProcessing(
-                    information=BrowserInformation(self._source, task.consent),
-                    binding=binding,
-                    fields=request.fields,
-                    model_name=self._model.model_name,
-                    transport=self._model.transport,
-                    allowed_origins=request.allowed_origins,
-                    task_goal=request.goal,
-                )
-                if self._sessions_factory:
-                    task.sessions = self._sessions_factory(task.consent)
-                await self._checkpoint(task)
-            except BaseException:
-                await permit.release()
-                raise
+
+            await self._prepare_task(task, access, request)
             self._tasks[binding.task_id], self._requests[request.request_id] = task, binding.task_id
-            task.worker = asyncio.create_task(self._run(task), name="owner-browser-task")
-            task.monitor = asyncio.create_task(self._monitor(task), name="owner-browser-idle")
+            task.worker = asyncio.create_task(self._lifecycle.run(task), name="owner-browser-task")
+            task.monitor = asyncio.create_task(
+                self._lifecycle.monitor(task), name="owner-browser-idle"
+            )
             return self._snapshot(task)
 
-    async def _run(self, task: _Task) -> None:
-        try:
-            if task.processing is None or task.consent is None or task.authority is None:
-                raise BrowserRefused("BROWSER_TASK_COMPOSITION_UNAVAILABLE")
-            await task.processing.require()  # approve provider/screens before allocating a worker
-            task.processing_approved = True
-            if task.closed or self._draining:
-                return
-            if task.control is None:
-                async with asyncio.timeout(30):
-                    executor = await self._launcher.launch(
-                        task.binding,
-                        allowed_origins=task.request.allowed_origins,
-                        consent=task.consent,
-                        authority=task.authority,
-                    )
-                task.control = BrowserControl(
-                    binding=task.binding,
-                    readiness=self._launcher.readiness,
-                    executor=executor,
-                    authority=task.authority,
-                    wall_clock=self._clock,
-                )
-                await task.control.initialize()
-            await task.control.require_model_observation()
-            task.phase, task.code = "running", None
-            result = await self._model.run(
-                control=task.control, processing=task.processing, goal=task.request.goal
-            )
-            result = BrowserTaskResultV1.model_validate(result)
-            await task.control.require_model_observation()
-            task.phase, task.summary = result.outcome, result.summary
-            if result.outcome in {"unavailable", "outcome_uncertain", "cancelled"}:
-                await self._close(task)
-            await self._checkpoint(task)
-        except asyncio.CancelledError:
-            # Takeover fences the epoch before cancelling the provider task.
-            # A dispatch cancelled in-flight is fenced uncertain by BrowserControl.
-            if task.control and task.control.outcome_uncertain:
-                task.phase, task.code = "outcome_uncertain", "BROWSER_OUTCOME_UNCERTAIN"
-                await self._checkpoint(task)
-            raise
-        except Exception as exc:
-            code = exc.code if isinstance(exc, BrowserRefused) else "BROWSER_TASK_UNAVAILABLE"
-            if code in {"BROWSER_MODEL_STOP_UNCONFIRMED", "BROWSER_LAUNCH_STOP_UNCONFIRMED"}:
-                task.stop_refusal = code
-            task.code = code
-            if task.control and task.control.outcome_uncertain:
-                task.phase = "outcome_uncertain"
-            elif code in {
+    async def _prepare_task(
+        self, task: _Task, access: BrowserOwnerAccess, request: BrowserTaskRequest
+    ) -> None:
+        binding = task.binding
+
+        def pending(offer: BrowserReviewOffer) -> None:
+            task.review_ready.clear()
+            task.review, task.phase, task.code = (
+                offer,
+                "needs_owner",
                 "BROWSER_OWNER_APPROVAL_REQUIRED",
-                "BROWSER_MODEL_OBSERVATION_PAUSED",
-                "BROWSER_CONTINUATION_REQUIRED",
-            }:
-                task.phase = "needs_owner"
-            else:
-                task.phase = "unavailable"
-            await self._checkpoint(task)
-            if task.phase in {"unavailable", "outcome_uncertain"}:
-                await self._close(task)
-
-    async def _monitor(self, task: _Task) -> None:
-        try:
-            while not task.closed:
-                await asyncio.sleep(1)
-                try:
-                    await task.access.check()
-                    if not self.capability().available:
-                        raise BrowserRefused("BROWSER_QUALIFICATION_ENDED")
-                    if task.binding.expires_at <= self._clock():
-                        raise BrowserRefused("BROWSER_AUTHORIZATION_EXPIRED")
-                    if task.control and await task.control.close_if_idle():
-                        raise BrowserRefused("BROWSER_IDLE_CLOSED")
-                except Exception:
-                    task.phase, task.code = "cancelled", "BROWSER_AUTHORIZATION_ENDED"
-                    await self._close(task)
-                    await self._checkpoint(task)
-                    return
-        except asyncio.CancelledError:
-            raise
-
-    async def _cancel_worker(self, task: _Task) -> None:
-        worker = task.worker
-        if worker and worker is not asyncio.current_task() and not worker.done():
-            worker.cancel()
-            try:
-                async with asyncio.timeout(15):
-                    await worker
-            except asyncio.CancelledError:
-                pass
-            except TimeoutError:
-                task.stop_refusal = "BROWSER_MODEL_STOP_UNCONFIRMED"
-                raise BrowserRefused("BROWSER_MODEL_STOP_UNCONFIRMED") from None
-
-    async def _close(self, task: _Task) -> None:
-        if task.closed:
-            return
-        # Close is out-of-band. The update permit remains held until shutdown
-        # and pending-provider termination both acknowledge success.
-        try:
-            if task.control:
-                async with asyncio.timeout(35):
-                    await task.control.stop()
-            await self._cancel_worker(task)
-            if task.stop_refusal:
-                raise BrowserRefused(task.stop_refusal)
-            if task.control and task.control.outcome_uncertain:
-                task.phase, task.code = "outcome_uncertain", "BROWSER_OUTCOME_UNCERTAIN"
-            task.closed, task.review = True, None
-            task.revision += 1
-            await self._checkpoint(task)  # sealed shutdown state precedes any update idle receipt
-            await task.permit.release()
-        except BaseException:
-            task.closed = False
-            task.review = None
-            task.revision += 1
-            task.code = task.stop_refusal or "BROWSER_CLOSE_UNCONFIRMED"
-            task.phase = (
-                "outcome_uncertain"
-                if task.control and task.control.outcome_uncertain
-                else "unavailable"
             )
-            raise BrowserRefused(task.code) from None
-        monitor = task.monitor
-        if monitor and monitor is not asyncio.current_task():
-            monitor.cancel()
+            task.revision += 1
+
+        async def wait_for_review() -> None:
+            task.review_waiting = True
+            try:
+                await task.review_ready.wait()
+            finally:
+                task.review_waiting = False
+
+        async def check_runtime() -> None:
+            current = self.capability()
+            if not current.available:
+                raise BrowserRefused(current.code)
+
+        task.consent = TaskConsent(
+            binding, access, self._reviews, pending, self._clock, check_runtime, wait_for_review
+        )
+        authority = self._authority_factory(binding, task.consent)
+        pending_check = getattr(authority, "check_no_pending_dispatch", None)
+        try:
+            if not callable(pending_check):
+                raise BrowserRefused("BROWSER_DISPATCH_RECOVERY_UNAVAILABLE")
+            await task.consent.check_binding(binding)
+            await pending_check(binding)
+            task.authority = TaskAuthority(binding, task.consent, authority)
+            task.processing = BrowserModelProcessing(
+                information=BrowserInformation(self._source, task.consent),
+                binding=binding,
+                fields=request.fields,
+                model_name=self._model.model_name,
+                transport=self._model.transport,
+                allowed_origins=request.allowed_origins,
+                task_goal=request.goal,
+            )
+            if self._sessions_factory:
+                task.sessions = self._sessions_factory(task.consent)
+            await self._checkpoint(task)
+        except BaseException:
+            await self._reviews.release(binding)
+            await task.permit.release()
+            raise
 
     async def read(self, access: BrowserOwnerAccess, task_id: str) -> BrowserTaskSnapshot:
         await self._access(access)
@@ -435,6 +350,11 @@ class BrowserTaskRuntime:
         if task_id in self._recovered:
             return self._recovered[task_id]
         task = await self._metadata_task(access, task_id)
+        async with task.operation:
+            if task.review is not None and not task.closed:
+                task.review = owner_review(
+                    await self._reviews.refresh_review(task.binding, task.review.review_id)
+                )
         return self._snapshot(task)
 
     async def list_tasks(self, access: BrowserOwnerAccess) -> list[BrowserTaskReceipt]:
@@ -456,7 +376,7 @@ class BrowserTaskRuntime:
     async def frame(
         self, access: BrowserOwnerAccess, task_id: str
     ) -> tuple[BrowserTaskSnapshot, BrowserFrame]:
-        task = await self._task(access, task_id)
+        task = await self._task(access, task_id, closed_code="BROWSER_FRAME_UNAVAILABLE")
         control = task.control
         if task.closed or control is None or control.control_owner in {"stopped", "uncertain"}:
             raise BrowserRefused("BROWSER_FRAME_UNAVAILABLE")
@@ -481,16 +401,16 @@ class BrowserTaskRuntime:
         )
         async with task.operation:
             control = task.control
-            if control_epoch != (control.control_epoch if control else 1):
+            if control_epoch != self._snapshot(task).control_epoch:
                 raise BrowserRefused("BROWSER_CONTROL_CHANGED")
             if operation == "cancel":
-                task.phase, task.code = "cancelled", "BROWSER_OWNER_CANCELLED"
-                await self._close(task)
-            elif task.closed or control is None:
+                await self._lifecycle.close(task, phase="cancelled", code="BROWSER_OWNER_CANCELLED")
+                return self._snapshot(task)
+            elif task.closed or task.closing is not None or control is None:
                 raise BrowserRefused("BROWSER_CONTROL_UNAVAILABLE")
             elif operation == "takeover":
                 await control.take_control()
-                await self._cancel_worker(task)
+                await self._lifecycle.cancel_worker(task)
                 task.phase, task.code = "needs_owner", None
             elif operation == "resume":
                 if task.processing is None:
@@ -498,7 +418,9 @@ class BrowserTaskRuntime:
                 await task.processing.require()
                 await control.resume_agent()
                 task.review, task.phase, task.code = None, "running", None
-                task.worker = asyncio.create_task(self._run(task), name="owner-browser-task")
+                task.worker = asyncio.create_task(
+                    self._lifecycle.run(task), name="owner-browser-task"
+                )
             else:
                 raise BrowserRefused("BROWSER_CONTROL_INVALID")
             await self._checkpoint(task)
@@ -519,27 +441,44 @@ class BrowserTaskRuntime:
                 if task.control.outcome_uncertain:
                     task.phase, task.code = "outcome_uncertain", "BROWSER_OUTCOME_UNCERTAIN"
                     await self._checkpoint(task)
-                    await self._close(task)
+                    await self._lifecycle.close(task)
                 raise
             await self._checkpoint(task)
             return self._snapshot(task)
 
     async def confirm_review(
-        self, access: BrowserOwnerAccess, task_id: str, review_id: str
+        self, access: BrowserOwnerAccess, task_id: str, review_id: str, receipt: str
     ) -> BrowserTaskSnapshot:
         task = await self._task(access, task_id)
         async with task.operation:
             if task.closed or task.review is None or task.review.review_id != review_id:
                 raise BrowserRefused("BROWSER_REVIEW_CHANGED")
-            await self._reviews.confirm_review(task.binding, review_id)
+            task.review = owner_review(await self._reviews.refresh_review(task.binding, review_id))
+            if task.review.review_id != review_id:
+                task.revision += 1
+                raise BrowserRefused("BROWSER_REVIEW_CHANGED")
+            await self._reviews.confirm_review(task.binding, review_id, receipt)
+            if task.access is None:
+                raise BrowserRefused("BROWSER_CONTROL_UNAVAILABLE")
             await task.access.check()
+            resume_exact = (
+                task.review.purpose == "provider_safety"
+                and task.review_waiting
+                and task.worker is not None
+                and not task.worker.done()
+            )
             task.review, task.code = None, None
             # Owner takeover/login remains paused until explicit Resume. Only
             # the initial model-processing review may awaken an agent task here.
-            if task.control is None or task.control.control_owner == "agent":
-                await self._cancel_worker(task)
+            if resume_exact:
                 task.phase = "running"
-                task.worker = asyncio.create_task(self._run(task), name="owner-browser-task")
+                task.review_ready.set()
+            elif task.control is None or task.control.control_owner == "agent":
+                await self._lifecycle.cancel_worker(task)
+                task.phase = "running"
+                task.worker = asyncio.create_task(
+                    self._lifecycle.run(task), name="owner-browser-task"
+                )
             await self._checkpoint(task)
             return self._snapshot(task)
 
@@ -553,7 +492,11 @@ class BrowserTaskRuntime:
     ) -> dict:
         task = await self._task(access, task_id)
         async with task.operation:
-            if task.sessions is None or origin not in task.request.allowed_origins:
+            if (
+                task.sessions is None
+                or task.request is None
+                or origin not in task.request.allowed_origins
+            ):
                 raise BrowserRefused("BROWSER_SESSION_UNAVAILABLE")
             site = task.sessions.site_id(origin, account_id)
             origins = frozenset({origin})
@@ -591,15 +534,13 @@ class BrowserTaskRuntime:
         # whether the opaque site was imported, preventing retained live login.
         for task in self._tasks.values():
             if not task.closed:
-                task.phase, task.code = "cancelled", "BROWSER_SESSION_FORGOTTEN"
-                await self._close(task)
-                await self._checkpoint(task)
+                await self._lifecycle.close(
+                    task, phase="cancelled", code="BROWSER_SESSION_FORGOTTEN"
+                )
 
     async def drain(self) -> None:
         async with self._lock:
             self._draining = True
         for task in self._tasks.values():
             if not task.closed:
-                task.phase, task.code = "cancelled", "BROWSER_DRAINING"
-                await self._close(task)
-                await self._checkpoint(task)
+                await self._lifecycle.close(task, phase="cancelled", code="BROWSER_DRAINING")

@@ -554,6 +554,17 @@ async def _pod_startup() -> None:
 
         await load_owner_state(boot_log)
 
+    # Browser is composed only after authenticated recovery. An unqualified
+    # deployment still serves ordinary owner journeys and reports its exact
+    # Browser blocker; no fallback executor or readiness flag is manufactured.
+    app.state.browser_composition = None
+    app.state.browser_task_runtime = None
+    app.state.browser_unavailable_code = "BROWSER_DISABLED"
+    if os.getenv("POD_COMPUTER_USE_ENABLED", "").lower() in {"1", "true"}:
+        from hushh_mcp.services.pod_browser.composition import install_browser_startup
+
+        install_browser_startup(app, log=boot_log, dek=boot_dek, logger=logger)
+
     # The existing active authority owns its key; discard boot-only references.
     boot_storage = boot_log = boot_dek = None
 
@@ -591,6 +602,11 @@ async def _stop_files_queue() -> None:
     await asyncio.gather(*tasks, return_exceptions=True)
     for name in names:
         setattr(app.state, name, None)
+    browser = getattr(app.state, "browser_composition", None)
+    if browser is not None:
+        await browser.close()
+        app.state.browser_composition = None
+        app.state.browser_task_runtime = None
 
 
 async def _continue_gmail_notifications() -> None:

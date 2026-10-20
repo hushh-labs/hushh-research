@@ -373,7 +373,9 @@ def test_azure_pwm_probe_loads_production_contracts_without_application_secrets(
         "module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); "
         "module._initialize_synthetic_runtime(); "
         "values, schemas=module._production_contract_examples(); "
-        "assert set(values) == set(schemas) == {'assessment','finding','report','planner'}"
+        "assert set(values) == set(schemas) == {'assessment','finding','report','planner'}; "
+        "from hushh_mcp.consent.audit_signing import audit_signing_status; "
+        "assert audit_signing_status()['signing_key_configured']"
     )
     environment = {
         key: value
@@ -387,6 +389,7 @@ def test_azure_pwm_probe_loads_production_contracts_without_application_secrets(
         }
     }
     environment["ENVIRONMENT"] = "uat"
+    environment["CONSENT_AUDIT_CHAIN_ENABLED"] = "true"
     result = subprocess.run(  # noqa: S603 - fixed probe import, no external input or credentials
         [sys.executable, "-c", code],
         env=environment,

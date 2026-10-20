@@ -138,6 +138,14 @@ async def heal_pod(row: dict, *, client: Any = None, registry: Any = None) -> bo
     restartable = _restartable_backend(row) if client is None else None
     if restartable is not None:
         return await _restart_through_backend(row, *restartable)
+    from hushh_mcp.services.compute_backend import BACKEND_USER_GCP, is_owner_cloud_target
+
+    target = row.get("deployment_target")
+    if is_owner_cloud_target(target) and target != BACKEND_USER_GCP:
+        # Missing coordinates, unavailable authority or an unqualified host
+        # capability cannot authorize the hub's Google client to replace it.
+        logger.warning("pod_liveness.heal_skipped reason=owner_restart_unavailable")
+        return False
 
     run_client = client
     if run_client is None:
@@ -211,8 +219,8 @@ def _restartable_backend(row: dict) -> Optional[tuple[Any, Any]]:
     Typed capability, never a provider id: a backend that declares
     ``RestartableBackend`` heals through its own credential (on an owner Azure
     subscription, the observer's ``revisions/restart/action``), never the hub's
-    Cloud Run client. Anything else, including any row whose backend cannot be
-    resolved, keeps the existing path unchanged.
+    Cloud Run client. A non-GCP owner backend that cannot be resolved or does not
+    declare restart remains unavailable; only GCP keeps its existing path.
     """
     from hushh_mcp.services.compute_backend import (  # noqa: PLC0415
         PodSpec,
@@ -237,7 +245,7 @@ def _restartable_backend(row: dict) -> Optional[tuple[Any, Any]]:
     )
     try:
         backend = resolve_compute_backend_for_spec(spec)
-    except Exception:  # noqa: BLE001 - see docstring: the existing path decides
+    except Exception:  # noqa: BLE001 - caller refuses a non-GCP fallback
         return None
     return (backend, spec) if isinstance(backend, RestartableBackend) else None
 

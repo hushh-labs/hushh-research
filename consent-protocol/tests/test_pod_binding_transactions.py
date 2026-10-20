@@ -43,6 +43,7 @@ def pg():
             "114_one_action_directive_ledger.sql",
             "248_adk_chat_action_authority.sql",
             "parked/945_pod_mcp_action_authority.sql",
+            "parked/966_pod_browser_action_authority.sql",
         ):
             server.apply_file(base / name)
         yield server
@@ -1043,3 +1044,202 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
             )
             assert conn.execute(text("SELECT count(*) FROM one_adk_sessions")).scalar_one() == 0
         assert (await admission.status(incarnation="synthetic-incarnation"))["activeWork"] == 0
+
+
+def test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub(db, pg, monkeypatch):
+    """Real registry/ledger CAS with only the HTTP hop replaced by an in-memory client."""
+    import time
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import pod_binding_service
+    from hushh_mcp.services.action_directive_ledger import (
+        ActionDirectiveAuthorityError,
+        ActionDirectiveStore,
+    )
+    from hushh_mcp.services.pod_browser.contracts import BrowserBinding, BrowserRefused
+    from hushh_mcp.services.pod_browser.review_client import PodBrowserReviews
+    from hushh_mcp.services.pod_browser.review_contracts import BrowserHubMutation
+    from hushh_mcp.services.pod_browser.review_ledger import mutate_browser_review
+    from hushh_mcp.services.pod_request_signing import VerifiedPod
+
+    # Dev schema replay preserves existing receipts and the explicit action wall.
+    pg.apply_file(
+        Path(__file__).resolve().parents[1]
+        / "db/migrations/parked/966_pod_browser_action_authority.sql"
+    )
+    monkeypatch.setattr(pod_binding_service, "hub_environment", lambda: "dev")
+    monkeypatch.setattr(
+        ActionDirectiveStore, "hmac_key", property(lambda _: b"synthetic-ledger-key")
+    )
+    with db.engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE personal_agent_registry ADD COLUMN IF NOT EXISTS pod_signing_key_id TEXT"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE personal_agent_registry SET pod_signing_key_id='signed-test' WHERE user_id='u'"
+            )
+        )
+    principal = VerifiedPod("ha1_test", key_id="signed-test")
+    bound = BrowserBinding(
+        owner_id="u",
+        pod_id="ha1_test",
+        incarnation="revision-a",
+        task_id="browser-task",
+        environment="development",
+        expires_at=int(time.time()) + 600,
+    )
+    calls = []
+    lose_consume = False
+    fail_issue = False
+    revoked = False
+
+    async def admission(binding):
+        if revoked or binding != bound:
+            raise BrowserRefused("BROWSER_BINDING_REFUSED")
+
+    def post(path, json):
+        nonlocal lose_consume, fail_issue
+        operation = path.rsplit("/", 1)[-1]
+        calls.append((operation, json))
+        if operation == "issue" and fail_issue:
+            fail_issue = False
+            raise OSError("synthetic transient issuance failure")
+        result = asyncio.run(
+            mutate_browser_review(
+                operation, BrowserHubMutation.model_validate(json), principal=principal, db=db
+            )
+        )
+        if operation == "consume" and lose_consume:
+            lose_consume = False
+            raise OSError("synthetic response lost after durable commit")
+        raw = __import__("json").dumps(result).encode()
+        return SimpleNamespace(
+            status_code=200, content=raw, json=lambda: result, close=lambda: None
+        )
+
+    reviews = PodBrowserReviews(
+        key=b"r" * 32,
+        pod_key_id="podk_test",
+        environment="dev",
+        epoch=1,
+        check_binding=admission,
+        client=SimpleNamespace(post=post),
+    )
+
+    async def scenario():
+        nonlocal lose_consume, fail_issue, revoked
+        terms = {"task_goal": "private synthetic goal", "model": "synthetic-model"}
+        offer = await reviews.offer_review(bound, "model_process", terms)
+        assert offer.coordination.service_uid == "uid-1"
+        # Ledger approval expiry is shorter than the task lifetime. A refresh
+        # presents a new directive; it does not silently approve the new terms.
+        with db.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE one_action_directive_ledger SET expires_at=clock_timestamp()-interval '1 second'"
+                )
+            )
+        reviews._pending[offer.review_id].approval_expires_at = time.time() - 1
+        fail_issue = True
+        with pytest.raises(BrowserRefused, match="REVIEW_UNAVAILABLE"):
+            await reviews.refresh_review(bound, offer.review_id)
+        assert offer.review_id in reviews._pending
+        refreshed = await reviews.refresh_review(bound, offer.review_id)
+        assert refreshed.review_id != offer.review_id and refreshed.terms == terms
+        offer = refreshed
+        with pytest.raises(BrowserRefused, match="OWNER_APPROVAL_REQUIRED"):
+            await reviews.require(bound, "model_process", terms)
+        with pytest.raises(ActionDirectiveAuthorityError, match="Owner confirmation"):
+            await mutate_browser_review(
+                "confirm",
+                BrowserHubMutation(review=offer.coordination, directive_id=offer.review_id),
+                principal=principal,
+                db=db,
+            )
+        for changed in (
+            offer.coordination.model_copy(update={"commitment": "c" * 64}),
+            offer.coordination.model_copy(update={"epoch": 2}),
+            offer.coordination.model_copy(update={"service_uid": "replaced"}),
+            offer.coordination.model_copy(
+                update={"binding": bound.model_copy(update={"incarnation": "replaced"})}
+            ),
+            offer.coordination.model_copy(
+                update={"binding": bound.model_copy(update={"expires_at": 1})}
+            ),
+        ):
+            with pytest.raises(ActionDirectiveAuthorityError):
+                await mutate_browser_review(
+                    "confirm",
+                    BrowserHubMutation(review=changed, directive_id=offer.review_id),
+                    db=db,
+                )
+        confirmed = await mutate_browser_review(
+            "confirm",
+            BrowserHubMutation(review=offer.coordination, directive_id=offer.review_id),
+            db=db,
+        )
+        # A lost hub response or client remount can recover only the same
+        # authenticated exact confirmation, without replacing its receipt.
+        assert confirmed == await mutate_browser_review(
+            "confirm",
+            BrowserHubMutation(review=offer.coordination, directive_id=offer.review_id),
+            db=db,
+        )
+        lose_consume = True
+        with pytest.raises(BrowserRefused, match="REVIEW_UNAVAILABLE"):
+            await reviews.confirm_review(bound, offer.review_id, confirmed["receipt"])
+        await reviews.confirm_review(bound, offer.review_id, confirmed["receipt"])
+        assert sum(op == "consume" for op, _ in calls) == 1
+        assert confirmed == await mutate_browser_review(
+            "confirm",
+            BrowserHubMutation(review=offer.coordination, directive_id=offer.review_id),
+            db=db,
+        )
+        await reviews.require(bound, "model_process", terms)
+        await reviews.require(bound, "model_process", terms)
+        with pytest.raises(BrowserRefused, match="OWNER_APPROVAL_REQUIRED"):
+            await reviews.require(bound, "model_process", {**terms, "model": "changed"})
+        disclosure = await reviews.offer_review(
+            bound, "disclose", {"destination": "private synthetic destination"}
+        )
+        confirmed = await mutate_browser_review(
+            "confirm",
+            BrowserHubMutation(review=disclosure.coordination, directive_id=disclosure.review_id),
+            db=db,
+        )
+        await reviews.confirm_review(bound, disclosure.review_id, confirmed["receipt"])
+        await reviews.require(bound, "disclose", {"destination": "private synthetic destination"})
+        with pytest.raises(BrowserRefused, match="OWNER_APPROVAL_REQUIRED"):
+            await reviews.require(
+                bound, "disclose", {"destination": "private synthetic destination"}
+            )
+        fresh = await reviews.offer_review(
+            bound, "disclose", {"destination": "private synthetic destination"}
+        )
+        assert fresh.review_id != disclosure.review_id
+        revoked = True
+        with pytest.raises(BrowserRefused, match="BINDING_REFUSED"):
+            await reviews.require(bound, "model_process", terms)
+        await reviews.release(bound)
+        assert not reviews._pending
+
+    asyncio.run(scenario())
+    assert "private synthetic" not in json.dumps(calls)
+    with db.engine.begin() as conn:
+        rows = conn.execute(text("SELECT * FROM one_action_directive_ledger")).mappings().all()
+        assert "private synthetic" not in str(rows)
+        assert all(row["channel"] == "pod_chat" for row in rows)
+        assert conn.execute(text("SELECT count(*) FROM one_adk_sessions")).scalar() == 0
+    from sqlalchemy.exc import IntegrityError
+
+    for mutation in (
+        "action_id='browser.arbitrary'",
+        "requires_confirmation=FALSE",
+        "trusted_activation_required=FALSE",
+    ):
+        with pytest.raises(IntegrityError, match="pod_chat_action_identity"):
+            with db.engine.begin() as conn:
+                conn.execute(text("UPDATE one_action_directive_ledger SET " + mutation))

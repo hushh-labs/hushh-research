@@ -328,6 +328,7 @@ def task_runtime_fixture(monkeypatch, *, ready=None, model=None, log=None):
     class Reviews:
         def __init__(self):
             self.offers, self.grants = {}, set()
+            self.previews = {}
 
         async def check_binding(self, bound):
             await auth.check_binding(bound)
@@ -344,10 +345,25 @@ def task_runtime_fixture(monkeypatch, *, ready=None, model=None, log=None):
             identity = self.identity(bound, purpose, terms)
             review_id = "review_" + identity[2]
             self.offers[review_id] = (bound, identity)
-            return BrowserReviewOffer(review_id=review_id, purpose=purpose, terms=terms)
+            offer = BrowserReviewOffer(review_id=review_id, purpose=purpose, terms=terms)
+            self.previews[review_id] = offer
+            return offer
 
-        async def confirm_review(self, bound, review_id):
+        async def refresh_review(self, bound, review_id):
             await self.check_binding(bound)
+            return self.previews[review_id]
+
+        async def release(self, bound):
+            for key, (original, identity) in list(self.offers.items()):
+                if original == bound:
+                    self.offers.pop(key)
+                    self.previews.pop(key)
+                    self.grants.discard(identity)
+
+        async def confirm_review(self, bound, review_id, receipt):
+            await self.check_binding(bound)
+            if receipt != "synthetic-owner-receipt-" + "x" * 32:
+                raise BrowserRefused("BROWSER_REVIEW_CHANGED")
             original, identity = self.offers[review_id]
             if bound != original:
                 raise BrowserRefused("BROWSER_REVIEW_CHANGED")
@@ -428,7 +444,10 @@ async def approved_task(fixture):
     assert snapshot.phase == "needs_owner"
     assert fixture.launcher.calls == 0  # no screen before provider-processing receipt
     snapshot = await fixture.runtime.confirm_review(
-        fixture.owner, snapshot.binding.task_id, snapshot.review.review_id
+        fixture.owner,
+        snapshot.binding.task_id,
+        snapshot.review.review_id,
+        "synthetic-owner-receipt-" + "x" * 32,
     )
     await asyncio.wait_for(fixture.model.entered.wait(), 2)
     return await fixture.runtime.read(fixture.owner, snapshot.binding.task_id)

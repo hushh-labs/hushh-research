@@ -23,6 +23,11 @@ ENV VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project --active --compile-bytecode
+# Browser receives a separate dependency tree with no agent/cloud credentials
+# or provider SDK. Chromium is only started after admitted, qualified demand.
+COPY browser_runtime/requirements.lock /tmp/browser-requirements.lock
+RUN uv venv /opt/browser/venv \
+    && uv pip sync --python /opt/browser/venv/bin/python --require-hashes /tmp/browser-requirements.lock
 
 # Private command retrieval and Drive use the same pinned local embedding
 # model as the hub. Fetch and exercise it at build time, never on an owner turn.
@@ -39,6 +44,11 @@ ARG POD_IMAGE_TAG=""
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/hushh/models /opt/hushh/models
+COPY --from=builder /opt/browser/venv /opt/browser/venv
+RUN apt-get update && apt-get install -y --no-install-recommends bubblewrap libseccomp2 \
+    && PLAYWRIGHT_BROWSERS_PATH=/opt/browser/browsers \
+       /opt/browser/venv/bin/playwright install --with-deps --only-shell chromium \
+    && rm -rf /var/lib/apt/lists/*
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     VIRTUAL_ENV=/opt/venv \
@@ -51,12 +61,32 @@ COPY . .
 # output with the runtime reader and fails if the catalog is absent or invalid.
 RUN HF_HUB_OFFLINE=1 python -m scripts.ops.bake_action_catalog_vectors
 RUN python -m compileall -q .
-# Non-root, least-privilege (FedRAMP CM-6 / SC-2).
-RUN useradd --system --uid 10001 --home-dir /app appuser
+# The worker namespace mounts only this explicit source allowlist. In
+# particular /app, the agent venv, credentials and recovery state are absent.
+COPY hushh_mcp/services/pod_browser/launch_protocol.py \
+     hushh_mcp/services/pod_browser/launch_service.py \
+     hushh_mcp/services/pod_browser/namespace_command.py \
+     hushh_mcp/services/pod_browser/namespace_worker.py \
+     hushh_mcp/services/pod_browser/process_guard.py \
+     hushh_mcp/services/pod_browser/connected_executor.py \
+     hushh_mcp/services/pod_browser/connected_transport.py \
+     hushh_mcp/services/pod_browser/network.py \
+     hushh_mcp/services/pod_browser/contracts.py \
+     hushh_mcp/services/pod_browser/mailbox.py \
+     hushh_mcp/services/pod_browser/playwright_executor.py \
+     hushh_mcp/services/pod_browser/session_state.py \
+     hushh_mcp/services/pod_browser/origin.py /opt/browser/source/hushh_mcp/services/pod_browser/
+COPY hushh_mcp/services/public_endpoint_policy.py \
+     hushh_mcp/services/public_network_address.py \
+     hushh_mcp/services/mcp_public_http.py /opt/browser/source/hushh_mcp/services/
+COPY browser_runtime/pod_entrypoint.py browser_runtime/gunicorn_lifecycle.py /opt/browser/
+# Only the fixed bootstrap starts as root, before application imports. It
+# irreversibly drops all capabilities and privileges into separate identities.
+RUN groupadd --gid 10001 agent && useradd --system --uid 10001 --gid 10001 --home-dir /app appuser \
+    && groupadd --gid 10002 browser && useradd --system --uid 10002 --gid 10002 --no-create-home browser
 # gunicorn's control server writes a runtime dir under CWD/HOME; the code tree is
 # root-owned + read-only for the runtime user, so give it one writable path.
 RUN mkdir -p /app/.gunicorn && chown 10001:10001 /app/.gunicorn && chmod 0700 /app/.gunicorn
-USER 10001
 EXPOSE 8080
 # Slim pod entrypoint: agent + storage + enforcement only (no consent control plane).
 #
@@ -80,4 +110,4 @@ EXPOSE 8080
 # `--preload` would share the parent's imports but not fix it: post-fork state
 # still diverges, and the storage engine would still have two writers. One worker
 # is the honest expression of the invariant the rest of the system already assumes.
-CMD ["sh", "-c", "umask 077; exec gunicorn pod_server:app -w 1 -k uvicorn.workers.UvicornWorker --timeout 120 -b 0.0.0.0:${PORT:-8080}"]
+ENTRYPOINT ["/usr/local/bin/python", "-I", "-S", "/opt/browser/pod_entrypoint.py"]

@@ -20,6 +20,8 @@ import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { AuthService } from "@/lib/services/auth-service";
+import { ApiService } from "@/lib/services/api-service";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 
 const labels: Record<ScheduledTask["state"], string> = {
@@ -35,12 +37,18 @@ const labels: Record<ScheduledTask["state"], string> = {
 
 /** Owner opens this view explicitly. No polling keeps a sleeping pod awake. */
 export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
+  const generation = snapshotValidatedAuthSessionOwner()?.generation;
+  return <OwnerScheduledTasksPanel key={`${ownerId}:${generation}`} ownerId={ownerId} />;
+}
+
+function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
   const client = useMemo(() => new PodScheduledTasksClient(ownerId), [ownerId]);
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<ScheduledTasksStatus | null>(null);
   const [message, setMessage] = useState("");
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState("");
+  const [placementMessage, setPlacementMessage] = useState("");
   const active = useRef(false);
   const work = useRef<AbortController | null>(null);
   const close = () => {
@@ -50,29 +58,46 @@ export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
   useBackLayer(ROUTES.ONE_HOME, open ? 2 : 0, close);
   useEffect(() => {
     if (!open) return;
+    const owner = snapshotValidatedAuthSessionOwner();
+    if (owner?.userId !== ownerId) return;
     const request = new AbortController();
     work.current = request;
     setChecking(true);
     setMessage("");
-    void client
-      .status(request.signal)
+    setPlacementMessage("");
+    const current = () => !request.signal.aborted && AuthService.getCurrentUser()?.uid === ownerId &&
+      isValidatedAuthSessionOwnerCurrent(owner);
+    void ApiService.getPersonalAgentStatus({ signal: request.signal })
+      .then(async (hosting) => {
+        if (!current()) return null;
+        if (hosting.hostingMode !== "byoc" && hosting.hostingMode !== "hussh_pods") {
+          setStatus(null);
+          setPlacementMessage(hosting.hostingMode === "shared"
+            ? "Scheduled tasks need a private agent."
+            : "Finish setting up your private agent to schedule work.");
+          return null;
+        }
+        return client.status(request.signal);
+      })
       .then((value) => {
-        if (!request.signal.aborted) setStatus(value);
+        if (current() && value) setStatus(value);
       })
       .catch(() => {
-        if (!request.signal.aborted)
+        if (current()) {
+          setStatus(null);
           setMessage(
             "Connect and unlock your cloud agent to view scheduled tasks.",
           );
+        }
       })
       .finally(() => {
-        if (!request.signal.aborted) setChecking(false);
+        if (current()) setChecking(false);
       });
     return () => {
       request.abort();
       work.current = null;
     };
-  }, [client, open]);
+  }, [client, open, ownerId]);
 
   const control = async (
     task: ScheduledTask,
@@ -82,9 +107,12 @@ export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
     active.current = true;
     setBusy(task.id);
     const signal = work.current?.signal;
+    const owner = snapshotValidatedAuthSessionOwner();
     const current = () =>
       Boolean(signal && !signal.aborted) &&
+      owner?.userId === ownerId && isValidatedAuthSessionOwnerCurrent(owner) &&
       AuthService.getCurrentUser()?.uid === ownerId;
+    if (!current()) { active.current = false; setBusy(""); return; }
     let settledState: ScheduledTask["state"] | null = null;
     const request = client.control(task, operation, signal).then((updated) => {
       settledState = updated.state;
@@ -162,6 +190,7 @@ export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
             {message}
           </p>
         )}
+        {placementMessage && <p role="status" className="text-sm text-muted-foreground">{placementMessage}</p>}
         {checking && !status && (
           <p role="status" className="text-sm text-muted-foreground">
             Checking your agent…
@@ -200,7 +229,7 @@ export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
                   <Button
                     variant="ghost"
                     size="compact"
-                    disabled={Boolean(busy)}
+                    disabled={checking || Boolean(busy)}
                     onClick={() => void control(task, "pause")}
                   >
                     Pause
@@ -210,7 +239,7 @@ export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
                   <Button
                     variant="ghost"
                     size="compact"
-                    disabled={Boolean(busy) || !status?.available}
+                    disabled={checking || Boolean(busy) || !status?.available}
                     onClick={() => void control(task, "resume")}
                   >
                     Resume
@@ -222,7 +251,7 @@ export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
                   <Button
                     variant="ghost"
                     size="compact"
-                    disabled={Boolean(busy)}
+                    disabled={checking || Boolean(busy)}
                     onClick={() => void control(task, "cancel")}
                   >
                     Cancel
@@ -234,14 +263,14 @@ export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
         </ul>
         <Button variant="outline" asChild>
           <Link
-            href={ROUTES.ONE_FILES}
+            href={placementMessage ? ROUTES.PROFILE_HOSTING : ROUTES.ONE_FILES}
             onClick={close}
             aria-disabled={Boolean(busy)}
             onClickCapture={(event) => {
               if (busy) event.preventDefault();
             }}
           >
-            Open Files
+            {placementMessage ? "Hosting" : "Open Files"}
           </Link>
         </Button>
       </DialogContent>

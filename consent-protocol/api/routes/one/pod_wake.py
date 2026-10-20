@@ -116,7 +116,7 @@ async def wake_pod(
 
 
 async def _host_is_gone(row: dict) -> bool:
-    """Whether the recorded host's Cloud Run service is truly GONE (deleted), vs
+    """Whether the recorded owner-cloud service is truly GONE (deleted), vs
     merely cold/scaled-to-zero. Only a confirmed absence counts. A probe error is
     NOT proof of gone -- it defaults to False (cold/waking), because a spurious
     fresh setup would change the user's agent identity and A2A address, which must
@@ -129,6 +129,7 @@ async def _host_is_gone(row: dict) -> bool:
             PodSpec,
             resolve_compute_backend_for_spec,
         )
+        from hushh_mcp.services.user_cloud_service import spec_coordinates_from_row
 
         spec = PodSpec(
             hushh_id=str((row or {}).get("hushh_id") or ""),
@@ -136,9 +137,7 @@ async def _host_is_gone(row: dict) -> bool:
             pod_pubkey="",
             billing_space_id=(row or {}).get("billing_space_id"),
             deployment_target=(row or {}).get("deployment_target"),
-            user_cloud_project=(row or {}).get("user_cloud_project"),
-            user_cloud_region=(row or {}).get("user_cloud_region"),
-            user_cloud_bootstrap_sa=(row or {}).get("user_cloud_bootstrap_sa"),
+            **spec_coordinates_from_row(row),
         )
         result = await resolve_compute_backend_for_spec(spec).get(external_agent_id)
         return str(getattr(result, "status", "") or "") == "gone"

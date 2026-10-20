@@ -16,6 +16,7 @@ from .contracts import BrowserAuthorityPort, BrowserBinding, BrowserReadiness, B
 from .launch_protocol import (
     AGENT_ID,
     CONTROL_FD,
+    LaunchRefused,
     connected_socket,
     receive,
     send,
@@ -28,6 +29,22 @@ if TYPE_CHECKING:
 NetworkAuthorityFactory = Callable[
     [BrowserBinding, "BrowserConsentPort", BrowserAuthorityPort], BrowserNetworkAuthorityPort
 ]
+
+
+def discard_bootstrap_channel() -> None:
+    """Fence an unused generation when startup qualification/recovery refuses."""
+    if (
+        sys.platform != "linux"
+        or os.getresuid() != (AGENT_ID,) * 3
+        or os.environ.pop("HUSSH_BROWSER_LAUNCH_FD", None) != str(CONTROL_FD)
+    ):
+        return
+    try:
+        with socket.socket(fileno=CONTROL_FD) as connection:
+            connected_socket(connection, socket.SOCK_SEQPACKET)
+            connection.shutdown(socket.SHUT_RDWR)
+    except (OSError, LaunchRefused):
+        pass
 
 
 async def _readable(connection: socket.socket) -> None:
@@ -88,13 +105,19 @@ class InPodBrowserLauncher:
             or os.environ.pop("HUSSH_BROWSER_LAUNCH_FD", None) != str(CONTROL_FD)
         ):
             raise BrowserRefused("BROWSER_LAUNCH_UNAVAILABLE")
-        connection = socket.socket(fileno=CONTROL_FD)
+        connection = None
         try:
+            connection = socket.socket(fileno=CONTROL_FD)
             return cls(
                 connection=connection, readiness=readiness, network_authority=network_authority
             )
+        except (OSError, LaunchRefused):
+            if connection is not None:
+                connection.close()
+            raise BrowserRefused("BROWSER_LAUNCH_UNAVAILABLE") from None
         except BaseException:
-            connection.close()
+            if connection is not None:
+                connection.close()
             raise
 
     def _fence(self) -> None:

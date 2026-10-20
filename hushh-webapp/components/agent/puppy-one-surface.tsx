@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
 import { PrivatePuppyInferencePanel } from "@/components/agent/private-puppy-inference-panel";
 import { CHAT_WELCOME_COPY_CLASSNAME } from "@/components/agent/chat-message-styles";
@@ -11,6 +12,83 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 import { AgentDockPortal } from "@/components/agent/agent-dock";
+import { useAuth } from "@/lib/firebase";
+import { AuthService } from "@/lib/services/auth-service";
+import { ApiService } from "@/lib/services/api-service";
+import type { PersonalAgentStatus } from "@/lib/services/personal-agent-status";
+import { ROUTES } from "@/lib/navigation/routes";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+
+type PuppySurfaceProps = {
+  className?: string;
+  conversations?: AgentChatConversation[];
+  activeConversationId?: string | null;
+  onCreateConversation?: () => void;
+  /** Retain the transcript while hidden; close portals and pause readings. */
+  active?: boolean;
+  sharedDock?: boolean;
+  composerDisabled?: boolean;
+};
+
+/** Placement is checked before either the local bridge or remote relay mounts. */
+export function PuppyOneSurface(props: PuppySurfaceProps) {
+  const { user } = useAuth();
+  // A different owner must never inherit a retained transcript or placement read.
+  const generation = snapshotValidatedAuthSessionOwner()?.generation;
+  return <PuppyPlacement key={`${user?.uid ?? "signed-out"}:${generation}`} {...props} ownerId={user?.uid} />;
+}
+
+function PuppyPlacement({ ownerId, ...props }: PuppySurfaceProps & { ownerId?: string }) {
+  const active = props.active ?? true;
+  const [status, setStatus] = useState<PersonalAgentStatus | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!active || !ownerId) return;
+    const owner = snapshotValidatedAuthSessionOwner();
+    if (owner?.userId !== ownerId) return;
+    const request = new AbortController();
+    setChecking(true);
+    setFailed(false);
+    const current = () => !request.signal.aborted && AuthService.getCurrentUser()?.uid === ownerId &&
+      isValidatedAuthSessionOwnerCurrent(owner);
+    void ApiService.getPersonalAgentStatus({ signal: request.signal })
+      .then((value) => { if (current()) setStatus(value); })
+      .catch(() => { if (current()) setFailed(true); })
+      .finally(() => { if (current()) setChecking(false); });
+    return () => request.abort();
+  }, [active, ownerId, attempt]);
+
+  if (status?.hostingMode === "byoc" && status.hushhId) {
+    // A transient status read must not destroy an in-flight reply. Send-time
+    // admission remains authoritative; stale observations disable new input.
+    return <>
+      {failed && active && <div className="flex flex-wrap items-center justify-center gap-2 px-4 text-sm">
+        <p role="status">Couldn’t check your agent.</p>
+        <Button variant="ghost" onClick={() => setAttempt(value => value + 1)}>Try again</Button>
+      </div>}
+      <PuppyChatSurface key={status.hushhId} {...props}
+        composerDisabled={props.composerDisabled || checking || failed} />
+    </>;
+  }
+  const message = !ownerId ? "Sign in to connect Puppy."
+    : checking ? "Checking your agent…"
+    : failed ? "Couldn’t check your agent."
+    : status?.hostingMode === "shared" ? "Puppy needs your own cloud."
+    : status?.hostingMode === "pending" ? "Finish setting up your private agent to connect Puppy."
+    : "Set up your own cloud to connect Puppy.";
+  return (
+    <div className={cn("flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center", props.className)}
+      inert={!active} data-agent-surface="puppy">
+      <AgentDockPortal enabled={Boolean(props.sharedDock && active)} visible={false} suppressed>{null}</AgentDockPortal>
+      <p className="text-sm text-muted-foreground" role="status">{message}</p>
+      {ownerId && !checking && (failed
+        ? <Button variant="outline" onClick={() => setAttempt(value => value + 1)}>Try again</Button>
+        : <Button variant="outline" asChild><Link href={ROUTES.PROFILE_HOSTING}>Hosting</Link></Button>)}
+    </div>
+  );
+}
 
 /**
  * Puppy One as a mode of the Agent Chat workspace.
@@ -28,7 +106,7 @@ import { AgentDockPortal } from "@/components/agent/agent-dock";
  * control cannot swallow is a broken link to Hussh One, which stays on the
  * strip whether or not anything is open, see `PuppyMachineSheet`.
  */
-export function PuppyOneSurface({
+function PuppyChatSurface({
   className,
   active = true,
   sharedDock = false,
@@ -36,23 +114,7 @@ export function PuppyOneSurface({
   conversations,
   activeConversationId,
   onCreateConversation,
-}: {
-  className?: string;
-  conversations?: AgentChatConversation[];
-  activeConversationId?: string | null;
-  onCreateConversation?: () => void;
-  /**
-   * Whether this surface is the one on screen. The workspace keeps it mounted
-   * and hidden so a slow local answer survives a glance at One, so `active`
-   * is what stops a hidden surface polling forever and what closes the machine
-   * panel: that panel is a Radix portal on document.body, and `hidden` on this
-   * root does nothing to it, so without this it would float over One's
-   * transcript under a header that says "One".
-   */
-  active?: boolean;
-  sharedDock?: boolean;
-  composerDisabled?: boolean;
-}) {
+}: PuppySurfaceProps) {
   const link = usePuppyLink();
   // A deployed frontend's loopback is its Cloud Run container, never the
   // owner's Mac. Resolve after hydration so server and client render agree.
@@ -81,7 +143,7 @@ export function PuppyOneSurface({
         "pb-[var(--agent-chat-composer-bottom,0.75rem)] focus-within:pb-[var(--agent-chat-composer-focused-bottom,0.75rem)]",
         className,
       )}
-      inert={!active || composerDisabled}
+      inert={!active}
       data-agent-surface="puppy"
     >
       {/* The measure lives on an INNER wrapper, because One puts its gutters
@@ -116,7 +178,7 @@ export function PuppyOneSurface({
             <>
               {conversations.length === 0 ? (
                 <div className="flex flex-1 items-center justify-center p-4">
-                  <Button onClick={onCreateConversation}>Start a Puppy chat</Button>
+                  <Button disabled={composerDisabled || !active} onClick={onCreateConversation}>Start a Puppy chat</Button>
                 </div>
               ) : null}
               {conversations.map((conversation) => localBridge === null ? null : localBridge ? (

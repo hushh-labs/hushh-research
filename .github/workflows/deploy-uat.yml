@@ -273,6 +273,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/release-tools"
+          cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
           cp scripts/ci/runtime-capacity-budget.py \
@@ -435,6 +436,15 @@ jobs:
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
             --github-output "$GITHUB_OUTPUT" \
             --json
+
+      - name: Require exact-SHA dev acceptance
+        id: predecessor-acceptance
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
+            --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --scope "${{ steps.scope.outputs.scope }}" --output /tmp/uat-predecessor-acceptance.json
 
       - name: Enforce UAT database connection budget before deployment
         shell: bash
@@ -3171,7 +3181,7 @@ jobs:
           if [ "${{ inputs.preserve_paused_drive_worker }}" = "true" ] \
              && [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
             STATUS="blocked"
-          elif [ "${{ steps.classify-uat-release.outputs.release_failed }}" != "true" ]; then
+          elif [ "${{ steps.classify-uat-release.outputs.release_failed }}" = "false" ]; then
             if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
                && { [ "${{ steps.activate-account-deletion.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-personal-gmail-monitor.outcome }}" != "success" ] \
@@ -3242,6 +3252,7 @@ jobs:
                   "lanes": json.loads(os.environ.get("VERIFICATION_PLAN_LANES") or "{}"),
                   "pkm_evaluator_runs": "${{ steps.verification-plan.outputs.pkm_evaluator_runs }}",
                   "pkm_upgrade_gate_required": "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}",
+                  "pkm_preservation_outcome": "${{ steps.verify-pkm-preservation.outcome }}",
                   "reviewer_byok_required": "${{ steps.verification-plan.outputs.run_reviewer_byok }}",
                   "parity_attempt_1": "${{ steps.verify-parity-1.outcome }}",
                   "parity_attempt_2": "${{ steps.verify-parity-2.outcome }}",
@@ -3291,8 +3302,28 @@ jobs:
                   "frontend_image_wait": "${{ steps.build-frontend-image.outputs.wait_seconds || '0' }}",
               },
           }
+          predecessor = Path("/tmp/uat-predecessor-acceptance.json")
+          payload["predecessor_acceptance"] = (
+              json.loads(predecessor.read_text(encoding="utf-8")) if predecessor.exists() else None
+          )
           Path("/tmp/uat-release-status.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
           PY
+
+      - name: Produce exact-SHA UAT acceptance
+        if: always()
+        run: |
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" create \
+            --environment uat --status /tmp/uat-release-status.json \
+            --predecessor /tmp/uat-predecessor-acceptance.json \
+            --output /tmp/uat-acceptance/acceptance.json
+
+      - name: Upload immutable UAT acceptance
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-acceptance-uat-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/uat-acceptance/acceptance.json
+          if-no-files-found: ignore
 
       - name: Cancel an unused parallel frontend image build
         # Hygiene only: a release that stopped before the frontend deploy leaves
@@ -3322,6 +3353,7 @@ jobs:
           name: uat-release-${{ github.run_id }}
           if-no-files-found: ignore
           path: |
+            /tmp/uat-predecessor-acceptance.json
             /tmp/uat-runtime-secret-sync.json
             /tmp/uat-frontend-runtime-secret-sync.json
             /tmp/uat-runtime-parity-attempt-1.json

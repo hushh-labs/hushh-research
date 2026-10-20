@@ -1,8 +1,9 @@
 # Private agent: normal release transition
 
-**Status:** local integration plan, refreshed 2026-10-19. Main `f47a4832dbc` and
+**Status:** local integration plan, refreshed 2026-10-20. Main `f47a4832dbc` and
 frozen ADK `42bb9823005` are integrated through `b14bc29901`; the current local
-checkpoint is `fd4770c16e`. The approved Browser-first implementation permits
+checkpoint is `468c0206c0`, with the reviewed changes below still uncommitted.
+The approved Browser-first implementation permits
 exact-SHA validation and governed dev acceptance after the candidate is complete.
 Application main merge, UAT/production and stable publication remain separate.
 The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
@@ -33,7 +34,8 @@ neither a cleaner tree nor passing documentation checks proves pod readiness.
 
 ## 1. Finish and freeze the source
 
-- Fresh main is integrated locally. Preserve pod authorization, bounded streams,
+- Main through `f47a4832dbc` is integrated locally. Re-read fresh main once the
+  implementation is complete. Preserve pod authorization, bounded streams,
   reconnect/resync, connector route registration and current Profile behavior.
 - Preserve the active ADK worktree. The frozen `42bb9823005` delta is integrated
   with authority reconciliation: extracted AI settings retain Azure-aware
@@ -58,6 +60,8 @@ Core gate names, deployment authority and capacity tick titles are unchanged.
 All three workflows already share `resolve-deploy-scope.py`, Cloud Build templates,
 immutable image handling and revision-provenance helpers. Consolidate measured
 remaining duplication in those owners; do not create a second release authority.
+The extraction table is the remaining consolidation roadmap; it does not make
+every unmeasured helper extraction a prerequisite for the exact-SHA acceptance gate.
 
 | Surface | Proposed change | Preserve |
 | --- | --- | --- |
@@ -72,6 +76,14 @@ Thin environment entrypoints may remain for GitHub permissions and dispatch
 compatibility. They must call the common implementation rather than carry their own
 copy. Delete obsolete references, selectors, tests and runbook commands together.
 Normal application deployment and owner-pod installation remain separate operations.
+The local predecessor-acceptance helper requires a healthy dev receipt for the
+exact application SHA and resolved services before UAT; production requires UAT
+acceptance with its dev chain for both source builds and image promotion. Receipts
+bind successful main-owned workflow attempts, immutable artifact digests, final
+serving revisions, schema checks and existing health classifications. Advisory
+findings retain their existing policy. A landed merge SHA needs its own dev
+acceptance; a branch receipt cannot substitute. This operations change is prepared
+locally and is not active until separately authorized on main.
 After an authorized main rollout, reconcile GitHub registry entries for deleted
 workflow files against main, active callers and recent runs. Disable only confirmed
 obsolete entries, preserving historical run evidence and platform-managed security.
@@ -92,10 +104,19 @@ A shorter YAML file or a matching elapsed time is not a verification result.
 | Returning updated user | Show concise, human release notes after authentication/setup resolves | Known pre-publication account, per-owner acknowledgement and cross-tab deduplication |
 | New user at current release | Complete onboarding without a catch-up changelog | New/unknown account dates cannot establish the returning-user audience |
 
-Use the existing choice and continuity migrations (402/405), their owning manifest
-and schema contracts. The header in 405 also records predecessor foundation ordering;
-reconcile it with the actual environment ledger before scheduling. Never rename or
-replay an already-applied migration to make the manifest appear aligned.
+Use the existing choice and continuity migrations (402/404/405), their owning
+manifest and schema contracts. Verified ADC readback on 2026-10-20 found 955/958
+already applied on dev with unchanged source checksums; 405 is unapplied in dev,
+UAT and production. UAT has a ledger but no hosting-choice columns; production
+has neither the migration ledger nor pod registry. Inspect again before rollout.
+
+The local 405 correction excludes retained cloud and pod-signing fields, matching
+runtime eligibility. New dev-only 965 repairs only incompatible **inferred**
+Shared choices whose choice timestamp still matches the legacy receipt. It keeps
+the receipt and preserves explicit later choices, BYOC assignments and pending
+setups. Sixty focused PostgreSQL/manifest checks pass. No live migration ran.
+Never rewrite the applied 958 migration or infer that ledger readback proves
+every owner's placement.
 
 `managed-app-release.ts` currently publishes catch-up notes only on the two dev
 origins. UAT/production need their own reviewed publication metadata and copy;
@@ -112,7 +133,7 @@ require a verified update receipt, independently of the managed-app announcement
 | Puppy | Unavailable | BYOC only, exact trusted-device grant and signed owner/pod binding |
 | Software updates | Managed service version and release notes | Exact-release approval, durable progress, recovery and installed-digest verification |
 | Recorded voice | Existing Shared contract | GCP's authorized native path; Azure disabled |
-| Browser | Unavailable for persistent private work | Native sandbox only; unavailable per cloud until isolation qualifies |
+| Browser | Unavailable for persistent private work | Sandboxed Chromium inside the owner deployment; unavailable per cloud until isolation and runtime composition qualify |
 | Scheduled private work | Explain the private-pod requirement | Only supported, qualified task types; no implied general cron capability |
 
 Use authoritative placement/capability observations in onboarding, Settings, chat
@@ -159,14 +180,16 @@ Derive these states from existing placement/capability contracts and reason code
 not from display labels or a second capability registry. Protect the same refusal
 server-side and verify Shared, unplaced, pending and admitted pod cases.
 
-One confirmed implementation gap is Browser's Shared presentation: absent admission
-currently becomes the generic cloud-gate refusal, and task discovery renders no
-tasks. Wire the explanation into the existing capability surface; an unused
-unavailable component or silently hidden task list does not satisfy this UX.
+Local Puppy and Scheduled tasks entry points now check canonical placement before
+requesting private execution. Browser rediscovery preserves known task cards and
+offers a bounded reconnect action after a requested task; an ordinary Shared visit
+does not display a failed private discovery request. These focused UI checks pass,
+but they are not deployed. The unavailable Browser tool still needs its attempted-
+action explanation through production capability composition.
 
 ## 5. Complete built-in Browser independently on GCP and Azure
 
-**Current truth at `6178eea2c0` plus the local guarded-process slice, reviewed 2026-10-20 UTC: neither cloud is complete.**
+**Current truth at `468c0206c0` plus local changes, reviewed 2026-10-20 UTC: neither installed cloud journey is complete.**
 The [browser runtime owner](../../../consent-protocol/docs/reference/private-browser-runtime.md)
 records local authority, preview, responsive controls and remembered-session tests.
 The product manifest still withholds discovery and disables exposure. Browser
@@ -174,20 +197,26 @@ bindings and ingress are dev-only. `BrowserReadiness.require_ready()` requires
 verified isolation, denied direct egress, a private ephemeral bridge and native model
 transport; an administrator login, policy readback or local Chromium fixture cannot
 issue those receipts.
-The pod currently mounts Browser routes without installing `browser_task_runtime`;
-complete qualified runtime composition rather than merely exposing a start button.
+Source startup now installs the conditional composition after owner recovery;
+authenticated admission binds the task runtime to the effective owner model.
+It remains disabled without a deployment-qualified artifact. Verify that artifact
+against the immutable image, cloud, model and policy through the existing
+governed release authority; a hash-shaped field or startup consistency check
+cannot replace acceptance.
 
 | Cloud | Recorded blocker | Next bounded proof |
 | --- | --- | --- |
-| GCP | An ordinary Gen 2 Job passes inherited network-syscall denial but returns `ENOSYS` for the proposed Landlock filesystem guard | Qualify equivalent private-file protection and actual sandboxed Chromium in the pod service, then its broker and lifecycle |
-| Azure | The ordinary application passes separate-UID filesystem/network controls, including Unix datagram refusal. User namespace creation returns `EPERM` before our guard; sandboxed Chromium has produced no frame | Obtain an actually supported Chromium sandbox path in the same service; do not infer it from successful process protections |
+| GCP | Protected namespace execution and the real launcher/broker pass public documentation/search with HTTP 200, frames and confirmed teardown | Qualify the full packaged image and model/approval composition; verify the installed owner journey |
+| Azure | Container Apps refuses required user namespaces. The disposable B2als_v2 VM renders protected public pages. A temporary Luna deployment returns a native computer action using the existing workload identity; it was removed afterward | Qualify the full packaged image, model continuation, persistent boot policy, encrypted recovery, authenticated wake and retained costs |
 
-The owner approved Browser inside the existing pod image and service, replacing
-the requirement to use separate provider-managed sandbox products. Retain actual
-Chromium sandboxing and owner/pod secret protection. Earlier native-probe failures
-remain historical evidence; neither they nor the new process controls qualify a
-working browser. Recheck supported provider behavior before a changed-prerequisite
-probe rather than repeating unchanged failures.
+Browser remains in One's owner-controlled image and lifecycle. The latest owner
+decision permits qualifying another Azure host for the **whole deployment**, using
+disposable resources, without moving existing owners. The initial westus2
+`Standard_B2als_v2` VM has 2 vCPU / 4 GiB host capacity; the application remains
+limited to 1 vCPU / 2 GiB. Burst credits, disk/network charges, wake authority,
+updates, erasure and recovery require separate evidence. A VM frame alone does not
+qualify a customer hosting offer. Retain Chromium's sandbox and pod-secret
+protection; no privileged or unsandboxed retry is allowed.
 
 Implementation order, owned by the existing backend/browser and operations lanes:
 
@@ -196,9 +225,9 @@ Implementation order, owned by the existing backend/browser and operations lanes
    per cloud. Use disposable resources, bounded runtime and no owner information.
    Keep Chromium's sandbox and verified process restrictions; no privileged or unsandboxed fallback.
 2. **Complete private transport and composition:** supply real cloud adapters behind
-   the existing execution port, broker, task runtime and action authority. Azure's
-   current probe explicitly cannot issue a private-bridge readiness receipt. Probe
-   stdout, provider filesystem APIs and policy configuration alone are insufficient.
+   the existing execution port, broker, task runtime and action authority. Both
+   synthetic probes now prove the private bridge; neither qualifies the installed
+   owner model or full application lifecycle.
    Keep task scratch memory-backed and secrets out of the launcher and telemetry.
 3. **Connect One and owner control:** preserve ADK delegation, exact owner/incarnation
    checks, separate screen-processing/disclosure approvals and bounded tasks. Prove
@@ -236,6 +265,6 @@ is an acceptable substitute for the missing execution proof.
    graduation, provenance, recovery, erasure and rollback-boundary evidence pass.
 
 Current external failures remain explicit: GCP native owner-project AI returns 403;
-Browser's native execution gates have not passed; retained synthetic erasure and
+Azure's customer host adapter and both clouds' installed composition remain open; retained synthetic erasure and
 current-image journeys still need live receipts. Do not manufacture a pass, default
 owners to Shared, weaken isolation or publish a stable offer to remove a blocker.

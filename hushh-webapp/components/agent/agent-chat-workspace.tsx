@@ -10492,7 +10492,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               )}
 
               {hasChatAccess && !isPuppySurface && user?.uid ? (
-                <ComputerUseActiveTasks key={user.uid} ownerId={user.uid} refreshKey={browserTasksRefresh} route={pathname || "/"} />
+                <ComputerUseActiveTasks key={user.uid} ownerId={user.uid} refreshKey={browserTasksRefresh} route={pathname || "/"} getVaultOwnerToken={getVaultOwnerToken} />
               ) : null}
 
               {pendingMcpReviews.slice(0, 1).map((review) => (

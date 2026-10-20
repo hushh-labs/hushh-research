@@ -10,8 +10,8 @@ import type { ComputerUseSnapshot } from "@/lib/computer-use/contracts";
 import { ComputerUseTaskCard } from "./computer-use-task-card";
 
 /** Opening is an owner action: mounting One never wakes a pod just to check a pilot. */
-export function ComputerUseOwnerBridge({ ownerId }: { ownerId: string }) {
-  const client = useMemo(() => new ComputerUseClient(ownerId), [ownerId]);
+export function ComputerUseOwnerBridge({ ownerId, getVaultOwnerToken }: { ownerId: string; getVaultOwnerToken?: () => string | null }) {
+  const client = useMemo(() => new ComputerUseClient(ownerId, getVaultOwnerToken), [ownerId, getVaultOwnerToken]);
   const transport = useMemo(() => client.transport(), [client]);
   const [phase, setPhase] = useState<"closed" | "checking" | "unavailable" | "ready" | "starting" | "active">("closed");
   const [task, setTask] = useState<ComputerUseSnapshot | null>(null);

@@ -9,6 +9,7 @@ const COPY = {
   disclose: { title: "Share these details?", action: "Share these details" },
   session_remember: { title: "Remember this sign-in?", action: "Remember this site" },
   session_restore: { title: "Use stored sign-in?", action: "Use for this task" },
+  provider_safety: { title: "Review this browser action", action: "Allow this action" },
 } as const;
 
 /** Owner-only, transient review. Cookies and session values never reach this component. */
@@ -24,6 +25,8 @@ export function ComputerUseReview({ review, pending, open, onClose, onConfirm }:
     ? `Allow ${review.model} to process browser screens${review.details.length ? " and these selected details" : ""} for this task.`
     : review.purpose === "disclose"
       ? "The website can receive these details as soon as they are entered."
+      : review.purpose === "provider_safety"
+        ? "The model flagged a concern. Review the action and warning before continuing."
       : review.purpose === "session_remember"
         ? "Save this site’s sign-in information encrypted in your cloud. Website expiry and logout still apply."
         : "Use stored sign-in information for this task. The website may ask you to sign in again.";

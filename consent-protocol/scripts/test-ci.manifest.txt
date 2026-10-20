@@ -383,6 +383,7 @@ tests/test_cloud_run_image_resolution.py
 # bodies with guarded cloud stand-ins.
 tests/test_frontend_prebuilt_image_contract.py
 tests/test_production_image_promotion_contract.py
+tests/test_predecessor_acceptance_contract.py
 
 # First-party document renewal: expiry is not revocation, but revoked lineage
 # can never renew or regain authority through a later grant/duplicate token.
@@ -646,10 +647,12 @@ tests/test_plaid_server_custody_retire.py
 tests/test_hosting_mode_resolution.py
 tests/test_pod_binding_service.py
 tests/test_pod_browser_boundary.py
+tests/test_pod_browser_routes.py
 tests/test_pod_browser_connected_transport.py
 tests/test_pod_browser_inpod_launcher.py
 tests/test_pod_browser_worker_identity.py
 tests/test_pod_browser_information.py
+tests/test_pod_browser_adk.py
 tests/test_pod_browser_sessions.py
 tests/test_pod_binding_transactions.py
 tests/test_pod_consent_authority.py

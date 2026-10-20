@@ -52,6 +52,7 @@ from .people import router as people_router
 from .personal_agent import router as personal_agent_router
 from .pkm_packets import router as pkm_packets_router
 from .places import router as places_router
+from .pod_browser_approval import router as pod_browser_approval_router
 from .pod_consent import router as pod_consent_router
 from .pod_heartbeat import router as pod_heartbeat_router
 from .pod_lifecycle import router as pod_lifecycle_router
@@ -138,6 +139,7 @@ router.include_router(people_router)
 # allowlist in pod_server.py keeps it off the pod surface.
 router.include_router(pod_consent_router)
 router.include_router(pod_mcp_approval_router)
+router.include_router(pod_browser_approval_router)
 router.include_router(pod_owner_feed_router)
 router.include_router(pod_heartbeat_router)
 # Hub-only, like the relay: a pod has no registry database and no business

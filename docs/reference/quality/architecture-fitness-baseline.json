@@ -1645,7 +1645,7 @@
       }
     ],
     "evidence_revision": "3c28325791",
-    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248\u2192252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication."
+    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248→252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication."
   },
   "browser_schedule_core_fixture_review_20261013": {
     "findings": [
@@ -4489,7 +4489,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2930,
+  "finding_count": 2939,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4678,7 +4678,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/action_directive_ledger.py",
       "symbol": "ActionDirectiveStore",
-      "value": 955
+      "value": 961
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5650,7 +5650,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_browser/control.py",
       "symbol": "BrowserControl",
-      "value": 252
+      "value": 264
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -12787,7 +12787,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pod_browser/control.py",
       "symbol": "execute",
-      "value": 82
+      "value": 90
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -14785,7 +14785,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/helpers/pod_browser.py",
       "symbol": "task_runtime_fixture",
-      "value": 127
+      "value": 143
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18736,7 +18736,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/action_directive_ledger.py",
       "symbol": null,
-      "value": 1065
+      "value": 1073
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19942,7 +19942,7 @@
       "limit": 500,
       "path": "consent-protocol/pod_server.py",
       "symbol": null,
-      "value": 748
+      "value": 764
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21931,7 +21931,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_binding_transactions.py",
       "symbol": null,
-      "value": 1045
+      "value": 1245
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21940,7 +21940,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_browser_boundary.py",
       "symbol": null,
-      "value": 968
+      "value": 1040
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22327,7 +22327,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 1887
+      "value": 1890
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30192,8 +30192,7 @@
       "limit": 80,
       "symbol": "test_run_manager_stream_resume_replays_and_continues",
       "key": "function_size|consent-protocol/tests/test_kai_analyze_run_manager.py|test_run_manager_stream_resume_replays_and_continues|function exceeds the advisory gene budget"
-    }
-  ,
+    },
     {
       "detail": "class exceeds the advisory operon budget",
       "key": "class_size|consent-protocol/tests/services/test_drive_autoshare_pay_then_stream_postgres.py|Flow|class exceeds the advisory operon budget",
@@ -30868,6 +30867,87 @@
       "path": "consent-protocol/tests/services/test_drive_bulk_share_worker.py",
       "symbol": null,
       "value": 501
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_pod_binding_transactions.py|test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_pod_binding_transactions.py",
+      "symbol": "test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub",
+      "value": 197
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_pod_browser_adk.py|test_azure_native_adk_round_trip_uses_pixels_exact_call_ids_and_private_history|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_pod_browser_adk.py",
+      "symbol": "test_azure_native_adk_round_trip_uses_pixels_exact_call_ids_and_private_history",
+      "value": 181
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_pod_browser_adk.py|test_native_adk_task_keeps_authored_instruction_png_and_finish_output|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_pod_browser_adk.py",
+      "symbol": "test_native_adk_task_keeps_authored_instruction_png_and_finish_output",
+      "value": 135
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_pod_browser_routes.py|test_browser_routes_default_closed_and_input_validation_never_echoes_secrets|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_pod_browser_routes.py",
+      "symbol": "test_browser_routes_default_closed_and_input_validation_never_echoes_secrets",
+      "value": 124
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_pod_binding_transactions.py|scenario|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_pod_binding_transactions.py",
+      "symbol": "scenario",
+      "value": 96
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_pod_browser_adk.py|test_native_safety_review_resumes_exact_adk_call_or_fences_it|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_pod_browser_adk.py",
+      "symbol": "test_native_safety_review_resumes_exact_adk_call_or_fences_it",
+      "value": 85
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_pod_browser_routes.py|test_browser_hub_approval_separates_owner_and_signed_machine_authority|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_pod_browser_routes.py",
+      "symbol": "test_browser_hub_approval_separates_owner_and_signed_machine_authority",
+      "value": 83
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_pod_image_build_contract.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_pod_image_build_contract.py",
+      "symbol": null,
+      "value": 520
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/components/computer-use-task-card.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/components/computer-use-task-card.test.tsx",
+      "symbol": null,
+      "value": 503
     }
   ],
   "inspected_files": 6625,
@@ -32962,7 +33042,7 @@
           "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
           "multiset_slot": 0,
           "previous": 546,
-          "rationale": "Owner A\u2192B\u2192A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
+          "rationale": "Owner A→B→A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
           "reviewed": 652,
           "source_sha256": "3c96b63943a6e971e4842d207b38e1daefba6ace756d6e531f13a5687d21cfca"
         },
@@ -40105,7 +40185,7 @@
         "disposition": "reviewed coupled contract",
         "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
         "measured": 782,
-        "rationale": "The three-line net increase preserves an existing Azure job\u2019s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
+        "rationale": "The three-line net increase preserves an existing Azure job’s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
         "slot": 0
       },
       {
@@ -55622,7 +55702,7 @@
         "value": 824
       }
     ],
-    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822\u2192824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
+    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822→824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
     "source_bindings": [
       {
         "git_blob": "1290d629bbccaf71af72949bfe4c15a9bfb4e5f1",
@@ -75583,6 +75663,144 @@
         "after": 750,
         "source_sha256": "7fe62522e0afc5f5e7e135ecc40e9b4da19f6bb8e3d940c77a1efd6fa9ee29df",
         "review": "One explicit Shared fixture declaration keeps the real placement guard and removes accidental live registry access from the synthetic planner proof."
+      }
+    ]
+  },
+  "browser_authority_release_review_20261020": {
+    "candidate_parent_revision": "468c0206c04752654868741b2c566e877af427f1",
+    "reviewers": [
+      "read-only backend authority reviewer",
+      "read-only CI/release reviewer",
+      "read-only frontend reviewer",
+      "parent synthesis"
+    ],
+    "scope": "Exact structural ceilings after meaningful lifecycle/history/test extraction. Global budgets unchanged; no acceptance claim from size review.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/action_directive_ledger.py|ActionDirectiveStore|class exceeds the advisory operon budget",
+        "before": 955,
+        "after": 961,
+        "source_sha256": "69b8c9d47a3b8ba65408eeac88956d44b1725958e842b7580470fd30efb746cf",
+        "review": "Single existing approval authority; Browser confirmation adds a narrow wrapper with exact private commitments."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/pod_browser/control.py|BrowserControl|class exceeds the advisory operon budget",
+        "before": 252,
+        "after": 264,
+        "source_sha256": "5eee07aacccdfdbf1848d55300975d62797f8617031e10165e998367c86997fa",
+        "review": "Native Azure focus handling stays inside the atomic dispatch/control-epoch boundary."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_binding_transactions.py|test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 197,
+        "source_sha256": "0f2aa3c63c7af217ba0dd32bbb156157fef2dbc77dcdf2fb338e0c8f92f239de",
+        "review": "Ordered real-Postgres owner receipt, refresh, lost acknowledgement, replay, privacy and revocation sequence shares the existing registry/schema fixture."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_adk.py|test_azure_native_adk_round_trip_uses_pixels_exact_call_ids_and_private_history|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 181,
+        "source_sha256": "bbda2f0ade0806611ef1f0d2c36bb536729451ad55ee5a3675a2021f2ce47d24",
+        "review": "Native Gemini and Azure transport tests retain exact call IDs, bounded pixels, private continuation, safety review and teardown as integrated round trips."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/helpers/pod_browser.py|task_runtime_fixture|function exceeds the advisory gene budget",
+        "before": 127,
+        "after": 143,
+        "source_sha256": "df346a97642cf4ecc1ff32fb3e53c3ddda5ad23e73ead0b3f386a19fcca98e7e",
+        "review": "Existing runtime fixture extended with the exact review/receipt and release ports; no duplicate authority."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_adk.py|test_native_adk_task_keeps_authored_instruction_png_and_finish_output|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 135,
+        "source_sha256": "bbda2f0ade0806611ef1f0d2c36bb536729451ad55ee5a3675a2021f2ce47d24",
+        "review": "Native Gemini and Azure transport tests retain exact call IDs, bounded pixels, private continuation, safety review and teardown as integrated round trips."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_routes.py|test_browser_routes_default_closed_and_input_validation_never_echoes_secrets|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 124,
+        "source_sha256": "141cdf897bf6e20c2ea71677ce5fdf93dd113a7fe975ef321092af22448d33f6",
+        "review": "Cohesive HTTP owner/machine admission, private validation and control-epoch sequence extracted from the runtime boundary owner."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_binding_transactions.py|scenario|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 96,
+        "source_sha256": "0f2aa3c63c7af217ba0dd32bbb156157fef2dbc77dcdf2fb338e0c8f92f239de",
+        "review": "Ordered real-Postgres owner receipt, refresh, lost acknowledgement, replay, privacy and revocation sequence shares the existing registry/schema fixture."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pod_browser/control.py|execute|function exceeds the advisory gene budget",
+        "before": 82,
+        "after": 90,
+        "source_sha256": "5eee07aacccdfdbf1848d55300975d62797f8617031e10165e998367c86997fa",
+        "review": "Native Azure focus handling stays inside the atomic dispatch/control-epoch boundary."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_adk.py|test_native_safety_review_resumes_exact_adk_call_or_fences_it|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 85,
+        "source_sha256": "bbda2f0ade0806611ef1f0d2c36bb536729451ad55ee5a3675a2021f2ce47d24",
+        "review": "Native Gemini and Azure transport tests retain exact call IDs, bounded pixels, private continuation, safety review and teardown as integrated round trips."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_routes.py|test_browser_hub_approval_separates_owner_and_signed_machine_authority|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 83,
+        "source_sha256": "141cdf897bf6e20c2ea71677ce5fdf93dd113a7fe975ef321092af22448d33f6",
+        "review": "Cohesive HTTP owner/machine admission, private validation and control-epoch sequence extracted from the runtime boundary owner."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+        "before": 1887,
+        "after": 1890,
+        "source_sha256": "37bc334b559e8ddd8e809929ba3abe3342a29e230ccdf19986d8d7b8a968195f",
+        "review": "Three additional assertions retain the exact predecessor acceptance audit chain in the existing rollout contract."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_binding_transactions.py||module exceeds the advisory operon budget",
+        "before": 1045,
+        "after": 1245,
+        "source_sha256": "0f2aa3c63c7af217ba0dd32bbb156157fef2dbc77dcdf2fb338e0c8f92f239de",
+        "review": "Ordered real-Postgres owner receipt, refresh, lost acknowledgement, replay, privacy and revocation sequence shares the existing registry/schema fixture."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/action_directive_ledger.py||module exceeds the advisory operon budget",
+        "before": 1065,
+        "after": 1073,
+        "source_sha256": "69b8c9d47a3b8ba65408eeac88956d44b1725958e842b7580470fd30efb746cf",
+        "review": "Single existing approval authority; Browser confirmation adds a narrow wrapper with exact private commitments."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_browser_boundary.py||module exceeds the advisory operon budget",
+        "before": 968,
+        "after": 1040,
+        "source_sha256": "9b058b50fcfbd0e341ef76c7030ca9d708da75e31c6d1b4a7b9423d9b14fed35",
+        "review": "HTTP route tests extracted; remaining sealed dispatch, public request policy, startup and real cancellation/drain race require shared runtime fixture."
+      },
+      {
+        "key": "module_size|consent-protocol/pod_server.py||module exceeds the advisory operon budget",
+        "before": 748,
+        "after": 764,
+        "source_sha256": "63361ff74cd61512eece598d6f2f094e073efc41d17b2dfdb8f8eeec92ca7d12",
+        "review": "Recovery-ordered Browser startup/shutdown delegation only; composition extracted to its existing subsystem."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_image_build_contract.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 520,
+        "source_sha256": "932125287eaaf4c186a970bad28f4bb87e02850ef9cdad919de801b91c04a525",
+        "review": "Real exec/UID/single-worker negative assertion replaces Dockerfile-string checking."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/computer-use-task-card.test.tsx||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 503,
+        "source_sha256": "91732b470d1203d757cd000d42c1a9bd0bbf802b37cec3fee002d99c70e14b78",
+        "review": "Frontend reviewer confirms distinct owner authority, reauthentication, discovery and review-receipt cases; not a production wording or typing qualification."
       }
     ]
   }

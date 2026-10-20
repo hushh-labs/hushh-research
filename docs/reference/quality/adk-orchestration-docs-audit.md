@@ -5,7 +5,7 @@
 **Continue dev qualification. Hold application promotion.** Azure owner chat,
 Files and an exact-approved update have live receipts. Puppy has a streamed
 Gemma 12B response through the same owner pod. GCP native AI access, retained
-Shared deletion and Browser execution prevent a complete readiness claim.
+Shared deletion and Browser production composition prevent a complete readiness claim.
 Cold latency remains a measured usability constraint; the former 30-second target
 is an optimization goal, not a release gate. Economy hosting remains selected.
 
@@ -38,7 +38,7 @@ Operating detail stays in the [dev pod runbook](../operations/dev-pod-first-ligh
 | Files | Dedicated ADK specialist and explorer. Personal and fresh Shared Move, stable identity, byte-exact download and Undo pass; earlier interrupted 4,195,328-byte transfer and selected analysis pass | Finish the retained synthetic deletion after the guarded correction serves; qualify fresh setup and current-image organization without disturbing owners |
 | Software updates | Personal Azure Dev 25 approved in Settings; same durable operation, recovery, installed digest, unchanged incarnation and exactly one Feed completion verified | Preserve exact tested predecessor compatibility; broader interruption and rollback acceptance stays distinct |
 | Puppy | Existing Hermes identity and grant; signed binding, sealed WSS, streamed Gemma 12B response and idle UI. Previous Stop, withdrawal, refusal and re-enable receipts retained | Keep the default and existing relay. No model sweep. Independent-network and cold-model percentiles are unclaimed; phone testing was waived |
-| Browser Use | GCP's real in-pod launcher and broker render public documentation/search with HTTP 200, 39 brokered requests and confirmed stop. Earlier controlled click/type/scroll passes. Azure process guards pass | **Disabled on both clouds.** Owner-review/ADK startup and installed-service acceptance remain open. Azure refuses Chromium's user namespace before our guard; native model adaptation also remains open |
+| Browser Use | GCP protected browsing and Azure full-image protected browsing pass. The native Azure ADK adapter completes a real synthetic screenshot continuation. Probe VM, model and images are removed; public-pilot startup and exact review are composed in source | **Disabled on both clouds.** These separate receipts do not prove the installed owner journey. Azure VM wake/recovery/update lifecycle remains unqualified; existing owners stay on Container Apps |
 | Background / continuity | Files queue delivery and preservation of originals previously demonstrated on both clouds; durable update and command/MCP recovery owners exist | Prove current-image connectors/recorded commands and supported continuation. General goals, Azure due-time delivery and scheduled browser work are not qualified |
 | Erasure / transitions | Earlier Shared erasure verified object/Firebase absence. The retained fixture now receives the intended safe 409 instead of 500 on deployed `28a0fa1091` | Its upload remains unverified; account/vault stay fenced and retained. No direct provider deletion, SQL override or automatic retry. Migration, external revocation and cloud cleanup still need receipts |
 | Security | Runtime/authority negative controls and the critical Capacitor patch have source evidence | Dependency alerts, including companion alerts, remain an independent clearance requirement; green CI does not close them |
@@ -56,6 +56,8 @@ Operating detail stays in the [dev pod runbook](../operations/dev-pod-first-ligh
 | Scheduled execution | Renewable occurrence claims retain the original signed expiry and adapter deadline. Slow cancellation remains pending until task exit and durable settlement; an unconfirmed settlement cannot acknowledge update idle | All 14 nearest cases pass, with the unchanged 25 Files cases retained. Renewal and authority-loss negative controls fail on original source. Four modules typecheck. Not installed; general One adapters, approval recovery and Azure timers remain incomplete |
 | Browser worker transport | Typed commands and network requests retain exact owner/task/incarnation binding, host broker checks, uncertain-response fencing and joined teardown. Page-resource bursts queue before dispatch | 11 focused transport cases pass; removing binding validation fails the owner test, and the six-resource burst fails on the previous implementation. Local source only; production launcher, review coordination and model composition remain uninstalled |
 | Browser launch and public access | Synthetic GCP image `f91166cae1b9` verifies the actual separate-UID launcher, protected Chromium, public-document/search frames and stop. Browser startup 3.452 s; page/frame times 1.212 / 2.061 s exclude cloud provisioning | 34 focused cases pass; descriptor, HTTP framing and update-permit regressions have failing negative controls. Job, identity and image removed with absence readback. No owner installation, real Gunicorn restart or model-task acceptance is claimed |
+| Shared continuity and capability corrections | Local 405 excludes retained cloud/signing evidence; dev-only 965 repairs only incompatible inferred Shared choices and preserves historical receipts/explicit choices. Puppy and Scheduled tasks check placement before private execution; known Browser tasks expose reconnect failures | 60 PostgreSQL/manifest checks, 48 UI passes with 2 existing skips, and 24 Browser UI checks pass. These changes are not deployed |
+| Normal release acceptance | Local UAT gate requires exact-SHA dev acceptance; production requires UAT and its dev chain for either image path. Immutable workflow-attempt/artifact and serving proofs retain existing health policy | 50 focused release/readiness checks and 6 actual-shell missing-classifier cases pass; independent source review passes. This operations change is not merged or active on GitHub |
 | Schema / rollback | Post-deploy: 65 migration rows, 964 applied, no failed migration or required-contract/checksum mismatch; history cleanup 249 deferred | Captured rollback: hub `00185-f9z` / source `e9482e4319ad`, frontend `00153-7ck` / source `991a06ccbc01`. Application rollback cannot recover destructively deleted history |
 | Hermes | Source `f082c71325`; profile and Gemma 12B default preserved | Focused relay checks and live response pass. Broad companion Python validation is incomplete and dependency alerts remain; this is not distribution clearance |
 
@@ -93,15 +95,48 @@ pods and images are unchanged. Five focused transport cases pass, including
 concurrent Stop; the correlation and shutdown regressions fail on broken source.
 The subsequent real launcher probe also served public documentation and search
 through the pinned-address broker, with HTTP 200, frames and confirmed shutdown.
-It exposed and fixed inherited-descriptor and HTTP framing defects. Owner-review,
-ADK startup and Azure execution remain open. Both clouds
+It exposed and fixed inherited-descriptor and HTTP framing defects. The Azure
+B2als_v2 probe now also renders protected public pages under the 1 vCPU / 2 GiB
+application limit: initialize **0.759 s**, frames **2.544 s / 2.153 s**. VM power
+restart took **22.021 s** after the application was removed; this is not agent wake
+latency. Deallocation and final resource-group absence were verified. Actual
+owner review and Azure hosting lifecycle remain open. Both clouds
 stay disabled; synthetic evidence does not qualify an installed owner capability.
 Earlier provider-managed probes are historical. See the
 [Browser qualification record](../../../consent-protocol/docs/reference/private-browser-runtime.md#built-in-process-qualification--2026-10-20-utc).
 
+Live ledger readback confirms dev 955/958 checksums are unchanged and 405 is
+unapplied in all three environments. UAT has no hosting-choice columns; production
+has neither the migration ledger nor pod registry. This read-only check changed
+no cohort. The owner's Azure model remains `one-chat` / `gpt-5-mini` 2025-08-07;
+its native `computer` request returned HTTP 400. The same workload identity
+successfully called a temporary `gpt-6-luna` deployment. The native ADK adapter
+then completed a two-call screenshot continuation: **2.022 / 1.309 s**, 2,827 input
+and 29 output tokens in total. The corrected request omits empty legacy safety
+fields that caused the original HTTP 400; nonempty checks retain exact review.
+Temporary deployments were deleted; the owner's model selection stayed unchanged.
+
+The full `Dockerfile.pod` image `438433f083bc` also passes protected public browsing
+on the disposable VM: initialization **0.909 s**, page/frame **1.758 / 1.371 s**,
+24 broker requests, confirmed stop and no OOM. Disabled bootstrap drops all
+capabilities and starts no helper. VM, ACR, source object and image absence were
+verified. This frozen image predates the final model/lifecycle fixes; its receipt
+qualifies the unchanged executor, not current Gunicorn/recovery composition.
+
+Public-pilot source binds recovery, the native model, exact hub review, sealed
+dispatch and update admission. Joined shutdown fixes cancel/drain/model-completion
+races: one terminal checkpoint and private-reference cleanup precede update idle.
+The final focused Browser/ADK and release-contract pass covers **153 cases**, with
+six changed modules typechecked. Image/bootstrap **53** and UI **26** prior checks
+remain scoped evidence. The final core mirror, hosted CI and deployment have not
+run on this working candidate. Login, private context and remembered-session
+composition remain unavailable in the controlled public pilot. The
+[Azure VM lifecycle and cost proposal](../../future/personal-agent/browser-completion-plan.md#azure-vm-hosting-proposal--qualification-only)
+records the missing host adapter and retained-resource costs.
+
 ### Local integration candidate — 2026-10-19 UTC
 
-Fresh main `f47a4832dbc` and frozen local ADK `42bb9823005` are integrated
+Main baseline `f47a4832dbc` and frozen local ADK `42bb9823005` are integrated
 through `b14bc29901` on the existing primary infrastructure branch. All ten peer
 drafts were preserved, including the PDF authoring paths moved to `.agents`.
 The active ADK tree and its later commits remain separate from this frozen intake.
@@ -187,7 +222,7 @@ records CI consolidation, Shared continuity and changelog promotion. The complet
 candidate must pass the approved gates before a governed dev rollout; main, UAT,
 production and stable publication remain separate decisions.
 
-1. **P0 Engineering:** compose GCP Browser's real broker/approval/ADK ports around the proved synthetic execution path; resolve Azure's observed namespace restriction. Finish the public-research MVP before advanced browser features or all-family scheduling. The historical app release/readback is complete. A fresh pod image must remove the deliberate Dev 25 reuse pin, qualify recovery from the actual installed digest and use exact owner approval. Do not describe the reused image as the new source.
+1. **P0 Engineering:** qualify the combined Browser owner journey and Azure host lifecycle; public-pilot ports and protected packaged-image execution now have separate evidence. Finish the public-research MVP before advanced browser features or all-family scheduling. The historical app release/readback is complete. A fresh pod image must remove the deliberate Dev 25 reuse pin, qualify recovery from the actual installed digest and use exact owner approval. Do not describe the reused image as the new source.
 2. **Engineering + Operations:** finish retained synthetic erasure, GCP native model authority and recorded commands/connectors. Measure startup changes with three cold and three warm samples per cloud; do not claim a new percentile. Keep Browser disabled until each native gate passes.
 3. **Release owner:** decide dev readiness from actual journey receipts. Production still requires migration/release-channel graduation, IAM, erasure, recovery, hub capacity and independent UAT acceptance.
 

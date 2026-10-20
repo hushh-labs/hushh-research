@@ -148,6 +148,10 @@ class BrowserInformation:
     def __init__(self, source: ConsentedProjectionPort, consent: BrowserConsentPort) -> None:
         self._source, self._consent = source, consent
 
+    async def provider_review(self, binding: BrowserBinding, terms: dict) -> None:
+        """A native provider warning is not an owner confirmation."""
+        await self._consent.require(binding, "provider_safety", terms)
+
     async def _read(self, binding: BrowserBinding, fields: tuple[InformationField, ...]) -> dict:
         if len(fields) > 16 or len(set(fields)) != len(fields):
             raise BrowserRefused("BROWSER_INFORMATION_SELECTION_REFUSED")

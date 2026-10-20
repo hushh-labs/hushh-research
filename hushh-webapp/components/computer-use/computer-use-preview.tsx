@@ -29,6 +29,7 @@ export function ComputerUsePreview({ controller }: { controller: ComputerUseTask
   const phase = state.snapshot?.phase;
   const capability = state.snapshot?.capability;
   const controlEpoch = state.snapshot?.controlEpoch;
+  const publicOnly = state.snapshot?.publicResearchOnly === true;
 
   useEffect(() => {
     const visibility = () => setVisible(!document.hidden);
@@ -104,6 +105,7 @@ export function ComputerUsePreview({ controller }: { controller: ComputerUseTask
 
   function send(action: ManualBrowserInput): void {
     if (!manual || displayed.current !== painted) return;
+    if (publicOnly && (action.operation === "type" || action.operation === "keys")) return;
     void controller.input(action).catch(() => {
       morphyToast.error("Browser control paused. Check the connection before continuing.");
     });
@@ -111,6 +113,7 @@ export function ComputerUsePreview({ controller }: { controller: ComputerUseTask
 
   return (
     <div className="flex min-h-0 flex-col gap-3" data-computer-use-preview>
+      {publicOnly ? <p className="text-sm text-muted-foreground">Public browsing only. Sign-in isn’t enabled yet.</p> : null}
       {state.snapshot?.controlOwner === "owner" && viewport ? (
         <ComputerUseViewport controller={controller} surface={surface}
           disabled={!owner || state.pending || Boolean(state.snapshot.review)} />
@@ -145,7 +148,7 @@ export function ComputerUsePreview({ controller }: { controller: ComputerUseTask
           }}
           onPointerCancel={() => { pointer.current = null; }}
           onKeyDown={(event) => {
-            if (!manual || event.key === "Tab") return;
+            if (!manual || publicOnly || event.key === "Tab") return;
             if (event.nativeEvent.isComposing) return;
             if (["Control", "Meta", "Alt", "Shift"].includes(event.key)) return;
             if (event.key.length !== 1 || event.metaKey || event.ctrlKey || event.altKey) {
@@ -164,7 +167,7 @@ export function ComputerUsePreview({ controller }: { controller: ComputerUseTask
           </div>
         ) : null}
       </div>
-      {state.snapshot?.controlOwner === "owner" ? (
+      {state.snapshot?.controlOwner === "owner" && !publicOnly ? (
         <div className="flex flex-wrap items-center justify-end gap-2">
           <ShellActionSurface variant="pill" className="min-h-11" disabled={!manual}
             onClick={() => send({ operation: "keys", keys: ["Tab"] })}>

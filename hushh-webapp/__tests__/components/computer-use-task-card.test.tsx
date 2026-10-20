@@ -8,10 +8,12 @@ import { computerUsePoint, createComputerUseCanvas, fitComputerUseViewport } fro
 import { ComputerUsePreview } from "@/components/computer-use/computer-use-preview";
 import { ComputerUseClient } from "@/lib/services/computer-use-client";
 import { ComputerUseOwnerBridge } from "@/components/computer-use/computer-use-owner-bridge";
+import { ComputerUseActiveTasks } from "@/components/computer-use/computer-use-active-tasks";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { PodScheduledTasksClient } from "@/lib/services/pod-scheduled-tasks";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
-const api = vi.hoisted(() => ({ getComputerUseAdmission: vi.fn(), ownerPodRequest: vi.fn(), owner: "owner" }));
+const api = vi.hoisted(() => ({ getComputerUseAdmission: vi.fn(), ownerPodRequest: vi.fn(), apiFetch: vi.fn(), owner: "owner" }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: api }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => ({ uid: api.owner }) } }));
 
@@ -41,14 +43,102 @@ function transport(): ComputerUseTransport {
 }
 const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 beforeEach(() => {
+  publishValidatedAuthSessionOwner("owner");
   api.owner = "owner";
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => ({ clearRect: vi.fn(), drawImage: vi.fn() }) as unknown as CanvasRenderingContext2D);
   api.getComputerUseAdmission.mockReset().mockResolvedValue(null);
   api.ownerPodRequest.mockReset();
+  api.apiFetch.mockReset();
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("private browser control", () => {
+  it("confirms only metadata at the hub and retries a lost pod reply with the same owner receipt", async () => {
+    const id = "dir_" + "a".repeat(32);
+    const receipt = "synthetic-owner-receipt-" + "x".repeat(32);
+    const wireBinding = { owner_id: "owner", pod_id: "pod", incarnation: "incarnation",
+      task_id: "task", environment: "development", expires_at: Math.floor(Date.now() / 1000) + 600 };
+    const coordination = { binding: wireBinding, purpose: "model_process", commitment: "a".repeat(64),
+      pod_key_id: "pod-key", environment: "dev", epoch: 1, service_uid: "service",
+      extra_private_value: "never-upload-this" };
+    const wire = { binding: wireBinding, phase: "needs_owner", control_owner: "agent",
+      control_epoch: 1, next_sequence: 1, revision: 1, capability: { available: true },
+      review: { review_id: id, purpose: "model_process", coordination,
+        terms: { task_goal: "private synthetic goal", model: "synthetic-model", fields: [], values: {} } } };
+    api.getComputerUseAdmission.mockResolvedValue({ ownerId: "owner", podId: "pod", environment: "development" });
+    let lost = true;
+    api.ownerPodRequest.mockImplementation((path: string) => {
+      if (path === "browser/capability") return Promise.resolve(Response.json({
+        available: true, owner_id: "owner", pod_id: "pod", incarnation: "incarnation", environment: "development",
+      }));
+      if (path.endsWith("/review") && lost) {
+        lost = false;
+        return Promise.reject(new Error("synthetic lost pod reply"));
+      }
+      return Promise.resolve(Response.json(wire));
+    });
+    api.apiFetch.mockResolvedValue(Response.json({ status: "confirmed", directive_id: id, receipt }));
+    const client = new ComputerUseClient("owner", () => "synthetic-vault-bearer");
+    const signal = new AbortController().signal;
+    await client.capability(signal);
+    await expect(client.transport().review(binding, id, signal)).rejects.toThrow("lost pod reply");
+    await client.transport().review(binding, id, signal);
+    expect(api.apiFetch).toHaveBeenCalledOnce();
+    const [path, request] = api.apiFetch.mock.calls[0];
+    expect(path).toBe("/api/one/pod/browser-approval/confirm");
+    expect(request.headers.Authorization).toBe("Bearer synthetic-vault-bearer");
+    expect(request.body).not.toMatch(/private synthetic|never-upload-this|task_goal/);
+    const podReviews = api.ownerPodRequest.mock.calls.filter(([path]) => path.endsWith("/review"));
+    expect(podReviews).toHaveLength(2);
+    expect(podReviews.map(([, init]) => JSON.parse(init.body))).toEqual([
+      { review_id: id, receipt }, { review_id: id, receipt },
+    ]);
+    expect(JSON.stringify(api.ownerPodRequest.mock.calls)).not.toContain("synthetic-vault-bearer");
+    coordination.binding = { ...wireBinding, incarnation: "another" };
+    await expect(client.transport().review(binding, id, signal)).rejects.toThrow("BROWSER_REVIEW_CHANGED");
+    expect(api.apiFetch).toHaveBeenCalledOnce();
+  });
+
+  it("refuses late review confirmation across sign-out and same-owner reauthentication", async () => {
+    api.getComputerUseAdmission.mockResolvedValue({ ownerId: "owner", podId: "pod", environment: "development" });
+    api.ownerPodRequest.mockResolvedValue(Response.json({
+      available: true, owner_id: "owner", pod_id: "pod", incarnation: "incarnation", environment: "development",
+    }));
+    const client = new ComputerUseClient("owner", () => "synthetic-vault-bearer");
+    const signal = new AbortController().signal;
+    await client.capability(signal);
+    let finish!: (response: Response) => void;
+    api.ownerPodRequest.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const attempt = client.transport().review(binding, "dir_" + "a".repeat(32), signal);
+    const refused = expect(attempt).rejects.toThrow("BROWSER_OWNER_CHANGED");
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("owner");
+    finish(Response.json({}));
+    await refused;
+    expect(api.apiFetch).not.toHaveBeenCalled();
+    expect(api.ownerPodRequest.mock.lastCall?.[5]()).toBe(false);
+  });
+
+  it("offers discovery retry after an attempted task without submitting another goal", async () => {
+    const discover = vi.spyOn(ComputerUseClient.prototype, "tasks")
+      .mockRejectedValueOnce(new Error("BROWSER_TASK_DISCOVERY_UNAVAILABLE"))
+      .mockResolvedValueOnce([]);
+    const start = vi.spyOn(ComputerUseClient.prototype, "start");
+    render(<ComputerUseActiveTasks ownerId="owner" refreshKey={1} route="/one" />);
+    expect(await screen.findByRole("status")).toHaveTextContent("hasn’t been restarted");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(discover).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("does not show unusable Browser controls on an ordinary Shared chat visit", async () => {
+    const discover = vi.spyOn(ComputerUseClient.prototype, "tasks")
+      .mockRejectedValue(new Error("BROWSER_CLOUD_GATE_UNAVAILABLE"));
+    const view = render(<ComputerUseActiveTasks ownerId="owner" refreshKey={0} route="/one" />);
+    await waitFor(() => expect(discover).toHaveBeenCalledOnce());
+    expect(view.container).toBeEmptyDOMElement();
+  });
   it("Back closes preview before leaving chat without stopping the owner's task", async () => {
     const api = transport();
     const view = render(<ComputerUseTaskCard binding={binding} transport={api} route="/" />);
@@ -369,6 +459,8 @@ describe("private browser control", () => {
     expect(parseComputerUseSnapshot(wire, binding)).toEqual(snapshot());
     expect(() => parseComputerUseSnapshot({ ...wire, capability: { available: "true" } }, binding)).toThrow();
     expect(() => parseComputerUseSnapshot({ ...wire, binding: { ...wire.binding, pod_id: "other" } }, binding)).toThrow();
+    expect(parseComputerUseSnapshot({ ...wire, capability: { available: true, public_research_only: true } }, binding).publicResearchOnly).toBe(true);
+    expect(() => parseComputerUseSnapshot({ ...wire, capability: { available: true, public_research_only: "true" } }, binding)).toThrow();
   });
 
   it("renders only exact selected scalar details and never exposes stored sign-in values", () => {

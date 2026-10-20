@@ -22,12 +22,13 @@ export type ComputerUseSnapshot = Readonly<{
   review?: ComputerUseReview;
   approvedOrigins?: readonly string[];
   rememberedSessionsAvailable?: boolean;
+  publicResearchOnly?: boolean;
   viewport?: Readonly<{ width: number; height: number }>;
 }>;
 
 export type ComputerUseReview = Readonly<{
   id: string;
-  purpose: "model_process" | "disclose" | "session_remember" | "session_restore";
+  purpose: "model_process" | "disclose" | "session_remember" | "session_restore" | "provider_safety";
   model?: string;
   taskGoal?: string;
   origins: string[];

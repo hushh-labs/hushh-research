@@ -6,6 +6,13 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+
+vi.mock("@/lib/firebase", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => ({ uid: "owner" }) } }));
+vi.mock("@/lib/services/api-service", () => ({
+  ApiService: { getPersonalAgentStatus: async () => ({ hostingMode: "byoc", hushhId: "pod-1" }) },
+}));
 
 const mocks = vi.hoisted(() => ({
   fetchPuppyStatus: vi.fn(),
@@ -88,6 +95,7 @@ async function ask(text: string) {
 }
 
 beforeEach(() => {
+  publishValidatedAuthSessionOwner("owner");
   window.localStorage.clear();
   mocks.abortRun.mockReset();
   mocks.runAgent.mockResolvedValue(undefined);
@@ -219,8 +227,8 @@ describe("HermesChatPanel transcript", () => {
     });
     const view = render(<PuppyOneSurface conversations={conversations} activeConversationId="a" />);
     const sendAt = async (index: number, text: string) => {
+      await waitFor(() => expect(view.container.querySelectorAll("textarea")[index]).not.toBeDisabled());
       const textarea = view.container.querySelectorAll("textarea")[index];
-      await waitFor(() => expect(textarea).not.toBeDisabled());
       fireEvent.change(textarea, { target: { value: text } });
       fireEvent.click(view.container.querySelectorAll('button[aria-label="Send to Puppy One"]')[index]);
       await waitFor(() => expect(textarea).not.toBeDisabled());
@@ -240,21 +248,24 @@ describe("HermesChatPanel transcript", () => {
     expect(screen.queryByText("First topic")).not.toBeInTheDocument();
   });
 
-  it("stops the local stream once without replacing partial text with an outage", async () => {
+  it.each([false, true])("keeps Stop operable during a blocked composer (%s) without losing partial text", async (composerDisabled) => {
     let reject: (error: Error) => void = () => {};
     mocks.runAgent.mockImplementation((_params, handlers) => {
       handlers.onTextMessageContentEvent({ event: { delta: "Partial answer" } });
       return new Promise((_resolve, fail) => { reject = fail; });
     });
     mocks.abortRun.mockImplementation(() => reject(new Error("aborted")));
-    await mount();
+    const view = await mount();
     await ask("Synthetic question");
-    fireEvent.click(await screen.findByRole("button", { name: "Stop", exact: true }));
+    view.rerender(<HermesChatPanel composerDisabled={composerDisabled} />);
+    const stop = await screen.findByRole("button", { name: "Stop", exact: true });
+    expect(stop.closest("[inert]")).toBeNull();
+    fireEvent.click(stop);
     await waitFor(() => expect(screen.queryByRole("button", { name: "Stop", exact: true })).toBeNull());
     expect(mocks.abortRun).toHaveBeenCalledOnce();
     expect(screen.getByText("Partial answer")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("textbox", { name: "Message Puppy One" })).not.toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Message Puppy One" }).hasAttribute("disabled")).toBe(composerDisabled);
   });
 
   it("aborts an in-flight request on actual unmount, not when hidden", async () => {

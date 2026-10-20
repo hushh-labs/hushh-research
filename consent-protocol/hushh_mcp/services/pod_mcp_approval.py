@@ -26,35 +26,12 @@ from hushh_mcp.services.action_directive_ledger import (
 )
 from hushh_mcp.services.pod_hub_client import VerifiedOwnerPod
 from hushh_mcp.services.pod_request_signing import VerifiedPod
-
-_REGISTRY_FENCE_SQL = (
-    "SELECT hushh_id,status,deployment_target,pod_key_id,pod_pubkey,backend_metadata "
-    "FROM personal_agent_registry WHERE user_id=:owner FOR UPDATE"
-)
-# Only a SIGNED principal reads the signing column. It exists wherever dev-only
-# migration 947 is applied, which is the only place a signed principal can exist.
-_SIGNED_REGISTRY_FENCE_SQL = (
-    "SELECT hushh_id,status,deployment_target,pod_key_id,pod_pubkey,backend_metadata,"
-    "pod_signing_key_id FROM personal_agent_registry WHERE user_id=:owner FOR UPDATE"
-)
+from hushh_mcp.services.private_review_registry import principal_holds_private_row
 
 
 def _principal_holds_row(principal: object, review: "PodMcpTerms", row: dict) -> bool:
-    """The authenticated pod is still the one this row records, under the row lock.
-
-    A signed principal is compared by key id; the transitional Google principal by
-    the runtime service account bound to the row.
-    """
-    if not isinstance(principal, (VerifiedPod, VerifiedOwnerPod)):
-        return False
-    if principal.hushh_id != review.hushhId:
-        return False
-    key_id = getattr(principal, "key_id", None)
-    if key_id:
-        return row.get("hushh_id") == principal.hushh_id and row.get("pod_signing_key_id") == key_id
-    metadata = row.get("backend_metadata") or {}
-    account = principal.service_account
-    return bool(account) and account == metadata.get("runtime_service_account")
+    """Compatibility surface for the existing request-verifier/rotation checks."""
+    return principal_holds_private_row(principal, review.hushhId, row)
 
 
 class PodMcpTerms(BaseModel):
@@ -179,57 +156,25 @@ async def mutate_review(
     Caller authentication is route-owned. No caller can choose a ledger method,
     action, channel, TTL or SQL parameters beyond these exact review terms.
     """
-    from sqlalchemy import text
+    from hushh_mcp.services.private_review_registry import with_private_review_registry
 
-    from db.db_client import get_db
-    from hushh_mcp.services.personal_agent_direct_admission import direct_owner_matches
-    from hushh_mcp.services.pod_binding_service import hub_environment
+    async def apply(store: ActionDirectiveStore, uid: str) -> dict:
+        review = payload.review.model_copy(update={"serviceUid": uid})
+        return await _change_review_ledger(store, operation, review, payload)
 
-    database = db if db is not None else get_db()
-    fence_sql = (
-        _SIGNED_REGISTRY_FENCE_SQL
-        if operation != "confirm" and getattr(principal, "key_id", None)
-        else _REGISTRY_FENCE_SQL
+    review = payload.review
+    return await with_private_review_registry(
+        owner_id=review.ownerId,
+        hushh_id=review.hushhId,
+        pod_key_id=review.podKeyId,
+        environment=review.environment,
+        service_uid=review.serviceUid,
+        issuing=operation == "issue",
+        owner_confirmation=operation == "confirm",
+        principal=principal,
+        apply=apply,
+        db=db,
     )
-
-    def commit():
-        with database.engine.begin() as conn:
-            conn.execute(text("SET LOCAL statement_timeout = '5s'"))
-            conn.execute(text("SET LOCAL lock_timeout = '2s'"))
-            row = (
-                conn.execute(text(fence_sql), {"owner": payload.review.ownerId})
-                .mappings()
-                .one_or_none()
-            )
-            review = payload.review
-            metadata = (row or {}).get("backend_metadata") or {}
-            if operation != "confirm" and not _principal_holds_row(
-                principal, review, dict(row or {})
-            ):
-                raise ActionDirectiveAuthorityError("Private connector runtime identity changed.")
-            uid = metadata.get("serviceUid")
-            url = str(metadata.get("url") or "").strip().rstrip("/")
-            if (
-                not uid
-                or review.environment != hub_environment()
-                or not direct_owner_matches(
-                    row,
-                    hushh_id=review.hushhId,
-                    pod_key_id=review.podKeyId,
-                    pod_public_key=(row or {}).get("pod_pubkey"),
-                    service_uid=uid,
-                    url=url,
-                )
-                or (operation != "issue" and review.serviceUid != uid)
-                or (review.serviceUid is not None and review.serviceUid != uid)
-            ):
-                raise ActionDirectiveAuthorityError("Private connector assignment changed.")
-            review = review.model_copy(update={"serviceUid": uid})
-            store = ActionDirectiveStore(connection=conn)
-
-            return asyncio.run(_change_review_ledger(store, operation, review, payload))
-
-    return await asyncio.to_thread(commit)
 
 
 class PodMcpApprovalPort:
