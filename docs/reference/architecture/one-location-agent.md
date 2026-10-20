@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-09-08
+Last updated: 2026-10-20
 
 ## Visual Map
 
@@ -53,22 +53,38 @@ Opening a contact source always requires the user's contact-check action.
 
 ### Automatic receiving readiness
 
-Vault unlock starts recipient-key recovery before unrelated warm jobs, including
-cached warm returns. Warm-up, setup and Location join one account-scoped operation.
+Root vault unlock starts recipient-key recovery on every route, including
+`/one/setup`, before optional Firebase-token reads and unrelated warm jobs.
+Returning directly to Chat or Connect cannot skip receiving readiness. Warm-up,
+setup and Location join one account-scoped operation.
 The operation adopts the existing vault-encrypted backup across devices; a failed
 remote read or undecryptable backup cannot silently replace a registered key.
 Session and owner generations fence recovery and registration across lock/logout.
-Transient failures retry with bounded backoff; the setup status also retries on
-online/foreground return and waits for registration before publishing readiness.
+Transient failures retry with bounded backoff; the root provider also retries on
+online/foreground return after those attempts are exhausted. The setup status
+waits for registration before publishing readiness.
 Receiving readiness requests no GPS permission and enables no location sharing.
 
 Share and Ask use the same account-ID recipient directory. Workspace refreshes
 reconcile both visible pages and retained selections, fence older page responses,
 and reload the directory. A connected person's missing receiving key is shown as
-`Location setup pending`, never as an invitation requirement. Ask may still send a
+`Connected · Location receiving unavailable`, never as an invitation requirement.
+The person's action sheet retains Ask and Manage connection. Ask may still send a
 consent request to that person without disclosing coordinates; private sharing
 requires their registered public key and revalidates the complete audience before
 submission. Contact matches never merge different account IDs by display name.
+
+Material recipient-key changes capture direct and Circle viewers and send the
+existing silent `connection_graph_changed` doorbell after commit. Identical active
+keys and private backup-only backfills do not fan out; rotation, reactivation and
+repair of extra active keys do. Full account deletion captures surviving graph,
+Circle and pending-request viewers under the graph writer lock before erasure,
+then sends the same doorbell only after commit. Failed delivery cannot turn a
+committed erasure or registration into an API failure. Clients invalidate all
+connection-backed projections, including Location and SMS. Open People, Share,
+Ask and SMS surfaces also repair missed transitions while visible every minute.
+Missing recipient keys or optional Location preferences never establish that an
+account is deleted or inactive; proper deletion removes the graph itself.
 
 The introduction has three steps: Features, an optional Save a place step, then the
 existing Circle invite, copy/share, Join and Find contacts finale. Continue on

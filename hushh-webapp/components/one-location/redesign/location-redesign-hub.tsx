@@ -3978,7 +3978,6 @@ function PersonActionsDialog({
   onManageSharing,
   onViewLocation,
   onManageConnection,
-  onInvite,
   onCancelRequest,
 }: {
   open: boolean;
@@ -3995,7 +3994,6 @@ function PersonActionsDialog({
   onManageSharing: () => void;
   onViewLocation: () => void;
   onManageConnection: () => void;
-  onInvite: () => void;
   onCancelRequest: () => void;
 }) {
   const cancelBusy =
@@ -4050,13 +4048,12 @@ function PersonActionsDialog({
     actionRows.push(action("share", "Share my location", onShare));
     actionRows.push(action("ask", "Ask for location", onAsk));
   } else {
-    actionRows.push(action("invite", "Invite to One", onInvite));
+    // Everyone in this directory already has a relationship on One. A missing
+    // receiving key cannot revoke it, and asking does not require their key.
+    actionRows.push(action("ask", "Ask for location", onAsk));
     actionRows.push(
       action("connection", "Manage connection", onManageConnection),
     );
-  }
-  if (!shareReady && status.kind !== "neutral") {
-    actionRows.push(action("invite", "Invite to One", onInvite));
   }
 
   return (
@@ -4082,7 +4079,7 @@ function PersonActionsDialog({
                   {status.label ? <span className="block">{status.label}</span> : null}
                   {!shareReady ? (
                     <span className="block">
-                      {`${name} needs to open Location in One and finish setup before receiving your location.`}
+                      {`${name} is connected on One. They need to open One before they can receive your location.`}
                     </span>
                   ) : null}
                 </DialogDescription>
@@ -4469,10 +4466,6 @@ export function PeopleHub({
           onManageConnection={() => {
             setSelectedPersonId(null);
             onAddConnections();
-          }}
-          onInvite={() => {
-            setSelectedPersonId(null);
-            onInvite();
           }}
           onCancelRequest={() => {
             if (selectedPendingRequest) {
@@ -5058,7 +5051,7 @@ function ShareFlow({
           ) : includedThroughCircle ? (
             `Included through ${includedThroughCircle.circle.name}`
           ) : ready ? undefined : (
-            "Location setup pending"
+            "Connected · Location receiving unavailable"
           )
         }
         trailing={
@@ -6323,7 +6316,7 @@ function AskFlow({
                   fromContacts={r.connectedFromContacts}
                   subtitle={
                     status.selectable && status.tone === "ready"
-                      ? vm.isRecipientShareReady(r) ? undefined : "Location setup pending"
+                      ? undefined
                       : status.subtitle
                   }
                   tone={status.tone}

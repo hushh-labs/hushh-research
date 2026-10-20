@@ -232,7 +232,7 @@ export class UnlockWarmOrchestrator {
   // without ever opening the One Location page first. Recover the account's
   // vault-encrypted key before registering; transient reads must never rotate
   // an existing key. This grants no GPS permission or location-sharing consent.
-  private static queueLocationRecipientKeyBootstrap(params: {
+  static queueLocationRecipientKeyBootstrap(params: {
     userId: string;
     vaultOwnerToken: string;
     vaultKey: string;

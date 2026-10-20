@@ -350,6 +350,68 @@ def test_recipient_key_registration_locks_before_mutation(
     assert calls[1] == ("SELECT :key_id AS key_id", {"key_id": "new-key"})
 
 
+@pytest.mark.parametrize("changed,rollback", [(True, False), (False, False), (True, True)])
+def test_recipient_readiness_wakes_peers_only_after_a_changed_key_commits(
+    monkeypatch: pytest.MonkeyPatch, changed: bool, rollback: bool
+) -> None:
+    from unittest.mock import MagicMock
+
+    connection = MagicMock()
+    connection.execute.return_value.mappings.return_value.first.return_value = {
+        "user_id": "recipient",
+        "key_id": "recipient-key",
+        "public_key_jwk": {"kty": "EC"},
+        "recipient_metadata_changed": changed,
+    }
+    committed = False
+    notifications = []
+    captures = []
+
+    @contextmanager
+    def transaction():
+        nonlocal committed
+        yield connection
+        if rollback:
+            raise RuntimeError("commit failed")
+        committed = True
+
+    def capture_viewers(conn, *, user_id):
+        assert conn is connection and not committed
+        assert user_id == "recipient"
+        captures.append(user_id)
+        return {"connected-peer", "circle-peer"}
+
+    def notify(**kwargs):
+        assert committed
+        notifications.append(kwargs["user_ids"])
+
+    monkeypatch.setattr(one_location_service_module, "get_db_connection", transaction)
+    monkeypatch.setattr(
+        "hushh_mcp.services.connection_graph_service.list_connection_graph_viewer_ids",
+        capture_viewers,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.connections_service._notify_connection_graph_changed", notify
+    )
+
+    def register():
+        return OneLocationAgentService().register_recipient_key(
+            user_id="recipient", key_id="recipient-key", public_key_jwk={"kty": "EC"}
+        )
+
+    if rollback:
+        with pytest.raises(RuntimeError, match="commit failed"):
+            register()
+    else:
+        result = register()
+        assert result["canReceiveLocation"] is True
+        assert "graph_viewer_ids" not in result
+    assert captures == (["recipient"] if changed else [])
+    assert notifications == (
+        [{"recipient", "connected-peer", "circle-peer"}] if changed and not rollback else []
+    )
+
+
 def test_key_bound_writer_reuses_one_connection_for_nonreturning_statements(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

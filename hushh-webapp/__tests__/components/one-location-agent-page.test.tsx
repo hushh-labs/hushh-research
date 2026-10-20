@@ -1704,7 +1704,8 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(oldPages.length).toBeGreaterThanOrEqual(2));
     if (flow === "Share") await openSharePersonStep();
     else await openAskFlow();
-    expect(screen.getByText("Location setup pending")).toBeTruthy();
+    if (flow === "Share") expect(screen.getByText("Connected · Location receiving unavailable")).toBeTruthy();
+    else expect(screen.queryByText("Connected · Location receiving unavailable")).toBeNull();
     expect(screen.queryByText("Invite them first")).toBeNull();
     const action = flow === "Share" ? /Select Advisor C for private sharing/i : /Select Advisor C for location request/i;
     if (flow === "Share") expect(screen.queryByRole("button", { name: action })).toBeNull();
@@ -1714,21 +1715,59 @@ describe("OneLocationAgentPage", () => {
       ...row, canReceiveLocation: true, keyId: "new-account-key", publicKeyJwk: { kty: "EC", crv: "P-256", x: "new-x", y: "new-y" },
     } : row) };
     act(() => dispatchOneLocationStateChanged("user_a", ["workspace"]));
-    await waitFor(() => expect(screen.queryByText("Location setup pending")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Connected · Location receiving unavailable")).toBeNull());
     await waitFor(() => expect(mockListRecipientsPage.mock.calls.length).toBeGreaterThanOrEqual(4));
     await act(async () => {
       for (const finish of oldPages) finish({ items: initial.recipients, page: 1, hasMore: false, totalCount: initial.recipients.length });
     });
     expect(screen.getByRole("button", { name: action })).toBeEnabled();
-    expect(screen.queryByText("Location setup pending")).toBeNull();
+    expect(screen.queryByText("Connected · Location receiving unavailable")).toBeNull();
     expect(screen.getAllByText("Advisor C")).toHaveLength(1);
 
     latest = { ...initial };
     act(() => dispatchOneLocationStateChanged("user_a", ["workspace"]));
-    await waitFor(() => expect(screen.getByText("Location setup pending")).toBeTruthy());
+    if (flow === "Share") await waitFor(() => expect(screen.getByText("Connected · Location receiving unavailable")).toBeTruthy());
+    else expect(screen.queryByText("Connected · Location receiving unavailable")).toBeNull();
     if (flow === "Share") expect(screen.queryByRole("button", { name: action })).toBeNull();
     else expect(screen.getByRole("button", { name: action })).toBeEnabled();
     expect(mockCreateGrant).not.toHaveBeenCalled();
+  });
+
+  it.each(["Share", "Ask"])("repairs an open %s audience after a missed deletion notification", async (flow) => {
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const setInterval = window.setInterval.bind(window);
+    let repair: (() => void) | undefined;
+    const interval = vi.spyOn(window, "setInterval").mockImplementation((handler, delay, ...args) => {
+      if (delay === 60_000 && typeof handler === "function") {
+        repair = handler as () => void;
+        return 0;
+      }
+      return setInterval(handler, delay, ...args);
+    });
+    try {
+      mockLocationSearchParams(`action=${flow.toLowerCase()}`);
+      const directory = locationState().recipients;
+      const boundedState = { ...locationState(), recipients: directory.filter((person) => person.userId !== "user_d") };
+      mockGetState.mockResolvedValue(boundedState);
+      mockListRecipientsPage.mockResolvedValue({ items: directory, page: 1, hasMore: false, totalCount: directory.length });
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow({ expectMain: false });
+      const action = flow === "Share" ? /Select Investor D for private sharing/i : /Select Investor D for location request/i;
+      expect(await screen.findByRole("button", { name: action })).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: action }));
+      expect(repair).toBeTypeOf("function");
+      // Only the paged directory changes: this selected account was never in
+      // the bounded workspace snapshot. Its unchanged signature cannot repair it.
+      mockListRecipientsPage.mockResolvedValue({ items: boundedState.recipients, page: 1, hasMore: false, totalCount: boundedState.recipients.length });
+      mockGetSmsContacts.mockClear();
+      act(() => repair?.());
+      await waitFor(() => expect(screen.queryByRole("button", { name: action })).toBeNull());
+      await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalled());
+      expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    } finally {
+      interval.mockRestore();
+      visibility.mockRestore();
+    }
   });
 
   it("refreshes the full workspace once when foreground signals arrive in a burst", async () => {
@@ -3370,7 +3409,7 @@ describe("OneLocationAgentPage", () => {
     await openSharePersonStep();
 
     expect(screen.queryByText("Ready for private sharing")).toBeNull();
-    expect(screen.getByText("Location setup pending")).toBeTruthy();
+    expect(screen.getByText("Connected · Location receiving unavailable")).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -5367,7 +5406,7 @@ describe("OneLocationAgentPage", () => {
     });
 
     expect(screen.getAllByText("Advisor C").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Location setup pending").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Connected · Location receiving unavailable").length).toBeGreaterThan(0);
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
   });
 
@@ -6584,7 +6623,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openSharePersonStep();
     expect(screen.getByText("Advisor C")).toBeTruthy();
-    expect(screen.getByText("Location setup pending")).toBeTruthy();
+    expect(screen.getByText("Connected · Location receiving unavailable")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /Select Advisor C/i }),
     ).toBeNull();
