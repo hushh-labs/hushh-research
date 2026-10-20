@@ -760,19 +760,19 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
     saving, nameMissing, canSubmit, nameHelpId, showNameError, nameHelpText, submit, people, peopleProps, busy, showCircleType } = model;
 
   return (
-    <div data-profile-type-scale="circles" data-testid="one-location-create-circle-flow" data-circle-create-step={step} className={step === "people" ? "flex min-h-0 flex-1 flex-col" : undefined}>
+    <div data-profile-type-scale={step === "people" ? "circles" : undefined} data-testid="one-location-create-circle-flow" data-circle-create-step={step} className={step === "people" ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {savedCircle ? <div hidden={step !== "people"} className={step === "people" ? "flex min-h-0 flex-1 flex-col" : undefined}>
         <CreateCirclePeopleBody {...peopleProps} model={people} />
       </div> : null}
       <div hidden={step !== "details"} className="space-y-5">
       <h1 className="sr-only">Create a Circle</h1>
 
-      <p data-profile-role="description" className="text-[15px] leading-6 text-[color:var(--app-secondary-label)]">
+      <p className="text-[15px] leading-6 text-[color:var(--app-secondary-label)]">
         Step 1 of 2 · Name your Circle, then add people now or later.
       </p>
 
       <label className="flex flex-col gap-2">
-        <span data-profile-role="label" className="text-[15px] font-semibold leading-5 text-foreground">
+        <span className="text-[15px] font-semibold leading-5 text-foreground">
           Circle name
         </span>
         <input
@@ -814,7 +814,7 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
 
       {showCircleType ? (
         <div className="space-y-2">
-          <p data-profile-role="label"
+          <p
             id="one-location-create-circle-kind-label"
             className="text-[15px] font-semibold leading-5 text-foreground"
           >
