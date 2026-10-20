@@ -3,6 +3,50 @@ import test from "node:test";
 import vm from "node:vm";
 import { webcrypto } from "node:crypto";
 import { installPwmBrowserProof, hasIncrementalPwmStream, admitOwnerConfirmedPwmClaim, admitPwmStore } from "../scripts/pwm-browser-proof.mjs";
+import { installPwmOwnerLogin, admitPwmResearch } from "../scripts/verify-reviewer-pwm.mjs";
+
+test("research request admission survives diagnostic stages and keeps save authority separate", () => {
+  const origin = "https://uat.one.hussh.ai";
+  const request = (route, body, method = "POST", base = origin) => ({
+    url: () => base + route, method: () => method, postData: () => JSON.stringify(body), postDataJSON: () => body,
+  });
+  for (const phase of ["research", "research_action", "research_wait"]) {
+    const options = { phase, appOrigin: origin, researchPosts: 0, emailPreference: false };
+    assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", { refresh: true }), options), true);
+    assert.equal(admitPwmResearch(request("/api/one/world-model/ensure", {}), options), true);
+    assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", {}), options), false);
+    assert.equal(admitPwmResearch(request("/api/one/world-model/ensure", { refresh: true }), options), false);
+    assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", { refresh: true }), { ...options, researchPosts: 20 }), false);
+    assert.equal(admitPwmResearch(request("/api/pkm/store-domain", {}), options), false);
+    assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", { refresh: true }, "POST", "https://other.example"), options), false);
+    const settings = { enabled: true, email_enabled: false, consent_version: "pwm-azure-bing-v1" };
+    assert.equal(admitPwmResearch(request("/api/one/world-model/preferences", settings, "PUT"), options), true);
+    assert.equal(admitPwmResearch(request("/api/one/world-model/preferences", { ...settings, email_enabled: true }, "PUT"), options), false);
+  }
+  for (const phase of ["unlock_and_owner", "save", "preservation", "sign_out", "cold_readback"])
+    assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", { refresh: true }), { phase, appOrigin: origin, researchPosts: 0 }), false);
+});
+
+test("operator credential handoff refuses foreign identities and unrelated requests", async () => {
+  let handler;
+  const origin = "https://uat.one.hussh.ai", owner = { userId: "owner", passphrase: "synthetic-passphrase", token: "synthetic-custom-token" };
+  await installPwmOwnerLogin({ route: async (_url, callback) => { handler = callback; } }, owner, origin);
+  const body = { subject: "reviewer", reviewer_uid: "owner", smoke_passphrase: owner.passphrase };
+  for (const [url, method, payload, valid] of [
+    [origin + "/api/app-config/review-mode/session", "POST", body, true],
+    [origin + "/api/app-config/review-mode/session", "POST", { ...body, reviewer_uid: "other" }, false],
+    [origin + "/api/app-config/review-mode/session", "POST", { ...body, smoke_passphrase: "wrong" }, false],
+    [origin + "/api/app-config/review-mode/session", "GET", null, false],
+    ["https://other.example/api/app-config/review-mode/session", "POST", body, false],
+    [origin + "/api/app-config/review-mode/session?unexpected=1", "POST", body, false],
+  ]) {
+    let response, aborted = false;
+    await handler({ request: () => ({ url: () => url, method: () => method, postDataJSON: () => payload }),
+      fulfill: async value => { response = value; }, abort: async () => { aborted = true; } });
+    assert.equal(aborted, !valid); assert.equal(Boolean(response), valid);
+    if (valid) assert.deepEqual(JSON.parse(response.body), { token: owner.token });
+  }
+});
 
 test("human confirmation admits only the exact received profile without promoting model identity", () => {
   const offered = { status: "offered", report: { match_status: "uncertain" }, research: {
@@ -51,6 +95,70 @@ function fixture(fetch = async () => new Response("{}"), browserCrypto = webcryp
 }
 const before = { schema_version: "one.memory.md.v1", markdown: "# memory.md\n\n## Facts\n\n- Existing private fact\n\n## Preferences\n\n## Commitments\n",
   updated_at: "2026-10-19T00:00:00.000Z", _deleted_fact_labels: [], private_branch: { retained: [1, 2] } };
+
+test("a new research attempt cannot inherit an old terminal cooldown status", async () => {
+ for (const endpoint of ["jobs", "ensure"]) {
+  let finishNew;
+  const { window, proof } = fixture(async (_url, options) => options?.method === "POST"
+    ? new Promise(resolve => { finishNew = resolve; })
+    : new Response('{"status":"unavailable","research_exhausted":false,"retry_after_s":300}'));
+  await window.fetch("/api/one/world-model/jobs");
+  for (let i = 0; i < 100 && proof.researchState().status !== "unavailable"; i++) await new Promise(resolve => setTimeout(resolve, 1));
+  assert.equal(proof.researchState().status, "unavailable");
+  assert.equal(proof.beginResearch(), true);
+  assert.equal(proof.researchState().status, undefined);
+  await window.fetch("/api/one/world-model/jobs");
+  for (let i = 0; i < 100 && proof.researchState().status !== "unavailable"; i++) await new Promise(resolve => setTimeout(resolve, 1));
+  const pending = window.fetch(`/api/one/world-model/${endpoint}`, { method: "POST" });
+  assert.equal(proof.researchState().research_posts, 1);
+  assert.equal(proof.researchState().status, undefined);
+  finishNew(new Response('{"status":"pending"}')); await pending;
+  for (let i = 0; i < 100 && !proof.researchState().fresh_acknowledged; i++) await new Promise(resolve => setTimeout(resolve, 1));
+  assert.equal(proof.researchState().status, "pending");
+  assert.equal(proof.researchState().fresh_acknowledged, true);
+ }
+});
+
+test("owner admission distinguishes a different verified account without disclosing identity", async () => {
+  for (const [kind, value, status] of [
+    ["matching", { users: [{ localId: "owner", email: "owner@example.com", emailVerified: true }] }, 200],
+    ["other-email", { users: [{ localId: "owner", email: "different@example.com", emailVerified: true }] }, 200],
+    ["other-uid", { users: [{ localId: "other", email: "owner@example.com", emailVerified: true }] }, 200],
+    ["unverified", { users: [{ localId: "owner", email: "owner@example.com", emailVerified: false }] }, 200],
+    ["http-failure", { users: [{ localId: "owner", email: "owner@example.com", emailVerified: true }] }, 403],
+  ]) {
+    const { proof, window, bridge } = fixture(async () => new Response(JSON.stringify(value), { status }));
+    assert.equal(proof.identityProof().lookup_seen, false);
+    await window.fetch("https://identitytoolkit.googleapis.com/v1/accounts:lookup");
+    for (let i = 0; i < 100 && !proof.identityProof().parse_ok; i++) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.equal(proof.identityMatches(), kind === "matching", kind);
+    const closed = proof.identityProof();
+    assert.equal(Object.keys(closed).length, 8);
+    assert.ok(Object.values(closed).every(value => typeof value === "boolean"));
+    if (kind === "other-email") {
+      assert.equal(closed.uid_match, true); assert.equal(closed.email_verified, true);
+      assert.equal(closed.expected_email_match, false);
+    }
+    bridge.bootstrapState = "authenticated";
+    assert.equal(proof.identityMatches(), false);
+    assert.equal(proof.identityProof().current_bridge, false);
+  }
+});
+
+test("late matching lookup cannot reopen admission after a newer account mismatch", async () => {
+  let finishOld, calls = 0;
+  const { proof, window } = fixture(async () => ++calls === 1 ? new Promise(resolve => { finishOld = resolve; }) :
+    new Response(JSON.stringify({ users: [{ localId: "owner", email: "different@example.com", emailVerified: true }] })));
+  const old = window.fetch("https://identitytoolkit.googleapis.com/v1/accounts:lookup");
+  await window.fetch("https://identitytoolkit.googleapis.com/v1/accounts:lookup");
+  for (let i = 0; i < 100 && !proof.identityProof().parse_ok; i++) await new Promise(resolve => setTimeout(resolve, 1));
+  assert.equal(proof.identityMatches(), false);
+  finishOld(new Response(JSON.stringify({ users: [{ localId: "owner", email: "owner@example.com", emailVerified: true }] })));
+  await old;
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(proof.identityProof().expected_email_match, false);
+  assert.equal(proof.identityMatches(), false);
+});
 
 test("preservation success is unavailable until its commitment completes", async () => {
   let block = false, release;
