@@ -1001,7 +1001,12 @@ receipts remain unknown. The Next.js proxy forwards this private header; the
 strict JSON and SSE event bodies remain unchanged. Prices are not part of this
 receipt and any currency calculation is an estimate at the stated rates.
 Reports remain view-only (`pkm_written:false`); source and identity review precede
-the owner's existing encrypted memory save. See the [PWM contract](../one/personal-world-model.md)
+the owner's existing encrypted memory save. A final model review selects existing
+fact IDs without rewriting their statements or citations. It may return an empty
+matched/uncertain report when no new statements remain; the assessed identity is
+preserved. `no_match` still forbids findings. Backend and shared web/native JavaScript
+decoders use this same rule; no SSE event or credential boundary changes.
+See the [PWM contract](../one/personal-world-model.md)
 and [stream implementation](../streaming/streaming-implementation-guide.md).
 
 ### One Runtime Configuration

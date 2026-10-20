@@ -5,9 +5,11 @@
 ```mermaid
 flowchart LR
   index["Product UI contracts"] --> connect["Connect: Connections and Circles"]
-  connect --> pages["Pages, overlays and local steps"]
-  connect --> actions["CTAs and save boundaries"]
-  connect --> proof["Back, permissions and verification"]
+  index --> profile["Profile and nested management"]
+  index --> feed["Feed and decisions"]
+  index --> nav["Shared navigation and typography"]
+  profile --> memory["Memory and World Model"]
+  profile --> connectors["Connectors and provider returns"]
 ```
 
 This folder owns maintained, source-backed descriptions of the webapp's
@@ -21,6 +23,12 @@ owning implementation.
 | Product surface | Maintained contract |
 | --- | --- |
 | Connect | [Connections and Circles](./connect.md): people discovery, contact sync, invitations, nearby directories, circle setup/join, members, chat, and immediate shared-feature handoffs |
+| Profile | [Profile](./profile.md): home, account, phone, payouts/receipts, pricing, preferences, security/devices, support, invitations, Legal and compatibility entries |
+| Profile Memory | [Memory and World Model](./profile-memory.md): categories, live memory, sharing, received information, Secrets, memory workspace, research facts and invitations |
+| Profile Connectors | [Connectors](./profile-connectors.md): provider details, Drive files/packets/trust, custom tools, OAuth returns and legacy Mail/local CRM boundaries |
+| Feed | [Feed](./feed.md): history, every actionable family, payment/file-access sheets, briefing, notification controls and downstream destinations |
+| Navigation | [Shared navigation](./navigation.md): top bar, bottom tabs, contextual rails, Profile entry, Back and native admission |
+| Font schema | [Typography](./typography.md): when to use each semantic role, Profile home/detail scale, nav and Feed differences, CSS precedence and native limits |
 
 Only source-verified current contracts belong in this index. An account's
 counts or fixture examples do not become product limits. Future proposals
