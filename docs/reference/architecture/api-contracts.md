@@ -214,7 +214,9 @@ Tools remain separate observations. A correlated start with no terminal after
 the selected grace is **possible incomplete**, never confirmed abandonment.
 Recent unmatched starts are in progress. Returns/failures are observations,
 not unique user attempts: browser and SDK observations can cover the same user
-action. Only Memory/Mail retain the existing verified domain-outcome adapters;
+action. Return/failure timestamps use the selected terminal receipt even when a
+start report arrives later at the server. Last observation can therefore be a
+later start. Only Memory/Mail retain the existing verified domain-outcome adapters;
 business completion for other agents is explicitly unsupported. Capacity-limited,
 not-started, reset and disabled coverage remains explicit. Disabling collection
 hides retained execution counts, timestamps and behavioral segments.

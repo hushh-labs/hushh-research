@@ -209,6 +209,7 @@ ATTEMPTS_SQL = """
 SELECT o.user_id,o.action_id,o.agent_id,o.source,o.operation_key,
   MIN(o.observed_at) FILTER(WHERE o.phase='started') AS started_at,
   MAX(o.observed_at) AS last_at,
+  MAX(o.observed_at) FILTER(WHERE o.phase<>'started') AS terminal_at,
   (ARRAY_AGG(o.phase ORDER BY o.observed_at DESC,o.phase)
     FILTER(WHERE o.phase<>'started'))[1] AS terminal,
   COUNT(*)::int AS observations
@@ -263,16 +264,19 @@ def summarize_attempts(
         if not row["operation_key"]:
             counts["uncorrelated"] += row["observations"]
             continue
-        started, terminal, observed = row["started_at"], row["terminal"], row["last_at"]
+        started, terminal = row["started_at"], row["terminal"]
         if started:
             counts["started"] += 1
             first = min(first, started) if first else started
         if terminal in {"returned", "failed", "cancelled", "blocked"}:
             counts[terminal] += 1
+            # Asynchronous reports can reach the server out of order. Keep
+            # the chosen terminal's receipt time separate from a later start.
+            terminal_at = row["terminal_at"]
             if terminal == "returned":
-                last_return = max(last_return, observed) if last_return else observed
+                last_return = max(last_return, terminal_at) if last_return else terminal_at
             elif terminal in {"failed", "blocked", "cancelled"}:
-                last_failure = max(last_failure, observed) if last_failure else observed
+                last_failure = max(last_failure, terminal_at) if last_failure else terminal_at
         elif started:
             key = (
                 "possibleIncomplete" if now - started >= timedelta(minutes=grace) else "inProgress"

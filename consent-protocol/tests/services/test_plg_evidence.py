@@ -414,6 +414,7 @@ def test_attempt_summary_pairs_each_invocation_and_labels_missing_terminals_as_u
             "started_at": started if operation == "a" else None,
             "last_at": at,
             "terminal": terminal,
+            "terminal_at": at if terminal else None,
             "observations": 1,
         }
 
@@ -441,6 +442,38 @@ def test_attempt_summary_pairs_each_invocation_and_labels_missing_terminals_as_u
     assert not audience._matches(
         {"identity": {}, "activity": hidden}, audience.AudienceRequest(segment="returned")
     )
+
+
+@pytest.mark.parametrize(
+    ("phase", "field"), [("returned", "lastReturnedAt"), ("failed", "lastFailureAt")]
+)
+def test_terminal_receipt_time_is_not_replaced_by_a_later_start(phase, field):
+    terminal_at = NOW - timedelta(minutes=2)
+    rows = [
+        {
+            "action_id": "agent:agent_one",
+            "source": "execution_observed",
+            "operation_key": "reordered-call",
+            "started_at": NOW,
+            "last_at": NOW,
+            "terminal": phase,
+            "terminal_at": terminal_at,
+            "observations": 2,
+        }
+    ]
+    result = audience.summarize_attempts(
+        rows,
+        agent_id="agent_one",
+        now=NOW,
+        grace=60,
+        epoch={"started_at": NOW - timedelta(hours=1)},
+        limited=False,
+        enabled=True,
+    )
+    assert result[field] == terminal_at.isoformat()
+    assert result["lastObservedAt"] == NOW.isoformat()
+    assert result["counts"][phase] == 1
+    assert result["counts"]["possibleIncomplete"] == 0
 
 
 @pytest.mark.asyncio

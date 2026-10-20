@@ -225,6 +225,23 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
         after = projected()
         assert after["counts"]["possibleIncomplete"] == 0
         assert after["counts"]["returned"] == 2
+        # A start receipt arriving last must not replace a terminal's timestamp.
+        late_start = datetime.now(timezone.utc) - timedelta(minutes=1)
+        terminal_at = late_start - timedelta(minutes=2)
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE one_product_activity_observations SET observed_at="
+                    "CASE WHEN phase='started' THEN :late_start ELSE :terminal_at END "
+                    "WHERE user_id='other'"
+                ),
+                {"late_start": late_start, "terminal_at": terminal_at},
+            )
+        reordered = projected()
+        assert reordered["lastObservedAt"] == late_start.isoformat()
+        assert reordered["lastReturnedAt"] == terminal_at.isoformat()
+        assert reordered["counts"]["returned"] == 2
+        assert reordered["counts"]["possibleIncomplete"] == 0
         # Rolling back/replaying correlation never fabricates pairs for retained events.
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.connection.cursor().execute(correlation_rollback)
