@@ -213,8 +213,11 @@ try {
     const refresh = session.page.locator('[data-voice-control-id="pwm_refresh"]');
     await refresh.waitFor({ state: "visible", timeout: 20_000 });
     evidence.research_ui.follow_up = "refresh_after_recently_prepared";
+    const previousPosts = await session.page.evaluate(() => window.__PWM_ACCEPTANCE__.researchPosts());
     await refresh.click();
     stage("research_wait");
+    await session.page.waitForFunction(previous => window.__PWM_ACCEPTANCE__.researchPosts() > previous,
+      previousPosts, { timeout: 20_000 });
     await session.page.waitForFunction(() => window.__PWM_ACCEPTANCE__.researchState().fresh_acknowledged ||
       window.__PWM_ACCEPTANCE__.researchSettled(), null, { timeout: 60_000 });
   }
