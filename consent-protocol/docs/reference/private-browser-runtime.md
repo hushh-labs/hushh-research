@@ -296,9 +296,18 @@ the complete import (including its ephemeral reader credential), RunCommand and
 exact image-tag Merge bodies. The VM uses the `pod` repository, distinct from
 Container Apps' `consent-protocol-pod`. Registry publication freezes placement,
 workload and signing identities, host configuration and any power cycle.
-The installed setup journal still refuses this version-three plan. Forward
-admission and GET-only reconciliation, terminal power-cycle retirement and verified publication must be composed before
-enabling VM updates; an image tag or successful RunCommand is not recovery.
+The installed dev journal still refuses this version-three plan. Forward dev
+migration 968 now admits only its three ordered, payload-bound requests through
+the existing setup job. Current lease, host/signing identity and authenticated idle
+evidence are rechecked for every dispatch. A completed phase cannot be repeated,
+including after the same owner operation receives another setup-job identifier.
+Unknown outcomes fence later stages and replacement workers. The nearest 33
+VM/legacy checks pass against real PostgreSQL, including existing Container Apps
+behavior under the new migration; removing payload or cross-job fences fails the
+regressions. Dev migration-lane checks also pass. This migration remains local and
+does not install a host or enable VM updates. GET-only reconciliation, terminal
+power-cycle retirement and verified publication still need composition; an image
+tag or successful RunCommand is not recovery.
 
 The existing update publisher now retains the authenticated idle marker, committed
 prefix, exact committed-state hash and original runtime epoch under its current

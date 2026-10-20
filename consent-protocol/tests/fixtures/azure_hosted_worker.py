@@ -23,6 +23,8 @@ from tests.test_byoc_setup_job_azure_admission_postgres import (
 
 async def _prepared_worker(pg):
     pg.apply_file(PARKED / "961_azure_setup_erasure_binding.sql")
+    pg.apply_file(PARKED / "967_azure_vm_power_admission.sql")
+    pg.apply_file(PARKED / "968_azure_vm_image_update_admission.sql")
     _reserved_owner(pg)
     repo = ByocSetupJobRepo(client=_Client(pg))
     assert await repo.start(user_id=OWNER, job_id="job-1", project_id=group_id(SUB, GROUP))
@@ -153,3 +155,69 @@ def _files_metadata(metadata, source):
         capabilityPlan=plan.model_dump(), capabilityPlanDigest=plan.digest
     )
     return plan
+
+
+async def vm_upgrade_worker(pg, owner, installation):
+    """The real VM plan over the existing journal; no cloud/provider simulation claim."""
+    import hashlib
+
+    from hushh_mcp.services.azure_vm_host_bundle import _SOURCE
+    from hushh_mcp.services.azure_vm_upgrade_plan import build_vm_image_update
+    from hushh_mcp.services.compute_backend import PodSpec, adoption_expectations
+    from hushh_mcp.services.user_cloud_service import spec_coordinates_from_row
+
+    pg.apply_file(PARKED / "968_azure_vm_image_update_admission.sql")
+    pg.apply_file(PARKED / "968_azure_vm_image_update_admission.sql")
+    repo = ByocSetupJobRepo(client=_Client(pg))
+    row = pg.execute(
+        "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id=%s", (owner,)
+    )[0][0]
+    target = installation.resource_id.split("/providers/", 1)[0]
+    assert await repo.start(user_id=owner, job_id="vm-upgrade-1", project_id=target)
+    source = "us-central1-docker.pkg.dev/hushh-pda-dev/one-pod/pod@sha256:" + "d" * 64
+    lease, operation = "synthetic-lease", "vm-update-1"
+    metadata = row["backend_metadata"]
+    metadata.update(
+        image_digest=installation.image_digest,
+        vmConfigurationSha256="c" * 64,
+        vmUpdateModuleSha256=hashlib.sha256((_SOURCE / "update.py").read_bytes()).hexdigest(),
+        upgradeLease=lease,
+        upgradeApproval={
+            "version": 1,
+            "ownerId": owner,
+            "hushhId": row["hushh_id"],
+            "podIncarnation": installation.generation,
+            "targetImage": source,
+            "operationId": operation,
+            "releaseId": "qualified-dev",
+            "idempotencyKey": "approval-1",
+            "status": "updating",
+            "handoffIncarnation": installation.generation,
+            "handoffRuntimeEpoch": "synthetic-before",
+            "handoffCommittedCursor": {"seq": 1, "sha": "e" * 64},
+            "handoffIdleRecord": {"seq": 2, "sha": "f" * 64},
+            "handoffCommittedState": hashlib.sha256(
+                f"{operation}|{installation.generation}|1|{'e' * 64}|active=0".encode()
+            ).hexdigest(),
+        },
+    )
+    pg.execute(
+        "UPDATE personal_agent_registry SET backend_metadata=%s::jsonb WHERE user_id=%s",
+        (json.dumps(metadata), owner),
+    )
+    row["backend_metadata"] = metadata
+    spec = PodSpec(
+        hushh_id=row["hushh_id"],
+        phone_e164_hash="synthetic",
+        pod_pubkey=row["pod_pubkey"],
+        deployment_target="user_azure",
+        **adoption_expectations(metadata),
+        **spec_coordinates_from_row(row),
+        upgrade_operation_id=operation,
+        upgrade_target_image=source,
+        upgrade_attempt_id=hashlib.sha256(lease.encode()).hexdigest(),
+    )
+    plan = build_vm_image_update(
+        row, spec, idle_record=metadata["upgradeApproval"]["handoffIdleRecord"]
+    )
+    return plan, plan.intent(job="vm-upgrade-1")

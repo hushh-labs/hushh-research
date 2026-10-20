@@ -128,6 +128,29 @@ def _require_update(
         )
     ):
         _refuse()
+    from hushh_mcp.services.pod_upgrade_handoff import (
+        PodUpgradeHandoffUnavailable,
+        retained_idle_evidence,
+    )
+
+    try:
+        retained_idle_evidence(
+            {
+                "operationId": approval["operationId"],
+                "incarnation": approval.get("handoffIncarnation"),
+                "runtimeEpoch": approval.get("handoffRuntimeEpoch"),
+                "activeWork": 0,
+                "committedState": approval.get("handoffCommittedState"),
+                "committedCursor": approval.get("handoffCommittedCursor"),
+                "idleRecord": idle_record,
+            },
+            operation_id=spec.upgrade_operation_id or "",
+            require_cursor=True,
+        )
+    except PodUpgradeHandoffUnavailable:
+        _refuse()
+    if approval["handoffIncarnation"] != host.installation.generation:
+        _refuse()
     return host, metadata, approval
 
 

@@ -82,7 +82,8 @@
     "964_personal_agent_runtime_quota_grant.sql",
     "965_one_inferred_shared_correction.sql",
     "966_pod_browser_action_authority.sql",
-    "967_azure_vm_power_admission.sql"
+    "967_azure_vm_power_admission.sql",
+    "968_azure_vm_image_update_admission.sql"
   ],
   "deferred_release_migrations": [
     {

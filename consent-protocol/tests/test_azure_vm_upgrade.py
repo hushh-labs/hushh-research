@@ -42,6 +42,12 @@ def _approved():
         "idempotencyKey": "approval-1",
         "status": "updating",
         "handoffIdleRecord": cursor,
+        "handoffIncarnation": spec.expected_service_uid,
+        "handoffRuntimeEpoch": "synthetic-runtime",
+        "handoffCommittedCursor": {"seq": 1, "sha": "a" * 64},
+        "handoffCommittedState": hashlib.sha256(
+            f"update_123|{spec.expected_service_uid}|1|{'a' * 64}|active=0".encode()
+        ).hexdigest(),
     }
     spec = replace(
         spec,
