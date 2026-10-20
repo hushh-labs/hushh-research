@@ -94,12 +94,7 @@ def _new_requests_use_legacy_flow() -> bool:
 
 
 def _new_semantic_model_binding(connection, *, owner_user_id: str) -> dict | None:
-    """Freeze the Azure pilot only for an owner with current durable approval.
-
-    An unapproved owner's new request retains the existing Gemini semantic
-    contract. A failed approval read aborts request creation; it never grants
-    Azure processing or silently treats an unavailable store as a denial.
-    """
+    """Freeze current owner approval or the scoped UAT administrator default."""
     from hushh_mcp.services.drive_request_package_assessment import (
         semantic_request_model_binding,
     )
@@ -110,26 +105,35 @@ def _new_semantic_model_binding(connection, *, owner_user_id: str) -> dict | Non
     if provider != "azure_openai" or os.getenv("ENVIRONMENT", "").strip().lower() != "uat":
         raise ValueError("Invalid Documents semantic provider")
     from hushh_mcp.services.private_text_processing_approval_service import (
-        PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION,
+        DRIVE_DOCUMENT_REQUESTS_SCOPE,
+        resolve_private_text_authority,
     )
 
     row = (
         connection.execute(
             text(
-                """SELECT generation FROM one_private_text_processing_approvals
-            WHERE user_id=:user AND enabled IS TRUE
-              AND disclosure_version=:disclosure AND accepted_at IS NOT NULL
+                """SELECT enabled, disclosure_version, generation, accepted_at, revoked_at
+            FROM one_private_text_processing_approvals WHERE user_id=:user
             FOR SHARE"""
             ),
-            {"user": owner_user_id, "disclosure": PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION},
+            {"user": owner_user_id},
         )
         .mappings()
         .first()
     )
-    if row is None:
+    grant = resolve_private_text_authority(
+        row, user_id=owner_user_id, scope=DRIVE_DOCUMENT_REQUESTS_SCOPE
+    )
+    if grant is None:
         return None
     return semantic_request_model_binding(
-        provider="azure_openai", approval_generation=str(row["generation"])
+        provider="azure_openai",
+        approval_generation=grant.generation,
+        **(
+            {"authorization_basis": "uat_policy"}
+            if grant.authorization_basis == "uat_policy"
+            else {}
+        ),
     )
 
 

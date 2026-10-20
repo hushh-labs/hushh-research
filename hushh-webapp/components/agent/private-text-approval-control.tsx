@@ -7,7 +7,7 @@ import type { User } from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PRIVATE_TEXT_DISCLOSURE } from "@/lib/legal/private-text-disclosure";
+import { DRIVE_AZURE_DEFAULT_DISCLOSURE, PRIVATE_TEXT_DISCLOSURE } from "@/lib/legal/private-text-disclosure";
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -78,8 +78,8 @@ function OwnerPrivateTextApproval({ user }: { user: Owner }) {
       return PrivateTextApprovalService.set(idToken, enabled, approval.generation);
     })();
     toastHandle.current = morphyToast.promise(operation, {
-      loading: enabled ? "Saving approval…" : "Revoking approval…",
-      success: enabled ? "Azure text approval saved." : "Azure text approval revoked.",
+      loading: enabled ? "Saving approval…" : "Turning off Azure processing…",
+      success: enabled ? "Azure text approval saved." : "Azure processing turned off.",
       error: "Couldn’t save your choice. Try again.",
       isCurrent: () => current.current,
     });
@@ -104,24 +104,27 @@ function OwnerPrivateTextApproval({ user }: { user: Owner }) {
   };
 
   if (loading || !approval && !loadFailed) return null;
+  const managedDefault = approval?.processing_policy?.enabled === true &&
+    approval.processing_policy.basis === "uat_policy";
   return <div className="px-[var(--page-inline-gutter-standard)] pb-3">
     {loadFailed ? <Button variant="outline" className="min-h-11 w-full" onClick={() => void load()}>
       Retry model privacy settings
     </Button> : <Button variant="outline" className="min-h-11 w-full justify-between"
       aria-label="Review Azure text pilot" onClick={() => setOpen(true)}>
-      <span>Azure text pilot</span><span className="text-muted-foreground">{approval?.enabled ? "Approved" : "Review"}</span>
+      <span>{managedDefault ? "Azure document processing" : "Azure text pilot"}</span>
+      <span className="text-muted-foreground">{managedDefault ? "Default in UAT" : approval?.enabled ? "Approved" : "Review"}</span>
     </Button>}
     <Dialog modal open={open} onOpenChange={next => { if (next) setOpen(true); else close(); }}>
       <DialogContent showCloseButton={false} onEscapeKeyDown={event => { if (busy) event.preventDefault(); }}>
         <DialogHeader>
-          <DialogTitle>Azure text pilot · UAT only</DialogTitle>
-          <DialogDescription>Review who may process your private text before approving.</DialogDescription>
+          <DialogTitle>{managedDefault ? "Azure document processing · UAT only" : "Azure text pilot · UAT only"}</DialogTitle>
+          <DialogDescription>{managedDefault ? "Review the default processor for document requests." : "Review who may process your private text before approving."}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 text-sm leading-relaxed">
-          {PRIVATE_TEXT_DISCLOSURE.map(text => <p key={text}>{text}</p>)}
+          {(managedDefault ? DRIVE_AZURE_DEFAULT_DISCLOSURE : PRIVATE_TEXT_DISCLOSURE).map(text => <p key={text}>{text}</p>)}
           <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Read the Privacy Policy</a>
         </div>
-        {approval?.enabled ? <p role="status" className="text-sm">Approval is saved. UAT requests may use Azure when the pilot is enabled.</p> :
+        {managedDefault ? <p role="status" className="text-sm">Azure is enabled by UAT policy. No personal approval has been recorded.</p> : approval?.enabled ? <p role="status" className="text-sm">Approval is saved. UAT requests may use Azure when the pilot is enabled.</p> :
           <label htmlFor={checkboxId} className="flex min-h-11 items-start gap-3 text-sm leading-relaxed">
             <Checkbox id={checkboxId} checked={acknowledged} disabled={busy}
               onCheckedChange={value => setAcknowledged(value === true)} className="mt-1" />
@@ -129,7 +132,7 @@ function OwnerPrivateTextApproval({ user }: { user: Owner }) {
           </label>}
         <DialogFooter>
           <Button variant="ghost" disabled={busy} onClick={close}>Close</Button>
-          {approval?.enabled ? <Button variant="outline" disabled={busy} onClick={() => void save(false)}>Revoke approval</Button> :
+          {managedDefault ? <Button variant="outline" disabled={busy} onClick={() => void save(false)}>Turn off Azure processing</Button> : approval?.enabled ? <Button variant="outline" disabled={busy} onClick={() => void save(false)}>Revoke approval</Button> :
             <Button disabled={busy || !acknowledged} onClick={() => void save(true)}>Approve private text processing</Button>}
         </DialogFooter>
       </DialogContent>

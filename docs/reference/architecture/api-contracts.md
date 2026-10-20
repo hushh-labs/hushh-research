@@ -1124,6 +1124,24 @@ and [stream implementation](../streaming/streaming-implementation-guide.md).
 
 ### One Runtime Configuration
 
+`GET` and `PUT /api/one/models/private-text-approval` remain Firebase-owner
+authenticated and `private, no-store`. Without query parameters their strict
+owner-receipt response is unchanged. Updated clients opt into
+`?include_policy=true` to additionally receive `processing_policy`:
+`{enabled,basis:owner_approval|uat_policy|disabled,version,generation,
+scope:drive_document_requests}`. This effective processor status never changes
+the owner receipt's `enabled`, `accepted_at` or CAS `generation`.
+
+The UAT administrator Drive default applies to genuinely absent owner rows,
+including existing accounts; stored refusals and revocations take precedence.
+The default does not authorize One chat or migrate frozen requests. A policy
+opt-out calls the existing owner-bound PUT with `enabled:false` and the owner
+receipt's `expected_generation` (null when absent), creating a refusal without
+claiming acceptance. Legacy four-field Azure request bindings retain explicit
+owner-approval authority. New default bindings additionally seal
+`authorization_basis:uat_policy`; their generation and evidence digest change
+with the policy, and their authority is rechecked before every provider send.
+
 | Method | Path                               | Auth            | Description                                                                                                                                                                                                                                                                                                               |
 | ------ | ---------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before encrypted BYOK storage; validates Google AI Studio or explicit Vertex project/location access and distinguishes invalid credentials, IAM, API-enablement, quota/rate-limit, billing, model, and temporary failures without logging or storing the credential |

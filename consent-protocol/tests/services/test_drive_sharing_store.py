@@ -2034,16 +2034,33 @@ def test_azure_semantic_admission_requires_current_owner_approval(monkeypatch):
     monkeypatch.setattr(assessment, "semantic_request_model_binding", resolver)
     connection = Mock()
     connection.execute.return_value.mappings.return_value.first.return_value = {
-        "generation": UUID(generation)
+        "generation": UUID(generation),
+        "enabled": True,
+        "disclosure_version": "one-private-azure-text-v1",
+        "accepted_at": datetime.now(UTC),
+        "revoked_at": None,
     }
     assert _new_semantic_model_binding(connection, owner_user_id="owner") == selected
     resolver.assert_called_once_with(provider="azure_openai", approval_generation=generation)
     query = str(connection.execute.call_args.args[0])
-    assert "enabled IS TRUE" in query and "accepted_at IS NOT NULL" in query
+    assert "revoked_at" in query and "enabled IS TRUE" not in query
     assert connection.execute.call_args.args[1]["user"] == "owner"
 
-    # A missing approval retains the established Gemini request contract.
+    # A genuinely missing row uses the administrator default, without writing
+    # an owner receipt. An explicit revocation below must not look like absence.
     connection.execute.return_value.mappings.return_value.first.return_value = None
+    resolver.reset_mock()
+    assert _new_semantic_model_binding(connection, owner_user_id="owner") == selected
+    assert resolver.call_args.kwargs["authorization_basis"] == "uat_policy"
+    assert resolver.call_args.kwargs["approval_generation"] != generation
+
+    connection.execute.return_value.mappings.return_value.first.return_value = {
+        "generation": UUID(generation),
+        "enabled": False,
+        "disclosure_version": None,
+        "accepted_at": None,
+        "revoked_at": datetime.now(UTC),
+    }
     resolver.reset_mock()
     assert _new_semantic_model_binding(connection, owner_user_id="owner") is None
     resolver.assert_not_called()
@@ -2058,12 +2075,30 @@ def test_azure_semantic_admission_requires_current_owner_approval(monkeypatch):
 async def test_new_semantic_request_policy_survives_creation_kill_switch(sharing, monkeypatch):
     live_drive(sharing, monkeypatch)
     monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
+    with sharing.db.engine.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY)")
+        connection.exec_driver_sql("INSERT INTO actor_profiles VALUES ('owner')")
+        connection.exec_driver_sql(
+            (MIGRATIONS / "364_one_private_text_processing_approvals.sql").read_text(),
+            execution_options={"no_parameters": True},
+        )
     monkeypatch.delenv("DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED", raising=False)
     monkeypatch.delenv("DRIVE_AGENT_PACKAGES_ENABLED", raising=False)
     created = await request(sharing)
     identity = created["requestId"]
     _, private = stored_request(sharing, identity)
     assert private["semantic_search_policy_version"] == 1
+    assert private["semantic_model_binding"]["provider"] == "azure_openai"
+    assert private["semantic_model_binding"]["authorization_basis"] == "uat_policy"
+    with sharing.db.engine.connect() as connection:
+        assert (
+            connection.exec_driver_sql(
+                "SELECT COUNT(*) FROM one_private_text_processing_approvals"
+            ).scalar_one()
+            == 0
+        )
     assert (await sharing.request_bulk_context(user_id="owner", request_id=identity))[
         "semanticSearch"
     ] is True

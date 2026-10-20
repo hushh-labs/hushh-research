@@ -27,6 +27,24 @@ describe("owner-scoped private Azure acknowledgment", () => {
     expect(mocks.get).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Review Azure text pilot" })).not.toBeInTheDocument();
   });
+  it("labels the administrator default honestly and turns it off without claiming owner acceptance", async () => {
+    const managed: PrivateTextApproval = { ...denied, processing_policy: { enabled: true,
+      basis: "uat_policy", version: "uat-drive-azure-default-v1", scope: "drive_document_requests",
+      generation: "22222222-2222-4222-8222-222222222222" } };
+    mocks.get.mockResolvedValueOnce(managed);
+    const saving = deferred<PrivateTextApproval>(); mocks.set.mockReturnValueOnce(saving.promise);
+    render(<PrivateTextApprovalControl user={owner()} />);
+    expect(await screen.findByText("Default in UAT")).toBeInTheDocument();
+    expect(screen.queryByText("Approved")).not.toBeInTheDocument();
+    await review();
+    expect(screen.getByText(/No personal approval has been recorded/)).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Turn off Azure processing" }));
+    await waitFor(() => expect(mocks.set).toHaveBeenCalledWith("owner-a-token", false, null));
+    expect(screen.getByRole("button", { name: "Close", exact: true })).toBeDisabled();
+    await act(async () => saving.resolve({ ...denied, generation: "33333333-3333-4333-8333-333333333333", revoked_at: "2026-10-20T04:00:00Z" }));
+    expect(screen.queryByText("Default in UAT")).not.toBeInTheDocument();
+  });
   it("requires acknowledgment and waits for persistence for approval and revocation", async () => {
     const saving = deferred<PrivateTextApproval>(); mocks.set.mockReturnValueOnce(saving.promise);
     render(<PrivateTextApprovalControl user={owner()} />); await review();
