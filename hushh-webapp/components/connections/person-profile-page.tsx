@@ -11,7 +11,7 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
-import { CheckCircle2, LockKeyhole, MoreHorizontal, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, ArrowUpRight } from "@/components/icons";
+import { CheckCircle2, LockKeyhole, MoreHorizontal, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, Mail, Phone } from "@/components/icons";
 import { toast } from "sonner";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
@@ -41,7 +41,8 @@ import {
   SectionCard,
   StatusPill,
 } from "@/lib/morphy-ux/ui/surface-primitives";
-import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { PersonProfileHero, PersonProfileTaskContent, PersonProfileEmptyState } from "./person-profile-hero";
+import { HelperText, RowLabel } from "@/components/app-ui/typography";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { SharedWithYouCard } from "@/components/agent/consent/shared-with-you-card";
 import { humanSharedLabel, type SharedWithMeCardItem } from "@/lib/agent/agui-structured-experiences";
@@ -124,14 +125,8 @@ function historyTitle(
   return `${itemCount} ${itemCount === 1 ? "item" : "items"}`;
 }
 
-function actionCardContent(label: string, Icon: typeof FileText) {
-  return (
-    <span className={styles.actionCardContent}>
-      <Icon className={styles.actionIcon} aria-hidden="true" />
-      <ArrowUpRight className={styles.actionArrow} aria-hidden="true" />
-      <span className={styles.actionLabel}>{label}</span>
-    </span>
-  );
+function actionCardContent(label: string, Icon: typeof FileText, tone: "blue" | "pink" | "lilac" | "amber") {
+  return <PersonProfileTaskContent label={label} Icon={Icon} tone={tone} />;
 }
 
 export function PersonProfilePage({ personRef, initialProfile }: Props) {
@@ -782,11 +777,13 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   return (
     <AppPageShell width="agent" fitContent>
       <div className={styles.page} data-native-route="native-route-person-profile">
-        <SectionCard className={styles.hero}>
-          {viewerProfile?.relationship.status === "connected" ? (
+        <PersonProfileHero
+          profile={profile}
+          shareOnly={!viewerProfile}
+          options={viewerProfile?.relationship.status === "connected" ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" variant="none" effect="fade" className={styles.overflow} aria-label="Profile options">
+                <Button type="button" size="icon-touch" variant="none" effect="fade" className={styles.overflow} aria-label="Profile options">
                   <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
@@ -797,25 +794,9 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
-          <ConnectionPersonAvatar
-            photoUrl={profile.photoUrl}
-            label={profile.displayName}
-            verified={Boolean(profile.verifiedRole)}
-            size="profile"
-            className={styles.avatar}
-          />
-          <h1 className={styles.name}>
-            {profile.displayName}
-          </h1>
-          {profile.verifiedRole ? (
-            <p className="mt-1.5 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
-              <CheckCircle2 className="h-4 w-4 text-[var(--app-accent)] shrink-0" />
-              <span>{profile.verifiedRole}</span>
-            </p>
-          ) : null}
-          {viewerProfile ? (
-            <div className="mt-2.5 flex justify-center">
-              <StatusPill tone={viewerProfile.relationship.status === "connected" ? "ready" : "neutral"}>
+          status={viewerProfile ? (
+            <>
+              <StatusPill className={styles.status} tone={viewerProfile.relationship.status === "connected" ? "ready" : "neutral"}>
                 {viewerProfile.relationship.status === "connected" ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : null}
                 {viewerProfile.relationship.status === "connected"
                   ? "Connected"
@@ -823,27 +804,30 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     ? "Request pending"
                     : "Not connected"}
               </StatusPill>
-            </div>
+            </>
           ) : null}
-          {viewerProfile?.relationship.status === "connected" && viewerProfile.contactEmail ? (
-            <a className="mt-2 block break-all text-center text-sm text-muted-foreground hover:underline" href={`mailto:${viewerProfile.contactEmail}`}>
-              {viewerProfile.contactEmail}
+          contacts={<>
+            {viewerProfile?.relationship.status === "connected" && viewerProfile.contactEmail ? (
+            <a href={`mailto:${viewerProfile.contactEmail}`}>
+              <Mail aria-hidden="true" /><span dir="auto">{viewerProfile.contactEmail}</span>
             </a>
           ) : null}
           {viewerProfile?.relationship.status === "connected" && /^\+[1-9][0-9]{1,14}$/.test(viewerProfile.contactPhoneNumber ?? "") ? (
-            <a className="mt-1 block break-all text-center text-sm text-muted-foreground hover:underline" href={`tel:${viewerProfile.contactPhoneNumber}`}>
-              {viewerProfile.contactPhoneNumber}
+            <a href={`tel:${viewerProfile.contactPhoneNumber}`}>
+              <Phone aria-hidden="true" /><span dir="auto">{viewerProfile.contactPhoneNumber}</span>
             </a>
           ) : null}
-          <div className={styles.actions} data-share-only={!viewerProfile} data-connected={viewerProfile?.relationship.status === "connected"} aria-label="Relationship actions">
+          </>}
+          primaryActions={<>
             {viewerProfile ? (
-              <Button type="button" variant="blue-gradient" effect="fill" className={styles.request} onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+              <Button type="button" size="compact" variant="blue-gradient" effect="fill" onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
                 <FileText className="h-5 w-5" aria-hidden="true" />
                 Request
               </Button>
             ) : null}
             <Button
               type="button"
+              size="compact"
               variant="none"
               effect="fade"
               className={styles.share}
@@ -859,13 +843,14 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 <span>Share</span>
               </span>
             </Button>
-            {user ? (
-              <div className={styles.actionCards}>
+          </>}
+          tasks={user ? (
+              <>
                 {viewerProfile?.relationship.status === "connected" ? (
                   <DocumentRequestButton
                     personRef={resolvedPersonRef}
                     personName={profile.displayName || "this person"}
-                    renderTrigger={(label) => actionCardContent(label, label === "Request files" ? FileText : MessageCircle)}
+                    renderTrigger={(label) => actionCardContent(label, label === "Request files" ? FileText : MessageCircle, label === "Request files" ? "blue" : "pink")}
                   />
                 ) : null}
                 {/* Stay mounted while authority refreshes so accepted confirmation survives. */}
@@ -875,24 +860,25 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   personName={profile.displayName || "this person"}
                   canRequest={viewerProfile?.relationship.status === "connected"}
                   returnFocusRef={requestScopeReturnFocusRef}
-                  renderTrigger={(label) => actionCardContent(label, ShieldCheck)}
+                  renderTrigger={(label) => actionCardContent(label, ShieldCheck, "lilac")}
                 />
                 {viewerProfile?.relationship.status === "connected" ? (
                   <RequestCardsButton
                     key={`card:${user.uid}:${resolvedPersonRef}`}
                     personRef={resolvedPersonRef}
                     personName={profile.displayName || "this person"}
-                    renderTrigger={(label) => actionCardContent(label, CreditCard)}
+                    renderTrigger={(label) => actionCardContent(label, CreditCard, "amber")}
                   />
                 ) : null}
-              </div>
+              </>
             ) : null}
+          footer={<>
             {viewerProfile?.relationship.status === "connected" && isVaultUnlocked && packetCatalogAvailable ? (
-              <Button type="button" variant="none" effect="fade" className={styles.packets} data-voice-control-id="person-profile-browse-packets" onClick={() => packetsSectionRef.current?.scrollIntoView({ block: "start", behavior: "auto" })}>Available packets</Button>
+              <Button type="button" size="compact" variant="none" effect="fade" className={styles.packets} data-voice-control-id="person-profile-browse-packets" onClick={() => packetsSectionRef.current?.scrollIntoView({ block: "start", behavior: "auto" })}>Available packets</Button>
             ) : null}
             {viewerProfile ? (
               <>
-                <Button type="button" variant="none" effect="fade" className={styles.manage} data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
+                <Button type="button" size="compact" variant="none" effect="fade" className={styles.manage} data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
                   <Settings className="h-5 w-5" aria-hidden="true" />
                   <span>Manage access</span>
                   <ChevronRight className="h-4 w-4" aria-hidden="true" />
@@ -900,6 +886,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 {viewerProfile.relationship.status === "none" ? (
                   <Button
                     type="button"
+                    size="compact"
                     variant="blue-gradient"
                     effect="fill"
                     disabled={relationshipBusy}
@@ -913,6 +900,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 {viewerProfile.relationship.status === "pending_outgoing" ? (
                   <Button
                     type="button"
+                    size="compact"
                     variant="none"
                     effect="fade"
                     disabled={relationshipBusy}
@@ -925,15 +913,14 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 ) : null}
               </>
             ) : null}
-
-          </div>
-        </SectionCard>
+          </>}
+        />
 
         {/* Their listed packets read like Payouts history: the list is its own group, not a card in a card. */}
         {viewerProfile?.relationship.status === "connected" && isVaultUnlocked && packetCatalogAvailable && <div ref={packetsSectionRef}><DrivePacketCatalog ownerPersonRef={resolvedPersonRef} ownerName={profile.displayName || "this person"} /></div>}
 
         {!user && !authLoading ? (
-          <SectionCard>
+          <SectionCard className={styles.signIn}>
             <div className="flex items-center justify-between gap-4">
               <div>
                 <h2 className="font-semibold">Connect through Hussh</h2>
@@ -941,7 +928,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   Sign in to see requestable information and consented access.
                 </p>
               </div>
-              <Button asChild variant="blue-gradient" effect="fill">
+              <Button asChild size="compact" variant="blue-gradient" effect="fill">
                 <Link href="/login">Sign in</Link>
               </Button>
             </div>
@@ -953,7 +940,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
             <section
               id="shared-with-you"
               aria-labelledby="shared-with-you-heading"
-              className="space-y-4"
+              className={styles.section}
               ref={sharedSectionRef}
             >
               <h2 id="shared-with-you-heading" className={styles.heading}>Shared with you</h2>
@@ -970,25 +957,17 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   variant="profile"
                 />
               ) : (
-                <SectionCard className={styles.empty}>
-                  <div className="flex flex-col items-center justify-center space-y-2">
-                    <div className={styles.emptyIcon}>
-                      <LockKeyhole className="h-5 w-5" />
-                    </div>
-                    <p className="text-sm font-semibold text-foreground">
-                      Nothing shared yet
-                    </p>
-                    <p className="sr-only">
-                      Information this person shares with you appears here.
-                    </p>
-                  </div>
-                </SectionCard>
+                <PersonProfileEmptyState
+                  icon={<LockKeyhole />}
+                  label="Nothing shared yet"
+                  description="Information this person shares with you appears here."
+                />
               )}
             </section>
 
             <section
               aria-labelledby="available-to-request"
-              className={`space-y-3 ${styles.available}`}
+              className={`${styles.section} ${styles.available}`}
               ref={availableSectionRef}
               data-testid="person-profile-available"
             >
@@ -1023,7 +1002,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               {viewerProfile.scopeCatalog?.hasMore ? (
                 <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                   <p className="text-muted-foreground">{allScopes.length} of {viewerProfile.scopeCatalog.totalCount} loaded. Search checks loaded information.</p>
-                  <Button type="button" variant="none" effect="fade" disabled={catalogLoading}
+                  <Button type="button" size="compact" variant="none" effect="fade" disabled={catalogLoading}
                     onClick={() => void loadMoreScopes()}>
                     {catalogLoading ? "Loading more…" : catalogError ? "Try loading more again" : "Load more information"}
                   </Button>
@@ -1031,13 +1010,13 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               ) : null}
             </section>
 
-            <section aria-labelledby="request-history" className="space-y-3">
+            <section aria-labelledby="request-history" className={`${styles.section} ${styles.history}`}>
               <h2 id="request-history" className={styles.heading}>Request history</h2>
               {currentHistory?.failed ? (
                 <p role="status" className="text-sm text-muted-foreground">Older requests could not be loaded. Showing recent activity only.</p>
               ) : null}
               {historyGroups.length ? (
-                <SectionCard>
+                <SectionCard className={styles.historyGroup}>
                   <div className="divide-y divide-border/60">
                     {visibleHistoryGroups.map(({ bundleId, first, items, itemCount, itemLabels, purpose: requestPurpose, createdAt }) => {
                       const details = bundleDetails[bundleId];
@@ -1052,23 +1031,24 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                         itemLabels,
                       );
                       return (
-                        <div key={bundleId} className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                        <div key={bundleId} className={styles.historyRow}>
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold">{title}</p>
-                            <p className="mt-1 text-sm text-muted-foreground">{requestPurpose}</p>
+                            <RowLabel as="p" className={`ui-text-row-label-emphasized ${styles.historyTitle}`}>{title}</RowLabel>
+                            <HelperText className={styles.historySupporting}>{requestPurpose}</HelperText>
                             {createdAt ? (
-                              <p className="mt-1 text-xs text-muted-foreground">
+                              <HelperText className={styles.historySupporting}>
                                 {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAt))}
-                              </p>
+                              </HelperText>
                             ) : null}
                           </div>
-                          <div className="flex shrink-0 flex-wrap items-center gap-2">
+                          <div className={styles.historyActions}>
                             <StatusPill tone={statusItems.length === itemCount && grantedCount === itemCount ? "ready" : "neutral"}>
                               {statusLabel}
                             </StatusPill>
                             {!details ? (
                               <Button
                                 type="button"
+                                size="compact"
                                 variant="none"
                                 effect="fade"
                                 disabled={loadingBundleId === bundleId}
@@ -1081,6 +1061,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                             {statusItems.some((item) => item.status === "pending") ? (
                               <Button
                                 type="button"
+                                size="compact"
                                 variant="none"
                                 effect="fade"
                                 disabled={cancellingBundleId === bundleId}
@@ -1103,10 +1084,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     })}
                   </div>
                   {currentHistory?.result?.nextCursor || historyPage > 1 || (!currentHistory?.result && recentHistoryGroups.length > 8) ? (
-                    <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/60 pt-3 text-sm">
-                      <Button type="button" variant="none" effect="fade" disabled={visibleHistoryPage <= 1} onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}>Previous</Button>
+                    <div className={styles.pagination}>
+                      <Button type="button" size="compact" variant="none" effect="fade" disabled={visibleHistoryPage <= 1} onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}>Previous</Button>
                       <span className="text-muted-foreground">{currentHistory?.result ? `Page ${visibleHistoryPage}` : `${visibleHistoryPage} of ${historyPageCount}`}</span>
-                      <Button type="button" variant="none" effect="fade" disabled={currentHistory?.result ? !currentHistory.result.nextCursor : visibleHistoryPage >= historyPageCount} onClick={() => {
+                      <Button type="button" size="compact" variant="none" effect="fade" disabled={currentHistory?.result ? !currentHistory.result.nextCursor : visibleHistoryPage >= historyPageCount} onClick={() => {
                         if (currentHistory?.result?.nextCursor) setHistoryCursors((cursors) => [...cursors.slice(0, historyPage), currentHistory.result!.nextCursor]);
                         setHistoryPage((page) => page + 1);
                       }}>Next</Button>
@@ -1114,16 +1095,14 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   ) : null}
                 </SectionCard>
               ) : (
-                <SectionCard className={styles.empty}>
-                  <div className={styles.emptyIcon}><FileText className="h-5 w-5" aria-hidden="true" /></div>
-                  <p className="text-sm font-semibold text-muted-foreground">No requests yet</p>
-                </SectionCard>
+                <PersonProfileEmptyState icon={<FileText />} label="No requests yet" />
               )}
             </section>
             {allScopes.length ? (
               <div className={styles.review}>
                 <Button
                   type="button"
+                  size="compact"
                   variant="blue-gradient"
                   effect="fill"
                   disabled={!selectedScopes.length}
@@ -1136,7 +1115,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
             ) : null}
           </>
         ) : viewerUnavailable && user ? (
-          <SectionCard className="py-8 text-center">
+          <SectionCard className={styles.signIn}>
             <div role="alert" className="flex flex-col items-center justify-center space-y-2">
               <p className="text-sm font-semibold text-foreground">
                 We couldn&rsquo;t load your connection with {profile.displayName} right now.
@@ -1146,6 +1125,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               </p>
               <Button
                 type="button"
+                size="compact"
                 variant="none"
                 effect="fade"
                 onClick={() => setViewerReloadToken((token) => token + 1)}
