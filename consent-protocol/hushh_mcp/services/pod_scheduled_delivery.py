@@ -64,7 +64,7 @@ class GcpScheduledDelivery:
         task = {
             "name": f"{queue}/tasks/agent-{occurrence_id}-{dispatch_at}",
             "scheduleTime": datetime.fromtimestamp(dispatch_at, UTC).isoformat(),
-            "dispatchDeadline": "180s",
+            "dispatchDeadline": "1000s",  # maximum active task plus bounded shutdown
             "httpRequest": {
                 "httpMethod": "POST",
                 "url": origin + "/api/one/pod/tasks/worker",

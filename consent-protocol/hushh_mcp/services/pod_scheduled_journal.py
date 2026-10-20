@@ -48,7 +48,7 @@ class ScheduledTaskJournal:
                 self.access.pod_id,
             ):
                 raise ScheduleRefused("SCHEDULE_RECOVERY_INVALID")
-            previous = rows.get(row.get("id"))
+            previous = rows.get(row["id"])
             if type(row.get("revision")) is not int or row["revision"] != (
                 previous["revision"] + 1 if previous else 1
             ):

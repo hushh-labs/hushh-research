@@ -55,6 +55,9 @@ class ScheduleAccess:
 
 
 class ScheduledCapability(Protocol):
+    # Trusted adapter limit, never a model/request-supplied authority extension.
+    max_active_seconds: int
+
     async def prepare(self, parameters: dict) -> dict:
         """Exact current capability terms. No model/client assertion of authority."""
         ...
@@ -108,7 +111,20 @@ class _RunReceipt(BaseModel):
     ]
     started_at: int = Field(gt=0)
     lease_until: int = Field(gt=0)
+    claim_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    deadline_at: int | None = Field(default=None, gt=0)
     finished_at: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def bounded_lease(self):
+        if (self.claim_id is None) != (self.deadline_at is None):
+            raise ValueError("Invalid recovered lease")
+        if self.deadline_at is not None and not (
+            self.started_at < self.deadline_at <= self.started_at + 900
+            and self.lease_until <= self.deadline_at
+        ):
+            raise ValueError("Invalid recovered lease")
+        return self
 
 
 class _ScheduleRecord(BaseModel):
@@ -154,6 +170,12 @@ class _ScheduleRecord(BaseModel):
             raise ValueError("Invalid recovered schedule")
         if self.state == "running" and (self.last_run is None or self.last_run.state != "running"):
             raise ValueError("Invalid recovered claim")
+        if (
+            self.last_run is not None
+            and self.last_run.deadline_at is not None
+            and self.last_run.deadline_at > self.authorization_expires_at
+        ):
+            raise ValueError("Invalid recovered lease")
         return self
 
 

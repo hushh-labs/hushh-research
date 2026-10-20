@@ -261,6 +261,20 @@ durable outbox; interrupted effects are not automatically repeated. Cancellation
 remains **Stopping current work** until execution settles. The update admission
 permit remains held through settlement.
 
+Active occurrences now carry a random claim identity and an immutable deadline,
+bounded by the signed grant and the trusted capability's limit (at most fifteen
+minutes). Their sixty-second execution lease renews every twenty seconds only
+while authority remains valid. Files retains its existing three-minute limit;
+these mechanics do not register general One or Browser schedules. The GCP delivery
+deadline allows bounded task cleanup and does not extend processing authority.
+
+Cancellation remains pending while a worker stops. If the response cleanup budget
+expires, an owned finalizer waits for actual task exit, durably settles the
+uncertain outcome, then releases update admission. Failed settlement retains the
+admission fence and requires recovery; neither a timeout nor an expired lease is
+proof of idle or permission to replay an effect. Legacy running receipts still
+require review rather than being adopted by a new worker.
+
 The GCP adapter reuses the owner-project Cloud Tasks queue and dedicated Files worker
 identity. Long-horizon delivery uses bounded metadata checkpoints, not inference or
 polling. Azure's queue does not yet provide a qualified due-time wake adapter; scheduling

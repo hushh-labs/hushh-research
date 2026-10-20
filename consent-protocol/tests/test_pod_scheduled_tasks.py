@@ -16,6 +16,7 @@ def scheduled_tasks(tmp_path):
     clock = [1000]
     log = PodCommitLog(LocalObjectStore(str(tmp_path / "schedule")), b"s" * 32, owner_id="pod")
     capability = SimpleNamespace(
+        max_active_seconds=180,
         prepare=AsyncMock(return_value={"file_revision": 1}),
         run=AsyncMock(return_value="completed"),
     )
@@ -268,6 +269,56 @@ async def test_schedule_cancel_stays_pending_until_active_work_has_settled(sched
     finish.set()
     assert (await running)["state"] == "cancelled"
     world.permit.release.assert_awaited_once()
+
+
+async def test_schedule_slow_cleanup_keeps_cancellation_pending_then_releases_admission(
+    scheduled_tasks, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import pod_scheduled_lease
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused
+
+    monkeypatch.setattr(pod_scheduled_lease, "RENEW_SECONDS", 0.001)
+    monkeypatch.setattr(pod_scheduled_lease, "CLEANUP_SECONDS", 0.01)
+    world = scheduled_tasks
+    await world.runtime.create(schedule_request(), grant={"subject_id": "browser", "version": 1})
+    delivery = world.delivery.offer.call_args.args
+    world.clock[0] = 1101
+    entered, stopping, cleanup = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def effect(terms, occurrence, check):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            stopping.set()
+            await cleanup.wait()
+            raise
+
+    world.capability.run = AsyncMock(side_effect=effect)
+    running = asyncio.create_task(world.runtime.run(*delivery[:3]))
+    await asyncio.wait_for(entered.wait(), 2)
+    row = await world.runtime.get(delivery[0])
+    await world.runtime.control(row["id"], row["revision"], "cancel")
+    try:
+        await asyncio.wait_for(stopping.wait(), 2)
+        with pytest.raises(ScheduleRefused, match="SCHEDULE_CLEANUP_UNCONFIRMED"):
+            await running
+        assert (await world.runtime.get(row["id"]))["state"] == "cancelling"
+        world.permit.release.assert_not_awaited()
+    finally:
+        cleanup.set()
+
+    async def settled():
+        while world.runtime.runner._cleanup:
+            await asyncio.sleep(0.001)
+
+    await asyncio.wait_for(settled(), 2)
+    assert (await world.runtime.get(row["id"]))["state"] == "cancelled"
+    world.permit.release.assert_awaited_once()
+    assert (await world.build().run(*delivery[:3]))["state"] == "cancelled"
+    world.capability.run.assert_awaited_once()
     world.capability.run.assert_awaited_once()
 
 
@@ -302,3 +353,114 @@ def test_schedule_delivery_is_model_independent_but_refuses_a_foreign_queue(monk
     )
     with pytest.raises(ScheduleRefused, match="SCHEDULE_DELIVERY_NOT_CONFIGURED"):
         delivery.require_ready()
+
+
+async def test_active_schedule_renews_its_claim_without_extending_the_approved_deadline(
+    scheduled_tasks, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import pod_scheduled_lease
+
+    monkeypatch.setattr(pod_scheduled_lease, "RENEW_SECONDS", 0.001)
+    world = scheduled_tasks
+    world.capability.max_active_seconds = 300
+    await world.runtime.create(schedule_request(), grant={"subject_id": "browser", "version": 1})
+    delivery = world.delivery.offer.call_args.args
+    world.clock[0] = 1101
+
+    async def renewed(previous):
+        while (await world.log.replay())[-1]["payload"]["last_run"]["lease_until"] <= previous:
+            await asyncio.sleep(0.001)
+
+    async def effect(terms, occurrence, check):
+        # Model/provider work can exceed the old fixed 180-second window.
+        for _ in range(5):
+            previous = (await world.log.replay())[-1]["payload"]["last_run"]["lease_until"]
+            world.clock[0] += 45
+            await check()
+            await asyncio.wait_for(renewed(previous), 3)
+        return "completed"
+
+    world.capability.run = AsyncMock(side_effect=effect)
+    result = await world.runtime.run(*delivery[:3])
+    assert result["state"] == "completed"
+    assert result["last_run"]["deadline_at"] == 1401
+    assert result["last_run"]["lease_until"] <= 1401
+    assert result["authorization_expires_at"] == 2000
+    assert (await world.build().run(*delivery[:3]))["state"] == "completed"
+    world.capability.run.assert_awaited_once()
+    world.permit.release.assert_awaited_once()
+
+
+async def test_schedule_settlement_failure_cannot_acknowledge_update_idle(scheduled_tasks):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.pod_scheduled_tasks import KIND, ScheduleRefused
+
+    world = scheduled_tasks
+    await world.runtime.create(schedule_request(), grant={"subject_id": "browser", "version": 1})
+    delivery = world.delivery.offer.call_args.args
+    original_append = world.log.append
+
+    async def append(kind, payload, **kwargs):
+        if kind == KIND and payload.get("last_run", {}).get("state") == "completed":
+            raise ScheduleRefused("SCHEDULE_SETTLEMENT_UNCONFIRMED")
+        return await original_append(kind, payload, **kwargs)
+
+    world.log.append = AsyncMock(side_effect=append)
+    world.clock[0] = 1101
+    with pytest.raises(ScheduleRefused, match="SCHEDULE_SETTLEMENT_UNCONFIRMED"):
+        await world.runtime.run(*delivery[:3])
+    assert (await world.log.replay())[-1]["payload"]["last_run"]["state"] == "running"
+    world.permit.release.assert_not_awaited()
+    assert (await world.build().run(*delivery[:3]))["state"] == "running"
+    world.capability.run.assert_awaited_once()
+
+
+@pytest.mark.parametrize("authority_loss", ["revoked", "expired"])
+async def test_schedule_authority_loss_cancels_work_before_releasing_update_admission(
+    scheduled_tasks, monkeypatch, authority_loss
+):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import pod_scheduled_lease
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused
+
+    monkeypatch.setattr(pod_scheduled_lease, "RENEW_SECONDS", 0.001)
+    world = scheduled_tasks
+    await world.runtime.create(schedule_request(), grant={"subject_id": "browser", "version": 1})
+    delivery = world.delivery.offer.call_args.args
+    world.clock[0] = 1101
+    entered, stopping, cleanup = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def effect(terms, occurrence, check):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            stopping.set()
+            await cleanup.wait()
+            raise
+
+    world.capability.run = AsyncMock(side_effect=effect)
+    running = asyncio.create_task(world.runtime.run(*delivery[:3]))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        if authority_loss == "revoked":
+            world.check_grant.side_effect = ScheduleRefused("SCHEDULE_GRANT_REVOKED")
+        else:
+            world.clock[0] = 2001
+        await asyncio.wait_for(stopping.wait(), 2)
+        world.permit.release.assert_not_awaited()
+    finally:
+        cleanup.set()
+        if not stopping.is_set():
+            running.cancel()
+    with pytest.raises(ScheduleRefused):
+        await running
+    records = await world.log.replay()
+    assert records[-1]["payload"]["last_run"]["state"] == "outcome_uncertain"
+    assert (await world.build().run(*delivery[:3]))["state"] == "needs_review"
+    world.capability.run.assert_awaited_once()
+    world.permit.release.assert_awaited_once()

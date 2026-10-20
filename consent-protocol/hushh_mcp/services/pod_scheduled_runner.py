@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from uuid import uuid4
 
 from hushh_mcp.services.pod_scheduled_contracts import (
     ExistingSchedule,
@@ -11,6 +12,7 @@ from hushh_mcp.services.pod_scheduled_contracts import (
     occurrence_id,
 )
 from hushh_mcp.services.pod_scheduled_journal import ScheduledTaskJournal
+from hushh_mcp.services.pod_scheduled_lease import LEASE_SECONDS, ScheduledExecutionLease
 
 
 class ScheduledTaskRunner:
@@ -22,6 +24,7 @@ class ScheduledTaskRunner:
             offer,
         )
         self.access, self.clock = journal.access, journal.clock
+        self._cleanup: dict[str, asyncio.Task] = {}
 
     async def run(self, schedule_id: str, revision: int, occurrence: str) -> dict:
         current = await self._pending(schedule_id, revision, occurrence)
@@ -30,11 +33,42 @@ class ScheduledTaskRunner:
         capability = self.capabilities.get(current["capability"])
         if capability is None:
             raise ScheduleRefused("SCHEDULE_CAPABILITY_UNAVAILABLE")
+        limit = capability.max_active_seconds
+        if type(limit) is not int or not 1 <= limit <= 900:
+            raise ScheduleRefused("SCHEDULE_EXECUTION_LIMIT_REFUSED")
         permit = await self.admission.acquire_turn(incarnation=self.access.incarnation)
+        lease = None
         try:
-            return await self._execute(schedule_id, revision, occurrence, capability)
+            claimed = await self._claim(schedule_id, revision, occurrence, limit)
+            lease = ScheduledExecutionLease(self.journal, claimed)
+            return await self._execute(claimed, capability, lease)
         finally:
+            if lease is None or (lease.quiescent and lease.settled):
+                await permit.release()
+            elif not lease.quiescent:
+                self._retain_cleanup(lease, permit)
+
+    def _retain_cleanup(self, lease: ScheduledExecutionLease, permit) -> None:
+        # A response deadline is not termination. Keep durable cancellation
+        # pending and the update permit held until all owned tasks acknowledge.
+        async def finish():
+            await lease.wait_quiescent()
+            await self._settle(
+                lease.claimed["id"], lease.claimed["last_run"]["id"], "outcome_uncertain"
+            )
+            lease.settled = True
             await permit.release()
+
+        key = lease.claimed["last_run"]["claim_id"]
+        task = asyncio.create_task(finish(), name="scheduled-cleanup")
+        self._cleanup[key] = task
+
+        def closed(task):
+            self._cleanup.pop(key, None)
+            if not task.cancelled():
+                task.exception()  # Retain the permit if settlement failed; no private error logs.
+
+        task.add_done_callback(closed)
 
     async def _pending(self, schedule_id: str, revision: int, occurrence: str) -> dict | None:
         await self.journal.check()
@@ -73,7 +107,7 @@ class ScheduledTaskRunner:
             return None
         return current
 
-    async def _execute(self, schedule_id: str, revision: int, occurrence: str, capability) -> dict:
+    async def _claim(self, schedule_id: str, revision: int, occurrence: str, limit: int) -> dict:
 
         def claim(rows):
             row = rows.get(schedule_id)
@@ -83,47 +117,40 @@ class ScheduledTaskRunner:
                 or row["state"] not in {"pending_delivery", "scheduled"}
             ):
                 raise ScheduleRefused("SCHEDULE_REVISION_CONFLICT")
+            now = int(self.clock())
+            deadline = min(now + limit, row["authorization_expires_at"])
             row.update(
                 state="running",
                 revision=row["revision"] + 1,
                 last_run={
                     "id": occurrence,
                     "state": "running",
-                    "started_at": int(self.clock()),
-                    "lease_until": int(self.clock()) + 180,
+                    "started_at": now,
+                    "lease_until": min(now + LEASE_SECONDS, deadline),
+                    "claim_id": uuid4().hex,
+                    "deadline_at": deadline,
                 },
             )
             return row
 
-        claimed = await self.journal.change(claim, authorize=self.journal.check_horizon)
+        return await self.journal.change(claim, authorize=self.journal.check_horizon)
 
-        async def check_run():
-            await self.journal.check()
-            rows, _ = await self.journal.snapshot()
-            row = rows.get(schedule_id)
-            if (
-                row is None
-                or row["state"] != "running"
-                or row["revision"] != claimed["revision"]
-                or row["authorization_expires_at"] <= self.clock()
-                or row["last_run"]["lease_until"] <= self.clock()
-            ):
-                raise ScheduleRefused("SCHEDULE_AUTHORITY_CHANGED")
-            await self.journal.check_horizon(row)
-
+    async def _execute(self, claimed: dict, capability, lease: ScheduledExecutionLease) -> dict:
+        schedule_id, occurrence = claimed["id"], claimed["last_run"]["id"]
         outcome = "outcome_uncertain"
         try:
-            async with asyncio.timeout(180):
-                await check_run()
-                outcome = await capability.run(claimed["terms"], occurrence, check_run)
-                if outcome not in {"completed", "failed", "needs_review", "cancelled"}:
-                    outcome = "outcome_uncertain"
+            outcome = await lease.execute(capability)
+            if outcome not in {"completed", "failed", "needs_review", "cancelled"}:
+                outcome = "outcome_uncertain"
         except BaseException:
             # No exception/provider body is recorded; cancellation cannot
             # erase a claimed intent or silently authorize another attempt.
-            await self._settle(schedule_id, occurrence, outcome)
+            if lease.quiescent:
+                await self._settle(schedule_id, occurrence, outcome)
+                lease.settled = True
             raise
         settled = await self._settle(schedule_id, occurrence, outcome)
+        lease.settled = True
         if settled["state"] == "pending_delivery":
             await self.offer(settled)
         return await self.journal.get(schedule_id)

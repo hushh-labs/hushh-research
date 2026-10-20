@@ -81,6 +81,10 @@ proof of Chromium compatibility.
 
 The Azure probe used the same immutable Playwright component image recorded
 below with an exact synthetic source bundle; it did not install a pod release.
+Its program is `11bc9bfb79ffa0028e17f2c13f3892637496a2298bd56a9512b47bea4785a746`;
+bundled guard `d05564ef49928cdd69254d3a8aac9bc603336cd203197df1e91ec71e072dfaec`
+and probe `4e1518dc2c8af5e3c2be84224ca84615f616e87a76e3e720b0d15cfa7ef4f37c`.
+Later local refactoring is not an exact-image cloud qualification.
 The GCP job and identity and all four Azure resource groups were removed with
 absence readback. The initial GCP `actAs` propagation failures and delayed log
 readback remain recorded; the successful execution was not rerun to recover logs.
