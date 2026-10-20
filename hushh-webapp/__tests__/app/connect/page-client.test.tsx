@@ -2341,10 +2341,15 @@ describe("Connect — People", () => {
           maskedPhone: "98******10",
         },
         {
-          ...person("u2", "No Email"),
+          ...person("u2", "97******66"),
           email: null,
           maskedEmail: null,
           maskedPhone: "97******66",
+        },
+        {
+          ...person("u3", "member@example.test"),
+          email: "member@example.test",
+          maskedEmail: "m***r@example.test",
         },
       ],
       hasMore: false,
@@ -2353,10 +2358,12 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
 
     const rows = await screen.findAllByTestId("directory-person-row");
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(screen.queryByTestId("directory-person-card")).toBeNull();
     expect(rows[0]).toHaveTextContent("Avery Stone");
-    expect(rows[1]).toHaveTextContent("No Email");
+    // Ready people can use a contact value as displayName when no name exists.
+    expect(rows[1]).toHaveTextContent("Hussh member");
+    expect(rows[2]).toHaveTextContent("Hussh member");
     for (const row of rows) {
       expect(row.querySelector('[data-slot="settings-row-description"]')).toBeNull();
       expect(row.textContent).not.toContain("@");

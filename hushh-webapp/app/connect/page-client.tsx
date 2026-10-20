@@ -35,6 +35,7 @@ import {
 } from "@/components/app-ui/settings-ui";
 import { ConnectCirclesTab } from "@/components/connect/circles/connect-circles-tab";
 import {
+  connectPersonName,
   ConnectDirectoryPersonRow,
   ConnectPersonRow,
   DirectoryMutualLine,
@@ -1715,7 +1716,7 @@ export default function ConnectPageClient() {
       if (!catalog) return [];
       return catalog.items.map((item) => ({
         userId: person.userId,
-        title: person.displayName || "Hussh member",
+        title: connectPersonName(person),
         item,
       }));
     });
@@ -2442,7 +2443,7 @@ export default function ConnectPageClient() {
               connectionId: row.connectionId,
               person: row.displayName,
             },
-            summary: `Remove your connection with ${row.displayName}?`,
+            summary: `Remove your connection with ${connectPersonName(row)}?`,
           };
         }
         const candidates: DirectoryPerson[] = [];
@@ -2487,7 +2488,7 @@ export default function ConnectPageClient() {
             userId: row.userId,
             person: row.displayName,
           },
-          summary: `Send a connection request to ${row.displayName}?`,
+          summary: `Send a connection request to ${connectPersonName(row)}?`,
         };
       } catch {
         return {
@@ -2629,7 +2630,7 @@ export default function ConnectPageClient() {
                 prompt: `${exactMatches.length} people are called ${spokenName}.`,
                 candidates: exactMatches.map((c) => ({
                   id: c.userId,
-                  name: c.displayName || "Someone",
+                  name: connectPersonName(c, "Someone"),
                   // Match the name-only directory; contact identifiers stay out
                   // of visible result cards as well as the list.
                   detail: null,
@@ -2646,6 +2647,7 @@ export default function ConnectPageClient() {
             summary: "I could not identify one exact person by that name.",
           };
         }
+        const personName = connectPersonName(person);
         // The backend already distinguishes these four, and collapsing them lost
         // the only part the person needed. "A new connection request is not
         // available" was returned when they were ALREADY connected -- which is
@@ -2664,20 +2666,20 @@ export default function ConnectPageClient() {
             // own account. (A local handler has no `noop`; the settlement enum
             // does, but this layer only speaks started/succeeded/blocked/failed.)
             status: "succeeded",
-            summary: `You are already connected to ${person.displayName}, so there was nothing to send.`,
+            summary: `You are already connected to ${personName}, so there was nothing to send.`,
           };
         }
         if (person.relationship === "pending_outgoing") {
           return {
             status: "blocked",
             // The honest boundary: nothing the app or One can do advances this.
-            summary: `You already asked ${person.displayName} to connect, and it is waiting on them to accept. Nobody here can move that along.`,
+            summary: `You already asked ${personName} to connect, and it is waiting on them to accept. Nobody here can move that along.`,
           };
         }
         if (person.relationship === "pending_incoming") {
           return {
             status: "blocked",
-            summary: `${person.displayName} has already asked to connect with you. Open Connect and accept request instead of sending one back.`,
+            summary: `${personName} has already asked to connect with you. Open Connect and accept request instead of sending one back.`,
           };
         }
         if (person.relationship !== "none") {
@@ -2696,10 +2698,10 @@ export default function ConnectPageClient() {
         }
         return {
           status: "succeeded",
-          summary: `Connection request sent to ${person.displayName}.`,
+          summary: `Connection request sent to ${personName}.`,
           data: {
             subject: {
-              name: person.displayName || "Someone",
+              name: connectPersonName(person, "Someone"),
               detail: null,
             },
           },
@@ -2842,7 +2844,7 @@ export default function ConnectPageClient() {
                 prompt: `${matches.length} connections are called ${spokenName}.`,
                 candidates: matches.map((entry) => ({
                   id: entry.connectionId,
-                  name: entry.displayName || "Someone",
+                  name: connectPersonName(entry, "Someone"),
                   detail: null,
                   actionLabel: "Remove",
                 })),
@@ -2855,7 +2857,7 @@ export default function ConnectPageClient() {
           // Ask before, not after. A name misheard once is a connection gone
           // with no undo, and this is the one action here where being wrong
           // cannot be walked back.
-          const displayName = connection.displayName || "this person";
+          const displayName = connectPersonName(connection, "this person");
           return {
             status: "blocked",
             summary: `Removing ${displayName} needs a confirmation.`,
@@ -2897,7 +2899,7 @@ export default function ConnectPageClient() {
           // removes them from everywhere that connection was the prerequisite --
           // Location sharing above all -- and someone who only meant to tidy a
           // list should hear that before they discover it.
-          summary: `Removed ${connection.displayName ?? spokenName}. They can no longer be picked for location sharing.`,
+          summary: `Removed ${connectPersonName(connection, "this person")}. They can no longer be picked for location sharing.`,
         };
       } catch (error) {
         return {
@@ -3261,7 +3263,7 @@ export default function ConnectPageClient() {
                                   ) : null}
                                   {group.items.map((connection) => {
                                     const connectionName =
-                                      connection.displayName || connection.userId;
+                                      connectPersonName(connection);
                                     return (
                                     <ConnectPersonRow
                                       key={connection.connectionId}
@@ -3630,8 +3632,7 @@ export default function ConnectPageClient() {
                                   const cta = relationshipCta(
                                     person.relationship,
                                   );
-                                  const title =
-                                    person.displayName || "Hussh member";
+                                  const title = connectPersonName(person);
                                   const isSelected = selectedPeople.has(
                                     person.userId,
                                   );
@@ -3966,7 +3967,7 @@ export default function ConnectPageClient() {
               <div className="space-y-4 overflow-y-auto min-h-0 flex-1 px-1 pb-2">
                 <SettingsGroup title="Selected people" separatorInset>
                   {batchConnectDraft.people.map((person) => {
-                    const title = person.displayName || "Hussh member";
+                    const title = connectPersonName(person);
                     return (
                       <SettingsRow
                         key={`batch-${person.userId}`}
@@ -4194,7 +4195,7 @@ export default function ConnectPageClient() {
             <AlertDialogHeader>
               <AlertDialogTitle>Remove connection?</AlertDialogTitle>
               <AlertDialogDescription>
-                Remove {pendingRemoveConnection?.displayName || "this person"}{" "}
+                Remove {connectPersonName(pendingRemoveConnection ?? {}, "this person")}{" "}
                 from your connections?
               </AlertDialogDescription>
             </AlertDialogHeader>
