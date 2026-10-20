@@ -2644,7 +2644,13 @@ class DriveOwnerSearchService:
                 )
 
                 await require_private_azure_text_approval(
-                    job["user_id"], expected_generation=current_binding["approval_generation"]
+                    job["user_id"],
+                    expected_generation=current_binding["approval_generation"],
+                    **(
+                        {"scope": "drive_document_requests"}
+                        if current_binding.get("authorization_basis") == "uat_policy"
+                        else {}
+                    ),
                 )
 
         async def read(candidate):

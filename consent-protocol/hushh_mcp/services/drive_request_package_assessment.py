@@ -35,13 +35,19 @@ REQUEST_FIRST_ATTEMPT_TIMEOUT_SECONDS = 55
 
 
 def semantic_request_model_binding(
-    *, provider: str | None = None, approval_generation: str | None = None
+    *,
+    provider: str | None = None,
+    approval_generation: str | None = None,
+    authorization_basis: str | None = None,
 ) -> dict[str, str | None]:
     """Resolve a provider descriptor without granting access to private content."""
     from hushh_mcp.managed_ai_config import load_pwm_policy, profile_hash
     from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+    from hushh_mcp.runtime_providers.managed_text import managed_text_binding, managed_text_policy
     from hushh_mcp.runtime_settings import managed_ai_settings
 
+    if provider is None and managed_text_policy() is not None:
+        return managed_text_binding()
     provider = (
         (
             os.environ.get("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini")
@@ -52,7 +58,7 @@ def semantic_request_model_binding(
         .lower()
     )
     if provider == "gemini":
-        if approval_generation is not None:
+        if approval_generation is not None or authorization_basis is not None:
             raise ValueError("Gemini binding cannot contain an Azure approval")
         settings = managed_ai_settings()
         return {
@@ -63,6 +69,16 @@ def semantic_request_model_binding(
         }
     if provider != "azure_openai" or os.environ.get("ENVIRONMENT", "").lower() != "uat":
         raise ValueError("Unsupported Documents semantic model binding")
+    if authorization_basis not in {None, "uat_policy"}:
+        raise ValueError("Invalid Documents authorization basis")
+    if authorization_basis == "uat_policy":
+        from hushh_mcp.services.private_text_processing_approval_service import (
+            private_drive_text_policy,
+        )
+
+        active_policy = private_drive_text_policy()
+        if active_policy is None or approval_generation != active_policy["generation"]:
+            raise ValueError("Documents UAT processing policy changed")
     policy = load_pwm_policy(environment="uat")
     if policy["provider"] != "azure_openai_web_search":
         raise ValueError("Documents requires the trusted UAT Azure configuration")
@@ -76,6 +92,7 @@ def semantic_request_model_binding(
         "deployment": policy["azure"]["primary_deployment"],
         "config_fingerprint": profile_hash(policy["azure"]),
         "approval_generation": approval_generation,
+        **({"authorization_basis": authorization_basis} if authorization_basis else {}),
     }
 
 
@@ -83,12 +100,17 @@ def validate_semantic_model_binding(binding: dict | None) -> dict[str, str | Non
     """Freeze old jobs on Gemini and reject a changed or disabled Azure binding."""
     if binding is None:
         return semantic_request_model_binding(provider="gemini")
-    if not isinstance(binding, dict) or set(binding) != {
+    fields = {
         "provider",
         "deployment",
         "config_fingerprint",
         "approval_generation",
-    }:
+    }
+    if (
+        not isinstance(binding, dict)
+        or set(binding) not in (fields, fields | {"authorization_basis"})
+        or ("authorization_basis" in binding and binding["authorization_basis"] != "uat_policy")
+    ):
         raise ValueError("Invalid Documents model binding")
     provider = binding.get("provider")
     generation = binding.get("approval_generation")
@@ -104,13 +126,15 @@ def validate_semantic_model_binding(binding: dict | None) -> dict[str, str | Non
         or (generation is not None and not isinstance(generation, str))
     ):
         raise ValueError("Invalid Documents model binding")
-    if (
-        provider == "azure_openai"
-        and os.environ.get("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini").strip().lower()
-        != "azure_openai"
-    ):
-        raise ValueError("Azure Documents pilot is disabled")
-    expected = semantic_request_model_binding(provider=provider, approval_generation=generation)
+    expected = semantic_request_model_binding(
+        provider=provider,
+        approval_generation=generation,
+        **(
+            {"authorization_basis": "uat_policy"}
+            if binding.get("authorization_basis") == "uat_policy"
+            else {}
+        ),
+    )
     if binding != expected:
         raise ValueError("Documents model binding changed")
     return expected
@@ -148,6 +172,10 @@ async def private_semantic_request_model(
         else validate_semantic_model_binding(model_binding)
     )
     if binding["provider"] == "gemini":
+        from hushh_mcp.runtime_providers.managed_text import managed_text_policy
+
+        if managed_text_policy() is not None:
+            raise ValueError("Documents processor binding requires recorded UAT migration")
         return None
     from hushh_mcp.services.private_text_processing_approval_service import (
         private_azure_text_require_current,
@@ -156,7 +184,13 @@ async def private_semantic_request_model(
 
     await _require_request_current(require_current)
     grant = await require_private_azure_text_approval(
-        user_id, expected_generation=binding["approval_generation"]
+        user_id,
+        expected_generation=binding["approval_generation"],
+        **(
+            {"scope": "drive_document_requests"}
+            if binding.get("authorization_basis") == "uat_policy"
+            else {}
+        ),
     )
     approval_current = private_azure_text_require_current(grant)
 
@@ -164,6 +198,10 @@ async def private_semantic_request_model(
         await _require_request_current(require_current)
         await approval_current()
 
+    if binding.get("authorization_basis") == "uat_policy":
+        from hushh_mcp.runtime_providers.managed_text import build_managed_text_model
+
+        return build_managed_text_model(scope="drive_document_requests", require_current=current)
     return build_semantic_request_azure_model(require_current=current, model_binding=binding)
 
 
