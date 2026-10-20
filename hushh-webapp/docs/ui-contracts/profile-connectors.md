@@ -113,6 +113,10 @@ Owners: [connector return](../../app/one/profile/connectors/oauth/return/page.ts
 
 ## Mail compatibility and local Connected Systems
 
+The complete mounted Mail workspace, onboarding, KYC, receipt, draft/send and
+responsive/font contract is [Mail subagent](./mail.md). The compatibility
+entries below remain Profile-owned handoffs; they are not extra Mail tabs.
+
 On web `/one/profile/gmail`, `/gmail/connection`, `/gmail/actions` resolve to
 legacy pane root/Connection/Actions. Without the proxy, page exports redirect
 to Mail. They are not root Profile menu rows.
