@@ -2847,8 +2847,13 @@ class PersonalKnowledgeModelService:
             # This does not grant write or marketing authority.
             for event in event_rows:
                 provenance = event["metadata"].get("provenance")
-                if isinstance(provenance, dict) and provenance.get("mutation_plan_id") == normalized_mutation_plan.plan_id:
-                    provenance["authorization_mode"] = normalized_mutation_plan.confirmation_receipt.authorization_mode
+                if (
+                    isinstance(provenance, dict)
+                    and provenance.get("mutation_plan_id") == normalized_mutation_plan.plan_id
+                ):
+                    provenance["authorization_mode"] = (
+                        normalized_mutation_plan.confirmation_receipt.authorization_mode
+                    )
         rpc_result = await self._run_rpc(
             rpc_name,
             {

@@ -92,8 +92,12 @@ class AccountService:
                 "DELETE FROM pwm_research_preferences WHERE user_id = :user_id"
             ),
             "one_adk_sessions": text("DELETE FROM one_adk_sessions WHERE user_id = :user_id"),
-            "one_product_activity_observations": text("DELETE FROM one_product_activity_observations WHERE user_id=:user_id"),
-            "one_product_activity_epochs": text("DELETE FROM one_product_activity_epochs WHERE user_id=:user_id"),
+            "one_product_activity_observations": text(
+                "DELETE FROM one_product_activity_observations WHERE user_id=:user_id"
+            ),
+            "one_product_activity_epochs": text(
+                "DELETE FROM one_product_activity_epochs WHERE user_id=:user_id"
+            ),
             "email_auth_challenges": text(
                 """DELETE FROM email_auth_challenges WHERE expected_uid=:user_id
                    OR destination_hash IN (SELECT destination_hash FROM email_auth_enrollments
@@ -1545,7 +1549,12 @@ class AccountService:
             results["pwm_claim_invitations"] = True
         self._clear_external_connector_data(conn, user_id, results, permanent=False)
         if self._table_exists(conn, "one_product_activity_epochs"):
-            conn.execute(text("UPDATE one_product_activity_epochs SET generation=gen_random_uuid(),started_at=NOW() WHERE user_id=:user_id"), params)
+            conn.execute(
+                text(
+                    "UPDATE one_product_activity_epochs SET generation=gen_random_uuid(),started_at=NOW() WHERE user_id=:user_id"
+                ),
+                params,
+            )
             results["one_product_activity_epochs"] = True
         self._delete_optional_user_tables(
             conn,

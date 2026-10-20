@@ -222,6 +222,7 @@ async def drain_drive_work(
         # failures must never prevent domain work from draining.
         try:
             from hushh_mcp.services.product_activity import purge_expired
+
             await run_in_threadpool(purge_expired)
         except Exception:  # noqa: BLE001 - bounded optional observation maintenance
             pass
