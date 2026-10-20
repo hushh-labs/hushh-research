@@ -18709,7 +18709,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/runtime_settings.py",
       "symbol": null,
-      "value": 1425
+      "value": 1426
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22120,7 +22120,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_specialist_runtime.py",
       "symbol": null,
-      "value": 568
+      "value": 575
     },
     {
       "detail": "module exceeds the advisory operon budget",

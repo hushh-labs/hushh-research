@@ -541,24 +541,11 @@ def build_pod_specialist_runtime(
         nonlocal client
         await require_access()
         if client is None:
-            from hushh_mcp.runtime_providers import factory, owner_openai
-
-            if owner_openai.is_owner_model(provider, runtime_mode):
-                client = owner_openai.owner_model_client(provider, runtime_mode, credential)
-            elif runtime_mode in {"byok", "puppy_relay"}:
-                client = factory.build_runtime_client(
-                    provider,
-                    credential or "",
-                    gemini_byok_transport=credential_transport,
-                    vertex_project=vertex_project,
-                    vertex_location=vertex_location,
-                    puppy_device_id=puppy_device_id,
-                    puppy_catalog_version=puppy_catalog_version,
-                )
-            elif runtime_mode in {"user_adc", "hushh_managed_vertex"} and not credential:
-                client = factory.build_managed_runtime_client(provider)
-            else:
+            # Legacy service calls and native ADK tasks use the same provider
+            # authority; otherwise a specialist can diverge from One's model.
+            if runtime_mode is None:
                 raise RuntimeError("Pod model authority unavailable")
+            client = adk_model._client()
         try:
             result = await asyncio.wait_for(
                 client.aio.models.generate_content(model=model, contents=contents, config=config),

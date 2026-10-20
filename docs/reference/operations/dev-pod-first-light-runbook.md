@@ -587,12 +587,29 @@ The dev hub's model project is selected by the governed build's
 `_GENAI_PROJECT_ID` setting in `deploy/backend.cloudbuild.yaml`, which must match
 the checked-in environment profile in `consent-protocol/config/managed-ai-runtime.json`.
 The current dev profile names `hushh-gemini-bridge`. The separately approved
-`hushh-vertex-personal54` diagnostic bridge is not that managed default.
-That setting alone does not redirect private-pod inference: the pod needs its own
-verified configuration and prediction permission for that project.
-Its native project and billing linkage remain separate. Verify the serving
-revision's model routing and prediction access independently for hub and pod;
-a configured bridge or enabled billing does not prove provider access.
+personal bridge, `hushh-vertex-personal54`, is not that managed default. Native
+organization AI restrictions are intentional; do not repeat native billing/IAM
+repairs as a prerequisite for dev acceptance.
+
+The pod's explicit exception is `HUSSH_POD_DEV_INFERENCE_BRIDGE_JSON`, containing
+only `project` and `serviceAccount`. The governed backend configuration can supply
+the same JSON through `pod_dev_inference_bridge_json`. Rendering applies it only
+to the named owner's derived pod service account. Runtime validation requires
+dev, matching owner/KMS topology and actual attached metadata identity. Wrong
+identity, project, environment or partial configuration refuses without fallback.
+No user ADC file or shared API key is substituted.
+
+Chat, its specialists, Browser, recorded commands and the cloud-default connection
+check share this inference binding. Sealed owner BYOK selections still win. Files
+retains its separate frozen processing approval; Live, embeddings, Memory Bank,
+storage and encryption retain their existing boundaries. Image-only updates
+preserve the observed bridge policy, including absence; adding the exception to
+an existing pod requires the authorized configuration repair, not publication alone.
+
+Verify the installed revision, exact project/identity, provider permission and
+owner response separately. Describe this as approved dev bridge processing, not
+native owner-project Vertex. The local implementation and synthetic checks do not
+establish installed owner acceptance.
 
 ### One-time legacy bootstrap exception
 

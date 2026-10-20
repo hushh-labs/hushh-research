@@ -46,6 +46,7 @@ from hushh_mcp.services.owner_direct_ingress import (
     update_ingress_record,
 )
 from hushh_mcp.services.pod_gmail_push_config import gmail_notification_resources
+from hushh_mcp.services.pod_inference_bridge import render_inference_bridge
 
 logger = logging.getLogger(__name__)
 
@@ -333,24 +334,12 @@ class UserGcpBackend:
     def render_deploy_config(
         self, spec: PodSpec, *, image_digest: Optional[str] = None
     ) -> dict[str, Any]:
-        """The Cloud Run service for the pod — rendered against the USER's project.
+        """Render owner-cloud custody and identity over the shared service shape.
 
-        Reusing the managed renderer and adjusting it is deliberate: the two tiers must
-        differ in exactly the places BYOC requires and nowhere else, and a second
-        renderer would drift. But the managed renderer emits hushh's OWN durable block,
-        and shipping that into a user's project produced three violations of the thing
-        BYOC promises. Rendering it and reading it back is how they were found:
-
-        * ``POD_STORAGE_GCS_BUCKET`` named ``hushh-pda-dev-pod-state`` — the person's
-          history would have been written into **hushh's** bucket.
-        * ``HUSSH_POD_LOG_KEY`` and ``HUSSH_POD_MEMORY_KEY`` carried plaintext keys
-          derived from hushh's HKDF master, sitting in a service description in the
-          user's cloud, readable by anyone with ``run.services.get``.
-        * ``serviceAccountName`` was unset, so the pod would have run as the project's
-          **default compute** account — with none of the least-privilege IAM the
-          bootstrap writes, and considerably more besides.
-
-        ``byoc_key_env`` existed to prevent the first two and had no caller. This is it.
+        Strip managed storage, plaintext key derivations and model coordinates.
+        Use the owner's bucket, KMS wrapping and least-privilege runtime account.
+        Only an explicit, identity-bound dev policy permits bridge inference;
+        recovery, Memory Bank and storage retain the owner's project.
         """
         cfg: dict[str, Any] = self._inner.render_deploy_config(spec)
         # Mark tenancy so the artifact is unambiguously user-owned.
@@ -369,11 +358,13 @@ class UserGcpBackend:
 
         # The pod runs as its own least-privilege identity, the one the bootstrap
         # created and bound to this person's key and bucket.
-        cfg["spec"]["template"]["spec"]["serviceAccountName"] = (
+        service_account = (
             f"{pod_service_account_id(spec.hushh_id)}@{project}.iam.gserviceaccount.com"
         )
+        cfg["spec"]["template"]["spec"]["serviceAccountName"] = service_account
 
         kept = [e for e in container.get("env", []) if e["name"] not in _MANAGED_ONLY_ENV]
+        kept.extend(render_inference_bridge(service_account=service_account))
         kept.extend(
             [
                 {"name": "POD_STORAGE_BACKEND", "value": "commit_log"},

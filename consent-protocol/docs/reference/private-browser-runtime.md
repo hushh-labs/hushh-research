@@ -31,6 +31,12 @@ specifies the remaining native Gemini/Azure and headless/takeover acceptance.
 The public pilot refuses login, typed disclosures, PKM exports and remembered
 sessions until their separate boundaries are qualified.
 
+GCP Browser resolves the same owner inference binding as chat. An explicitly
+configured dev bridge verifies the attached pod identity while retaining owner
+custody and sealed BYOK precedence; it does not authorize Browser execution.
+The [model project runbook](../../../docs/reference/operations/dev-pod-first-light-runbook.md#model-project-ownership)
+owns this exception and its installed-access checks.
+
 ## Visual Map
 
 Target topology; all dashed paths remain gated and unavailable.

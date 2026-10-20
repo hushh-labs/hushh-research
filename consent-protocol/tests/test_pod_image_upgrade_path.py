@@ -494,6 +494,7 @@ async def test_image_update_preserves_observed_policy_despite_registry_drift(
         "GOOGLE_CLOUD_PROJECT": "owner-model-project",
         "GOOGLE_CLOUD_LOCATION": "global",
         "HUSSH_POD_USER_ADC_ENABLED": "true",
+        "HUSSH_POD_DEV_INFERENCE_BRIDGE_JSON": '{"project":"hushh-vertex-personal54","serviceAccount":"one-pod-example@owner-project.iam.gserviceaccount.com"}',
     }
     env = old["spec"]["containers"][0]["env"]
     env[:] = [e for e in env if e["name"] not in {*policy, "CORS_ALLOWED_ORIGINS"}]

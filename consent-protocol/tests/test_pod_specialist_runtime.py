@@ -432,7 +432,8 @@ def _bind_client(monkeypatch, client):
     monkeypatch.setattr(factory, "build_runtime_client", lambda *a, **kw: client)
 
 
-async def test_model_call_rechecks_access_after_generation(pod_identity, monkeypatch):
+@pytest.mark.parametrize("mode", ["byok", "user_adc"])
+async def test_model_call_rechecks_access_after_generation(pod_identity, monkeypatch, mode):
     seen = []
 
     async def counting(token, *, expected_scope):
@@ -440,8 +441,14 @@ async def test_model_call_rechecks_access_after_generation(pod_identity, monkeyp
         return _verdict(scope=expected_scope)
 
     monkeypatch.setattr(pod_consent_client, "verify_consent", counting)
-    _bind_client(monkeypatch, _Client(SimpleNamespace(text="answer", function_calls=[])))
-    runtime = _runtime()
+    client = _Client(SimpleNamespace(text="answer", function_calls=[]))
+    if mode == "user_adc":
+        from hushh_mcp.runtime_providers import owner_gemini
+
+        monkeypatch.setattr(owner_gemini, "build_owner_gemini_client", lambda: client)
+    else:
+        _bind_client(monkeypatch, client)
+    runtime = _runtime(runtime_mode=mode, credential=None if mode == "user_adc" else "key")
     # The runtime exposes model_call only through service_for; reach it the way
     # the Location service does, via the closure the runtime built.
     service = await _runtime_location_service(runtime, monkeypatch)

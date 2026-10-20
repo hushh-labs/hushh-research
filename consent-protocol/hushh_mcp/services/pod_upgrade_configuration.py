@@ -36,6 +36,7 @@ _POLICY_ENV = frozenset(
         "HUSHH_GENAI_AUTH_MODE",
         "HUSHH_VERTEX_LOCATIONS",
         "HUSSH_POD_USER_ADC_ENABLED",
+        "HUSSH_POD_DEV_INFERENCE_BRIDGE_JSON",
     }
 )
 

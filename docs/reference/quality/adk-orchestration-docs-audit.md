@@ -89,6 +89,14 @@ processing disclosure. It proves bridge access, not a completed owner chat or na
 owner-project Vertex. GCP recorded voice and Browser model acceptance retain their
 own transport and capability checks.
 
+Local source now gives chat, specialists, Browser, recorded commands and AI
+verification one explicit dev bridge binding. Actual metadata identity is checked
+before a token reaches Vertex. BYOK, owner custody, Files approval and Live remain
+separate. The 178 focused provider/selection/specialist cases pass, alongside the
+unchanged 74 ADC/update cases; eight changed modules typecheck. This is not installed
+owner acceptance. Configuration and release follow the
+[model project runbook](../operations/dev-pod-first-light-runbook.md#model-project-ownership).
+
 The approved built-in Browser probe ran on ordinary cloud containers. Azure's
 application service passes UID 10002, filesystem denial, direct-socket and Unix
 datagram denial, worker exit and scratch cleanup. Its independent user-namespace
@@ -168,6 +176,12 @@ The pod's sealed handoff now preserves the original idle cursor and reconciles
 lost release responses without duplicate markers or reopening a completed VM
 cycle. All 45 focused admission/control/handoff cases and the composed Browser
 ledger journey pass; removing the cursor comparison fails its negative control.
+The independently reviewed dev bridge adds one runtime configuration mapping
+(1425→1426 lines) and one specialist authority case (568→575 lines); global
+architecture budgets stay unchanged.
+
+Cancellation coverage adds three cases: all 22 nearest admission cases pass;
+restoring early hydration fails the negative control.
 These are source checks, not a newly installed VM wake journey.
 
 ### Local integration candidate — 2026-10-19 UTC
@@ -282,6 +296,9 @@ selective ceilings to exact source hashes and parent provenance; the ratchet,
 exclusions and budgets remain unchanged. Existing integration chronology and original failed
 runs remain in Git. Scope-commerce qualification at `da6b4cdb8dec` retained all
 26 reviewed production deltas; it does not establish financial release acceptance.
+Independent review permits only the specialist test module's 568→575 line ceiling:
+the new owner-ADC case covers bridge dispatch plus consent rechecks; the 500-line
+budget and production limits are unchanged.
 The separate workflow/Admin repair [PR #8121](https://github.com/hushh-labs/hushh-research/pull/8121)
 passed protection parity; it grants no application promotion.
 

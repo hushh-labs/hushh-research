@@ -123,6 +123,10 @@ async def _brain(model: CommandModel, owner: str, token: str, claims: dict) -> L
         build_runtime_client,
     )
     from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+    from hushh_mcp.runtime_providers.owner_gemini import (
+        build_owner_gemini_adk_model,
+        build_owner_gemini_client,
+    )
 
     model, provider, selected_model, mode = await _command_target(model, owner, claims)
     manifest = ManifestLoader.load(str(Path(command_brain.__file__).with_name("agent.yaml")))
@@ -138,7 +142,11 @@ async def _brain(model: CommandModel, owner: str, token: str, claims: dict) -> L
                     vertex_project=model.vertexProject,
                     vertex_location=model.vertexLocation,
                 )
-            return build_managed_gemini_adk_model(name)
+            return (
+                build_owner_gemini_adk_model(name)
+                if mode == "user_adc"
+                else build_managed_gemini_adk_model(name)
+            )
         return ProviderAdkModel(
             model=selected_model,
             provider=provider,
@@ -157,6 +165,8 @@ async def _brain(model: CommandModel, owner: str, token: str, claims: dict) -> L
             puppy_device_id=model.puppyDeviceId,
         )
         if mode in _KEY_MODES
+        else build_owner_gemini_client()
+        if mode == "user_adc"
         else build_managed_runtime_client(provider)  # an _AMBIENT_MODES member, checked above
     )
     return LocationCommandBrain(

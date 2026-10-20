@@ -114,10 +114,16 @@ class ProviderAdkModel(BaseLlm):
             # The owner's Azure deployment or their own OpenAI key: one door for both,
             # never the general factory (whose ``openai`` is the hub's Chat Completions).
             return owner_model_client(self.provider, self.runtime_mode or "", self.credential)
-        if self.runtime_mode in {"user_adc", "hushh_managed_vertex"} and not self.credential:
+        if self.runtime_mode == "user_adc" and self.provider == "gemini" and not self.credential:
+            from .owner_gemini import build_owner_gemini_client
+
+            return build_owner_gemini_client()
+        if self.runtime_mode == "hushh_managed_vertex" and not self.credential:
             from .factory import build_managed_runtime_client
 
             return build_managed_runtime_client(self.provider)
+        if self.runtime_mode not in {None, "byok", "puppy_relay"}:
+            raise RuntimeError("Pod model authority unavailable")
         return build_runtime_client(
             self.provider,
             self.credential,

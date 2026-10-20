@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, Iterator, Literal
 
+from google.auth.credentials import Credentials
 from google.genai.types import HttpOptions, HttpOptionsDict
 
 from .gemini_config import resolve_fleet_model_name
@@ -156,6 +157,7 @@ class ManagedGeminiRuntimeBinding:
         model: str | None = None,
         location: str | None = None,
         http_options: Any | None = None,
+        credentials: Credentials | None = None,
     ) -> Any:
         """Build the google-genai client; the one construction seam for the fleet.
 
@@ -165,7 +167,7 @@ class ManagedGeminiRuntimeBinding:
         """
         from google import genai
 
-        credentials = local_cli_credentials()
+        credentials = credentials or local_cli_credentials()
         client_factory = (
             functools.partial(genai.Client, credentials=credentials)
             if credentials
@@ -178,15 +180,8 @@ class ManagedGeminiRuntimeBinding:
                 raise ValueError("Managed Vertex location is invalid")
             if not self.project:
                 raise RuntimeError("Managed Vertex binding has no configured project")
-            client_kwargs: dict[str, Any] = {
-                "vertexai": True,
-                "project": self.project,
-                "location": clean_location,
-            }
-            if http_options is not None:
-                client_kwargs["http_options"] = http_options
-            return client_factory(**client_kwargs)
-        if self.auth_mode == DEVELOPER_API_KEY_AUTH_MODE:
+            locations: tuple[str, ...] = (clean_location,)
+        elif self.auth_mode == DEVELOPER_API_KEY_AUTH_MODE:
             key = (
                 _clean_env("GEMINI_API_KEY")
                 or _clean_env("GOOGLE_API_KEY")
@@ -195,10 +190,10 @@ class ManagedGeminiRuntimeBinding:
             if not key:
                 raise RuntimeError("Developer Gemini API key is not configured")
             return genai.Client(vertexai=False, api_key=key)
-
-        locations = self.locations_for_model(model) if model else self.locations
+        else:
+            locations = self.locations_for_model(model) if model else self.locations
         if len(locations) == 1:
-            client_kwargs = {
+            client_kwargs: dict[str, Any] = {
                 "vertexai": True,
                 "project": self.project,
                 "location": locations[0],
@@ -255,6 +250,7 @@ class ManagedGeminiRuntimeBinding:
         *,
         location: str | None = None,
         http_options: HttpOptions | HttpOptionsDict | None = None,
+        credentials: Credentials | None = None,
     ) -> Any:
         from google.adk.models import Gemini
 
@@ -286,6 +282,7 @@ class ManagedGeminiRuntimeBinding:
                 model=clean_model,
                 client_kwargs={"vertexai": False, "api_key": key, **transport_options},
             )
+        credentials = credentials or local_cli_credentials()
         return Gemini(
             model=clean_model,
             client_kwargs={
@@ -293,9 +290,7 @@ class ManagedGeminiRuntimeBinding:
                 "project": self.project,
                 "location": clean_location,
                 **transport_options,
-                **(
-                    {"credentials": credentials} if (credentials := local_cli_credentials()) else {}
-                ),
+                **({"credentials": credentials} if credentials is not None else {}),
             },
         )
 

@@ -28,6 +28,7 @@ their project.
 from __future__ import annotations
 
 import base64
+import json
 
 import pytest
 
@@ -181,3 +182,199 @@ def test_hosted_owner_adc_uses_rendered_custody_without_cross_project_override(m
         assert ManagedGeminiRuntimeBinding.from_environment().project == USER_PROJECT
         with pytest.raises(ValueError, match="central configuration"):
             ManagedGeminiRuntimeBinding.from_environment(vertex_project=HUSHH_PROJECT)
+
+
+@pytest.fixture
+def approved_bridge(monkeypatch):
+    from hushh_mcp.services.pod_inference_bridge import BRIDGE_ENV, BRIDGE_PROJECT
+    from hushh_mcp.services.user_gcp_backend import pod_service_account_id
+
+    identity = f"{pod_service_account_id(_spec().hushh_id)}@{USER_PROJECT}.iam.gserviceaccount.com"
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("HUSSH_POD_MODE", "true")
+    monkeypatch.setenv("K_SERVICE", "synthetic-owner-pod")
+    monkeypatch.delenv("BACKEND_RUNTIME_CONFIG_JSON", raising=False)
+    monkeypatch.delenv("HUSSH_POD_KEY_VAULT_KEY", raising=False)
+    monkeypatch.setenv(
+        BRIDGE_ENV, json.dumps({"project": BRIDGE_PROJECT, "serviceAccount": identity})
+    )
+    # Exercise the governed backend configuration hydration used by rendering;
+    # direct env ownership is registered with monkeypatch for complete teardown.
+    monkeypatch.setenv(
+        "BACKEND_RUNTIME_CONFIG_JSON",
+        json.dumps(
+            {
+                "pod_dev_inference_bridge_json": json.dumps(
+                    {"project": BRIDGE_PROJECT, "serviceAccount": identity}
+                )
+            }
+        ),
+    )
+    monkeypatch.delenv(BRIDGE_ENV)
+    for key, value in _env_of(
+        UserGcpBackend(user_project=USER_PROJECT, live=False).render_deploy_config(_spec())
+    ).items():
+        monkeypatch.setenv(key, value)
+    return identity
+
+
+async def test_dev_bridge_serves_chat_browser_and_recorded_commands_only(
+    monkeypatch, approved_bridge
+):
+    from api.routes.one import pod_commands
+    from hushh_mcp.one_adk.text_runtime import _runtime_model
+    from hushh_mcp.runtime_providers import factory
+    from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
+    from hushh_mcp.runtime_providers.owner_gemini import _AttachedPodCredentials
+    from hushh_mcp.runtime_settings import managed_ai_settings
+    from hushh_mcp.services import pod_ai_selection
+    from hushh_mcp.services.pod_browser.owner_model import resolve_owner_browser_model
+    from hushh_mcp.services.pod_inference_bridge import BRIDGE_PROJECT
+
+    monkeypatch.setattr(pod_ai_selection, "_ACTIVE", None)
+    monkeypatch.setattr(pod_ai_selection, "_LOAD_FAILED", False)
+    monkeypatch.setenv("GEMINI_API_KEY", "synthetic-ambient-key-must-not-be-used")
+    monkeypatch.setattr("google.genai.Client", lambda **kwargs: kwargs)
+    monkeypatch.setattr(pod_commands, "LocationCommandBrain", lambda **kwargs: kwargs)
+
+    async def admitted():
+        return None
+
+    chat = _runtime_model(
+        runtime_model="gemini-3.8-flash", runtime_mode="user_adc", runtime_credential=None
+    )
+    browser = resolve_owner_browser_model(admitted)
+    commands = await pod_commands._brain(
+        pod_commands.CommandModel(),
+        "synthetic-owner",
+        "location.assess",
+        {"hushh_id": _spec().hushh_id},
+    )
+    for model in (chat, browser.model, commands["adk_model"], commands["transcriber_adk_model"]):
+        assert model.client_kwargs["project"] == BRIDGE_PROJECT
+        assert model.client_kwargs["location"] == "global"
+        assert isinstance(model.client_kwargs["credentials"], _AttachedPodCredentials)
+        assert "api_key" not in model.client_kwargs
+    assert commands["client"]["project"] == BRIDGE_PROJECT
+    assert isinstance(commands["client"]["credentials"], _AttachedPodCredentials)
+    specialist = ProviderAdkModel(
+        provider="gemini", model="gemini-3.8-flash", credential="", runtime_mode="user_adc"
+    )._client()
+    assert specialist["project"] == BRIDGE_PROJECT
+    assert isinstance(specialist["credentials"], _AttachedPodCredentials)
+    assert managed_ai_settings().project == USER_PROJECT
+    assert factory.ManagedGeminiRuntimeBinding.from_environment().project == USER_PROJECT
+    assert factory.build_managed_runtime_client("gemini")["project"] == USER_PROJECT
+    assert factory.build_runtime_client("gemini", "synthetic-owner-key") == {
+        "vertexai": False,
+        "api_key": "synthetic-owner-key",
+    }
+
+
+async def test_cloud_default_verification_uses_the_same_approved_bridge(
+    monkeypatch, approved_bridge
+):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.pod_ai_selection_check import verify_cloud_default
+    from hushh_mcp.services.pod_inference_bridge import BRIDGE_PROJECT
+
+    used = []
+
+    async def answer(**kwargs):
+        used.append(kwargs["model"])
+        return SimpleNamespace(text="OK")
+
+    def client(**kwargs):
+        used.append(kwargs["project"])
+        return SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=answer)))
+
+    monkeypatch.setattr("google.genai.Client", client)
+    result = await verify_cloud_default(gemini_default="gemini-3.8-flash")
+    assert result["defaultProvider"] == "gemini"
+    assert used == [BRIDGE_PROJECT, "gemini-3.8-flash"]
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "production",
+        "uat",
+        "owner",
+        "custody",
+        "hub",
+        "azure",
+        "adc",
+        "metadata",
+        "project",
+        "partial",
+    ],
+)
+def test_dev_bridge_refuses_invalid_authority(monkeypatch, approved_bridge, defect):
+    from hushh_mcp.runtime_providers.owner_gemini import build_owner_gemini_client
+    from hushh_mcp.services.pod_inference_bridge import BRIDGE_ENV
+
+    changes = {
+        "production": ("HUSHH_DEPLOY_ENV", "production"),
+        "uat": ("HUSHH_DEPLOY_ENV", "uat"),
+        "owner": ("HUSSH_ID", "another-owner"),
+        "custody": ("GOOGLE_CLOUD_PROJECT", "another-project"),
+        "hub": ("HUSSH_POD_MODE", "false"),
+        "azure": ("HUSSH_POD_KEY_VAULT_KEY", "https://synthetic.vault.azure.net/keys/key/1"),
+        "adc": ("HUSSH_POD_USER_ADC_ENABLED", "false"),
+        "metadata": ("GCE_METADATA_HOST", "unapproved.test"),
+        "project": (
+            BRIDGE_ENV,
+            json.dumps({"project": "other-bridge", "serviceAccount": approved_bridge}),
+        ),
+        "partial": (BRIDGE_ENV, "{}"),
+    }
+    name, value = changes[defect]
+    monkeypatch.setenv(name, value)
+    with pytest.raises(RuntimeError):
+        build_owner_gemini_client()
+
+
+def test_bridge_refresh_checks_actual_identity_and_never_exposes_a_mismatched_token(
+    monkeypatch, approved_bridge
+):
+    from datetime import datetime, timedelta
+
+    from google.auth.compute_engine import _metadata
+    from google.auth.exceptions import RefreshError
+
+    from hushh_mcp.runtime_providers.owner_gemini import _AttachedPodCredentials
+
+    actual = approved_bridge
+    monkeypatch.setattr(
+        _metadata,
+        "get_service_account_info",
+        lambda *a, **k: {
+            "email": actual,
+            "scopes": ["https://www.googleapis.com/auth/cloud-platform"],
+        },
+    )
+    monkeypatch.setattr(
+        _metadata,
+        "get_service_account_token",
+        lambda *a, **k: ("synthetic-attached-token", datetime.now() + timedelta(minutes=30)),
+    )
+    credentials = _AttachedPodCredentials(approved_bridge)
+    credentials.refresh(object())
+    assert credentials.token == "synthetic-attached-token"
+    actual = "other@other-project.iam.gserviceaccount.com"
+    with pytest.raises(RefreshError, match="Approved pod workload identity"):
+        credentials.refresh(object())
+    assert credentials.token is None and credentials.expiry is None
+
+
+def test_bridge_render_does_not_authorize_sibling_pods(monkeypatch, approved_bridge):
+    from dataclasses import replace
+
+    from hushh_mcp.services.pod_inference_bridge import BRIDGE_ENV
+
+    cfg = UserGcpBackend(user_project=USER_PROJECT, live=False).render_deploy_config(
+        replace(_spec(), hushh_id="another-owner")
+    )
+    assert _env_entries(cfg, BRIDGE_ENV) == []
+    assert _env_entries(cfg, "GOOGLE_CLOUD_PROJECT") == [USER_PROJECT]
