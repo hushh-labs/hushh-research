@@ -1,5 +1,6 @@
 """Synthetic VM installation over the current real Azure lifecycle schema."""
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -32,8 +33,15 @@ def vm_installation(cleanup_pg):
         "url": "https://pod.example",
         "serviceUid": installation.generation,
         "image": "registry.azurecr.io/pod@" + installation.image_digest,
+        "image_digest": installation.image_digest,
         "runtime_client_id": installation.client_id,
         "runtime_principal_id": "33333333-3333-3333-3333-333333333333",
+        "vmConfigurationSha256": "c" * 64,
+        "vmUpdateModuleSha256": hashlib.sha256(
+            (
+                Path(__file__).resolve().parents[2] / "browser_runtime/azure_host/update.py"
+            ).read_bytes()
+        ).hexdigest(),
         "vmHost": {
             "installation": installation.model_dump(),
             "identityResourceId": group
@@ -43,7 +51,7 @@ def vm_installation(cleanup_pg):
         },
     }
     pg.execute(
-        "UPDATE personal_agent_registry SET external_agent_id=%s,pod_key_id='synthetic-key',"
+        "UPDATE personal_agent_registry SET external_agent_id=%s,user_cloud_authorized_at=now(),pod_key_id='synthetic-key',"
         "pod_signing_key_id='pods_ffffffffffffffffffffffffffffffff',pod_signing_pubkey='AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',"
         "pod_pubkey='synthetic-public',backend_metadata=%s::jsonb WHERE user_id=%s",
         (installation.resource_id, json.dumps(metadata), owner),

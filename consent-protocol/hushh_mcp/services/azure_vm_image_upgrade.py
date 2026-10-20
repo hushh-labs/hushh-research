@@ -7,12 +7,15 @@ acknowledgement, encrypted recovery and exact-cursor release are separate proofs
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import re
 import time
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
 from hushh_mcp.services.azure_arm_mutations import body_commitment
@@ -31,6 +34,9 @@ from hushh_mcp.services.pod_upgrade_handoff import (
     PodUpgradeHandoffUnavailable,
 )
 
+if TYPE_CHECKING:
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
 
 def _binding(row: dict, host: AzureVmHostBinding) -> dict:
     return {
@@ -47,7 +53,9 @@ def _binding(row: dict, host: AzureVmHostBinding) -> dict:
     }
 
 
-def _host_ack(body: dict, plan: VmImageUpdatePlan, operation: str, previous: str) -> dict:
+def _host_ack(
+    body: dict, *, target_image: str, request_sha256: str, operation: str, previous: str
+) -> dict:
     """Read only the fixed updater's bounded public receipt, never retain stdout."""
     output = body.get("properties", {}).get("output", body)
     values = output.get("value") if isinstance(output, dict) else None
@@ -84,8 +92,8 @@ def _host_ack(body: dict, plan: VmImageUpdatePlan, operation: str, previous: str
         or type(value.get("version")) is not int
         or value["version"] != 1
         or value.get("operation_id") != operation
-        or value.get("request_sha256") != plan.host_request_sha256
-        or value.get("image") != plan.target_image
+        or value.get("request_sha256") != request_sha256
+        or value.get("image") != target_image
         or value.get("stage") != "restart_requested"
         or value.get("application_verified") is not False
         or not isinstance(value.get("configuration_sha256"), str)
@@ -210,7 +218,11 @@ class VmImageUpgrade:
                 )
                 if step.stage == "vm_image_replace":
                     acknowledgement = _host_ack(
-                        body, self.plan, self.operation, self.metadata["vmConfigurationSha256"]
+                        body,
+                        target_image=self.plan.target_image,
+                        request_sha256=self.plan.host_request_sha256,
+                        operation=self.operation,
+                        previous=self.metadata["vmConfigurationSha256"],
                     )
                     self._acknowledge(acknowledgement)
                     self.restarted = True
@@ -232,7 +244,15 @@ class VmImageUpgrade:
                 guard=self._check_guard,
             )
             released = verified_vm_release(status, recovery, self.operation)
-            return self._handle(acknowledgement, recovery, released)
+            return vm_image_handle(
+                self.metadata,
+                self.spec,
+                self.host,
+                self.target,
+                acknowledgement,
+                recovery,
+                released,
+            )
         finally:
             guarded.close()
             arm.close()
@@ -247,6 +267,7 @@ class VmImageUpgrade:
                 "hostKind": "azure_vm",
                 "attemptId": self.spec.upgrade_attempt_id,
                 "externalAgentId": self.host.installation.resource_id,
+                "service": self.host.installation.resource_id,
                 "serviceUid": self.host.installation.generation,
                 "image": self.target.image,
                 "vmHostAck": host_ack,
@@ -254,26 +275,208 @@ class VmImageUpgrade:
             }
         )
 
-    def _handle(self, ack: dict, recovery: dict, released: dict) -> BackendHandle:
-        return BackendHandle(
-            external_agent_id=self.host.installation.resource_id,
-            backend="user_azure",
-            status="live",
-            backend_metadata={
-                **deepcopy(self.metadata),
-                "upgraded": True,
-                "image": self.target.image,
-                "image_digest": self.target.installation.image_digest,
-                "vmHost": self.target.record(),
-                "source_image": self.spec.upgrade_target_image,
-                "previous_image": self.host.image,
-                "vmConfigurationSha256": ack["configuration_sha256"],
-                "vmUpdateVerification": {
-                    "operationId": self.operation,
-                    "attemptId": self.spec.upgrade_attempt_id,
-                    "host": ack,
-                    "recovery": recovery,
-                    "released": released,
-                },
+
+def vm_image_handle(
+    metadata: dict,
+    spec: PodSpec,
+    host: AzureVmHostBinding,
+    target: AzureVmHostBinding,
+    ack: dict,
+    recovery: dict,
+    released: dict,
+) -> BackendHandle:
+    return BackendHandle(
+        external_agent_id=host.installation.resource_id,
+        backend="user_azure",
+        status="live",
+        backend_metadata={
+            **{
+                key: deepcopy(value)
+                for key, value in metadata.items()
+                if key
+                not in {"upgradeLease", "upgradeApproval", "upgradeAcknowledgement", "vmPower"}
             },
+            "upgraded": True,
+            "image": target.image,
+            "image_digest": target.installation.image_digest,
+            "vmHost": target.record(),
+            "source_image": spec.upgrade_target_image,
+            "previous_image": host.image,
+            "vmConfigurationSha256": ack["configuration_sha256"],
+            "vmUpdateVerification": {
+                "operationId": spec.upgrade_operation_id,
+                "attemptId": spec.upgrade_attempt_id,
+                "host": ack,
+                "recovery": recovery,
+                "released": released,
+                **(
+                    {"previousPower": deepcopy(metadata["vmPower"])}
+                    if "vmPower" in metadata
+                    else {}
+                ),
+            },
+        },
+    )
+
+
+def observe_vm_image_update(
+    *,
+    row: dict,
+    spec: PodSpec,
+    intent: dict,
+    receipt: dict,
+    source: ArmClient,
+    handoff: PodUpgradeHandoffClient,
+    guard: Callable[[], None],
+    advance: Callable[[str], None],
+) -> BackendHandle | None:
+    """Recover only a settled replacement's sealed release, without any POST."""
+    host, metadata, _ = approved_vm_update(row, spec, allow_unresolved=True)
+    target_image = (
+        host.image.split("@", 1)[0] + "@" + str(spec.upgrade_target_image).split("@", 1)[1]
+    )
+    target = replace(
+        host,
+        image=target_image,
+        installation=host.installation.model_copy(
+            update={"image_digest": target_image.split("@", 1)[1]}
+        ),
+    )
+    ack = _host_ack(
+        {"value": [{"message": json.dumps(receipt.get("vmHostAck"))}]},
+        target_image=target_image,
+        request_sha256=intent["hostRequestSha256"],
+        operation=str(spec.upgrade_operation_id),
+        previous=metadata["vmConfigurationSha256"],
+    )
+    deadline = time.monotonic() + 45
+
+    def remaining() -> float:
+        guard()
+        value = deadline - time.monotonic()
+        if value <= 0:
+            raise RuntimeError("VM_UPDATE_OBSERVATION_UNCONFIRMED")
+        return min(value, 20.0)
+
+    arm = source.with_request_budget(remaining)
+    try:
+        target.target().require_current(
+            arm.get(
+                host.installation.resource_id,
+                api_version=API_VERSIONS["virtual_machines"],
+                op="vm_update_recovery_identity",
+            )
         )
+        snapshot = handoff.recovery_snapshot()
+        recovery = verify_vm_recovery(
+            snapshot, _binding(row, target), receipt["idleReceipt"], str(spec.upgrade_operation_id)
+        )
+        released = verified_vm_release(snapshot["status"], recovery, str(spec.upgrade_operation_id))
+        target.target().require_current(
+            arm.get(
+                host.installation.resource_id,
+                api_version=API_VERSIONS["virtual_machines"],
+                op="vm_update_recovery_final_identity",
+            )
+        )
+        remaining()
+        return vm_image_handle(metadata, spec, host, target, ack, recovery, released)
+    except (PodUpgradeHandoffUnavailable, AzureVmPowerRefused):
+        return None  # A live/released verdict is required; no implicit release or replay.
+    finally:
+        arm.close()
+
+
+async def release_unattempted_vm_update(
+    *,
+    registry: PersonalAgentRegistryRepo,
+    owner: str,
+    job: str,
+    spec: PodSpec,
+    binding: dict,
+    handoff: PodUpgradeHandoffClient,
+    receipt: dict,
+) -> bool:
+    """Restore old-agent admission only after an atomic no-dispatch block.
+
+    The lease remains repairable and blocked. Any unknown provider request,
+    active worker, erasure or replacement refuses release. No update is installed.
+    """
+    from hushh_mcp.services.azure_setup_worker import run_setup_thread
+
+    loop = asyncio.get_running_loop()
+
+    async def blocked() -> dict | None:
+        value = await registry.block_unattempted_vm_upgrade(
+            owner=owner,
+            job=job,
+            operation=str(spec.upgrade_operation_id),
+            attempt=str(spec.upgrade_attempt_id),
+            binding=binding,
+        )
+        return dict(value) if isinstance(value, dict) else None
+
+    try:
+        row = await blocked()
+        if row is None:
+            return False
+        host, _, _ = approved_vm_update(row, spec, allow_unresolved=True)
+
+        def guard() -> None:
+            if asyncio.run_coroutine_threadsafe(blocked(), loop).result(30) is None:
+                raise RuntimeError("VM_UPDATE_NO_DISPATCH_UNCONFIRMED")
+
+        def release(*, guard: Callable[[], None], advance: Callable[[str], None]) -> bool:
+            guard()
+            verify_vm_drain(
+                handoff.recovery_snapshot(),
+                _binding(row, host),
+                receipt,
+                str(spec.upgrade_operation_id),
+            )
+            result = handoff.release(
+                operation_id=str(spec.upgrade_operation_id),
+                incarnation=host.installation.generation,
+                expected_idle_record=receipt["idleRecord"],
+                guard=guard,
+            )
+            return result.get("state") == "accepting"
+
+        return await run_setup_thread(release, advance=lambda _: None, guard=guard)
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "vm_update.unattempted_release_unconfirmed errorType=%s", type(exc).__name__
+        )
+        return False
+
+
+async def apply_vm_image_update(
+    *,
+    row: dict,
+    spec: PodSpec,
+    plan: VmImageUpdatePlan,
+    receipt: dict,
+    handoff: PodUpgradeHandoffClient,
+    token: str,
+) -> BackendHandle:
+    from hushh_mcp.services.azure_hosted_authority import upgrade_authority
+    from hushh_mcp.services.azure_setup_worker import run_setup_thread
+
+    async with upgrade_authority(spec, vm_plan=plan) as authority:
+        worker = VmImageUpgrade(
+            row=row,
+            spec=spec,
+            plan=plan,
+            receipt=receipt,
+            handoff=handoff,
+            authority=authority,
+        )
+
+        def run(*, guard: Callable[[], None], advance: Callable[[str], None]) -> BackendHandle:
+            source = ArmClient(token, throttle_retries=0, transient_retries=0)
+            try:
+                return worker.run(source, guard=guard, advance=advance)
+            finally:
+                source.close()
+
+        return await run_setup_thread(run, advance=lambda _: None, guard=authority.assert_admitted)

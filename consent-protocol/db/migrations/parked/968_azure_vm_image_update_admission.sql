@@ -42,7 +42,7 @@ CREATE OR REPLACE FUNCTION public.valid_byoc_azure_vm_upgrade_intent(
  owner_id text, job_id text, target text, hushh_id text, intent jsonb
 ) RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
 DECLARE extra text[]:=ARRAY['kind','binding','sourceImage','allowedRequests','attemptId',
- 'operationId','releaseId','idempotencyKey','capabilityPlanDigest','idleRecord'];
+ 'operationId','releaseId','idempotencyKey','capabilityPlanDigest','idleRecord','hostRequestSha256'];
  binding jsonb:=intent->'binding'; host jsonb:=binding->'vmHost';
  vm text:=host->'installation'->>'resource_id'; registry text; call jsonb; expected jsonb;
 BEGIN
@@ -67,6 +67,7 @@ BEGIN
  OR (intent->>'attemptId' ~ '^[a-f0-9]{64}$') IS NOT TRUE
  OR EXISTS(SELECT 1 FROM unnest(ARRAY['operationId','releaseId','idempotencyKey']) k
    WHERE jsonb_typeof(intent->k) IS DISTINCT FROM 'string' OR length(intent->>k) NOT BETWEEN 1 AND 256)
+ OR (intent->>'hostRequestSha256' ~ '^[a-f0-9]{64}$') IS NOT TRUE
  OR public.valid_pod_upgrade_cursor(intent->'idleRecord') IS NOT TRUE
  OR EXISTS(SELECT 1 FROM unnest(ARRAY['vmConfigurationSha256','vmUpdateModuleSha256']) k
    WHERE (binding->>k ~ '^[a-f0-9]{64}$') IS NOT TRUE)
@@ -101,6 +102,7 @@ DECLARE metadata jsonb:=agent.backend_metadata; approval jsonb:=metadata->'upgra
 BEGIN
  IF jsonb_typeof(job.stages) IS DISTINCT FROM 'array' THEN RETURN false; END IF;
  IF agent.user_id IS DISTINCT FROM job.user_id OR job.status IS DISTINCT FROM 'running'
+ OR agent.user_cloud_authorized_at IS NULL
  OR agent.status IS DISTINCT FROM 'provisioned' OR agent.backend IS DISTINCT FROM 'user_azure'
  OR agent.deployment_target IS DISTINCT FROM 'user_azure'
  OR nullif(agent.user_cloud_project,'') IS NOT NULL OR metadata ? 'erasure'
@@ -394,4 +396,323 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 
 -- Rollback is application refusal; retained exact mutation obligations survive.
+-- Publication follows joined worker exit, not an active mutation session. Only
+-- the existing immutable intent/request journal can prove provider settlement.
+CREATE OR REPLACE FUNCTION public.azure_vm_upgrade_dispatch_settled(intent jsonb,history jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE call jsonb; matched integer;
+BEGIN
+ IF jsonb_typeof(history) IS DISTINCT FROM 'array' THEN RETURN false; END IF;
+ IF EXISTS(SELECT 1 FROM jsonb_array_elements(history) r
+   WHERE r->>'jobId'=intent->>'jobId' AND (
+    (r->>'stage'='azure_worker_started' AND NOT EXISTS(
+      SELECT 1 FROM jsonb_array_elements(history) e WHERE e->>'stage'='azure_worker_exited'
+      AND e->>'jobId'=r->>'jobId' AND e->>'executionId'=r->>'executionId'))
+    OR (r->>'stage'='azure_provider_request' AND NOT EXISTS(
+      SELECT 1 FROM jsonb_array_elements(history) t WHERE t->>'stage'='azure_provider_terminal'
+      AND t->>'jobId'=r->>'jobId' AND t->>'executionId'=r->>'executionId'
+      AND t->>'requestId'=r->>'requestId' AND t->>'outcome' IN ('succeeded','not_dispatched')))))
+ THEN RETURN false; END IF;
+ FOR call IN SELECT value FROM jsonb_array_elements(intent->'allowedRequests') LOOP
+  SELECT count(*) INTO matched FROM jsonb_array_elements(history) r
+  WHERE r->>'stage'='azure_provider_request' AND r->>'jobId'=intent->>'jobId'
+   AND r-ARRAY['stage','jobId','executionId','requestId']=call
+   AND EXISTS(SELECT 1 FROM jsonb_array_elements(history) a WHERE a->>'stage'='azure_provider_ack'
+     AND a->>'requestId'=r->>'requestId' AND a->>'executionId'=r->>'executionId'
+     AND a->>'jobId'=r->>'jobId' AND (a->>'status')::integer BETWEEN 200 AND 299)
+   AND EXISTS(SELECT 1 FROM jsonb_array_elements(history) t WHERE t->>'stage'='azure_provider_terminal'
+     AND t->>'requestId'=r->>'requestId' AND t->>'executionId'=r->>'executionId'
+     AND t->>'jobId'=r->>'jobId' AND t->>'outcome'='succeeded');
+  IF matched<>1 THEN RETURN false; END IF;
+ END LOOP;
+ RETURN true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.block_unattempted_azure_vm_upgrade(
+ owner_id text,job_id text,operation_id text,attempt_id text,expected_binding jsonb
+) RETURNS jsonb LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE agent public.personal_agent_registry; job public.byoc_setup_jobs; m jsonb; approval jsonb;
+BEGIN
+ IF NOT pg_try_advisory_xact_lock(hashtextextended(owner_id,171))
+ OR NOT pg_try_advisory_xact_lock(hashtextextended(owner_id,198))
+ OR NOT pg_try_advisory_xact_lock(hashtextextended(owner_id,206)) THEN RETURN NULL; END IF;
+ SELECT * INTO agent FROM personal_agent_registry WHERE user_id=owner_id FOR UPDATE;
+ SELECT * INTO job FROM byoc_setup_jobs WHERE user_id=owner_id FOR UPDATE;
+ m:=agent.backend_metadata; approval:=m->'upgradeApproval';
+ IF agent.status IS DISTINCT FROM 'provisioned' OR agent.backend IS DISTINCT FROM 'user_azure'
+ OR agent.user_cloud_authorized_at IS NULL
+ OR agent.deployment_target IS DISTINCT FROM 'user_azure' OR m->>'hostKind' IS DISTINCT FROM 'azure_vm'
+ OR public.azure_vm_upgrade_registry_binding(to_jsonb(agent)) IS DISTINCT FROM expected_binding
+ OR m ? 'erasure' OR public.azure_vm_power_pending(m) IS TRUE
+ OR EXISTS(SELECT 1 FROM personal_agent_deletion_tombstones WHERE hushh_id=agent.hushh_id)
+ OR EXISTS(SELECT 1 FROM account_deletion_tombstones WHERE cleanup_intent_kind='full_account'
+   AND user_id_hash='sha256:'||encode(sha256(convert_to(owner_id,'UTF8')),'hex'))
+ OR EXISTS(SELECT 1 FROM pod_migration_jobs WHERE user_id=owner_id)
+ OR EXISTS(SELECT 1 FROM personal_agent_standby_placements WHERE user_id=owner_id)
+ OR job.job_id IS DISTINCT FROM job_id OR job.status IS DISTINCT FROM 'running'
+ OR jsonb_typeof(job.stages) IS DISTINCT FROM 'array'
+ OR approval->>'operationId' IS DISTINCT FROM operation_id
+ OR approval->>'ownerId' IS DISTINCT FROM owner_id OR approval->>'hushhId' IS DISTINCT FROM agent.hushh_id
+ OR (approval->>'status' IN ('approved','scheduled','updating','blocked')) IS NOT TRUE
+ OR coalesce(m->>'upgradeLease','')=''
+ OR encode(sha256(convert_to(m->>'upgradeLease','UTF8')),'hex') IS DISTINCT FROM attempt_id
+ -- Unknown older work cannot be declared harmless. The current job, and every
+ -- prior use of this operation, must have no possibly-dispatched request.
+ OR EXISTS(SELECT 1 FROM jsonb_array_elements(job.stages) r WHERE r->>'stage'='azure_provider_request'
+   AND (NOT EXISTS(SELECT 1 FROM jsonb_array_elements(job.stages) t
+     WHERE t->>'stage'='azure_provider_terminal' AND t->>'requestId'=r->>'requestId')
+    OR ((r->>'jobId'=job_id OR EXISTS(SELECT 1 FROM jsonb_array_elements(job.stages) i
+      WHERE i->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent')
+      AND i->'intent'->>'operationId'=operation_id AND i->'intent'->>'jobId'=r->>'jobId'))
+     AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(job.stages) t
+       WHERE t->>'stage'='azure_provider_terminal' AND t->>'requestId'=r->>'requestId'
+       AND t->>'outcome'='not_dispatched'))))
+ THEN RETURN NULL; END IF;
+ UPDATE personal_agent_registry SET backend_metadata=jsonb_set(m,'{upgradeApproval}',
+   approval||jsonb_build_object('status','blocked','operationState','blocked',
+    'presentationPhase','blocked','failureCode','VM_UPDATE_NOT_DISPATCHED'))
+ WHERE user_id=owner_id RETURNING * INTO agent;
+ RETURN to_jsonb(agent);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.azure_vm_upgrade_recovery_intent(agent public.personal_agent_registry)
+RETURNS jsonb LANGUAGE plpgsql STABLE SET search_path=public AS $$
+DECLARE job public.byoc_setup_jobs; intents jsonb; intent jsonb;
+ approval jsonb:=agent.backend_metadata->'upgradeApproval';
+BEGIN
+ SELECT * INTO job FROM public.byoc_setup_jobs WHERE user_id=agent.user_id;
+ IF job IS NULL OR jsonb_typeof(job.stages) IS DISTINCT FROM 'array' THEN RETURN NULL; END IF;
+ SELECT jsonb_agg(e->'intent') INTO intents FROM jsonb_array_elements(job.stages) e
+ WHERE e->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent')
+ AND e->'intent'->'version'='3'::jsonb AND e->'intent'->>'operationId'=approval->>'operationId';
+ IF jsonb_array_length(intents) IS DISTINCT FROM 1 THEN RETURN NULL; END IF;
+ intent:=intents->0;
+ IF agent.status IS DISTINCT FROM 'provisioned' OR agent.backend IS DISTINCT FROM 'user_azure'
+ OR agent.deployment_target IS DISTINCT FROM 'user_azure' OR agent.user_cloud_authorized_at IS NULL
+ OR agent.backend_metadata ? 'erasure' OR public.azure_vm_power_pending(agent.backend_metadata) IS TRUE
+ OR EXISTS(SELECT 1 FROM personal_agent_deletion_tombstones WHERE hushh_id=agent.hushh_id)
+ OR EXISTS(SELECT 1 FROM account_deletion_tombstones WHERE cleanup_intent_kind='full_account'
+   AND user_id_hash='sha256:'||encode(sha256(convert_to(agent.user_id,'UTF8')),'hex'))
+ OR EXISTS(SELECT 1 FROM pod_migration_jobs WHERE user_id=agent.user_id)
+ OR EXISTS(SELECT 1 FROM personal_agent_standby_placements WHERE user_id=agent.user_id)
+ OR agent.user_cloud_tenant_id IS DISTINCT FROM intent->>'tenantId'
+ OR agent.user_cloud_subscription_id IS DISTINCT FROM intent->>'subscriptionId'
+ OR agent.user_cloud_resource_group IS DISTINCT FROM intent->>'resourceGroup'
+ OR agent.user_cloud_region IS DISTINCT FROM intent->>'location'
+ OR (approval->>'status' IN ('approved','scheduled','updating','blocked')) IS NOT TRUE
+ OR approval->>'targetImage' IS DISTINCT FROM intent->>'sourceImage'
+ OR EXISTS(SELECT 1 FROM unnest(ARRAY['operationId','releaseId','idempotencyKey']) k
+   WHERE approval->k IS DISTINCT FROM intent->k)
+ OR intent->'binding' IS DISTINCT FROM public.azure_vm_upgrade_registry_binding(to_jsonb(agent))
+ OR public.valid_byoc_azure_vm_upgrade_intent(agent.user_id,intent->>'jobId',job.project_id,agent.hushh_id,intent) IS NOT TRUE
+ OR intent->>'attemptId' IS DISTINCT FROM encode(sha256(convert_to(agent.backend_metadata->>'upgradeLease','UTF8')),'hex')
+ OR public.azure_vm_upgrade_dispatch_settled(intent,job.stages) IS NOT TRUE
+ THEN RETURN NULL; END IF;
+ RETURN intent;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.azure_vm_image_publication_proven(
+ prior public.personal_agent_registry, incoming public.personal_agent_registry
+) RETURNS boolean LANGUAGE plpgsql STABLE SET search_path=public AS $$
+DECLARE old_m jsonb:=prior.backend_metadata; new_m jsonb:=incoming.backend_metadata;
+ approval jsonb:=old_m->'upgradeApproval'; ack jsonb:=old_m->'upgradeAcknowledgement';
+ proof jsonb:=new_m->'vmUpdateVerification'; host_ack jsonb:=proof->'host';
+ recovery jsonb:=proof->'recovery'; released jsonb:=proof->'released';
+ job public.byoc_setup_jobs; intent jsonb; intents jsonb; target text; digest_value text;
+ mutable text[]:=ARRAY['image','image_digest','vmHost','vmConfigurationSha256','vmPower',
+  'upgradeLease','vmUpdateVerification','upgradeAcknowledgement','upgradeApproval',
+  'installedRelease','source_image','previous_image','upgraded','observed','imageSetByRevision','upgrade'];
+BEGIN
+ SELECT * INTO job FROM public.byoc_setup_jobs WHERE user_id=prior.user_id;
+ IF job IS NULL OR jsonb_typeof(job.stages) IS DISTINCT FROM 'array' THEN RETURN false; END IF;
+ SELECT jsonb_agg(e->'intent') INTO intents FROM jsonb_array_elements(job.stages) e
+ WHERE e->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent')
+  AND e->'intent'->'version'='3'::jsonb
+  AND e->'intent'->>'operationId'=approval->>'operationId';
+ IF jsonb_array_length(intents) IS DISTINCT FROM 1 THEN RETURN false; END IF;
+ intent:=intents->0;
+ digest_value:=right(intent->>'sourceImage',71);
+ target:=split_part(old_m->>'image','@',1)||'@'||digest_value;
+ IF prior.status IS DISTINCT FROM 'provisioned' OR prior.backend IS DISTINCT FROM 'user_azure'
+ OR prior.deployment_target IS DISTINCT FROM 'user_azure' OR old_m->>'hostKind' IS DISTINCT FROM 'azure_vm'
+ OR old_m ? 'erasure' OR new_m ?| ARRAY['erasure','upgradeLease','vmPower']
+ OR public.azure_vm_power_pending(old_m) IS TRUE
+ OR (old_m ? 'vmPower' AND old_m->'vmPower'->'binding' IS DISTINCT FROM public.azure_vm_power_binding(to_jsonb(prior)))
+ OR (to_jsonb(prior)-ARRAY['backend_metadata','updated_at']) IS DISTINCT FROM
+    (to_jsonb(incoming)-ARRAY['backend_metadata','updated_at'])
+ OR old_m-mutable IS DISTINCT FROM new_m-mutable
+ OR intent->'binding' IS DISTINCT FROM public.azure_vm_upgrade_registry_binding(to_jsonb(prior))
+ OR public.valid_byoc_azure_vm_upgrade_intent(prior.user_id,intent->>'jobId',job.project_id,prior.hushh_id,intent) IS NOT TRUE
+ OR intent->>'attemptId' IS DISTINCT FROM encode(sha256(convert_to(old_m->>'upgradeLease','UTF8')),'hex')
+ OR intent->>'sourceImage' IS DISTINCT FROM approval->>'targetImage'
+ OR EXISTS(SELECT 1 FROM unnest(ARRAY['operationId','releaseId','idempotencyKey']) k
+    WHERE intent->k IS DISTINCT FROM approval->k)
+ OR approval->>'ownerId' IS DISTINCT FROM prior.user_id OR approval->>'hushhId' IS DISTINCT FROM prior.hushh_id
+ OR approval->>'podIncarnation' IS DISTINCT FROM old_m->>'serviceUid'
+ OR approval->'version' IS DISTINCT FROM '1'::jsonb
+ OR coalesce(approval->'capabilityPlanDigest','null'::jsonb)<>'null'::jsonb
+ OR (approval->>'status' IN ('approved','scheduled','updating','blocked')) IS NOT TRUE
+ OR (new_m->'upgradeApproval')-ARRAY['status','operationState','presentationPhase','verifiedAt']
+    IS DISTINCT FROM approval-ARRAY['status','operationState','presentationPhase','verifiedAt']
+ OR new_m->'upgradeApproval'->>'status' IS DISTINCT FROM 'succeeded'
+ OR new_m->'upgradeApproval'->>'operationState' IS DISTINCT FROM 'succeeded'
+ OR new_m->'upgradeApproval'->>'presentationPhase' IS DISTINCT FROM 'verified'
+ OR new_m->>'source_image' IS DISTINCT FROM intent->>'sourceImage'
+ OR new_m->>'image' IS DISTINCT FROM target OR new_m->>'image_digest' IS DISTINCT FROM digest_value
+ OR new_m->>'previous_image' IS DISTINCT FROM old_m->>'image'
+ OR new_m->'vmHost' IS DISTINCT FROM jsonb_set(old_m->'vmHost','{installation,image_digest}',to_jsonb(digest_value))
+ OR proof-ARRAY['operationId','attemptId','host','recovery','released','previousPower']<>'{}'::jsonb
+ OR proof->'previousPower' IS DISTINCT FROM old_m->'vmPower'
+ OR proof->'operationId' IS DISTINCT FROM intent->'operationId'
+ OR proof->'attemptId' IS DISTINCT FROM intent->'attemptId'
+ OR ack->'vmHostAck' IS DISTINCT FROM host_ack
+ OR new_m->'upgradeAcknowledgement' IS DISTINCT FROM (ack||jsonb_build_object('outcome','ready'))
+ OR ack->'attemptId' IS DISTINCT FROM intent->'attemptId'
+ OR ack->'operationId' IS DISTINCT FROM intent->'operationId'
+ OR ack->'releaseId' IS DISTINCT FROM intent->'releaseId'
+ OR ack->>'externalAgentId' IS DISTINCT FROM prior.external_agent_id
+ OR ack->>'service' IS DISTINCT FROM prior.external_agent_id
+ OR ack->'serviceUid' IS DISTINCT FROM old_m->'serviceUid'
+ OR ack->>'hostKind' IS DISTINCT FROM 'azure_vm' OR ack->'version' IS DISTINCT FROM '1'::jsonb
+ OR ack->>'image' IS DISTINCT FROM target OR ack->>'targetImage' IS DISTINCT FROM intent->>'sourceImage'
+ OR approval->'handoffIdleRecord' IS DISTINCT FROM intent->'idleRecord'
+ OR public.valid_pod_upgrade_cursor(approval->'handoffCommittedCursor') IS NOT TRUE
+ OR ack->'idleReceipt'->'operationId' IS DISTINCT FROM intent->'operationId'
+ OR ack->'idleReceipt'->'incarnation' IS DISTINCT FROM old_m->'serviceUid'
+ OR ack->'idleReceipt'->'runtimeEpoch' IS DISTINCT FROM approval->'handoffRuntimeEpoch'
+ OR ack->'idleReceipt'->'activeWork' IS DISTINCT FROM '0'::jsonb
+ OR ack->'idleReceipt'->'committedCursor' IS DISTINCT FROM approval->'handoffCommittedCursor'
+ OR ack->'idleReceipt'->'committedState' IS DISTINCT FROM approval->'handoffCommittedState'
+ OR ack->'idleReceipt'->'idleRecord' IS DISTINCT FROM intent->'idleRecord'
+ OR (intent->'idleRecord'->>'seq')::numeric<=(approval->'handoffCommittedCursor'->>'seq')::numeric
+ OR approval->>'handoffCommittedState' IS DISTINCT FROM encode(sha256(convert_to(
+    (intent->>'operationId')||'|'||(old_m->>'serviceUid')||'|'||
+    (approval->'handoffCommittedCursor'->>'seq')||'|'||
+    (approval->'handoffCommittedCursor'->>'sha')||'|active=0','UTF8')),'hex')
+ OR host_ack-ARRAY['version','operation_id','request_sha256','configuration_sha256','image','stage','application_verified']<>'{}'::jsonb
+ OR host_ack->'version' IS DISTINCT FROM '1'::jsonb
+ OR host_ack->'operation_id' IS DISTINCT FROM intent->'operationId'
+ OR host_ack->'request_sha256' IS DISTINCT FROM intent->'hostRequestSha256'
+ OR host_ack->>'image' IS DISTINCT FROM target OR host_ack->>'stage' IS DISTINCT FROM 'restart_requested'
+ OR host_ack->'application_verified' IS DISTINCT FROM 'false'::jsonb
+ OR host_ack->'configuration_sha256' IS DISTINCT FROM new_m->'vmConfigurationSha256'
+ OR (new_m->>'vmConfigurationSha256' ~ '^[a-f0-9]{64}$') IS NOT TRUE
+ OR new_m->'vmConfigurationSha256' IS NOT DISTINCT FROM old_m->'vmConfigurationSha256'
+ OR recovery->>'kind' IS DISTINCT FROM 'recovery'
+ OR recovery->'incarnation' IS DISTINCT FROM old_m->'serviceUid'
+ OR recovery->>'podKeyId' IS DISTINCT FROM prior.pod_key_id
+ OR recovery->>'imageDigest' IS DISTINCT FROM digest_value
+ OR (recovery->>'runtimeEpoch' ~ '^[A-Za-z0-9_-]+$') IS NOT TRUE
+ OR length(recovery->>'runtimeEpoch')>256
+ OR recovery->'runtimeEpoch' IS NOT DISTINCT FROM approval->'handoffRuntimeEpoch'
+ OR recovery->'retainedIdleRecord' IS DISTINCT FROM intent->'idleRecord'
+ OR released->>'kind' IS DISTINCT FROM 'released'
+ OR released->'operationId' IS DISTINCT FROM intent->'operationId'
+ OR released->'incarnation' IS DISTINCT FROM recovery->'incarnation'
+ OR released->'runtimeEpoch' IS DISTINCT FROM recovery->'runtimeEpoch'
+ OR public.valid_pod_upgrade_cursor(released->'releaseRecord') IS NOT TRUE
+ OR (released->'releaseRecord'->>'seq')::numeric<=(intent->'idleRecord'->>'seq')::numeric
+ OR public.azure_vm_upgrade_dispatch_settled(intent,job.stages) IS NOT TRUE
+ THEN RETURN false; END IF;
+ RETURN true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.guard_azure_vm_power_registry()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE prior jsonb; incoming jsonb; binding jsonb;
+BEGIN
+ IF TG_OP='INSERT' THEN
+  IF NEW.backend_metadata ? 'vmPower' THEN
+   RAISE EXCEPTION 'VM power requires an existing installation' USING ERRCODE='42501';
+  END IF;
+  RETURN NEW;
+ END IF;
+ prior:=OLD.backend_metadata->'vmPower';
+ -- Image/configuration publication is a distinct terminal transition. Check it
+ -- before absent/unchanged power shortcuts, so stale ready markers cannot pass.
+ IF TG_OP='UPDATE' AND OLD.backend_metadata->>'hostKind'='azure_vm' AND (
+   OLD.backend_metadata->'image' IS DISTINCT FROM NEW.backend_metadata->'image'
+   OR OLD.backend_metadata->'image_digest' IS DISTINCT FROM NEW.backend_metadata->'image_digest'
+   OR OLD.backend_metadata->'vmHost' IS DISTINCT FROM NEW.backend_metadata->'vmHost'
+   OR OLD.backend_metadata->'vmConfigurationSha256' IS DISTINCT FROM NEW.backend_metadata->'vmConfigurationSha256'
+   OR (prior IS NOT NULL AND public.azure_vm_power_binding(to_jsonb(NEW)) IS DISTINCT FROM prior->'binding')
+ ) THEN
+  IF current_setting('transaction_isolation') NOT IN ('read committed','read uncommitted')
+   OR NOT pg_try_advisory_xact_lock(hashtextextended(OLD.user_id,171))
+   OR NOT pg_try_advisory_xact_lock(hashtextextended(OLD.user_id,198))
+   OR NOT pg_try_advisory_xact_lock(hashtextextended(OLD.user_id,206))
+   OR public.azure_vm_image_publication_proven(OLD,NEW) IS NOT TRUE
+  THEN RAISE EXCEPTION 'VM image publication requires verified recovery' USING ERRCODE='42501'; END IF;
+  RETURN NEW;
+ END IF;
+ IF prior IS NULL AND (TG_OP='DELETE' OR NOT coalesce(NEW.backend_metadata ? 'vmPower',false)) THEN
+  RETURN CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END;
+ END IF;
+ IF current_setting('transaction_isolation') NOT IN ('read committed','read uncommitted') THEN
+  RAISE EXCEPTION 'VM power requires a current snapshot' USING ERRCODE='42501';
+ END IF;
+ IF TG_OP='DELETE' THEN
+  IF public.azure_vm_power_pending(OLD.backend_metadata) THEN
+   RAISE EXCEPTION 'VM power requires reconciliation' USING ERRCODE='42501';
+  END IF;
+  RETURN OLD;
+ END IF;
+ incoming:=NEW.backend_metadata->'vmPower';
+ IF public.azure_vm_power_pending(OLD.backend_metadata) AND (
+   public.azure_vm_power_binding(to_jsonb(NEW)) IS DISTINCT FROM prior->'binding'
+   OR NEW.backend_metadata ?| ARRAY['erasure','upgradeLease','provisionAttempt']
+ ) THEN RAISE EXCEPTION 'VM power fences this installation' USING ERRCODE='42501'; END IF;
+ IF incoming IS NOT DISTINCT FROM prior THEN RETURN NEW; END IF;
+ IF NOT public.byoc_azure_worker_session_held(OLD.user_id)
+ OR NOT pg_try_advisory_xact_lock(hashtextextended(OLD.user_id,171))
+ OR NOT pg_try_advisory_xact_lock(hashtextextended(OLD.user_id,198)) THEN
+  RAISE EXCEPTION 'VM power worker is not admitted' USING ERRCODE='42501';
+ END IF;
+ binding:=public.azure_vm_power_binding(to_jsonb(OLD));
+ IF public.azure_vm_power_eligible(to_jsonb(OLD)) IS NOT TRUE
+ OR public.azure_vm_power_binding(to_jsonb(NEW)) IS DISTINCT FROM binding
+ OR (to_jsonb(NEW)-ARRAY['backend_metadata','updated_at'])
+    IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['backend_metadata','updated_at'])
+ OR NEW.backend_metadata-'vmPower' IS DISTINCT FROM OLD.backend_metadata-'vmPower'
+ OR jsonb_typeof(incoming) IS DISTINCT FROM 'object'
+ OR incoming-ARRAY['version','operationId','binding','phase','events','previousOperationId']<>'{}'::jsonb
+ OR incoming->'version' IS DISTINCT FROM '1'::jsonb
+ OR (incoming->>'phase' IN ('preparing','drained','deallocated','starting','recovered','ready')) IS NOT TRUE
+ OR incoming->'binding' IS DISTINCT FROM binding
+ OR coalesce(incoming->>'operationId','') !~ '^[a-f0-9]{32}$'
+ OR jsonb_typeof(incoming->'events') IS DISTINCT FROM 'array'
+ OR jsonb_array_length(incoming->'events')>16
+ THEN RAISE EXCEPTION 'VM power transition refused' USING ERRCODE='42501'; END IF;
+ IF prior IS NULL OR prior->>'phase'='ready' THEN
+  IF incoming->>'phase' IS DISTINCT FROM 'preparing'
+   OR incoming->'events' IS DISTINCT FROM '[]'::jsonb
+   OR incoming->>'operationId'=prior->>'operationId'
+   OR incoming->'previousOperationId' IS DISTINCT FROM prior->'operationId'
+  THEN RAISE EXCEPTION 'VM power claim refused' USING ERRCODE='42501'; END IF;
+ ELSE
+  IF incoming-ARRAY['phase','events'] IS DISTINCT FROM prior-ARRAY['phase','events']
+   OR (SELECT coalesce(jsonb_agg(value ORDER BY ordinal),'[]'::jsonb)
+       FROM jsonb_array_elements(incoming->'events') WITH ORDINALITY e(value,ordinal)
+       WHERE ordinal<=jsonb_array_length(prior->'events')) IS DISTINCT FROM prior->'events'
+   OR (
+     (incoming->>'phase'=prior->>'phase'
+       AND jsonb_array_length(incoming->'events')=jsonb_array_length(prior->'events')+1
+       AND public.valid_azure_vm_power_event(prior,incoming->'events'->-1))
+     OR (incoming->'events'=prior->'events'
+       AND public.azure_vm_power_phase_proven(prior,incoming->>'phase') AND (
+       (prior->>'phase'='preparing' AND incoming->>'phase'='drained')
+       OR (prior->>'phase'='drained' AND incoming->>'phase'='deallocated')
+       OR (prior->>'phase'='deallocated' AND incoming->>'phase'='starting')
+       OR (prior->>'phase'='starting' AND incoming->>'phase'='recovered')
+       OR (prior->>'phase'='recovered' AND incoming->>'phase'='ready')))) IS NOT TRUE
+  THEN RAISE EXCEPTION 'VM power receipt cannot be replaced' USING ERRCODE='42501'; END IF;
+ END IF;
+ RETURN NEW;
+END;
+$$;
+
 COMMIT;

@@ -304,10 +304,12 @@ including after the same owner operation receives another setup-job identifier.
 Unknown outcomes fence later stages and replacement workers. The nearest 33
 VM/legacy checks pass against real PostgreSQL, including existing Container Apps
 behavior under the new migration; removing payload or cross-job fences fails the
-regressions. Dev migration-lane checks also pass. This migration remains local and
-does not install a host or enable VM updates. GET-only reconciliation, terminal
-power-cycle retirement and verified publication still need composition; an image
-tag or successful RunCommand is not recovery.
+regressions. Dev migration-lane checks also pass. The forward publication guard
+requires the three successful request receipts after worker exit, the exact root
+payload commitment, unchanged identity/keys and target recovery/release. It retires
+only a terminal old-image power marker, preserving its receipt in the update
+verification. Pending power still fences replacement. A fresh read of the dev
+ledger confirms 967/968 remain unapplied; neither installs a customer host.
 
 The local image-update executor now joins the existing setup-worker cancellation
 boundary and rechecks the authenticated live drain before every cloud write. It
@@ -318,9 +320,21 @@ withdrawn drain, missing host acknowledgement, changed recovery key and joined
 cancellation. Removing the fresh drain check fails the regression. Both modules
 and the handoff client typecheck. The handoff client also rechecks the caller's
 guard after token acquisition; removing it fails both prepare/release cancellation
-controls. All 47 affected handoff/plan/real-journal cases pass. This is not a live
-owner update: owner-JIT composition, atomic verified
-publication, ready-power retirement and read-only crash reconciliation remain open.
+controls. All 47 affected handoff/plan/real-journal cases pass. Owner-JIT composition
+and atomic publication also pass with real PostgreSQL and synthetic provider
+transport, both without a prior power cycle and after a completed cycle. Changed
+keys, host, root hash, configuration, release or lease cannot publish. The backend
+also reconstructs a completed update from exact retained journal, host and sealed
+release reads without replaying provider writes. A second host read fences
+replacement between observations, and each maintenance request rechecks current
+lifecycle authority. Credential failure or cancellation after idle restores old
+agent admission only after an atomic no-dispatch proof; the lease remains blocked
+for repair. Any dispatched/uncertain effect retains its fence. Eleven nearest
+cases pass, including the real backend's recovery and cancellation paths; nine
+changed source modules typecheck. Earlier 119 compatibility and 48 authority/plan
+cases remain valid for their unchanged boundaries. The backend remains unavailable
+to customers; the hosting offer, first-install wake, remaining uncertain-operation
+repair and installed owner acceptance are not qualified.
 
 The existing update publisher now retains the authenticated idle marker, committed
 prefix, exact committed-state hash and original runtime epoch under its current

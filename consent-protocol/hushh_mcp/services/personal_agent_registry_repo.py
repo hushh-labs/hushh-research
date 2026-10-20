@@ -2042,6 +2042,22 @@ class PersonalAgentRegistryRepo:
             model_credential_mode=model_credential_mode,
         )
 
+    async def vm_image_upgrade_recovery(self, *, hushh_id: str, receipt: dict) -> dict | None:
+        from hushh_mcp.services.personal_agent_upgrade_reservations import vm_image_upgrade_recovery
+
+        return await vm_image_upgrade_recovery(self._db(), hushh_id=hushh_id, receipt=receipt)
+
+    async def block_unattempted_vm_upgrade(
+        self, *, owner: str, job: str, operation: str, attempt: str, binding: dict
+    ) -> dict | None:
+        from hushh_mcp.services.personal_agent_upgrade_reservations import (
+            block_unattempted_vm_upgrade,
+        )
+
+        return await block_unattempted_vm_upgrade(
+            self._db(), owner=owner, job=job, operation=operation, attempt=attempt, binding=binding
+        )
+
     async def count_active_pods(self, *, exclude_user_id: Optional[str] = None) -> int:
         """How many rows currently hold (or are standing up) a pod. The cap's denominator.
 

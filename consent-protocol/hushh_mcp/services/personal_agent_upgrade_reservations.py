@@ -6,6 +6,7 @@ including model maintenance's atomic plan claim; it creates no second journal.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -195,3 +196,41 @@ async def record_image_upgrade(
         },
     )
     return bool(result.data)
+
+
+async def vm_image_upgrade_recovery(client: Any, *, hushh_id: str, receipt: dict) -> dict | None:
+    """Read only exact retained evidence; no request or provider action is replayed."""
+    result = await asyncio.to_thread(
+        client.execute_raw,
+        "SELECT to_jsonb(r) AS registry, public.azure_vm_upgrade_recovery_intent(r) AS intent "
+        "FROM personal_agent_registry r WHERE hushh_id=:hushh_id "
+        "AND backend_metadata->'upgradeAcknowledgement'=CAST(:receipt AS jsonb)",
+        {"hushh_id": hushh_id, "receipt": json.dumps(receipt)},
+    )
+    rows = result.data or []
+    if len(rows) != 1 or not isinstance(rows[0].get("intent"), dict):
+        return None
+    return dict(rows[0])
+
+
+async def block_unattempted_vm_upgrade(
+    client: Any, *, owner: str, job: str, operation: str, attempt: str, binding: dict
+) -> dict | None:
+    result = await asyncio.to_thread(
+        client.execute_raw,
+        "SELECT public.block_unattempted_azure_vm_upgrade(:owner,:job,:operation,:attempt,"
+        "CAST(:binding AS jsonb)) AS registry",
+        {
+            "owner": owner,
+            "job": job,
+            "operation": operation,
+            "attempt": attempt,
+            "binding": json.dumps(binding),
+        },
+    )
+    rows = result.data or []
+    return (
+        dict(rows[0]["registry"])
+        if len(rows) == 1 and isinstance(rows[0].get("registry"), dict)
+        else None
+    )

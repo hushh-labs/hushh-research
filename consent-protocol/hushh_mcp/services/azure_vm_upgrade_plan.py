@@ -11,7 +11,7 @@ import hashlib
 import json
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Literal, NoReturn
+from typing import Callable, Literal, NoReturn
 
 from hushh_mcp.services.azure_arm_client import API_VERSIONS
 from hushh_mcp.services.azure_arm_mutations import body_commitment
@@ -79,7 +79,9 @@ class VmImageUpdatePlan:
         )
 
 
-def approved_vm_update(row: dict, spec: PodSpec) -> tuple[AzureVmHostBinding, dict, dict]:
+def approved_vm_update(
+    row: dict, spec: PodSpec, *, allow_unresolved: bool = False
+) -> tuple[AzureVmHostBinding, dict, dict]:
     """Verify existing owner approval before asking the old runtime to drain."""
     from hushh_mcp.services.personal_agent_provisioning_service import _approval_is_well_formed
 
@@ -113,7 +115,7 @@ def approved_vm_update(row: dict, spec: PodSpec) -> tuple[AzureVmHostBinding, di
         or not isinstance(lease, str)
         or not lease
         or hashlib.sha256(lease.encode()).hexdigest() != spec.upgrade_attempt_id
-        or not _approval_is_well_formed(row, approval)
+        or not _approval_is_well_formed(row, approval, allow_unresolved=allow_unresolved)
         or approval["operationId"] != spec.upgrade_operation_id
         or approval["targetImage"] != spec.upgrade_target_image
         or approval.get("capabilityPlanDigest") is not None
@@ -193,6 +195,7 @@ def _intent(
     approval: dict,
     idle_record: dict,
     steps: tuple[ArmStep, ...],
+    host_request_sha256: str,
 ) -> dict:
     metadata = row["backend_metadata"]
     return {
@@ -212,6 +215,7 @@ def _intent(
         "idempotencyKey": approval["idempotencyKey"],
         "capabilityPlanDigest": None,
         "idleRecord": deepcopy(idle_record),
+        "hostRequestSha256": host_request_sha256,
         "allowedRequests": [
             {
                 "method": step.method,
@@ -285,7 +289,29 @@ def build_vm_image_update(
     )
     return VmImageUpdatePlan(
         tuple((s.stage, s.method, s.path, s.api, json.dumps(s.body).encode()) for s in steps),
-        json.dumps(_intent(row, spec, host, approval, idle_record, steps)).encode(),
+        json.dumps(_intent(row, spec, host, approval, idle_record, steps, payload_sha)).encode(),
         destination,
         payload_sha,
+    )
+
+
+def prepare_vm_image_update(
+    *,
+    row: dict,
+    spec: PodSpec,
+    receipt: dict,
+    guard: Callable[[], None],
+    advance: Callable[[str], None],
+) -> VmImageUpdatePlan:
+    from hushh_mcp.services.azure_agent_upgrade import import_source
+    from hushh_mcp.services.azure_image_source import import_credentials, require_import_access
+
+    guard()
+    registry, repository, digest = import_source(str(spec.upgrade_target_image or ""))
+    require_import_access(registry, repository, digest)
+    credentials = import_credentials(registry)
+    private = credentials() if credentials is not None else None
+    guard()
+    return build_vm_image_update(
+        row, spec, idle_record=receipt["idleRecord"], source_credentials=private
     )

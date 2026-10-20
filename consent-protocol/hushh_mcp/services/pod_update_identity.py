@@ -5,9 +5,12 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from hushh_mcp.services.pod_release import image_digest
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.azure_vm_host_binding import AzureVmHostBinding
 
 
 def verified_image_changed(
@@ -35,12 +38,20 @@ def verified_upgrade_approval(approval: object) -> dict[str, Any] | None:
     }
 
 
+def merged_upgrade_metadata(previous: dict, handle: dict, *, vm: AzureVmHostBinding | None) -> dict:
+    """Keep publication atomic; the owning SQL guard verifies VM retirement."""
+    merged = {**previous, **handle}
+    if vm is not None:
+        merged.pop("vmPower", None)
+    return merged
+
+
 def release_identity(
     hushh_id: str, incarnation: str, target_image: str, *, capability_digest: str | None = None
 ) -> str:
     # Preserve every existing image-only identifier. Capability approval is a
     # distinct release, including when the image digest is already installed.
-    fields = (hushh_id.strip(), incarnation.strip(), target_image.strip())
+    fields: tuple[str, ...] = (hushh_id.strip(), incarnation.strip(), target_image.strip())
     if capability_digest is not None:
         if re.fullmatch(r"[0-9a-f]{64}", capability_digest) is None:
             raise ValueError("invalid capability approval digest")

@@ -7,8 +7,11 @@ their VM-specific composition is qualified.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Callable
+from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
 from hushh_mcp.services.azure_vm_host_binding import AzureVmHostBinding
@@ -18,6 +21,9 @@ from hushh_mcp.services.compute_backend import (
     BackendStatus,
     PodSpec,
 )
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.pod_upgrade_handoff import PodUpgradeHandoffClient
 
 
 class UserAzureVmBackend:
@@ -114,6 +120,145 @@ class UserAzureVmBackend:
         # Generic orphan adoption permits key rotation and replaces retained
         # metadata. VM recovery must preserve exact custody and lifecycle receipts.
         raise RuntimeError("Azure VM attachment requires exact owner-approved recovery")
+
+    async def upgrade(self, spec: PodSpec) -> BackendHandle:
+        """Compose the approved owner job; customer availability stays gated."""
+        from hushh_mcp.services.azure_hosted_authority import current_hosted_job, vm_upgrade_source
+        from hushh_mcp.services.azure_setup_worker import run_setup_thread
+        from hushh_mcp.services.azure_vm_image_upgrade import (
+            apply_vm_image_update,
+            release_unattempted_vm_update,
+        )
+        from hushh_mcp.services.azure_vm_upgrade_plan import prepare_vm_image_update
+        from hushh_mcp.services.pod_upgrade_handoff import PodUpgradeHandoffClient
+        from hushh_mcp.services.user_azure_backend import current_jit_token
+
+        self._host.require_spec(spec)
+        token = current_jit_token()  # Never replace owner authority with the observer's identity.
+        owner, job = current_hosted_job()
+        registry, frozen, guard = await vm_upgrade_source(spec)
+
+        handoff = PodUpgradeHandoffClient(url=self._host.url, hushh_id=spec.hushh_id)
+        receipts: list[dict] = []
+        try:
+            receipt = await run_setup_thread(
+                self._drain_upgrade,
+                spec=spec,
+                handoff=handoff,
+                receipts=receipts,
+                advance=lambda _: None,
+                guard=guard,
+            )
+            current = await registry.get(owner)
+            plan = await run_setup_thread(
+                prepare_vm_image_update,
+                row=current or {},
+                spec=spec,
+                receipt=receipt,
+                advance=lambda _: None,
+                guard=guard,
+            )
+            return await apply_vm_image_update(
+                row=current or {},
+                spec=spec,
+                plan=plan,
+                receipt=receipt,
+                handoff=handoff,
+                token=token,
+            )
+        except (Exception, asyncio.CancelledError):
+            if receipts:
+                cleanup = asyncio.create_task(
+                    release_unattempted_vm_update(
+                        registry=registry,
+                        owner=owner,
+                        job=job,
+                        spec=spec,
+                        binding=frozen,
+                        handoff=handoff,
+                        receipt=receipts[0],
+                    )
+                )
+                while not cleanup.done():
+                    try:
+                        await asyncio.shield(cleanup)
+                    except asyncio.CancelledError:
+                        continue
+                if not cleanup.cancelled():
+                    cleanup.result()
+            raise
+
+    def _drain_upgrade(
+        self,
+        *,
+        spec: PodSpec,
+        handoff: PodUpgradeHandoffClient,
+        receipts: list[dict],
+        guard: Callable[[], None],
+        advance: Callable[[str], None],
+    ) -> dict:
+        if spec.on_upgrade_idle is None:
+            raise RuntimeError("VM_UPDATE_DURABLE_IDLE_REQUIRED")
+        receipt = handoff.prepare_and_wait(
+            operation_id=str(spec.upgrade_operation_id or ""),
+            incarnation=self._host.installation.generation,
+            timeout_seconds=480,
+            guard=guard,
+        )
+        receipts.append(receipt)
+        guard()
+        spec.on_upgrade_idle(receipt)
+        guard()
+        return receipt
+
+    async def observe_upgrade(self, spec: PodSpec, receipt: dict) -> BackendHandle | None:
+        from hushh_mcp.services.azure_setup_worker import run_setup_thread
+        from hushh_mcp.services.azure_vm_image_upgrade import observe_vm_image_update
+        from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+        from hushh_mcp.services.pod_upgrade_handoff import PodUpgradeHandoffClient
+
+        self._host.require_spec(spec)
+        registry, loop = PersonalAgentRegistryRepo(), asyncio.get_running_loop()
+        evidence = await registry.vm_image_upgrade_recovery(hushh_id=spec.hushh_id, receipt=receipt)
+        if evidence is None:
+            return None
+        bound = replace(
+            spec,
+            upgrade_operation_id=receipt.get("operationId"),
+            upgrade_target_image=receipt.get("targetImage"),
+        )
+
+        def guard() -> None:
+            current = asyncio.run_coroutine_threadsafe(
+                registry.vm_image_upgrade_recovery(hushh_id=spec.hushh_id, receipt=receipt), loop
+            ).result(30)
+            if current is None or current["intent"] != evidence["intent"]:
+                raise RuntimeError("VM_UPDATE_RECOVERY_AUTHORITY_CHANGED")
+
+        def run(*, guard: Callable[[], None], advance: Callable[[str], None]):
+            source = self._observer()
+
+            def budget() -> float:
+                guard()
+                return 20.0
+
+            try:
+                return observe_vm_image_update(
+                    row=evidence["registry"],
+                    spec=bound,
+                    intent=evidence["intent"],
+                    receipt=receipt,
+                    source=source,
+                    handoff=PodUpgradeHandoffClient(
+                        url=self._host.url, hushh_id=spec.hushh_id, request_budget=budget
+                    ),
+                    guard=guard,
+                    advance=advance,
+                )
+            finally:
+                source.close()
+
+        return await run_setup_thread(run, advance=lambda _: None, guard=guard)
 
     def render_deploy_config(self, spec: PodSpec) -> dict:
         self._host.require_spec(spec)

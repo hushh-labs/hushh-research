@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from contextlib import asynccontextmanager
 
 import asyncpg
+import pytest
 
 from hushh_mcp.services.azure_setup_plan import group_id
 from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo
@@ -227,3 +229,90 @@ async def vm_upgrade_worker(pg, owner, installation, *, receipt=None):
         row, spec, idle_record=metadata["upgradeApproval"]["handoffIdleRecord"]
     )
     return plan, plan.intent(job="vm-upgrade-1"), row, spec
+
+
+def retain_vm_ack(server, owner, spec, receipt):
+    bound = {
+        **receipt,
+        "targetImage": spec.upgrade_target_image,
+        "operationId": spec.upgrade_operation_id,
+        "releaseId": "qualified-dev",
+    }
+    server.execute(
+        "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,"
+        "'{upgradeAcknowledgement}',%s::jsonb) WHERE user_id=%s",
+        (json.dumps(bound), owner),
+    )
+
+
+def wire_vm_owner_update(monkeypatch, connection, repo, pod, transport):
+    from hushh_mcp.services import azure_hosted_authority as hosted
+    from hushh_mcp.services.azure_arm_client import ArmClient
+
+    original = hosted.azure_setup_authority
+    monkeypatch.setattr(
+        hosted, "azure_setup_authority", lambda **kw: original(**kw, connection_factory=connection)
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo", lambda: repo
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_upgrade_handoff.PodUpgradeHandoffClient", pod.client
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.user_azure_vm_backend.ArmClient",
+        lambda token, **kw: ArmClient(token, session=transport, **kw),
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.azure_vm_image_upgrade.ArmClient",
+        lambda token, **kw: ArmClient(token, session=transport, **kw),
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.azure_image_source.require_import_access", lambda *a: "public"
+    )
+    monkeypatch.setattr("hushh_mcp.services.azure_image_source.import_credentials", lambda *a: None)
+
+
+@pytest.fixture
+async def owner_update(
+    vm_installation, cleanup_connection, lifecycle, monkeypatch, had_power_cycle
+):
+    from dataclasses import replace
+
+    from hushh_mcp.services.azure_arm_client import ArmClient
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from hushh_mcp.services.user_azure_vm_backend import UserAzureVmBackend
+    from tests.fixtures.azure_hosted_worker import vm_upgrade_worker
+    from tests.test_azure_vm_upgrade_postgres import _image_transport
+    from tests.test_byoc_setup_job_azure_admission_postgres import _Client
+
+    server, owner, installed = vm_installation
+    pod, transport, power, _ = lifecycle
+    if had_power_cycle:
+        assert (await power("deallocate"))["state"] == "sleeping"
+        assert (await power("wake"))["state"] == "awake"
+    receipt = await asyncio.to_thread(
+        pod.client(url=pod.binding["url"], hushh_id=installed.hushh_id).prepare_and_wait,
+        operation_id="vm-update-1",
+        incarnation=installed.generation,
+    )
+    plan, intent, row, spec = await vm_upgrade_worker(server, owner, installed, receipt=receipt)
+    client = _Client(server)
+    repo = PersonalAgentRegistryRepo(client=client)
+    try:
+        writes = []
+        transport.request = _image_transport(
+            transport.request, transport, pod, plan, receipt, None, writes, (None, None)
+        )
+        wire_vm_owner_update(monkeypatch, cleanup_connection, repo, pod, transport)
+        spec = replace(
+            spec,
+            on_upgrade_idle=lambda value: value == receipt or pytest.fail("idle changed"),
+            on_upgrade_ack=lambda value: retain_vm_ack(server, owner, spec, value),
+        )
+        backend = UserAzureVmBackend(
+            spec, observer=lambda: ArmClient("synthetic-observer", session=transport)
+        )
+        yield server, owner, pod, plan, intent, spec, repo, backend, writes
+    finally:
+        client._engine.dispose()

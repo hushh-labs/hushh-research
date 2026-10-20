@@ -153,7 +153,11 @@ from hushh_mcp.services.pod_request_identity_store import (
     bind_published_signing_key,
     signing_key_columns,
 )
-from hushh_mcp.services.pod_update_identity import verified_image_changed, verified_upgrade_approval
+from hushh_mcp.services.pod_update_identity import (
+    merged_upgrade_metadata,
+    verified_image_changed,
+    verified_upgrade_approval,
+)
 from hushh_mcp.services.user_cloud_service import (
     resolve_user_cloud,
     spec_coordinates,
@@ -1596,7 +1600,7 @@ class PersonalAgentProvisioningService:
             verified_approval = verified_upgrade_approval(approval)
             if verified_approval is not None:
                 updated["upgradeApproval"] = verified_approval
-            updated.update(handle_metadata)
+            updated = merged_upgrade_metadata(updated, handle_metadata, vm=spec.azure_vm_host)
             release_metadata = approved_release(approval, target_image)
             if release_metadata is not None:
                 updated["installedRelease"] = release_metadata
@@ -2258,7 +2262,7 @@ class PersonalAgentProvisioningService:
             != {"planDigest": files_capability.digest, "status": "enabled"}
         ):
             raise RuntimeError("Files installation has not been verified")
-        new_meta = {**claimed_metadata, **handle_metadata}
+        new_meta = merged_upgrade_metadata(claimed_metadata, handle_metadata, vm=spec.azure_vm_host)
         if persisted_acknowledgement is not None:
             # Preserve the exact operation receipt already durably published by
             # this attempt; old_meta predates the provider callback.
