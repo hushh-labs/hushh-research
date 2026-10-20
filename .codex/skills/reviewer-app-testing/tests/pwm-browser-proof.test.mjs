@@ -2,7 +2,28 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
 import { webcrypto } from "node:crypto";
-import { installPwmBrowserProof, hasIncrementalPwmStream, admitPwmStore } from "../scripts/pwm-browser-proof.mjs";
+import { installPwmBrowserProof, hasIncrementalPwmStream, admitOwnerConfirmedPwmClaim, admitPwmStore } from "../scripts/pwm-browser-proof.mjs";
+
+test("human confirmation admits only the exact received profile without promoting model identity", () => {
+  const offered = { status: "offered", report: { match_status: "uncertain" }, research: {
+    identity: { state: "candidate_for_review", selected_candidate_id: "c1" },
+    candidates: [{ id: "c1", anchor_ids: ["a1"], blocking_conflicts: [] }],
+  } };
+  const fact = { confidence: "supported", sources: [{ url: "https://github.com/owner" }] };
+  const unchanged = JSON.stringify(offered);
+  assert.equal(admitOwnerConfirmedPwmClaim(offered, fact, "https://github.com/owner/"), true);
+  assert.equal(JSON.stringify(offered), unchanged);
+  for (const source of ["https://github.com/namesake", "https://github.com/owner/repository", "https://github.com/owner-extra", "https://linkedin.com/in/owner", "https://github.com@evil.example/owner"])
+    assert.equal(admitOwnerConfirmedPwmClaim(offered, { ...fact, sources: [{ url: source }] }, "https://github.com/owner"), false, source);
+  for (const state of ["ambiguous", "no_match"])
+    assert.equal(admitOwnerConfirmedPwmClaim({ ...offered, research: { ...offered.research, identity: { ...offered.research.identity, state } } }, fact, "https://github.com/owner"), false);
+  const conflict = structuredClone(offered); conflict.research.candidates[0].blocking_conflicts.push("Conflicting affiliation");
+  assert.equal(admitOwnerConfirmedPwmClaim(conflict, fact, "https://github.com/owner"), false);
+  assert.equal(admitOwnerConfirmedPwmClaim(offered, fact, ""), false);
+  assert.equal(admitOwnerConfirmedPwmClaim(offered, { ...fact, confidence: "uncertain" }, "https://github.com/owner"), false);
+  assert.equal(admitOwnerConfirmedPwmClaim(offered, { ...fact, sources: [...fact.sources, { url: "https://linkedin.com/in/owner" }] }, "https://github.com/owner"), false);
+  assert.equal(admitOwnerConfirmedPwmClaim(offered, { ...fact, sources: [] }, "https://github.com/owner"), false);
+});
 
 function fixture(fetch = async () => new Response("{}"), browserCrypto = webcrypto) {
   class PageURL extends URL {}

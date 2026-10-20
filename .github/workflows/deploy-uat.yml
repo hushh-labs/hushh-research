@@ -40,6 +40,10 @@ on:
         description: "Expected verified owner emails (comma-separated); no fixture substitution"
         required: false
         type: string
+      pwm_owner_confirmed_profile:
+        description: "GitHub profile explicitly confirmed by the owner; bounds one reviewed save"
+        required: false
+        type: string
       preserve_paused_drive_worker:
         description: "Preserve all three operator-paused UAT Drive jobs and the current private worker"
         required: false
@@ -2167,6 +2171,7 @@ jobs:
           REVIEWER_AUTH_MODE: custom_token
           REVIEWER_ALLOW_SHARED_MUTATIONS: "true"
           PWM_EXPECTED_EMAILS: ${{ inputs.pwm_expected_emails }}
+          PWM_OWNER_CONFIRMED_PROFILE: ${{ inputs.pwm_owner_confirmed_profile }}
           PWM_EVIDENCE_PUBLIC_KEY: ${{ inputs.pwm_evidence_public_key }}
           PWM_PROOF_OUTPUT: ${{ github.workspace }}/tmp/pwm-acceptance.sealed.json
         run: node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-pwm.mjs

@@ -274,6 +274,7 @@ def test_explicit_pwm_acceptance_blocks_on_failure_and_seals_owner_evidence(
     assert ("pwm_acceptance_failed" in json.loads(result.stdout)) is blocked
     assert pwm["env"]["PWM_EVIDENCE_PUBLIC_KEY"] == "${{ inputs.pwm_evidence_public_key }}"
     assert pwm["env"]["PWM_EXPECTED_EMAILS"] == "${{ inputs.pwm_expected_emails }}"
+    assert pwm["env"]["PWM_OWNER_CONFIRMED_PROFILE"] == "${{ inputs.pwm_owner_confirmed_profile }}"
     assert pwm["env"]["REVIEWER_ALLOW_SHARED_MUTATIONS"] == "true"
     assert pwm["run"] == ("node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-pwm.mjs")
     upload = next(

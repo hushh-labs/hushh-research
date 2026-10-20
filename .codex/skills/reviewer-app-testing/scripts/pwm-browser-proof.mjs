@@ -218,6 +218,26 @@ export function hasIncrementalPwmStream(streams) {
       stream.events.some(later => later.event === "result" && later.read > early.read && later.ms > early.ms)));
 }
 
+/** Explicit human profile ownership admits review, never promotes model identity. */
+export function admitOwnerConfirmedPwmClaim(offered, fact, confirmedProfile) {
+  function profile(value) {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "https:" || url.hostname !== "github.com" || url.username || url.password || url.port ||
+          !/^\/[a-zA-Z0-9-]{1,39}\/?$/.test(url.pathname)) return null;
+      return url.pathname.replace(/\/$/, "").toLowerCase();
+    } catch { return null; }
+  }
+  const confirmed = profile(confirmedProfile), identity = offered?.research?.identity;
+  const candidate = offered?.research?.candidates?.find(value => value.id === identity?.selected_candidate_id);
+  return Boolean(confirmed && offered?.status === "offered" &&
+    ["matched", "uncertain"].includes(offered.report?.match_status) &&
+    ["owner_linked", "candidate_for_review"].includes(identity?.state) &&
+    candidate?.anchor_ids?.length > 0 && candidate.blocking_conflicts?.length === 0 &&
+    fact?.confidence === "supported" && fact.sources?.length > 0 &&
+    fact.sources.every(source => profile(source.url) === confirmed));
+}
+
 export function admitPwmStore(body, { owner, baselineRevision, planId }) {
   const plan = body?.mutation_plan, receipt = plan?.confirmation_receipt;
   return body?.user_id === owner && body.domain === "one_memory" &&
