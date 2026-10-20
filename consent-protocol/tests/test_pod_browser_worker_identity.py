@@ -68,3 +68,40 @@ async def test_native_probe_releases_private_scratch_if_browser_startup_fails(
     with pytest.raises(ModuleNotFoundError):
         await gcp_probe._inside(tmp_path)
     assert closed == [True]
+
+
+def test_builtin_guard_refuses_agent_identity_before_touching_environment(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.pod_browser import process_guard
+
+    environment = {"APP_SIGNING_KEY": "synthetic-not-a-secret"}
+    monkeypatch.setattr(process_guard, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(process_guard, "platform", SimpleNamespace(machine=lambda: "x86_64"))
+    monkeypatch.setattr(
+        process_guard,
+        "os",
+        SimpleNamespace(getresuid=lambda: (10001,) * 3, environ=environment),
+    )
+    with pytest.raises(process_guard.ProcessGuardRefused, match="WORKER_IDENTITY_REFUSED"):
+        process_guard.restrict_browser_process(scratch=tmp_path, bridge_fd=3)
+    assert environment == {"APP_SIGNING_KEY": "synthetic-not-a-secret"}
+
+
+def test_builtin_probe_never_starts_chromium_after_a_missing_process_guard(monkeypatch, tmp_path):
+    from hushh_mcp.services.pod_browser import process_probe
+
+    def unavailable(**_arguments):
+        raise process_probe.ProcessGuardRefused("BROWSER_FILESYSTEM_GUARD_UNAVAILABLE")
+
+    def unexpected_frame(_scratch):
+        pytest.fail("An unavailable filesystem guard must prevent Chromium startup")
+
+    monkeypatch.setattr(process_probe, "restrict_browser_process", unavailable)
+    monkeypatch.setattr(process_probe, "_frame", unexpected_frame)
+    result = process_probe._inside(3, tmp_path, tmp_path / "canary")
+    assert result == {
+        "guard_verified": False,
+        "frame_verified": False,
+        "code": "BROWSER_FILESYSTEM_GUARD_UNAVAILABLE",
+    }

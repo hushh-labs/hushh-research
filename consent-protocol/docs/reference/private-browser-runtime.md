@@ -2,7 +2,7 @@
 
 ## Status and evidence
 
-**2026-10-19 — disabled pilot; not a usable owner browser capability.**
+**2026-10-20 UTC — disabled pilot; not a usable owner browser capability.**
 The committed information/session foundation is `f407f849b`. The resumed working
 candidate composes authenticated owner task routes, exact reviews, ephemeral
 preview, takeover and remembered-session controls with an isolated native ADK
@@ -41,11 +41,59 @@ execution uses a separate isolation boundary.
 
 Packaging Chromium in the pod's release is compatible with this product
 boundary. Packaging it in the key-holding process or container is not evidence
-of isolation. The current native adapters remain unqualified; assessing an
-integrated browser service must prove secret, workload-identity, network and
-process separation before changing their execution gates.
+of isolation. The owner approved qualification inside the existing pod service
+and image on 2026-10-19, replacing the requirement to use provider-managed sandbox
+products. One remains the agent authority; the owner can fence it with Take
+control or Stop. This product decision does not weaken secret, workload-identity,
+network or process separation.
 
-### Latest controlled qualification
+The first built-in slice adds an irreversible, separate-UID Linux process guard
+and synthetic probe. Before receiving private information, the worker must close
+unrelated descriptors, scrub its environment, require verified tmpfs, deny direct
+network sockets and process inspection, and restrict filesystem access to browser
+binaries/libraries and task scratch. Only the inherited connected Unix channel
+reaches the existing broker. Chromium's own sandbox remains enabled. Kernel
+support, a real frame, broker traffic and teardown must pass on each actual
+image/configuration; neither the guard's presence nor an environment flag issues
+a positive readiness receipt. These new files are not production composition.
+
+The provider-managed probes below remain historical evidence of their specific
+failures. They do not establish the behavior of ordinary Cloud Run or Container
+Apps with this built-in process boundary.
+
+### Built-in process qualification — 2026-10-20 UTC
+
+| Target | Observed result | Qualification boundary |
+| --- | --- | --- |
+| Ordinary Cloud Run Gen 2 Job | The inherited syscall filter denied IPv4, IPv6, netlink, packet and VSOCK sockets. Landlock returned `ENOSYS` | The proposed Landlock filesystem mechanism is unavailable on this observed host. This is not a Chromium/frame or service qualification |
+| Ordinary Azure Container App, 1 vCPU / 2 GiB, min 0 / max 1 | Separate UID 10002, zero inherited authority, Landlock ABI 3, world-readable unrelated-file denial, all five network families, and the external Unix datagram negative control pass. Worker exit and scratch removal pass | These process protections work; they do not establish a working browser |
+| Azure Chromium prerequisite | The separate non-root `unshare(CLONE_NEWUSER)` check returns `EPERM` before our guard, on the ordinary application as well as Jobs. The earlier sandboxed Chromium attempt emitted no frame | Chromium's required sandbox remains unavailable. No weakened launch or readiness receipt is permitted |
+
+The Unix datagram negative control closes a reviewed bypass: denying `connect`
+alone does not prevent addressed Unix datagrams. New sockets/socketpairs admit
+stream types only, with standard nonblocking/close-on-exec flags. Probe output
+contains fixed outcomes and synthetic hashes, never owner information or keys.
+Source coverage also checks missing-guard refusal before Chromium starts.
+The guard's `/proc/self` filesystem rule identifies its installing process;
+descendant Chromium processes require their own qualified observation boundary.
+Do not broaden that rule to all of `/proc` or treat the guard-only result as
+proof of Chromium compatibility.
+
+The Azure probe used the same immutable Playwright component image recorded
+below with an exact synthetic source bundle; it did not install a pod release.
+The GCP job and identity and all four Azure resource groups were removed with
+absence readback. The initial GCP `actAs` propagation failures and delayed log
+readback remain recorded; the successful execution was not rerun to recover logs.
+Owner resources, images and browser/debug sessions were unchanged.
+
+Standard owner-only filesystem permissions are another possible mechanism, not
+an admitted fallback. The pod index now uses a private directory and restricts
+SQLite/WAL/SHM to 0600; the image applies umask 077 before imports. A complete
+private-file/mount inventory and browser-UID read tests remain necessary before
+that mechanism can replace Landlock. Chromium's independent sandbox requirement
+still applies on both clouds.
+
+### Historical provider-managed qualification
 
 The working slice starts at `fd4770c16e`, including frozen main `f47a4832dbc`
 and local ADK `42bb9823005`. The earlier controlled Chromium cookie/redirect,
@@ -117,7 +165,7 @@ flowchart TD
     Model["Native Gemini adapter; synthetic SDK verification"]
     Control["Foundation: exclusive control and exact authority ports"]
     Broker["Foundation: HTTPS broker and dispatch receipts"]
-    Cloud["Unverified: isolated Chromium launcher in owner cloud"]
+    Cloud["Unqualified: protected Chromium process in owner pod"]
     Web["Task-authorized public HTTPS origins"]
     Ledger["Existing action ledger; exact runtime review port"]
     Information["Local port: selected non-secret PKM exports"]
@@ -245,13 +293,13 @@ hops; Chromium Fetch interception corrected it. These results qualify the local
 adapter only. They do not prove native sandbox isolation, owner-cloud storage/IAM,
 real login/SSO compatibility, provider retention or live update acceptance.
 
-## Isolation gate
+## Historical provider-managed isolation probes
 
 ### GCP
 
-The native Cloud Run sandbox can read the launcher's filesystem. Install the
-browser-only launcher in a separate container with no private mounts, secrets,
-provider credentials or recovery material. Never enable sandbox direct egress.
+The earlier native Cloud Run sandbox design could read the launcher's filesystem.
+It required a browser-only launcher in a separate container with no private mounts,
+secrets, provider credentials or recovery material, with sandbox direct egress denied.
 The candidate task-only mailbox must be memory-backed, excluded from snapshots
 and artifacts, and erased on every terminal path before private use.
 

@@ -2,13 +2,13 @@
 
 ## Status
 
-**Implementation in progress — 2026-10-19; integration baseline `fd4770c16e`.**
+**Implementation in progress — 2026-10-19; integration baseline `6178eea2c0`.**
 Browser is the P0 capability. Both adapters remain disabled until
 their own acceptance passes. Preserve the infrastructure branch, owner resources,
 selected configuration and concurrent work. Broader release-plan changes follow
 actual Browser implementation evidence, not this proposed design.
 
-The approved execution order is native feasibility, Browser production composition
+The approved execution order is built-in process qualification, Browser production composition
 and owner control, all-family One scheduling, lifecycle corrections, then one
 combined dev candidate. Scheduled actions retain their existing confirmation
 requirements. Preserve economy scale-to-zero: no always-on wake service or artificial
@@ -29,11 +29,12 @@ Connect downloads/uploads to Files, selected information to consented PKM
 exports, and scheduled browser work to the existing occurrence and review
 authorities. Each capability keeps its own grants and exact confirmations.
 
-Assess the proposed integrated browser service against those boundaries before
-choosing its packaging. A single image or service is not proof that a browser
-cannot reach the agent's keys, workload credentials or private endpoints.
-The native-only execution gate below remains the current approved baseline;
-this product clarification neither enables execution nor proves a replacement.
+The owner approved Browser inside the existing pod service and image, replacing
+the earlier requirement to use provider-managed sandbox products. Use a separate
+unprivileged browser identity, Chromium's sandbox, verified filesystem/syscall
+restrictions and the existing private broker. The owner has final control over
+One and the browser. This packaging choice does not establish isolation or permit
+access to the agent's keys, workload identity or private endpoints.
 
 ## Visual Context
 
@@ -95,7 +96,7 @@ task session; do not fork ADK or add an independent orchestration engine.
 
 ## Headless work and responsive takeover
 
-Chromium stays headless in the selected owner's native cloud sandbox. A visible
+Chromium stays headless in the selected owner's pod service. A visible
 desktop is unnecessary. Opening the preview displays the same task and page.
 
 | Action | Required behavior |
@@ -119,16 +120,30 @@ no password export or automatic injection. CAPTCHA, rejected sign-in and unsuppo
 SSO need owner input. App closure may continue a bounded authorized task; waiting
 for owner input checkpoints and follows idle teardown rather than inferring forever.
 
-## Native execution prerequisites
+## Built-in execution qualification
+
+Prove the existing pod service can start separate unprivileged agent/browser
+processes. Install irreversible restrictions before browser imports, threads or
+private payloads. Pass only a connected Unix stream to the existing broker;
+remove inherited credentials and unrelated descriptors. Deny direct networking,
+process-memory access and unrelated filesystem reads; allow writes only to
+verified task tmpfs. Require the actual Chromium sandbox and a real frame.
+
+Use disposable synthetic resources on ordinary Cloud Run and Container Apps.
+Bind receipts to source, immutable image and configuration. Qualify each cloud
+independently and fail closed; there is no additional browser service, privileged
+browser or `--no-sandbox` retry. The production pod remains single-writer and
+single-worker, with its selected scale-to-zero configuration.
+
+### Historical provider-managed sandbox probes
 
 | Cloud | Recorded failure | Required next proof |
 | --- | --- | --- |
 | GCP | Native worker ran as root; required UID/GID changes returned `EPERM`; sandboxed Chromium produced no frame | Provider-supported non-root identity and Chromium namespace compatibility, then the existing native browser-only probe |
 | Azure | Workload identity, non-root/zero-capability execution and tmpfs pass. Chromium aborts on restricted namespaces; no frame. Network denial is unqualified | Provider-supported restricted namespace permissions, verified HTTP/TCP/UDP denial and the private memory-only broker bridge |
 
-Retain the owner's native sandbox requirement. No `--no-sandbox`, privileged
-process, alternate executor or execution in the private-agent container.
-The current [Google sandbox CLI](https://docs.cloud.google.com/run/docs/reference/sandbox-cli)
+These failures belong to the superseded provider-managed execution adapters.
+The [Google sandbox CLI](https://docs.cloud.google.com/run/docs/reference/sandbox-cli)
 documents no user selector; IAM grants or image `USER` alone cannot establish a
 working mechanism. The [Azure sandbox contract](https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-overview)
 requires Entra access; subscription administration does not prove data-plane access.
@@ -143,9 +158,9 @@ real owner information before the complete cloud boundary passes.
 
 | Stage | Deliverable | Exit proof |
 | --- | --- | --- |
-| 1. Native execution | Qualified non-root Chromium and private bridge on each cloud | Native frame, denied network, immutable source and teardown receipts |
+| 1. Built-in execution | Qualified separate-UID Chromium and private bridge in each owner cloud service | Real frame, process/filesystem/network negative controls, immutable source and teardown receipts |
 | 2. Native model contracts | Gemini verified; Azure model/toolset adapter and exact action mapping | Extend existing browser/Responses suites for images, instructions, call correlation, safety review, focused typing and unsupported-action negative controls |
-| 3. Cloud execution | Qualified launcher and private bridge per cloud | Native probes, actual Chromium, controlled network and teardown receipts |
+| 3. Cloud execution | Qualified in-pod launcher and private bridge per cloud | Actual Chromium, controlled network and teardown receipts |
 | 4. Runtime composition | Install `browser_task_runtime` with real ledger, exports, storage, model and update ports | Admitted start/reconnect/review/cancel; no fake readiness or duplicate task/effect |
 | 5. Owner experience | Headless work, responsive preview and exclusive takeover | Controlled mouse/touch/keyboard, viewport changes, login suppression and explicit fresh handback |
 | 6. Installed-image acceptance | Separate GCP and Azure evidence | Research, manual login, reviewed submission, scoped byte-exact Files download, Forget, update drain/recovery and idle wake |

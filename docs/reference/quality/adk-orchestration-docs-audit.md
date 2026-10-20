@@ -1,6 +1,6 @@
 # Private-pod readiness: CTO decision memo
 
-## Decision — 2026-10-19 UTC
+## Decision — 2026-10-20 UTC
 
 **Continue dev qualification. Hold application promotion.** Azure owner chat,
 Files and an exact-approved update have live receipts. Puppy has a streamed
@@ -33,7 +33,7 @@ Operating detail stays in the [dev pod runbook](../operations/dev-pod-first-ligh
 | Files | Dedicated ADK specialist and explorer. Personal and fresh Shared Move, stable identity, byte-exact download and Undo pass; earlier interrupted 4,195,328-byte transfer and selected analysis pass | Finish the retained synthetic deletion after the guarded correction serves; qualify fresh setup and current-image organization without disturbing owners |
 | Software updates | Personal Azure Dev 25 approved in Settings; same durable operation, recovery, installed digest, unchanged incarnation and exactly one Feed completion verified | Preserve exact tested predecessor compatibility; broader interruption and rollback acceptance stays distinct |
 | Puppy | Existing Hermes identity and grant; signed binding, sealed WSS, streamed Gemma 12B response and idle UI. Previous Stop, withdrawal, refusal and re-enable receipts retained | Keep the default and existing relay. No model sweep. Independent-network and cold-model percentiles are unclaimed; phone testing was waived |
-| Browser Use | GCP ADK model port, responsive preview/control, private checkpoints and encrypted remembered-session boundaries tested locally | **Disabled on both clouds.** Production launcher, review/dispatch/current-export adapters and runtime composition are missing; Azure also needs its native model adapter. GCP Chromium identity and Azure native execution/transport remain unqualified. No fallback |
+| Browser Use | ADK model port, responsive control and session boundaries tested locally. Built-in Azure process controls now pass on an ordinary application | **Disabled on both clouds.** Azure refuses Chromium's user namespace before our guard; GCP Gen 2 lacks the proposed Landlock mechanism. Production composition and Azure model adaptation also remain open. No sandbox weakening |
 | Background / continuity | Files queue delivery and preservation of originals previously demonstrated on both clouds; durable update and command/MCP recovery owners exist | Prove current-image connectors/recorded commands and supported continuation. General goals, Azure due-time delivery and scheduled browser work are not qualified |
 | Erasure / transitions | Earlier Shared erasure verified object/Firebase absence. The retained fixture now receives the intended safe 409 instead of 500 on deployed `28a0fa1091` | Its upload remains unverified; account/vault stay fenced and retained. No direct provider deletion, SQL override or automatic retry. Migration, external revocation and cloud cleanup still need receipts |
 | Security | Runtime/authority negative controls and the critical Capacitor patch have source evidence | Dependency alerts, including companion alerts, remain an independent clearance requirement; green CI does not close them |
@@ -47,6 +47,7 @@ Operating detail stays in the [dev pod runbook](../operations/dev-pod-first-ligh
 | Recovery | Both native workers recovered 4,195,328 Files bytes exactly from the admitted predecessor; temporary workers removed with absence readback | Azure authenticated replacement also retained encrypted chat, settings and key identity. This is not live rollback fault-injection proof |
 | Deployed application correction | `28a0fa109175`, executable evidence `21b82a583aa7`: upload receipt settles before post-send refusal; uncertain cancellation requires HTTP 499, exact-object/bucket proof and CAS; safe `409 FILES_ERASURE_WAITING_FOR_WRITES` preserves a confirmed-active session | Local core, exact-SHA hosted CI and governed deployment pass. Live product cleanup returns the safe 409, not completed erasure. Pod hardening remains source-qualified until a fresh image is released and approved |
 | Source-qualified pod voice guards | Pod source refuses Azure transcription/Live; private Live reporting and construction require the same known Vertex transport, never a shared key | 286 backend passes, 73 existing skips, 60 frontend passes; all three security regressions fail on old source. Typecheck, UI contracts, skills and isolated docs pass. These are local results, not an installed pod upgrade |
+| Built-in Browser prerequisite hardening | Private PKM index and SQLite sidecars, image umask, inherited Browser process guards and model-independent authenticated scheduled delivery | 35 focused PKM/Browser and 34 scheduling/Files checks pass; the three PKM security cases fail on original source. Six modules typecheck; architecture ratchet has zero new/worsened findings. These changes are not installed; scheduling remains Files-only |
 | Schema / rollback | Post-deploy: 65 migration rows, 964 applied, no failed migration or required-contract/checksum mismatch; history cleanup 249 deferred | Captured rollback: hub `00185-f9z` / source `e9482e4319ad`, frontend `00153-7ck` / source `991a06ccbc01`. Application rollback cannot recover destructively deleted history |
 | Hermes | Source `f082c71325`; profile and Gemma 12B default preserved | Focused relay checks and live response pass. Broad companion Python validation is incomplete and dependency alerts remain; this is not distribution clearance |
 
@@ -70,13 +71,17 @@ approved bridge diagnostic returned HTTP 200 in 1.046 s (3 input / 1 output toke
 Its temporary Job was removed. This proves bridge access only; it neither repairs
 nor authorizes replacing the selected owner-project connection.
 
-GCP's native sandbox probe ran as root and refused the required UID change
-(`EPERM`); Chromium never emitted a frame. Azure's group-scoped workload identity now passes native creation, restrictive
-policy/source readback and the non-root synthetic UID/GID 10002 check; the earlier
-personal-identity 403 is historical. The pinned Chromium probe aborts on namespace restrictions despite a non-root,
-zero-capability worker and tmpfs scratch. Network denial and the private bridge
-remain unqualified. Disposable resources were removed with absence readback. Both adapters stay
-closed. See [native Browser evidence](../../../consent-protocol/docs/reference/private-browser-runtime.md).
+The approved built-in Browser probe ran on ordinary cloud containers. Azure's
+application service passes UID 10002, filesystem denial, direct-socket and Unix
+datagram denial, worker exit and scratch cleanup. Its independent user-namespace
+check returns `EPERM` before our guard; sandboxed Chromium has emitted no frame.
+GCP Gen 2 passes inherited socket denial but returns `ENOSYS` for the proposed
+Landlock filesystem mechanism. Another filesystem mechanism requires qualification;
+none has been enabled. The disposable GCP job/identities and all four Azure groups
+were removed with absence readback. Owner pods and images are unchanged. Both
+clouds remain disabled; production composition and the private bridge remain open.
+Earlier provider-managed probes are historical. See the
+[Browser qualification record](../../../consent-protocol/docs/reference/private-browser-runtime.md#built-in-process-qualification--2026-10-20-utc).
 
 ### Local integration candidate — 2026-10-19 UTC
 
@@ -166,7 +171,7 @@ records CI consolidation, Shared continuity and changelog promotion. The complet
 candidate must pass the approved gates before a governed dev rollout; main, UAT,
 production and stable publication remain separate decisions.
 
-1. **P0 Engineering:** resolve native Browser gates, compose its real authority/runtime ports, then complete all-family scheduling. Both-cloud Browser completion remains blocked. The historical app release/readback is complete. A fresh pod image must remove the deliberate Dev 25 reuse pin, qualify recovery from the actual installed digest and use exact owner approval. Do not describe the reused image as the new source.
+1. **P0 Engineering:** qualify built-in Browser execution, compose its real authority/runtime ports, then complete all-family scheduling. Both-cloud Browser completion remains blocked by observed platform restrictions, not a missing administrator login. The historical app release/readback is complete. A fresh pod image must remove the deliberate Dev 25 reuse pin, qualify recovery from the actual installed digest and use exact owner approval. Do not describe the reused image as the new source.
 2. **Engineering + Operations:** finish retained synthetic erasure, GCP native model authority and recorded commands/connectors. Measure startup changes with three cold and three warm samples per cloud; do not claim a new percentile. Keep Browser disabled until each native gate passes.
 3. **Release owner:** decide dev readiness from actual journey receipts. Production still requires migration/release-channel graduation, IAM, erasure, recovery, hub capacity and independent UAT acceptance.
 

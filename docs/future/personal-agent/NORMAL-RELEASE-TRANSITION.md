@@ -164,9 +164,9 @@ currently becomes the generic cloud-gate refusal, and task discovery renders no
 tasks. Wire the explanation into the existing capability surface; an unused
 unavailable component or silently hidden task list does not satisfy this UX.
 
-## 5. Complete native Browser independently on GCP and Azure
+## 5. Complete built-in Browser independently on GCP and Azure
 
-**Current truth at `9d817ba5f3`, reviewed 2026-10-19: neither cloud is complete.**
+**Current truth at `6178eea2c0` plus the local guarded-process slice, reviewed 2026-10-20 UTC: neither cloud is complete.**
 The [browser runtime owner](../../../consent-protocol/docs/reference/private-browser-runtime.md)
 records local authority, preview, responsive controls and remembered-session tests.
 The product manifest still withholds discovery and disables exposure. Browser
@@ -179,23 +179,22 @@ complete qualified runtime composition rather than merely exposing a start butto
 
 | Cloud | Recorded blocker | Next bounded proof |
 | --- | --- | --- |
-| GCP | Native worker executes as root; fixed UID/GID change returned `EPERM`, so sandboxed Chromium cannot start under the required identity | Establish a provider-supported identity mechanism, then use the existing synthetic native probe for actual worker identity, sandboxed Chromium/frame, memory bridge and explicit egress-denial evidence |
-| Azure | Previous personal-identity execution returned 403; actual execution identity, Chromium and private transport remain unqualified | Use an owner-controlled Entra workload identity with the required scoped SandboxGroup permission; prove native execution before Chromium and broker qualification |
+| GCP | An ordinary Gen 2 Job passes inherited network-syscall denial but returns `ENOSYS` for the proposed Landlock filesystem guard | Qualify equivalent private-file protection and actual sandboxed Chromium in the pod service, then its broker and lifecycle |
+| Azure | The ordinary application passes separate-UID filesystem/network controls, including Unix datagram refusal. User namespace creation returns `EPERM` before our guard; sandboxed Chromium has produced no frame | Obtain an actually supported Chromium sandbox path in the same service; do not infer it from successful process protections |
 
-Google's current [sandbox CLI reference](https://docs.cloud.google.com/run/docs/reference/sandbox-cli)
-does not document a user-selection flag. This absence does not prove no supported
-mechanism exists; provider-backed identity evidence must resolve the actual failed
-probe. Microsoft explicitly requires Entra identity and the SandboxGroup Data Owner
-role in its [sandbox contract](https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-overview).
-Subscription admin access alone is not proof of data-plane admission. Recheck current
-provider behavior before each new probe rather than repeating old failed attempts.
+The owner approved Browser inside the existing pod image and service, replacing
+the requirement to use separate provider-managed sandbox products. Retain actual
+Chromium sandboxing and owner/pod secret protection. Earlier native-probe failures
+remain historical evidence; neither they nor the new process controls qualify a
+working browser. Recheck supported provider behavior before a changed-prerequisite
+probe rather than repeating unchanged failures.
 
 Implementation order, owned by the existing backend/browser and operations lanes:
 
-1. **Resolve native substrate:** qualify identity, sandboxed Chromium, a synthetic
+1. **Resolve built-in execution:** qualify identity, sandboxed Chromium, a synthetic
    frame, denied metadata/private/direct-public access and exact teardown separately
    per cloud. Use disposable resources, bounded runtime and no owner information.
-   Keep the native sandbox requirement; no privileged or unsandboxed fallback.
+   Keep Chromium's sandbox and verified process restrictions; no privileged or unsandboxed fallback.
 2. **Complete private transport and composition:** supply real cloud adapters behind
    the existing execution port, broker, task runtime and action authority. Azure's
    current probe explicitly cannot issue a private-bridge readiness receipt. Probe
