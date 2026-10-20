@@ -498,10 +498,10 @@ export function isIncomingLocationRequestActionable(
  * safety alert is never buried under routine activity. The share point stays
  * end-to-end encrypted; only the emergency intent (`shareKind`) is read here.
  */
-export function isActiveSmsEmergencyGrant(grant: OneLocationGrant, nowMs = Date.now()): boolean {
-  const expiresAt = grant.expiresAt ? Date.parse(grant.expiresAt) : NaN;
-  return grant.status === "active" && grant.shareKind === "sos" &&
-    (!Number.isFinite(expiresAt) || expiresAt > nowMs);
+export function isActiveSmsEmergencyGrant(grant: OneLocationGrant): boolean {
+  // Location projects expiry using server time. A handset clock must never
+  // remove a live emergency's map link or make it eligible for Clear.
+  return grant.status === "active" && grant.shareKind === "sos";
 }
 
 /**
@@ -1300,10 +1300,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
       payment.expiresAt !== null &&
       payment.expiresAt > Date.now(),
   );
-  const hasSmsDeadline = (receivedGrants ?? []).some(
-    (grant) => isActiveSmsEmergencyGrant(grant) && Number.isFinite(Date.parse(grant.expiresAt ?? "")),
-  );
-  const paymentClockNow = useFeedPaymentClock(hasLivePaymentDeadline || hasSmsDeadline);
+  const paymentClockNow = useFeedPaymentClock(hasLivePaymentDeadline);
   const activeProgress = useMemo(
     () => projectFeedDriveProgress(activeProgressItems ?? []),
     [activeProgressItems],
@@ -1435,6 +1432,14 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     Boolean(userId) && (inProgress.length > 0 || sentPayments.length > 0),
   );
 
+  // A visible live SOS earns a faster server status refresh, including expiry
+  // and revocation. Reuse the shared visible-only clock; never infer an ended
+  // emergency from this device's wall clock.
+  useFeedPendingConsentRefresh(
+    useCallback(() => locationRefresh({ force: true }), [locationRefresh]),
+    Boolean(userId) && (receivedGrants ?? []).some(isActiveSmsEmergencyGrant),
+  );
+
   // Revoked/expired SOS cards stay in the feed as a historical alert instead
   // of vanishing the moment the sender cancels — but there is nothing left to
   // act on, so only the Feed page's existing Clear button removes them (no
@@ -1454,11 +1459,11 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
         .filter(
           (grant) =>
             isSmsEmergencyGrant(grant) &&
-            !isActiveSmsEmergencyGrant(grant, paymentClockNow) &&
+            !isActiveSmsEmergencyGrant(grant) &&
             !isClearedSmsEmergency(grant),
         )
         .map((grant) => grant.id),
-    [receivedGrants, isClearedSmsEmergency, paymentClockNow],
+    [receivedGrants, isClearedSmsEmergency],
   );
 
   // Server first, so the clear holds on every device. If the server cannot
@@ -1944,14 +1949,14 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
         isSmsEmergencyGrant(grant) &&
         grant.recipientUserId === userId && grant.ownerUserId !== userId &&
         // A live SOS always shows; only an ended one can be cleared.
-        (isActiveSmsEmergencyGrant(grant, paymentClockNow) || !isClearedSmsEmergency(grant)),
+        (isActiveSmsEmergencyGrant(grant) || !isClearedSmsEmergency(grant)),
     );
     for (const grant of smsEmergencies) {
       const label = grant.ownerDisplayName?.trim() || "A contact";
-      const isLive = isActiveSmsEmergencyGrant(grant, paymentClockNow);
+      const isLive = isActiveSmsEmergencyGrant(grant);
       const sentAt = toDisplayTimestamp(grant.createdAt);
       const status = isLive ? "Active" : grant.status === "revoked" ? "Revoked"
-        : grant.status === "expired" || grant.status === "active" ? "Expired" : "Ended";
+        : grant.status === "expired" ? "Expired" : "Ended";
       items.push({
         id: `sms-emergency:${grant.id}`,
         icon: EmergencyRowIcon,

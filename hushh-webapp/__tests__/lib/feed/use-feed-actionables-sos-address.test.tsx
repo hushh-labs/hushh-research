@@ -5,6 +5,7 @@ import type { OneLocationGrant } from "@/lib/one-location/types";
 let receivedGrantsFixture: Array<Partial<OneLocationGrant>> = [];
 const mocks = vi.hoisted(() => ({
   clearSosCards: vi.fn(),
+  locationRefresh: vi.fn(async () => undefined),
   vaultOwnerToken: "test-vault-token" as string | null,
 }));
 
@@ -64,7 +65,7 @@ vi.mock("@/lib/cache/use-stale-resource", () => ({
           myRecipientKey: null,
         },
         loading: false,
-        refresh,
+        refresh: mocks.locationRefresh,
       };
     }
 
@@ -164,6 +165,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
   beforeEach(() => {
     window.localStorage.clear();
     mocks.vaultOwnerToken = "test-vault-token";
+    mocks.locationRefresh.mockClear();
     mocks.clearSosCards.mockReset();
     mocks.clearSosCards.mockImplementation(
       async ({ grantIds }: { grantIds: string[] }) => grantIds,
@@ -187,17 +189,6 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     window.localStorage.clear();
   });
 
-  it("expires a time-limited active SMS and keeps its original sent timestamp", async () => {
-    receivedGrantsFixture[0] = { ...receivedGrantsFixture[0], expiresAt: "2026-08-10T01:00:00.000Z" };
-    const { result } = renderHook(() => useFeedActionables());
-    await waitFor(() => expect(result.current.actionables.find((item) => item.id === "sms-emergency:sos-grant-1")?.description).toBe("Emergency SMS · Expired"));
-    const sms = result.current.actionables.find((item) => item.id === "sms-emergency:sos-grant-1")!;
-    expect(sms.emphasis).toBeUndefined();
-    expect(sms.href).toBeNull();
-    expect(sms.displayTimestamp).toBe(Date.parse("2026-08-10T00:00:00.000Z"));
-    expect(result.current.hasClearableSmsEmergencies).toBe(true);
-  });
-
   it("does not present self-addressed or another recipient's SMS as this recipient's alert", async () => {
     receivedGrantsFixture = [
       { ...receivedGrantsFixture[0], ownerUserId: "receiver-user" },
@@ -208,18 +199,33 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     expect(result.current.actionables.filter((item) => item.smsEmergency)).toEqual([]);
   });
 
-  it("moves an SMS out of Live at expiry while mounted and clears only ended incidents", async () => {
+  it("keeps a server-active SMS live despite an ahead device clock, until the server reports expiry", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-10T00:00:00Z"));
+    vi.setSystemTime(new Date("2026-08-11T00:00:00Z"));
     receivedGrantsFixture = [
       { ...receivedGrantsFixture[0], expiresAt: "2026-08-10T00:00:01Z" },
       { ...receivedGrantsFixture[0], id: "still-live", expiresAt: "2026-08-10T01:00:00Z" },
     ];
-    const { result } = renderHook(() => useFeedActionables());
+    const { result, rerender } = renderHook(() => useFeedActionables());
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(result.current.actionables.filter((item) => item.emphasis === "emergency")).toHaveLength(2);
-    await act(async () => { await vi.advanceTimersByTimeAsync(1_001); });
+    mocks.locationRefresh.mockClear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_050); });
+    expect(mocks.locationRefresh).toHaveBeenCalledWith({ force: true });
+    expect(emergencyCard(result.current)?.description).toBe("Emergency SMS · Active");
+    expect(emergencyCard(result.current)?.href).toBeTruthy();
+    expect(result.current.hasClearableSmsEmergencies).toBe(false);
+    await act(async () => { await result.current.clearSmsEmergencies(); });
+    expect(mocks.clearSosCards).not.toHaveBeenCalled();
+
+    // A refreshed response, rather than the handset clock, ends this alert.
+    receivedGrantsFixture = receivedGrantsFixture.map((grant, index) =>
+      index === 0 ? { ...grant, status: "expired" } : grant,
+    );
+    rerender();
     expect(result.current.actionables.find((item) => item.id === "sms-emergency:sos-grant-1")?.description).toBe("Emergency SMS · Expired");
+    expect(emergencyCard(result.current)?.href).toBeNull();
+    expect(emergencyCard(result.current)?.displayTimestamp).toBe(Date.parse("2026-08-10T00:00:00.000Z"));
     expect(result.current.actionables.find((item) => item.id === "sms-emergency:still-live")?.emphasis).toBe("emergency");
     await act(async () => { await result.current.clearSmsEmergencies(); });
     expect(mocks.clearSosCards).toHaveBeenCalledWith({ vaultOwnerToken: "test-vault-token", grantIds: ["sos-grant-1"] });

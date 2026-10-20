@@ -211,6 +211,10 @@ chronological Feed projection. Empty sections disappear:
 - **In progress:** Drive request search/sharing progress, grouped by request.
 - **History:** durable events grouped by Today, Yesterday and date.
 
+SMS liveness and Clear eligibility follow the server's received-grant status.
+While a live SOS is visible, Location status refreshes on the shared 10-second
+cadence, paused while hidden. Device clock skew cannot end a live emergency.
+
 The actionable and history mechanisms remain distinct:
 
 1. **"Needs you" (live + actionable).** A `useFeedActionables`
