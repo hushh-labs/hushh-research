@@ -17,35 +17,60 @@ Define environment policy for IAM changes without risking production behavior.
 | uat | Integration validation for actor flows and verification gates | Auto-deploy from the latest green `main` SHA |
 | production | Live user traffic | No IAM contract change without explicit promotion gate |
 
-## UAT Drive document processor default
+## UAT managed text processing policy
 
 `private_drive_text_uat` in `consent-protocol/config/managed-ai-runtime.json`
-records the administrator rollout policy, version, UUID and exact
-`drive_document_requests` scope. With the UAT Azure selector enabled, new
-semantic Drive requests for existing and new accounts without an owner approval
-row use this default. This is processor-use authority, never file access or an
-owner acceptance receipt. No `accepted_at` is synthesized and no accounts are
-bulk-enrolled in the owner-approval table.
+owns the versioned administrator policy for `one_text_chat_and_drive_requests`.
+All existing and new UAT accounts use Azure primary for managed One text chat
+and semantic Drive document-request planning and relevance assessment. Historical
+personal pilot receipts and model preferences do not select that processor.
+Their original acceptance/revocation timestamps remain unchanged; no receipt is
+created or marked accepted by this rollout. Production, BYOK, voice, native
+Google Search and separately opted-in public research keep their own contracts.
 
-Any existing disabled, revoked, stale or invalid owner row blocks the default.
-Unavailable reads fail closed. Owners can turn processing off through the
-existing authenticated approval endpoint; an absent row uses a null owner CAS
-generation, not the policy generation. Policy grants are separately scoped and
-versioned, and every send rechecks environment, selector, policy and owner state.
-Policy UUID/version changes invalidate outstanding policy grants. Previously
-sealed requests retain their original provider and authority basis.
+`runtime_providers/managed_text.py` owns policy resolution, central Azure binding,
+per-call fallback and safe provider telemetry. It reuses the existing UAT PWM
+Azure endpoint/deployment and workload identity. Each model call tries Azure
+first; one Gemini call is allowed only for an unobserved timeout, connection
+failure, quota response or transient 500/502/503/504. Configuration, authentication,
+permission/consent errors, schema failure and cancellation do not allow fallback.
+Any emitted model frame prevents replay. No Runner, tool, payment or grant is
+retried by provider failover. Chat allocates 10s + 8s before first output within its existing event
+budget; an observed stream has a bounded 60s completion window and remains
+subject to the caller deadline. Drive allocates 30s + 20s within its owning request deadlines. Existing
+bounded model correction budgets still apply. Policy generation and current
+invocation authority are checked again immediately before Azure send, after
+workload-token acquisition, and before fallback. This is processor authority,
+never file/request/payment authority.
 
-One chat, voice, BYOK, public research, production, prices and sharing consent
-are outside this default. The profile control and Privacy Policy describe this
-administrator default separately from optional owner approval. Disable the
-checked-in policy to roll back new enrollment and stop policy-authorized sends;
-do not rewrite receipts or frozen request bindings.
+Eligible pending ordinary semantic requests may transition through
+`DriveOwnerSearchStore.migrate_request_processor`. The connector-locked transaction
+reseals request and job bindings together with an encrypted administrator migration
+record. It preserves request revision, successful plan/digest, cursor, pending
+candidates, result envelopes, original assessment provenance and effect history.
+Current connector generation, Trusted/Allow or authenticated owner authority,
+lease state and request expiry are revalidated. Content reads and delivery still
+check source versions. An owner takeover fences the old lease before migration.
+Completed requests/searches are not migrated. A failed migration never silently
+selects Gemini under this UAT policy.
 
-Updated web clients show effective policy status and its opt-out separately from
-owner approval. Stale web bundles need a refresh. Older bundled native clients
-keep their owner-receipt UI until rebuilt; their legacy approval response is not
-an effective processor-status response. Their owner-bound opt-out API remains
-valid. This UAT rollout does not claim native UI acceptance or ship native binaries.
+The UAT deployment runs `scripts/recover_uat_text_requests.py --apply --limit=20`
+from an ephemeral job using the verified serving image and existing runtime
+identity/configuration. After successful same-image worker attestation, it inspects at most 200 live
+queued/failed or expired-lease requests and attempts at most 20 recoveries. It
+records eligible processor transitions, resumes eligible current-policy failed
+jobs through existing retry checks, and wakes the existing scheduler. Preserved
+paused-worker maintenance skips this operation. It makes no model, payment
+or permission calls itself; repeated transitions are no-ops. Preview is the script
+default. Larger backlogs require an explicitly reviewed follow-up, not an unbounded
+retry loop. Completed and expired history is excluded.
+
+Updated web clients show read-only processing information and Privacy Policy 2.9.
+Stale web/native clients retain old pilot wording until refreshed/rebuilt; their
+legacy receipt API does not represent the effective processing policy. No native
+binaries are shipped here. Disable/rollback the administrator policy only through
+an operational release; do not relabel receipts or silently rewrite bindings.
+
 
 ## Promotion Rules
 

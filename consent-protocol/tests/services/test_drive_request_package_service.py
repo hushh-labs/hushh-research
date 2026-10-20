@@ -624,7 +624,7 @@ def test_uat_policy_binding_is_explicit_frozen_and_invalidated_on_policy_change(
 
 @pytest.mark.parametrize(
     "provider,environment",
-    [("unknown", "uat"), ("azure_openai", "production"), ("azure_openai", "development")],
+    [("azure_openai", "production"), ("azure_openai", "development")],
 )
 def test_semantic_azure_selection_fails_closed_outside_trusted_uat(
     monkeypatch, provider, environment

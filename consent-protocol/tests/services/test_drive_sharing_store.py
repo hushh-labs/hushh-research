@@ -2022,53 +2022,19 @@ def test_semantic_search_creation_is_uat_only_and_sealed_policy_is_strict(monkey
     assert not semantic_search_request({**sealed, "request_flow": "older"})
 
 
-def test_azure_semantic_admission_requires_current_owner_approval(monkeypatch):
-    from hushh_mcp.services import drive_request_package_assessment as assessment
+def test_azure_semantic_admission_is_fixed_policy_without_owner_receipt_writes(monkeypatch):
+    from hushh_mcp.runtime_providers.managed_text import managed_text_binding
     from hushh_mcp.services.drive_sharing_store import _new_semantic_model_binding
 
     monkeypatch.setenv("ENVIRONMENT", "uat")
-    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
-    generation = str(uuid4())
-    selected = {"provider": "azure_openai", "approval_generation": generation}
-    resolver = Mock(return_value=selected)
-    monkeypatch.setattr(assessment, "semantic_request_model_binding", resolver)
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
     connection = Mock()
-    connection.execute.return_value.mappings.return_value.first.return_value = {
-        "generation": UUID(generation),
-        "enabled": True,
-        "disclosure_version": "one-private-azure-text-v1",
-        "accepted_at": datetime.now(UTC),
-        "revoked_at": None,
-    }
-    assert _new_semantic_model_binding(connection, owner_user_id="owner") == selected
-    resolver.assert_called_once_with(provider="azure_openai", approval_generation=generation)
-    query = str(connection.execute.call_args.args[0])
-    assert "revoked_at" in query and "enabled IS TRUE" not in query
-    assert connection.execute.call_args.args[1]["user"] == "owner"
-
-    # A genuinely missing row uses the administrator default, without writing
-    # an owner receipt. An explicit revocation below must not look like absence.
-    connection.execute.return_value.mappings.return_value.first.return_value = None
-    resolver.reset_mock()
-    assert _new_semantic_model_binding(connection, owner_user_id="owner") == selected
-    assert resolver.call_args.kwargs["authorization_basis"] == "uat_policy"
-    assert resolver.call_args.kwargs["approval_generation"] != generation
-
-    connection.execute.return_value.mappings.return_value.first.return_value = {
-        "generation": UUID(generation),
-        "enabled": False,
-        "disclosure_version": None,
-        "accepted_at": None,
-        "revoked_at": datetime.now(UTC),
-    }
-    resolver.reset_mock()
-    assert _new_semantic_model_binding(connection, owner_user_id="owner") is None
-    resolver.assert_not_called()
-
-    # An unavailable approval store must not be mistaken for an ordinary denial.
-    connection.execute.side_effect = RuntimeError("approval store unavailable")
-    with pytest.raises(RuntimeError, match="approval store unavailable"):
-        _new_semantic_model_binding(connection, owner_user_id="owner")
+    for legacy_selector in ("gemini", "azure_openai"):
+        monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", legacy_selector)
+        binding = _new_semantic_model_binding(connection, owner_user_id="arbitrary-owner")
+        assert binding == managed_text_binding()
+        assert binding["authorization_basis"] == "uat_policy"
+    connection.execute.assert_not_called()  # No fabricated acceptance or preference dependency.
 
 
 @pytest.mark.asyncio

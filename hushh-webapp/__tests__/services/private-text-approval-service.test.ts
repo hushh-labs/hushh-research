@@ -22,7 +22,7 @@ describe("private Azure text approval boundary", () => {
     const defaultPolicy = { provider: "azure_openai", disclosure_version: PRIVATE_TEXT_DISCLOSURE_VERSION,
       enabled: false, generation: null, accepted_at: null, revoked_at: null,
       processing_policy: { enabled: true, basis: "uat_policy", version: "uat-drive-azure-default-v1",
-        generation: "22222222-2222-4222-8222-222222222222", scope: "drive_document_requests" } };
+        generation: "22222222-2222-4222-8222-222222222222", scope: "one_text_chat_and_drive_requests" } };
     fetcher.mockResolvedValueOnce(reply(defaultPolicy));
     const status = await PrivateTextApprovalService.get("token");
     expect(status?.enabled).toBe(false);

@@ -14,7 +14,7 @@ import os
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from db.connection import get_pool
 
@@ -44,21 +44,10 @@ class PrivateAzureTextApproval:
 def private_drive_text_policy() -> dict[str, Any] | None:
     """The checked-in default grants processor use only, never file access."""
     _require_uat()
-    if (
-        os.getenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini").strip().lower()
-        != "azure_openai"
-    ):
-        return None
-    from hushh_mcp.managed_ai_config import load_private_drive_text_policy
+    from hushh_mcp.runtime_providers.managed_text import managed_text_policy
 
     try:
-        policy = load_private_drive_text_policy()
-        if not policy["enabled"]:
-            return None
-        return {
-            **policy,
-            "generation": str(uuid.uuid5(uuid.UUID(policy["policy_id"]), policy["version"])),
-        }
+        return managed_text_policy()
     except Exception:
         raise _unavailable() from None
 
@@ -66,21 +55,18 @@ def private_drive_text_policy() -> dict[str, Any] | None:
 def resolve_private_text_authority(
     row: Mapping[str, Any] | None, *, user_id: str, scope: str | None = None
 ) -> PrivateAzureTextApproval | None:
-    """Shared by async sends and transactional admission; no writes or fake receipts.
-
-    Only an absent row qualifies for the Drive default. Any stored refusal,
-    revocation or stale receipt retains its existing denial semantics.
-    """
+    """Admin policy is processor basis; legacy pilot receipts remain historical."""
     _require_uat()
     owner = _owner(user_id)
-    if _approved(row):
+    if scope in {DRIVE_DOCUMENT_REQUESTS_SCOPE, "one_text_chat"}:
+        policy = private_drive_text_policy()
+        if policy is not None:
+            return PrivateAzureTextApproval(
+                owner, policy["generation"], policy["version"], "uat_policy"
+            )
+    if row is not None and _approved(row):
         return PrivateAzureTextApproval(owner, str(row["generation"]))
-    if row is not None or scope != DRIVE_DOCUMENT_REQUESTS_SCOPE:
-        return None
-    policy = private_drive_text_policy()
-    if policy is None:
-        return None
-    return PrivateAzureTextApproval(owner, policy["generation"], policy["version"], "uat_policy")
+    return None
 
 
 def _owner(user_id: str) -> str:
@@ -137,13 +123,11 @@ def _public(
             row, user_id=user_id, scope=DRIVE_DOCUMENT_REQUESTS_SCOPE
         )
         result["processing_policy"] = {
-            "enabled": grant is not None
-            and os.getenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini").strip().lower()
-            == "azure_openai",
+            "enabled": grant is not None,
             "basis": grant.authorization_basis if grant else "disabled",
             "version": grant.disclosure_version if grant else None,
             "generation": grant.generation if grant else None,
-            "scope": DRIVE_DOCUMENT_REQUESTS_SCOPE,
+            "scope": "one_text_chat_and_drive_requests",
         }
     return result
 
@@ -153,10 +137,13 @@ async def _read(user_id: str) -> Mapping[str, Any] | None:
         async with asyncio.timeout(_STORE_TIMEOUT_SECONDS):
             pool = await get_pool()
             async with pool.acquire() as conn:
-                return await conn.fetchrow(
-                    """SELECT enabled, disclosure_version, generation, accepted_at, revoked_at
+                return cast(
+                    Mapping[str, Any] | None,
+                    await conn.fetchrow(
+                        """SELECT enabled, disclosure_version, generation, accepted_at, revoked_at
                     FROM one_private_text_processing_approvals WHERE user_id = $1""",
-                    user_id,
+                        user_id,
+                    ),
                 )
     except Exception:
         raise _unavailable() from None
@@ -253,7 +240,7 @@ async def require_private_azure_text_approval(
     """Fail closed before private Azure work; bind retries to this approval generation."""
     _require_uat()
     owner = _owner(user_id)
-    row = await _read(owner)
+    row = None if scope in {DRIVE_DOCUMENT_REQUESTS_SCOPE, "one_text_chat"} else await _read(owner)
     grant = resolve_private_text_authority(row, user_id=owner, scope=scope)
     if grant is None:
         raise PrivateTextApprovalError(

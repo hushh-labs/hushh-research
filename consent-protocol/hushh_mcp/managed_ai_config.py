@@ -72,7 +72,7 @@ def load_private_drive_text_policy(path: Path = PROFILE_PATH) -> dict:
         or type(value["enabled"]) is not bool
         or value["provider"] != "azure_openai"
         or value["authority_basis"] != "administrator_rollout"
-        or value["scope"] != "drive_document_requests"
+        or value["scope"] != "one_text_chat_and_drive_requests"
         or not isinstance(value["version"], str)
         or not re.fullmatch(r"[a-z0-9-]{1,64}", value["version"])
         or str(UUID(value["policy_id"])) != value["policy_id"]

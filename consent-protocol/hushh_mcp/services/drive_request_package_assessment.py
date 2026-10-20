@@ -43,8 +43,11 @@ def semantic_request_model_binding(
     """Resolve a provider descriptor without granting access to private content."""
     from hushh_mcp.managed_ai_config import load_pwm_policy, profile_hash
     from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+    from hushh_mcp.runtime_providers.managed_text import managed_text_binding, managed_text_policy
     from hushh_mcp.runtime_settings import managed_ai_settings
 
+    if provider is None and managed_text_policy() is not None:
+        return managed_text_binding()
     provider = (
         (
             os.environ.get("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini")
@@ -123,12 +126,6 @@ def validate_semantic_model_binding(binding: dict | None) -> dict[str, str | Non
         or (generation is not None and not isinstance(generation, str))
     ):
         raise ValueError("Invalid Documents model binding")
-    if (
-        provider == "azure_openai"
-        and os.environ.get("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini").strip().lower()
-        != "azure_openai"
-    ):
-        raise ValueError("Azure Documents pilot is disabled")
     expected = semantic_request_model_binding(
         provider=provider,
         approval_generation=generation,
@@ -175,6 +172,10 @@ async def private_semantic_request_model(
         else validate_semantic_model_binding(model_binding)
     )
     if binding["provider"] == "gemini":
+        from hushh_mcp.runtime_providers.managed_text import managed_text_policy
+
+        if managed_text_policy() is not None:
+            raise ValueError("Documents processor binding requires recorded UAT migration")
         return None
     from hushh_mcp.services.private_text_processing_approval_service import (
         private_azure_text_require_current,
@@ -197,6 +198,10 @@ async def private_semantic_request_model(
         await _require_request_current(require_current)
         await approval_current()
 
+    if binding.get("authorization_basis") == "uat_policy":
+        from hushh_mcp.runtime_providers.managed_text import build_managed_text_model
+
+        return build_managed_text_model(scope="drive_document_requests", require_current=current)
     return build_semantic_request_azure_model(require_current=current, model_binding=binding)
 
 

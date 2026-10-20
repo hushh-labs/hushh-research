@@ -354,6 +354,11 @@ class DriveRequestBulkService:
     ):
         if authority_mode not in {"owner", "trusted_auto", "agent_package"}:
             raise DriveSharingError("invalid_argument")
+        await self._owner()
+        migrate = getattr(self.search.store, "migrate_request_processor", None)
+        if callable(migrate) and authority_mode == "trusted_auto":
+            if await migrate(user_id=user_id, request_id=request_id):
+                await self.wake("suggestions")
         context = await self._context(user_id, request_id)
         if context.get("agentPackageRequired"):
             authority_mode = "agent_package"
@@ -402,6 +407,11 @@ class DriveRequestBulkService:
                 user_id=user_id, request_id=request_id
             )
             if takeover is not None:
+                if takeover["status"] == "queued" and callable(migrate):
+                    await migrate(user_id=user_id, request_id=request_id, authority_mode="owner")
+                    takeover = await self.search.store.by_client(
+                        user_id=user_id, client_request_id=request_id
+                    )
                 await self._owner()
                 if takeover["status"] == "queued":
                     await self.wake("suggestions")
@@ -426,6 +436,9 @@ class DriveRequestBulkService:
                 if changed:
                     await self.wake("v1" if context.get("v1LiveRequest") else "suggestions")
                 return recovered
+        if authority_mode == "owner" and callable(migrate):
+            if await migrate(user_id=user_id, request_id=request_id, authority_mode="owner"):
+                context = await self._context(user_id, request_id)
         route = None
         planner_fallback = None
         brain = None

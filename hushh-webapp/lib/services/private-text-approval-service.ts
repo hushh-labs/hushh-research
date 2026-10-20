@@ -16,7 +16,7 @@ const approvalSchema = z.object({
     basis: z.enum(["owner_approval", "uat_policy", "disabled"]),
     version: z.string().min(1).nullable(),
     generation: z.uuid().nullable(),
-    scope: z.literal("drive_document_requests"),
+    scope: z.literal("one_text_chat_and_drive_requests"),
   }).strict().refine(value => !value.enabled || (
     value.basis !== "disabled" && value.version !== null && value.generation !== null
   ), "Processing requires current authority").optional(),
