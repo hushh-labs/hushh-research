@@ -32,6 +32,7 @@ function growProps() {
           connectionId: "conn-1",
           userId: "asha-user",
           displayName: "Asha Meena",
+          connectedFromContacts: true,
         },
       ],
       pendingInvites: [],
@@ -64,11 +65,11 @@ describe("CircleGrowActions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Invite people/i }));
 
-    fireEvent.click(
-      await screen.findByRole("button", {
+    const choice = await screen.findByRole("button", {
         name: /Select Asha Meena for Circle invitation/i,
-      }),
-    );
+      });
+    expect(choice).toHaveAccessibleDescription("From your contacts");
+    fireEvent.click(choice);
     fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
 
     await waitFor(() =>

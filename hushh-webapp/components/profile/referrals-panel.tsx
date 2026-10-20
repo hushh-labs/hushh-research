@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ShareNetworkIcon as Share2 } from "@/components/icons";
+import { PROFILE_ICONS } from "@/components/icons/profile-icons";
 import {
   InviteFriendsProfileIcon,
   JoinRowIcon,
@@ -64,7 +65,18 @@ function ReferralsPanelContent({
   panePresentation?: boolean;
 }) {
   const { user } = useAuth();
-  const icons = {
+  const icons = panePresentation ? {
+    invite: PROFILE_ICONS.invite,
+    link: PROFILE_ICONS.referralLink,
+    join: PROFILE_ICONS.referralJoin,
+    agent: PROFILE_ICONS.referralAgent,
+    qualified: PROFILE_ICONS.referralQualified,
+    success: PROFILE_ICONS.referralSuccess,
+    people: PROFILE_ICONS.people,
+    progress: PROFILE_ICONS.referralProgress,
+    review: PROFILE_ICONS.review,
+    warning: PROFILE_ICONS.referralWarning,
+  } : {
     invite: InviteFriendsProfileIcon,
     link: LinkRowIcon,
     join: JoinRowIcon,

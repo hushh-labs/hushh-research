@@ -317,9 +317,11 @@ for (const width of [390, 1440])
       return width;
     });
     expect(readingMeasure).toBeGreaterThan(0);
+    const rootFontSize = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
+    expect(readingMeasure).toBeCloseTo(54 * rootFontSize, 0);
     const box = (await shell.boundingBox())!;
     if (width > readingMeasure) {
-      expect(box.width).toBeLessThanOrEqual(readingMeasure + 1);
+      expect(box.width).toBeCloseTo(readingMeasure, 0);
       expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThan(2);
     } else {
       expect(Math.abs(box.x)).toBeLessThan(1);

@@ -24,6 +24,10 @@ from hushh_mcp.services.drive_owner_allowed import (
     LEGACY_REQUEST_POLICY,
     automatic_recipient_current,
 )
+from hushh_mcp.services.drive_request_discovery import (
+    discovery_delivery,
+    discovery_evidence_matches,
+)
 from hushh_mcp.services.drive_request_review_policy import (
     autoshare_selection,
     checkpoint_requires_owner_review,
@@ -1470,6 +1474,10 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 frozen = self._checkpoint(row)
                 semantic = claimed.get("semantic_plan")
                 _semantic_binding_current(claimed)
+                if (private.get("semantic_search_policy_version") == 2) != discovery_delivery(
+                    claimed
+                ):
+                    raise DriveReadError("search_superseded")
                 if semantic_search_request(private) != (semantic is not None):
                     raise DriveReadError("search_superseded")
                 if semantic is not None:
@@ -1489,6 +1497,9 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                                     "semantic_purpose",
                                     "semantic_assessment_policy",
                                     "semantic_model_binding",
+                                    "discovery_delivery_policy",
+                                    "queries",
+                                    "requested_period",
                                 )
                             )
                         )
@@ -1623,6 +1634,10 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 checkpoint.get("semantic_plan") is not None
             ):
                 raise DriveReadError("search_superseded")
+            if saved_checkpoint.get("discovery_delivery_policy") != checkpoint.get(
+                "discovery_delivery_policy"
+            ):
+                raise DriveReadError("search_superseded")
             if saved_checkpoint.get("semantic_plan") is not None:
                 from hushh_mcp.services.drive_request_candidate_assessment import (
                     verified_evidence_matches,
@@ -1639,9 +1654,12 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                             "semantic_purpose",
                             "request_origin_id",
                             "request_revision",
+                            "queries",
+                            "requested_period",
                         )
                     )
                     or done
+                    and not discovery_delivery(saved_checkpoint)
                     and (
                         checkpoint.get("semantic_pending")
                         or checkpoint.get("semantic_discovery_done") is not True
@@ -1649,6 +1667,15 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 ):
                     raise DriveReadError("search_superseded")
                 for item in files:
+                    if discovery_delivery(saved_checkpoint):
+                        if not discovery_evidence_matches(
+                            item,
+                            user_id=job["user_id"],
+                            generation=job["generation"],
+                            checkpoint=saved_checkpoint,
+                        ):
+                            raise DriveReadError("provider_response_invalid")
+                        continue
                     if item.get("contentVerified") is not True or not verified_evidence_matches(
                         item.get("requestEvidence"),
                         user_id=job["user_id"],
@@ -1762,6 +1789,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                             ),
                         },
                     )
+            if discovery_delivery(saved_checkpoint):
+                checkpoint.setdefault("coverage_counts", {})["uniqueCandidateCount"] = count
             limited = limited or selection is None and count == MAX_RESULTS and not done
             is_incomplete = incomplete or row["incomplete_search"] or limited
             if selection is not None:

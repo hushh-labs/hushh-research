@@ -1701,6 +1701,10 @@ async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effe
     # Create an actual historical Gemini binding, not a current owner acceptance.
     real_policy = managed_text.managed_text_policy
     with monkeypatch.context() as historical:
+        # This is a historical assessed request, not the new query-match policy.
+        historical.setattr(
+            "hushh_mcp.services.drive_sharing_store.SEMANTIC_SEARCH_POLICY_VERSION", 1
+        )
         historical.setattr(managed_text, "managed_text_policy", lambda: None)
         created = await _request(sharing)
     request_id = created["requestId"]

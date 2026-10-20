@@ -480,6 +480,7 @@ export function SettingsRow({
   voicePurpose,
   ariaPressed,
   ariaLabel,
+  describeContent = false,
   testId = "settings-row",
 }: {
   asChild?: boolean;
@@ -525,10 +526,13 @@ export function SettingsRow({
    * what it does. Omit it and the title-derived name is used, unchanged.
    */
   ariaLabel?: string;
+  /** Read the visible description even when an explicit action name is supplied. */
+  describeContent?: boolean;
   testId?: string;
 }) {
   const presentation = useContext(SettingsPresentationContext);
   const contentId = useId();
+  const descriptionId = describeContent && description ? `${contentId}-description` : undefined;
   const resolvedDensity = density ?? presentation.density ?? "comfortable";
   const resolvedAsChild = asChild && isValidElement(children);
   const isInteractive =
@@ -676,6 +680,7 @@ export function SettingsRow({
             as="div"
             compact={resolvedDensity === "compact"}
             data-slot="settings-row-description"
+            id={descriptionId}
             className={
               textOverflow === "truncate"
                 ? "truncate whitespace-nowrap"
@@ -851,6 +856,7 @@ export function SettingsRow({
           disabled={disabled}
           aria-pressed={ariaPressed}
           aria-label={ariaLabel}
+          aria-describedby={descriptionId}
           aria-labelledby={ariaLabel ? undefined : contentId}
           className={rowActionClassName}
           {...voiceProps}
@@ -912,6 +918,7 @@ export function SettingsRow({
               disabled,
               "aria-pressed": ariaPressed,
               "aria-label": ariaLabel,
+              "aria-describedby": descriptionId,
             }
           : { "aria-disabled": disabled || undefined })}
         className={sharedClassName}

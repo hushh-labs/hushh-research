@@ -867,7 +867,7 @@ html.native-keyboard-inset.kb-open
   --page-top-start: 28px;
   --app-top-body-start-gap: var(--page-top-start);
   --page-top-local-offset: 0px;
-  --app-shell-reading: 720px;
+  --app-shell-reading: 54rem;
   --app-shell-agent: 55rem;
   --app-shell-standard: 90rem;
   --app-shell-expanded: 96rem;
@@ -10156,6 +10156,88 @@ html:has([data-profile-type-scale]),
   }
   .agent-chat-header [data-agent-chat-header-region="identity"] p {
     max-width: 256px;
+  }
+}
+/* The browser/recovery One surface retains its authored portrait identity.
+   Native coherent chrome keeps the compact reservation above. Controls keep
+   their shared 44px targets and stay anchored when switching agents. */
+.agent-chat-header[data-one-centered-header="true"] {
+  --one-header-artwork-size: 104px;
+  --one-header-body-height: 144px;
+  height: calc(var(--one-header-body-height) + var(--agent-chat-header-safe-top));
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-rows: 128px;
+}
+.agent-chat-header[data-one-centered-header="true"] > :first-child,
+.agent-chat-header[data-one-centered-header="true"] > :last-child {
+  align-self: start;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+  position: absolute;
+  grid-column: auto;
+  grid-row: auto;
+  top: calc(8px + var(--agent-chat-header-safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(256px, calc(100% - 32px));
+  flex-direction: column;
+  gap: 4px;
+  overflow: visible;
+  text-align: center;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
+  width: var(--one-header-artwork-size);
+  height: var(--one-header-artwork-size);
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+  justify-content: center;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 0 8px;
+  background: var(--app-secondary-surface);
+}
+@media (max-width: 959px) {
+  .agent-chat-header[data-agent-header-layout="portrait"] .agent-chat-surface-control { width: 94px; }
+  .agent-chat-header[data-agent-header-layout="portrait"] .agent-chat-surface-control [role="radio"] > svg { display: block; }
+  .agent-chat-header[data-agent-header-layout="portrait"] .agent-chat-surface-control [role="radio"] > span { display: none; }
+  .agent-chat-header[data-agent-header-layout="portrait"] .agent-chat-model-picker {
+    width: 44px;
+    min-width: 44px;
+    padding-inline: 0;
+    justify-content: center;
+  }
+  .agent-chat-header[data-agent-header-layout="portrait"] .agent-chat-model-picker > span,
+  .agent-chat-header[data-agent-header-layout="portrait"] .agent-chat-model-picker > svg:last-child { display: none; }
+}
+@media (max-width: 767px) {
+  .agent-chat-header[data-agent-header-layout="portrait"] {
+    --agent-chat-header-inline-gutter: 8px;
+  }
+  .agent-chat-header[data-agent-header-layout="portrait"] [data-agent-chat-header-region="actions"] { gap: 4px; }
+  .agent-chat-header[data-one-centered-header="true"] {
+    --one-header-artwork-size: clamp(52px, calc(100vw - 268px), 64px);
+    --one-header-body-height: calc(var(--one-header-artwork-size) + 44px);
+    grid-template-rows: calc(var(--one-header-artwork-size) + 28px);
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+    /* At 320px, move the portrait slightly left instead of shrinking targets. */
+    left: min(50%, calc(100% - var(--agent-chat-header-inline-gutter) - 146px - var(--one-header-artwork-size) / 2));
+    width: var(--one-header-artwork-size);
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
+    flex-shrink: 0;
+    width: max-content;
+    max-width: min(256px, calc(100vw - 64px));
+  }
+}
+.agent-chat-header[data-one-centered-header="true"]:has([data-agent-chat-header-region="identity"] p) {
+  height: calc(var(--one-header-body-height) + 20px + var(--agent-chat-header-safe-top));
+}
+@media (max-width: 359px) {
+  .agent-chat-header[data-agent-header-layout="portrait"]:not([data-one-centered-header]) [data-agent-chat-header-region="identity"] > div:last-child > div {
+    white-space: normal;
   }
 }
 /* Chat detail bodies inherit the same grouped material and type as Profile. */

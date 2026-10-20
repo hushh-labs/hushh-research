@@ -2015,7 +2015,8 @@ def test_semantic_search_creation_is_uat_only_and_sealed_policy_is_strict(monkey
     assert not semantic_search_enrollment_enabled()
     sealed = {"request_flow": "oct17_autoshare", "semantic_search_policy_version": 1}
     assert semantic_search_request(sealed)
-    for version in (None, True, "1", 0, 2):
+    assert semantic_search_request({**sealed, "semantic_search_policy_version": 2})
+    for version in (None, True, "1", 0, 3):
         assert not semantic_search_request({**sealed, "semantic_search_policy_version": version})
     assert not semantic_search_request({**sealed, "agent_package_required": True})
     assert not semantic_search_request({**sealed, "v1_live_request": True})
@@ -2055,7 +2056,7 @@ async def test_new_semantic_request_policy_survives_creation_kill_switch(sharing
     created = await request(sharing)
     identity = created["requestId"]
     _, private = stored_request(sharing, identity)
-    assert private["semantic_search_policy_version"] == 1
+    assert private["semantic_search_policy_version"] == 2
     assert private["semantic_model_binding"]["provider"] == "azure_openai"
     assert private["semantic_model_binding"]["authorization_basis"] == "uat_policy"
     with sharing.db.engine.connect() as connection:
