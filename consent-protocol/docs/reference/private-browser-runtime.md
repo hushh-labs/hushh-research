@@ -148,15 +148,60 @@ qualification image were also removed with absence readback. This frozen image
 predates the subsequent model-adapter and task-shutdown corrections, so its receipt
 qualifies the unchanged protected executor only.
 
-The current Azure native ADK model adapter independently completes a real two-call
-screenshot continuation through the existing workload identity: **2.022 s** for
-the computer call and **1.309 s** for interpreting a synthetic frame. Exact call
-identity, `store=false` and low reasoning are retained; no website action executes.
-The temporary Luna deployment was deleted and the owner's `one-chat` selection
-was unchanged. The rejected attempt exposed empty legacy safety fields in the
-continuation. Current serialization omits only empty fields; nonempty safety
-checks still require exact review. These separate executor/model receipts do not
-prove a composed owner task.
+The combined Azure component now completes public research with the actual native
+ADK runner, protected Chromium and the disposable VM's workload identity. Image
+`sha256:3e493b96cd8eb3cfdec3a05537b52194159bdb777abbd1fca08a31bc740cfe29`
+(source `70e154e956`, build `743bdebf-d731-45ff-8872-6263eb283f5d`) receives
+HTTP 200, returns two native screenshots to GPT-6 Luna and finishes in **13.723 s**,
+excluding cloud provisioning/startup. Four model calls use **10,745 input / 255
+output tokens**. Under the 1 vCPU / 2 GiB application limit, resize to 390 × 844,
+owner scrolling, observation suppression, fresh handback and joined stop pass
+without OOM. These control checks occur after component completion; active-task
+takeover and owner HTTP reconnect remain unverified. Synthetic exact grants do
+not replace hub-confirmed owner consent. Deallocation/start preserves the original
+encrypted identity, record and incarnation; start-to-running is **11.104 s**,
+not an end-to-end agent wake measurement. Resource group, deleted vault, temporary
+model deployment and scoped grant are verified absent. Existing owner selection
+and installations are unchanged.
+
+The first combined attempt's temporary Luna capacity of one returned HTTP 429
+before any model-directed action. The same image passed after qualifying capacity
+50 against observed quota 250; retain the failed receipt and do not retry effects
+to overcome model throttling. Azure Monitor still refuses the metrics query, so
+burst-credit and sustained CPU measurements remain unavailable. Earlier native
+adapter qualification separately fixed empty legacy safety fields; nonempty
+safety checks retain exact review.
+
+The combined GCP component now passes on ordinary Cloud Run Gen 2 with the exact
+attached qualification identity and explicitly approved dev Gemini bridge. Image
+`sha256:c0f3051e118fe018ad77d61657fabc2c81bc67d57ca742d6f3835c1b13907a10`
+(build `a41600b9-d3fa-4dde-b9de-793f0a251604`, source `70e154e956` plus the
+hash-recorded Gemini adapter) completes the same public research in **47.644 s**,
+excluding image pull and cloud startup. Three Gemini 3.8 Flash calls use **13,510
+input / 182 output tokens**; actual `navigate` and `take_screenshot` calls return
+HTTP 200 and two screenshot continuations. The 67,004-byte frame matches the Azure
+fixture. Resize to 390 × 844, owner scroll, observation suppression, fresh handback
+and joined stop pass after model completion. This synthetic-entrypoint test does
+not prove active-task HTTP takeover, real owner approval, reconnect or GCP cloud
+custody recovery. The private service and temporary repository grant are verified
+absent. Existing owner services and their selections remain unchanged.
+
+Two actual protocol defects were isolated before that pass: the selected native
+API rejects the optional excluded-action lists with HTTP 400, and Gemini 3.8 emits
+new native verbs missing from pinned ADK 2.9's legacy method table. The owned
+`GeminiBrowserToolset` extends the official toolset through its public request
+hook, mapping the supported native verbs onto the same consented `PodComputer`.
+Coordinates scale once through ADK; unsupported verbs, the incompatible native drag
+schema and malformed coordinates refuse before execution. `PodComputer.search`
+still refuses implicit destinations. Action, information, epoch and broker checks
+are unchanged. The nearest suite passes eight cases; removing native aliases or
+restoring the excluded list fails the corresponding regression checks. Four
+changed/owning modules typecheck and the architecture ratchet has zero regressions.
+
+The fresh 22:05 UTC dev ledger read confirms 966 is registered in the dev manifest
+but not applied; 965, 967 and 968 are also absent. Real owner Browser approval
+requires 966 through the governed deployment. Neither this component receipt nor
+a shaped qualification JSON may replace exact-release validation and owner approval.
 
 VM startup now checks a root-owned, bounded `/run/hussh-host/pod.json` against
 fixed-address Azure IMDS before resolving encrypted custody. The manifest binds

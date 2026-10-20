@@ -13,7 +13,6 @@ from google.adk.agents import LlmAgent
 from google.adk.models import Gemini
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.base_toolset import BaseToolset
-from google.adk.tools.computer_use.computer_use_toolset import ComputerUseToolset
 from google.genai import types
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,6 +26,7 @@ from hushh_mcp.runtime_providers.gemini_config import (
 from hushh_mcp.services.pod_browser.adk_computer import PodComputer
 from hushh_mcp.services.pod_browser.contracts import BrowserRefused
 from hushh_mcp.services.pod_browser.control import BrowserControl
+from hushh_mcp.services.pod_browser.gemini_computer import GeminiBrowserToolset, gemini_after_model
 from hushh_mcp.services.pod_browser.information import BrowserModelProcessing, InformationField
 from hushh_mcp.services.pod_browser.provider_review import gemini_before_tool
 from hushh_mcp.services.pod_browser.task_contracts import BrowserOwnerAccess, BrowserTaskRequest
@@ -165,6 +165,7 @@ def build_computer_use_agent(
         before_tool_callback=gemini_before_tool(control, processing)
         if isinstance(model, Gemini)
         else None,
+        after_model_callback=gemini_after_model(control) if isinstance(model, Gemini) else None,
         generate_content_config=generation,
     )
 
@@ -182,14 +183,13 @@ def _browser_tools_and_generation(
     tools: list[Callable[..., Any] | BaseTool | BaseToolset]
     if isinstance(model, Gemini):
         tools = [
-            ComputerUseToolset(
+            GeminiBrowserToolset(
                 computer=PodComputer(
                     control,
                     processing_check=processing.require,
                     allowed_origins=frozenset(processing.allowed_origins),
                     close_control=close_control,
                 ),
-                excluded_predefined_functions=["initialize", "search"],
             )
         ]
         generation = build_generate_content_config(

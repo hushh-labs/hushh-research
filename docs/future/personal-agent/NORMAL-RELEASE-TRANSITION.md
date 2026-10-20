@@ -2,14 +2,18 @@
 
 **Status:** local integration plan, refreshed 2026-10-20. Main `f47a4832dbc` and
 frozen ADK `42bb9823005` are integrated through `b14bc29901`; the current local
-checkpoint is `5f871ee7d4`. Browser composition, Shared continuity, exact-attempt
+checkpoint is `70e154e956` plus the bounded Gemini native-action repair. Browser composition, Shared continuity, exact-attempt
 release acceptance and VM identity/recovery evidence are committed locally.
 Browser approval recovery and the bounded VM power port now have focused local
 proof. Durable power-cycle composition and a disposable normal-entrypoint VM now
 have authenticated drain, same-key restart and cleanup evidence. Source adds a
 fixed image-only host update, encrypted Browser terminal-result recovery and an
 explicit owner retention review. Customer VM update/erasure/idle composition and
-installed Browser acceptance remain open. GCP dev acceptance uses the explicitly approved Gemini
+installed Browser acceptance remain open. Combined protected Chromium/native ADK
+public research now passes on GCP and the disposable Azure VM; active-task owner
+approval, takeover and reconnect remain distinct. Dev migration 966 is registered
+but absent from the 20 October 22:05 UTC ledger read, so it must serve before
+real Browser approval. GCP dev acceptance uses the explicitly approved Gemini
 bridge: the owner confirms the organizational AI restriction is why it exists.
 Native project Vertex is not a dev release prerequisite; additional IAM grants
 are not a supported fix for the recorded provider dunning denial.
