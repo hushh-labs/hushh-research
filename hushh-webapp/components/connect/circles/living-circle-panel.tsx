@@ -13,7 +13,7 @@ import { TaskSurfaceToolbar, TaskSurfaceBody, TaskSurfaceFooter } from "@/lib/mo
 import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
 import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { circleInviteSelectionLimit } from "@/lib/one-location/circle-invite-contract";
-import { connectPersonName } from "@/lib/connections/person-label";
+import { connectPersonName, connectPersonSelectionDetail } from "@/lib/connections/person-label";
 import type {
   OneLocationCircleEligibleConnection,
   OneLocationCircleMember,
@@ -137,7 +137,7 @@ export function LivingCirclePanel({
           : remainingCapacity <= 0 ? <p className="py-4 text-sm text-muted-foreground">This circle is full.</p>
           : visiblePeople.length ? visiblePeople.map(person => <SheetPersonRow key={person.userId}
             avatar={<ConnectionPersonAvatar size="compact" className="!size-9" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} />}
-            name={connectPersonName(person)} checked={selectedUserIds.has(person.userId)}
+            name={connectPersonName(person)} detail={connectPersonSelectionDetail(person)} checked={selectedUserIds.has(person.userId)}
             onCheckedChange={() => onAdd(person.userId)}
             disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)}
             label={`Add ${connectPersonName(person)} to ${circleName}`} />)
@@ -328,7 +328,7 @@ export function LivingCirclePanel({
                 <p data-profile-role="description" className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">This circle is full.</p>
               ) : shownCandidates.length ? (
                 <div className="mt-4 grid grid-cols-1 gap-2 min-[430px]:grid-cols-2">
-                  {shownCandidates.map((person) => (
+                  {shownCandidates.map((person, index) => (
                     <div
                       key={person.userId}
                       draggable={!focusOnAdding && !submitting && (selectedUserIds.has(person.userId) || selectedUserIds.size < selectionLimit)}
@@ -339,7 +339,10 @@ export function LivingCirclePanel({
                       className="flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-2.5 py-2 shadow-[0_2px_12px_-10px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow] duration-200 hover:border-[color:var(--app-accent)] "
                     >
                       <ConnectionPersonAvatar size="compact" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} />
-                      <span data-profile-role="name" className="min-w-0 flex-1 truncate text-[color:var(--app-primary-label)]" title={connectPersonName(person)}>{connectPersonName(person)}</span>
+                      <span className="min-w-0 flex-1">
+                        <span data-profile-role="name" className="block truncate text-[color:var(--app-primary-label)]" title={connectPersonName(person)}>{connectPersonName(person)}</span>
+                        <span id={`${peopleViewId}-${index}-detail`} className="block text-xs text-[color:var(--app-secondary-label)]">{connectPersonSelectionDetail(person)}</span>
+                      </span>
                       <button
                         type="button"
                         className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full px-2 text-sm font-semibold text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-50"
@@ -347,6 +350,7 @@ export function LivingCirclePanel({
                         disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)}
                         aria-pressed={selectedUserIds.has(person.userId)}
                         aria-label={`Add ${connectPersonName(person)} to ${circleName}`}
+                        aria-describedby={`${peopleViewId}-${index}-detail`}
                       >
                         {selectedUserIds.has(person.userId) ? <Check aria-hidden="true" className="size-4" /> : <Plus aria-hidden="true" className="size-4" />}
                         {selectedUserIds.has(person.userId) ? "Selected" : "Add"}

@@ -16,7 +16,11 @@ import {
   ProfileSecondaryRefreshIcon, ProfileSecondaryInboxIcon,
   ProfileSecondaryLocationIcon, ProfileSecondaryVisibilityIcon,
 } from "../profile/profile-secondary-icons";
-import { ProfileInnerPeopleIcon, ProfileInnerReviewIcon } from "../profile/profile-inner-icons";
+import {
+  ProfileInnerPeopleIcon, ProfileInnerReviewIcon, ProfileInnerLinkIcon,
+  ProfileInnerJoinIcon, ProfileInnerAgentIcon, ProfileInnerQualifiedIcon,
+  ProfileInnerSuccessIcon, ProfileInnerProgressIcon, ProfileInnerWarningIcon,
+} from "../profile/profile-inner-icons";
 
 /** Approved Profile artwork, shared by React rows and generated native templates.
  * Keep the original geometry; capability/launcher palettes are independent. */
@@ -38,4 +42,8 @@ export const PROFILE_ICONS = {
   review: ProfileInnerReviewIcon,
   appearance: ProfilePreferenceAppearanceIcon, accent: ProfilePreferenceAccentIcon,
   voice: ProfilePreferenceVoiceIcon,
+  referralLink: ProfileInnerLinkIcon, referralJoin: ProfileInnerJoinIcon,
+  referralAgent: ProfileInnerAgentIcon, referralQualified: ProfileInnerQualifiedIcon,
+  referralSuccess: ProfileInnerSuccessIcon, referralProgress: ProfileInnerProgressIcon,
+  referralWarning: ProfileInnerWarningIcon,
 } as const;

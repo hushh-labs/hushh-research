@@ -50,9 +50,9 @@ const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 const LAST_UPDATED = "2026-10-16";
 const LAST_UPDATED_LABEL = "October 16, 2026";
 const VERSION = "2.4";
-const PRIVACY_LAST_UPDATED = "2026-10-20";
-const PRIVACY_LAST_UPDATED_LABEL = "October 20, 2026";
-const PRIVACY_VERSION = "2.9";
+const PRIVACY_LAST_UPDATED = "2026-10-21";
+const PRIVACY_LAST_UPDATED_LABEL = "October 21, 2026";
+const PRIVACY_VERSION = "2.10";
 
 const p = (...text: LegalInline[]): LegalBlock => ({ kind: "p", text });
 const h = (text: string): LegalBlock => ({ kind: "h", text });
@@ -96,7 +96,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "Your chat history is stored encrypted with a key derived from your vault key, which your device sends only while One is working on your request.",
         "Services you connect support your requests and their background features. With full Google Drive access, Agent One prepares private document packets by default; you can pause preparation in Connectors. Google information is handled under Google’s Limited Use requirements.",
         "Where available in UAT, Personal World Model public research with Microsoft Azure AI and Bing requires a separate choice. Bing search terms may include your name and verified email or phone.",
-        "In UAT, Azure is the server-managed primary provider for One text chat and document-request planning and relevance assessment for all accounts. Gemini is a bounded fallback for classified temporary model-service failures. This administrator policy does not create personal approval records.",
+        "In UAT, Azure is the server-managed primary provider for One text chat and document-request planning for all accounts. New requests deliver Google Drive search matches without per-file content reading or relevance assessment; older requests retain their original processing policy. Gemini is a bounded fallback for classified temporary model-service failures. This administrator policy does not create personal approval records.",
         "You decide what to share with other people and businesses, for how long, and you can revoke access at any time.",
         "We do not sell your information, and we do not show you ads.",
         "You can delete your account in the app at any time.",
@@ -354,7 +354,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "We do not sell your information or share it for advertising. We share it only in these cases:",
       ),
       list(
-        "Service providers that run One for us, under contracts that limit their use of it: Google Cloud (hosting, database, logging, and Vertex AI, including Gemini and Google Search), Microsoft Azure AI (managed One text chat and document-request planning and relevance assessment under the UAT administrator policy, and Personal World Model research you turn on in UAT), Google Firebase (sign-in, text-message codes, notifications, and app analytics), Google Analytics and Google Tag Manager, Google Maps Platform (places, addresses, and travel times), Apple (Sign in with Apple, notifications, Siri, and Apple Wallet cards you choose to add), and Plaid (bank connections you make). Email we send for you or to you, such as emergency alerts, goes through our own mail service using Google.",
+        "Service providers that run One for us, under contracts that limit their use of it: Google Cloud (hosting, database, logging, and Vertex AI, including Gemini and Google Search), Microsoft Azure AI (managed One text chat and document-request planning, plus older document-assessment flows under the UAT administrator policy, and Personal World Model research you turn on in UAT), Google Firebase (sign-in, text-message codes, notifications, and app analytics), Google Analytics and Google Tag Manager, Google Maps Platform (places, addresses, and travel times), Apple (Sign in with Apple, notifications, Siri, and Apple Wallet cards you choose to add), and Plaid (bank connections you make). Email we send for you or to you, such as emergency alerts, goes through our own mail service using Google.",
         "Bing web search, only when you turn on UAT Personal World Model research. It is governed by Microsoft's separate terms and Privacy Statement; the Azure Data Protection Addendum does not apply to Bing search data.",
         "Market-information providers, which receive only the company or ticker you ask Kai about, as described above.",
         "Providers you choose. When you connect a service, add your own tool, or use your own model key, information goes to that provider to do what you asked.",

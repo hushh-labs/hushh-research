@@ -4,7 +4,7 @@ import { Check } from "@/components/icons";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import type { OneLocationCircleEligibleConnection } from "@/lib/one-location/types";
-import { connectPersonName } from "@/lib/connections/person-label";
+import { connectPersonName, connectPersonSelectionDetail } from "@/lib/connections/person-label";
 import { cn } from "@/lib/utils";
 
 /** Shared presentation; each Circle flow retains its eligibility and mutation owner. */
@@ -37,8 +37,10 @@ export function CirclePersonSelectionRow({
         />
       }
       title={name}
+      description={connectPersonSelectionDetail(person)}
       ariaPressed={selected}
       ariaLabel={ariaLabel}
+      describeContent
       disabled={disabled}
       trailing={
         <span
