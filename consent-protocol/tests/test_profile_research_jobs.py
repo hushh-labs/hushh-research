@@ -190,18 +190,28 @@ async def test_low_confidence_is_reused_without_research_but_still_rechecks_owne
     assert (await restored.status("owner", "fixture-token"))["status"] == "disabled"
 
 
-@pytest.mark.parametrize("terminal", ["offered", "low_confidence"])
+@pytest.mark.parametrize(
+    "terminal", ["offered", "low_confidence", "exhausted", "throttled_exhausted"]
+)
 async def test_explicit_completed_refresh_gets_new_discovery_but_retains_hourly_limit(terminal):
     clock = [10_000.0]
-    offer = AsyncMock(return_value={**RESULT, "status": terminal})
+    exhausted = terminal.endswith("exhausted")
+    status = "unavailable" if exhausted else terminal
+    result = {**RESULT, "status": status}
+    if exhausted:
+        result["research_exhausted"] = True
+    if terminal == "throttled_exhausted":
+        result["reason"] = "provider_throttled"
+    offer = AsyncMock(return_value=result)
     instance = manager(offer=offer, clock=lambda: clock[0])
+    instance.progressive = exhausted
     await instance.start("owner", "fixture-token")
     await settle(instance)
     prior = copy.deepcopy(instance.store.rows["owner"])
     prior["attempted_combinations"] = [1, 2]
     prior["work"] = {"old_evidence": True}
     instance.store.rows["owner"] = copy.deepcopy(prior)
-    assert (await instance.start("owner", "fixture-token"))["status"] == terminal
+    assert (await instance.start("owner", "fixture-token"))["status"] == status
     assert offer.await_count == 1
 
     clock[0] += 60
@@ -1498,6 +1508,11 @@ async def test_failure_cooldown_is_fifteen_minutes_for_provider_refusals(monkeyp
         assert result["status"] == "unavailable"
         assert result["retry_after_s"] == cooldown - 30
         assert result.get("reason") == ("provider_unavailable" if rejected else None)
+    before = copy.deepcopy(instance.store.rows["owner"])
+    explicit = await instance.start("owner", "fixture-token", refresh_completed=True)
+    assert explicit["status"] == "unavailable"
+    assert explicit["retry_after_s"] == cooldown - 30
+    assert instance.store.rows["owner"] == before
     assert instance.offer.await_count == 1 if not rejected else len(calls) == 1
     now[0] += cooldown - 30
     assert (await instance.start("owner", "fixture-token"))["status"] == "pending"

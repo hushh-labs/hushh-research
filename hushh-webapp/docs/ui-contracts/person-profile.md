@@ -1,7 +1,7 @@
 # Person Profile UI Contract
 
-Status: current source-backed contract, checked against revision
-`3ff2620b48567177dce5c667e77a70203e4a8c35` on 20 October 2026.
+Status: current source-backed contract, updated for Profile v16 on 21 October
+2026, based on `f64c890498dd4aa9bd1fe8bb3ac35c6445948f47`.
 Owner: frontend design system and the existing consent/wallet feature owners.
 Classification: `canonical`, package-local. This is **another person's profile**
 opened from Connect, not the signed-in person's [Profile settings](./profile.md).
@@ -20,8 +20,8 @@ flowchart TD
   hero --> relationship["Connect / Cancel request / Remove connection"]
   hero --> files["Request files → dates, quote, Google identity → Send"]
   hero --> drive["Ask about files → question → Send"]
-  hero --> question["Request scope → question intake → Send"]
-  hero --> cards["Request cards → unlock / review → Send"]
+  hero --> question["Ask a question → question intake → Send"]
+  hero --> cards["Request a card → unlock / review → Send"]
   hero --> manage["Manage access → Consent Center"]
   page --> shared["Shared with you → unlock / decrypt / reveal / copy"]
   page --> catalog["Available to request → categories / search / selection"]
@@ -76,38 +76,29 @@ only when the capture scale otherwise equals one pixel per unzoomed CSS pixel.
 
 ### Width formula and breakpoints
 
-The page uses `AppPageShell width="agent" fitContent`: **880px outer cap**.
-This differs from Profile settings' 720px shell. The hero and lower sections
-fill the shell's inner content width. Request/Share and the action cards use
-a separate **560px maximum** centered inside the hero.
-
-Let `W` be available route width, `g` the shell gutter, and `p` hero padding:
+The page retains `AppPageShell width="agent" fitContent`: **880px outer cap**
+and the shared gutters. The artifact navbar and extra page padding are not
+adopted. Hero and lower sections fill the shell's inner width.
 
 ```text
-shell S        = min(W, 880)
-section C      = S - 2g
-hero inner I   = C - 2p
-actions A      = min(560, I)
-action column  = (A - 12) / 2
+shell S        = min(available route width, 880)
+section C      = S - 2 × shell gutter
+hero inner I   = C - 2px border - 2 × hero body padding
+task column    = (I - (columns - 1) × gap) / columns
 ```
 
-| CSS viewport / available width | Shell | Gutter each | Hero / sections | Hero inner | Actions | Each action column |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 320 | 320 | 16 | 288 | 248 | 248 | 118 |
-| 375 | 375 | 16 | 343 | 303 | 303 | 145.5 |
-| 393 | 393 | 16 | 361 | 321 | 321 | 154.5 |
-| 430 | 430 | 16 | 398 | 358 | 358 | 173 |
-| 768 | 768 | 20 | 728 | 664 | 560 | 274 |
-| 1280 | 880 | 28 | 824 | 760 | 560 | 274 |
-| 1440 | 880 | 28 | 824 | 760 | 560 | 274 |
+| CSS viewport | Gutter | Body padding | Tasks | Gap | Primary actions |
+| --- | --- | --- | --- | --- | --- |
+| Below 640px | 16 | 16 | 2 columns | 8 | Equal columns; Share alone fills row |
+| 640–767 | 20 | 16 | 2 columns | 8 | Equal columns; Share alone fills row |
+| 768–1023 | 20 | 24 | 2 columns | 9 | Intrinsic widths below identity |
+| 1024–1279 | 24 | 24 | 4 columns | 9 | Inline beside identity |
+| From 1280px | 28 | 24 | 4 columns | 9 | Inline beside identity |
 
-| Breakpoint | What changes |
-| --- | --- |
-| Below 640px | Gutter 16; nested leaf trailing content stacks below the primary row; file-request form uses bottom presentation. The hero action grid still has two columns. |
-| At 640px | Gutter 20; nested leaf trailing content aligns inline; normal dialogs gain their desktop width caps. |
-| At 768px | Page gap 24→28; hero padding `16px 20px`→`20px 32px`; avatar 64→72; primary action minimum 48→52; empty card minimum 96→104. |
-| At 1024px | Gutter 24. No extra profile column or desktop side panel is introduced. |
-| At 1280px | Gutter 28. The 880px shell remains centered. |
+The task grid has no separate 560px cap. Missing gated controls compact its
+normal grid placement. No fixed empty slots or extra desktop panel is added.
+The catalog's existing below 640px trailing-content behavior and each request
+form's own presentation breakpoints remain unchanged.
 
 Sources: [AppPageShell](../../components/app-ui/app-page-shell.tsx),
 [profile CSS](../../components/connections/person-profile-page.module.css),
@@ -116,35 +107,29 @@ Sources: [AppPageShell](../../components/app-ui/app-page-shell.tsx),
 
 ### Heights, spacing, corners, and touch targets
 
-| Element | Current source-derived geometry |
+| Element | Current geometry, phone / from 768px unless specified |
 | --- | --- |
-| Whole page | Content height, not a fixed viewport percentage. `fitContent` removes shell stretching; page bottom padding 32 plus shell bottom padding 24. Shell chrome reserves its own space. |
-| Page sections | Vertical gap 24; 28 from 768. Section heading bottom padding 12. Shared section spacing 16; Available/History spacing 12. |
-| Hero | Full section width; radius 18; no border; padding above. Height changes with name wrapping, contact fields, relationship, and visible feature controls. |
-| Avatar | 64×64, then 72×72 from 768. Verified badge 19×19 with 17px glyph; bottom/right −2. Initials 28px/600. |
-| Name and metadata | Name top margin 12; role 6; relationship pill 10; email 8; phone 4. Email/phone break long values. |
-| Relationship pill | Border 1, padding `2px 10px`, 18px line box; nominal height 24. |
-| Action cluster | Top margin 20; two equal columns, 12px gaps, maximum width 560. No single-column phone mode. |
-| Request / Share | Minimum height 48, then 52 from 768; height auto; padding 12; radius 20. Share border 1. |
-| Four feature cards | Two columns/two rows when all exist; padding 16; border 1; radius 20; icon 20; arrow 16. Inner rows `20px auto`, row gap 12, column gap 8. A single-line card derives to about 88px high. |
-| Manage access | Full grid span; top border 1; no corner radius; padding `16px 4px 4px`; minimum 48/52. |
-| Connect / Cancel request | Full grid span with a centered intrinsic-width control; minimum 44; margin-top 4; padding `10px 20px`. |
-| Profile options trigger | Local width/height 44, but stock Button minimum height 50 remains: source predicts 44×50. |
-| Empty shared/history surface | Minimum 96; 104 from 768; padding 16; round icon well 44 with 20px glyph. Content can enlarge it. |
-| Nested category row | Minimum 48; padding `8px 16px`; gap 10; category icon 24; chevron 16; compact group radius 16. |
-| Search | Height 44, capsule radius; search icon 16, left inset 12, text left padding 36; filter gap 12. |
-| Category filter trigger | Requested 44×44 but stock Button minimum height 50 remains. |
-| History | Populated card padding 16, divided content-driven rows. Loaded details scroll internally after maximum height 160. |
-| Review request | Full section width; local min-height 48 but stock fixed height 50 remains; compact radius 16. Disabled opacity is explicitly 1. |
-| Scroll-to-catalog offset | `var(--top-shell-height, 80px) + 24px`; this is a scroll margin, not a fixed hero or viewport height. |
+| Whole page | Content height; inner bottom padding 24 / 32 plus existing shell reservation. |
+| Page sections | Gap 22 / 26; section heading-to-content gap 10 / 12. |
+| Hero | Radius 20 / 24, border 1, opaque shared surface; content-driven height. |
+| Cover | Height 94 / 120; top corners 19 / 23; separate phone/wide SVG canvases preserve shapes. |
+| Hero body | Padding `0 16px 6px` / `0 24px 10px`. |
+| Avatar | 64 / 76 square, border 4 / 5, overlaps cover 24 / 30. Canonical verified badge/photo/referrer/fallback retained; initials 22 / 24px, weight 600. |
+| Identity | Left aligned; name/actions margin top 10 / 13, bottom 16 / 22. Below 1024px actions follow identity with a 14px gap. |
+| Request / Share / profile options | 44px targets; primary gap 8. Share border 1; shared primary button grammar. |
+| Task cards | Minimum 60, border 1, radius 14; icon 17 inside 28×30 / 30×32 well. Gap 8 / 9; trailing chevron 12 hidden on phone. Inner label may wrap. |
+| Footer | Wrapping row with border above, margin-top 14, padding-top 4, minimum 44px controls; Manage access is quiet/intrinsic. |
+| Empty shared/history rows | Minimum 62 / 68, radius 16, horizontal icon/text; padding 13 / `16px 18px`; glyph 18 in padded well. |
+| Nested category row | Existing shared compact row, minimum 48, padding `8px 16px`, category icon 24 and chevron 16. |
+| Search/filter | Existing shared 44px capsule; icon 16, text inset 36. Filter retains its shared owner/minimum. |
+| History | Radius 17, padding 16, content-driven rows with 16px vertical padding. On phones, text occupies its own row above wrapping actions. Details scroll after 160px. Details/Withdraw use compact 44px controls. |
+| Review request | Intrinsic width, right aligned, 44px target; normal document flow after History. Disabled opacity 1 retained. |
+| Catalog scroll margin | `var(--top-shell-height, 80px) + 24px`; not a fixed hero or viewport height. |
 
-The module selector `.available input[type="text"]` requests a 46px minimum
-and different corners, but this search passes no `type` attribute. The selector
-does not match: **44px/capsule** is the current shared-input result.
-
-These are source-derived dimensions, not a complete rendered-page measurement.
-In particular, the global no-wrap button rule can clip long labels in narrow
-two-column cards; see the typography and verification sections.
+Task labels explicitly allow wrapping inside the shared button; ordinary
+primary labels retain the shared no-wrap grammar. Search uses inherited input
+role variables: 16px on phone and 14px from 768px. No second typography registry
+or replacement catalog/search component is introduced.
 
 ### Top and bottom shell clearance
 
@@ -156,7 +141,8 @@ row gap + 56/64px bar + 32px body gap. Local offset defaults to zero.
 Bottom clearance is runtime measured by the shared bottom shell's
 ResizeObserver; the scroll root reserves `--bottom-chrome-stack-height`.
 Do not assign the bottom nav/Talk to One screenshot one universal fixed
-height. This profile adds its own shell bottom 24px and inner bottom 32px.
+height. This profile adds its own shell bottom 24px and inner bottom 24px on
+phone / 32px from 768px.
 Sources: [content offset](../../components/app-ui/signed-in-shell-content-offset.ts),
 [bottom shell](../../components/app-ui/app-bottom-shell.tsx),
 [shell provider](../../app/providers.tsx), and [global rules](../../app/globals.css).
@@ -169,55 +155,47 @@ page content moves with scroll. Portal menus/dialogs use their primitive's
 viewport/collision positioning; Z values below are CSS stacking tiers, not
 physical depth or a promise about native OS windows.
 
-For the full-width route assumptions above, `L=(W−S)/2`, section left
-`Xc=L+g`, section width `C`, action width `A`, action left
-`Xa=Xc+(C−A)/2`, column width `q=(A−12)/2`. `Yhero` is the current hero top
-after shell offset and scrolling. Y positions of following sections equal
-the preceding rendered height plus the authored gap: labels can wrap and
-server-returned rows can grow, so they do not have invariant absolute Y.
+For a full-width route, `L=(W−S)/2`, section left `Xc=L+g`, section width
+`C`, and hero content left `Xc+1+p`. Following sections use normal flow plus the
+authored gap; labels and server-returned rows may grow.
 
 ```text
-section left Xc                          section right Xc+C
-┌──────────────────── hero ────────────────────────────┐
-│                 centered avatar              ⋯      │ ← top/right 8px
-│                 name / role / status                 │
-│                 connected contact links              │
-│      Xa ┌── Request ──┐ 12px ┌── Share ────┐         │
-│         ├─ Request files ────┬─ Ask about files ─┤     │
-│         ├─ Request scope ────┼─ Request cards ───┤     │
-│         └──── Available packets, when present ──┘     │
-│         ───────────── Manage access ─────────────     │
-│             Connect / Cancel request, if eligible    │
-└──────────────────────────────────────────────────────┘
-  Available packets catalog, when eligible
+┌──────────── full-bleed decorative cover ─────────────┐
+│ avatar overlaps                     status  options │
+│ name / role / contacts         Request / Share (*)  │
+│ Request files | Ask about files | Ask a question |   │
+│ Request a card                                      │
+│ ───── Manage access / packets / relationship ──────  │
+└─────────────────────────────────────────────────────┘
+  Available packets, when eligible
   Shared with you
-  Available to request: search + filter, nested rows
+  Available to request: shared search/filter/nested rows
   Request history
-  Review request
+                                    Review request
 ```
 
-Diagram is semantic and not to scale. File/question/scope/card triggers use
-normal grid auto-placement among the controls actually mounted. Missing
-features compact that grid; a diagram slot is not a placeholder or fixed row.
+Diagram is semantic, not to scale. (*) Below 1024px the primary actions follow
+identity; tasks become two columns. The **Relationship actions** named group
+contains primary actions, task controls and footer, excluding profile options.
 
 | Element / control | X / Y / alignment rule | Z / overflow / open result |
 | --- | --- | --- |
-| Hero/sections | Left `Xc`, width `C`; hero starts at `Yhero` | Normal document flow. Hero is the positioned containing block for overflow trigger. |
-| Avatar/name/role/status/contacts | Centerline `Xc+C/2`; vertical order/margins above | Text wraps to available inner width; no absolute text coordinates. |
-| Three-dot trigger | Left `Xc+C−8−44`, top `Yhero+8`; icon20; trigger source predicts44×50 | Connected-only, no network on open. Opens DropdownMenu Portal. |
+| Hero/sections | Left `Xc`, width `C`; normal flow | Cover alone clips artwork; canonical avatar badge remains visible. |
+| Avatar/name/role/contacts | Left hero content edge; metadata wraps | Status/options align right in the avatar row; no absolute text positioning. |
+| Three-dot trigger | In identity status row,44×44 | Connected-only, no network on open. Opens DropdownMenu Portal. |
 | Three-dot menu | `align="end"`, default bottom side, side offset4; nominal right edge follows trigger right edge | Radix collision can shift/flip it. Min width128, padding4, border1, `max-height` available space, internal Y scroll; `--z-transient=10100`. |
 | Remove menu item | Inside portal padding, item padding6px vertical/8px horizontal, flex gap8 | Single destructive action; selecting calls removal immediately. Escape/outside closes menu with no removal. No Yes/No confirmation exists here. |
-| Request / Share | Grid row1 at `Xa` / `Xa+q+12`; equal widths `q` | Request scrolls; Share clipboard call. Guest Share spans both columns. |
-| Feature action cards | Nested grid widthA, two columns; mounted order files, Drive question, scope question, card request | Inner icon in first20px row; arrow16 at upper-right; label spans both inner columns. Outer Button clips overflow; long-label caveat above. |
-| Available packets shortcut | Full grid span inside hero when enabled | Scrolls to independent following packet catalog; no route or create call. |
-| Manage access | Full grid span; line above, leading icon, left label, trailing chevron | Route navigation; no person filter automatically sent. |
-| Relationship action | Full grid span but intrinsic-width centered button | Connect/Cancel performs exact relationship mutation; pending incoming has no action here. |
+| Request / Share | Beside identity from 1024px, below it otherwise; equal phone columns | Request scrolls; Share clipboard call. Guest Share fills its row. |
+| Feature action cards | Full hero inner width; four columns from 1024px, two below; mounted order files, Drive question, scope question, card request | Horizontal icon well, wrapping label and trailing chevron; no action authority change. |
+| Available packets shortcut | Wrapping hero footer when enabled | Scrolls to independent following packet catalog; no route or create call. |
+| Manage access | Quiet intrinsic footer control; leading icon, label, chevron | Route navigation; no person filter automatically sent. |
+| Relationship action | Intrinsic-width control in wrapping footer | Connect/Cancel performs exact relationship mutation; pending incoming has no action here. |
 | Catalog search | Flex1 left; search icon left12 and vertically centered; input text left36 | Input changes local query only. Search width shrinks around filter button and gap12. |
 | Filter button/menu | Search row right; 44px requested width; menu end-aligned4px from trigger | Same transient Portal/collision owner; choosing filter changes local domain/path only. |
-| Category row | Icon24 on leading track; title middle; count/checkbox/chevron trailing | Whole row enters branch; trailing checkbox stops propagation. Below640 leaf trailing control stacks. |
-| History row | Flex-wrap: details/text takes `flex1 min-w0`, action group right `shrink0`, gap12 | Narrow widths may wrap actions; details take full row width and scroll after160px. |
+| Category row | Icon24 on leading track; title middle; count/checkbox/chevron trailing | Whole row enters branch; trailing checkbox stops propagation. Below 640px leaf trailing control stacks. |
+| History row | Text and actions share a wrapping row from 768px; phone text occupies its own row above the controls, gap 12 | Actions wrap without squeezing the title; details take full row width and scroll after 160px. |
 | Centered request dialogs | Viewport-centered, `left:50%`, `top:50%`, translated half own width/height | Content801. Information review/files/scope explicitly modal→scrim800. Ask about files/cards omit modal (defaultfalse)→**no Radix scrim**. Feature sizes below; keyboard/native reservation may reposition. |
-| File form below640 | Left0, bottom keyboard inset, full viewport width | Still Dialog overlay/content800/801; bottom presentation is CSS, not a Sheet component. |
+| File form below 640px | Left0, bottom keyboard inset, full viewport width | Still Dialog overlay/content800/801; bottom presentation is CSS, not a Sheet component. |
 | Packet sheet below768 | Full viewport width, bottom keyboard inset, height capped by task rules | Sheet overlay711/content712. Body scrolls independently; handle-only drag dismissal. |
 | Packet desktop detail | Centered viewport, max520 | Dialog overlay800/content801; task-close target44×44, winning task CSS top12/right`task-pad−6` (18 at desktop24px pad). |
 
@@ -238,35 +216,25 @@ when changing this UI. Product text uses self-hosted **Plus Jakarta Sans**;
 the available normal/italic faces are 400/600/700. Intermediate CSS weights
 such as 650 do not mean a separate font file exists. Emoji use platform fallback.
 
-| Placement / meaning | Effective source-derived size / line height / weight |
+| Placement / meaning | Effective size / line height / weight |
 | --- | --- |
-| Person name, primary `<h1>` | `clamp(28px, 23.36px + 1.2vw, 40px)` / 1.107 / 600; tracking −.02em. |
-| Section `<h2>` | `clamp(20px, 2.5vw, 24px)` / 1.2 / 600; tracking −.012em. |
-| Standard/prominent action label | 17px / 22px / 650; normal tracking; global `white-space: nowrap !important`. Includes hero actions using the standard Button role. |
-| Compact Button role, where explicitly chosen | 15px / 20px / 650; choose the role through the shared Button API. |
-| Relationship status | 13px / 18px / 600. |
-| Verified-role muted paragraph | 15px / 20px / 400. |
-| Email and phone links | 14px / 20px / 400 from `text-sm` anchor utility, muted color; the 15px paragraph fallback does not target anchors. |
-| Compact scope/category row title | 16px / 21px / 400. |
-| Scope description / helper | 13px / 18px / 400. |
-| Search and shared Input entered value | 17px / 22px / 400. |
-| Shared Label component | 15px / 20px / 600. The information review's raw label uses its own `text-sm font-medium` utility instead. |
-| Muted `text-sm` body paragraphs | 15px / 20px / 400, including some JSX carrying a semibold utility. |
-| Muted `text-xs` body text | 13px / 18px / 400. |
+| Person name `<h1>` | Phone 24/32/600; from 768px 28/36/600; tracking −.035em. |
+| Section `<h2>` | Phone 17/25/600; from 768px 20/28/600; tracking −.025em. |
+| Primary/compact profile actions | 13/20/600; shared no-wrap grammar. |
+| Task labels | 12/18/600; 13px at 768–1023; explicit inner wrapping. |
+| Manage access | 12/18/600. |
+| Relationship status | 10/17/600 phone; 11/17/600 from 768px. |
+| Verified role | 13/20/400. |
+| Email / phone | 11/17/400 phone; 12/18/400 from 768px. |
+| Catalog / history row label | 13/20; existing emphasized role retains 600. |
+| Helper text | 12/18/400; empty row 13/20 from 768px. |
+| Catalog search value | 16/22 phone; 14/22 from 768px. |
 
-| Viewport | Person name font / line box | Section font / line box |
-| ---: | ---: | ---: |
-| 320 | 28 / 31.00 | 20 / 24 |
-| 375 | 28 / 31.00 | 20 / 24 |
-| 393 | 28.08 / 31.08 | 20 / 24 |
-| 430 | 28.52 / 31.57 | 20 / 24 |
-| 768 | 32.58 / 36.06 | 20 / 24 |
-| 1280 | 38.72 / 42.86 | 24 / 28.8 |
-| 1440 | 40 / 44.28 | 24 / 28.8 |
-
-**Cascade matters:** the profile module authors name 24–32px/700 and actions
-15px/600 with wrapping. Global important heading/button rules override those
-values. Do not use the local declaration alone as the final specification.
+**Cascade matters:** local inherited Foundation and semantic role variables
+reach the global important heading/button rules. The production cascade,
+optimized stylesheet and self-hosted font are measured by the layout fixture.
+Do not infer final typography from a raw module stylesheet alone. Portalled
+request forms retain their existing typography and component owners.
 Sources: [global typography](../../app/globals.css),
 [Button variants](../../lib/ui/button-variants.ts),
 [semantic wrappers](../../components/app-ui/typography.tsx), and
@@ -282,8 +250,8 @@ Sources: [global typography](../../app/globals.css),
 | **Share**, accessible “Share profile” | Public profile loaded | Calls clipboard write for the complete current URL, including queries, then immediately toasts “Profile link copied.” No Web Share chooser or clipboard failure recovery is implemented. |
 | **Request files** | Connected + authenticated + unlocked vault + connector overview `drive_document_sharing` enabled | Opens the existing file-request form; details below. |
 | **Ask about files** | Same file-sharing gate | Opens Drive question form; details below. |
-| **Request scope** | Active connection; trigger remains visible while intake is checking, disabled, or failed | Opens question intake, not a scope checkbox picker. Availability is explained inside. The component remains mounted during authority refresh; Send loses authority when no longer connected. |
-| **Request cards** | Connected | Locked vault opens wallet unlock. Unlocked state opens explicit request review. |
+| **Ask a question** | Active connection; trigger remains visible while intake is checking, disabled, or failed | Opens question intake, not a scope checkbox picker. Availability is explained inside. The component remains mounted during authority refresh; Send loses authority when no longer connected. |
+| **Request a card** | Connected | Locked vault opens wallet unlock. Unlocked state opens explicit request review. |
 | **Available packets** | Connected + unlocked vault + overview package flag | Scrolls to the packet catalog below the hero. Overview failure hides it. |
 | **Manage access** | Authenticated viewer loaded | Navigates to `/one/consent`, without person filtering or return query. |
 | **Connect** | Relationship `none` | POST connection request with fresh Firebase ID token and no requested/offered information scopes. Busy disables it; acknowledgement changes state. Error allows retry. |
@@ -359,7 +327,8 @@ Sources: [nested list](../../components/consent/consent-scope-nested-list.tsx),
 
 Component: [InformationRequestReviewFields](../../components/consent/information-request-review-fields.tsx),
 hook: [usePersonInformationRequest](../../lib/consent/use-person-information-request.ts).
-This differs from the **Request scope** question flow.
+This differs from the **Ask a question** entry, whose existing dialog title is
+**Request scope**.
 
 | Field / CTA | Validation and outcome |
 | --- | --- |
@@ -472,11 +441,12 @@ Payment state/countdown/recovery uses the existing
 [requester payment section](../../components/consent/requester-payment-section.tsx)
 and [Feed contract](./feed.md). No paid/free behavior is inferred from query text.
 
-## Request scope: question intake
+## Ask a question: existing question intake
 
 Owner: [RequestScopeButton](../../components/consent/request-scope-button.tsx),
 [AnswerRequestService](../../lib/services/answer-request-service.ts).
-Despite its label, this form asks a question; selecting known catalog fields
+The profile entry is **Ask a question**; its dialog title remains **Request scope**.
+Selecting known catalog fields
 is the separate information bundle review above.
 
 | State / field / CTA | Current behavior |
@@ -495,14 +465,14 @@ is the separate information bundle review above.
 | **Ask another question** | Returns entry state. |
 | Authority changes | Retains typed question/accepted confirmation, disables further submission. Closing returns focus to profile Share trigger. |
 
-## Request cards
+## Request a card
 
 Owner: [RequestCardsButton](../../components/wallet/request-cards-button.tsx)
 and [wallet service](../../lib/services/wallet-card-access-service.ts).
 
 | State / CTA | Current behavior |
 | --- | --- |
-| Locked/no owner token | Existing **Unlock your wallet** / “Unlock to request a card” vault dialog. Unlock closes this gate; does not send. Tap Request cards again. |
+| Locked/no owner token | Existing **Unlock your wallet** / “Unlock to request a card” vault dialog. Unlock closes this gate; does not send. Tap Request a card again. |
 | Review | “Request a card”; asks the other person to choose a card. No requester card picker, type, price, duration or card field inputs. |
 | **Send request / Sending…** | Bootstraps only requester recipient encryption key, then creates a card-access request (`personRef` + request ID). Does not read a card; encrypted card sharing follows owner selection/consent later. |
 | **Cancel** / X / outside/Escape | Idle closes; busy disables both buttons and rejects dismissal. |
@@ -611,7 +581,7 @@ Packet detail has its own **768px** presentation breakpoint, not the
 file-request form's 640px breakpoint. Its body scrolls inside the task frame;
 region side padding16/24, header top20/bottom18/gap6 (top4 when the phone drag
 handle is present). Phone close target44×44; drag dismissal is handle-only.
-The primitive handle occupies44px with a40×4 grip below640, hidden at640–767.
+The primitive handle occupies44px with a40×4 grip below 640px, hidden at640–767.
 Short-height/keyboard conditions can switch to whole-frame scrolling. Packet
 groups radius17/border1; rows min58/padding9px12px/gap10; ≤380 uses10px side
 padding/gap7. Sources: [task surfaces](../../lib/morphy-ux/ui/task-surfaces.tsx),
@@ -626,10 +596,10 @@ size into each dialog.
 
 | Dialog element | Source-derived type / geometry |
 | --- | --- |
-| Generic DialogTitle, including information review | `clamp(20px,18.88px + .3vw,22px)` / 1.2 /600; tracking−.012em. |
+| Generic DialogTitle, including information review | `clamp(20px,18.88px + .3vw,22px)` / 1.2 /600; tracking −.012em. |
 | Generic DialogDescription | 14px /20px /400. |
 | Input | 17px /22px /400 from `ui-text-input-value`, which overrides the generic mobile16px rule. |
-| Textarea without semantic role | 16px below768;14px from768; min-height64, padding8px12px; grows with field content; shared large radius token. |
+| Textarea without semantic role | 16px below768;14px from 768px; min-height64, padding8px12px; grows with field content; shared large radius token. |
 | Standard / prominent buttons | Label17px/22px/650; height44 /50. Legacy default height50. |
 | Request-files title | Explicit surface tokens15px/20px/600. |
 | Request-files body / helper | Semantic body13px/1.25, helper11px/1.35; declared ≤360 overrides12.5px/10px. Form label13px/1.25. Inputs keep their separate control roles. |
@@ -862,7 +832,8 @@ and [service](../../lib/services/answer-request-service.ts).
 
 | Placement / state | Exact English copy |
 | --- | --- |
-| Trigger / persistent title | `Request scope` |
+| Profile trigger | `Ask a question` |
+| Persistent dialog title | `Request scope` |
 | Subtitle | `To {name}` |
 | Checking | `Checking whether this can be sent…` |
 | Disabled intake | `Requests are not switched on here yet, so this question cannot be sent. Nothing has been sent to {name}.` |
@@ -896,7 +867,7 @@ Source: [card-request button](../../components/wallet/request-cards-button.tsx).
 
 | Placement / state | Exact English copy |
 | --- | --- |
-| Trigger | `Request cards` |
+| Profile trigger | `Request a card` |
 | Review title | `Request a card` |
 | Description | `Ask {name} to choose a card to share with you.` |
 | Footer CTAs | `Send request` / `Cancel` |
@@ -1303,14 +1274,12 @@ means no server side effect.” Every operation keeps its own auth, current
 session and retry contract; secrets/decrypted values never belong in docs or
 URL state.
 
-## Current gaps to preserve as facts during redesign
+## Remaining behavior and evidence boundaries
 
 | Finding | Consequence |
 | --- | --- |
-| Narrow two-column actions + global 17px/no-wrap + Button overflow hidden | Existing synthetic wrapping test does not prove full-app label visibility. Rehearse actual long labels before claiming responsive parity. |
-| Local and global font declarations differ | Changing the module alone may have no visible font effect. Inspect semantic roles and important global rules. |
-| Search `[type="text"]` selector mismatch | Local 46px/radius declaration is currently inactive. |
-| Stock Button minimums survive some 44px declarations | Profile options/filter and review CTA differ from nominal local dimensions. |
+| Synthetic public presentation fixture | Measures real components/CSS/font, but does not prove live owner information, portalled forms or native keyboard behavior. |
+| Shared catalog filter owner | Retains shared geometry and Back ownership; this presentation pass does not migrate it. |
 | Profile removal commits directly | Does not reuse My connections' confirmation. A consistency change is a behavior change, not just sizing. |
 | Share toasts before clipboard result | Copy failure currently has no recovery UI. |
 | Tree path lacks feature Back registration | Do not claim shell/iOS edge/Android Back unwinds category steps. |
@@ -1321,13 +1290,13 @@ URL state.
 | Secure export GET records EXPORT_READ | A read can write an audit record; it does not create a new consent grant. |
 | Information Send may prepare connector/key first | Closing review does not roll back an encrypted connector write or a later accepted bundle. |
 
-Use existing shared components and feature services for the redesign. Update
+Continue using existing shared components and feature services. Update
 this contract with implementation changes; do not create another routing,
 permission, request schema, or typography registry.
 
 ## Verification and evidence limits
 
-Executed on 20 October 2026:
+Historical documentation audit, executed on 20 October 2026:
 
 - `cd hushh-webapp && npm run ui:doctor` — passed.
 - `CI=1 PLAYWRIGHT_START_SERVER=0 npx playwright test e2e/person-profile-actions.layout.spec.ts --project=chromium --project=webkit --workers=1 --max-failures=1 --reporter=line`
@@ -1341,16 +1310,20 @@ Executed on 20 October 2026:
   publication worktree subsequently passed the full aggregate, including
   shareable-links and encryption compliance preflight/smoke.
 
-The [action-layout fixture](../../e2e/person-profile-actions.layout.spec.ts)
-uses synthetic markup, profile module CSS and font fixtures. Cases cover
-320/375/420/768/1280px widths, light/dark, ordering, missing/long controls and
-keyboard focus in Chromium/WebKit. It omits actual global important typography,
-semantic Button classes, full page/shell, dialogs, auth and services. Its pass
-does not prove true computed font/wrapping, live account behavior, all page
-heights, 50% zoom, native parity or real phone keyboard/safe-area behavior.
+The current [layout fixture](../../e2e/person-profile-actions.layout.spec.ts)
+builds the production [hero/task/empty presentation](../../components/connections/person-profile-hero.tsx),
+AppPageShell, Morphy Button, canonical avatar, semantic typography and nested
+catalog with the optimized full global stylesheet and self-hosted product font.
+Synthetic public details isolate geometry from protected account information.
+Cases cover 320/393/768/1024/1440px, both themes, computed type, cover/avatar
+geometry, task columns/targets, intrinsic review, long mixed-direction details,
+sparse controls and keyboard focus. A populated-history width/height assertion fails on the
+previous squeezed-column layout at 393px and passes with phone row stacking.
+It does not replace live-account, portalled
+form, 50% zoom, native keyboard or full signed-in-shell verification.
 
-Nearest behavioral evidence owners were inspected, not executed for this
-documentation audit:
+Behavioral evidence owners (the historical documentation audit inspected these
+without executing them; current implementation results are recorded below):
 
 - [Profile behavior](../../__tests__/components/person-profile-page.test.tsx),
   [secure shared card](../../__tests__/components/shared-with-you-card.test.tsx),
@@ -1365,8 +1338,20 @@ documentation audit:
   [outgoing Drive question](../../__tests__/components/drive-query-request-card.test.tsx).
 
 No real request, Google linking, upload, payment, consent decision, account
-mutation, or full app server was used. Before shipping presentation changes,
-measure the actual page at target CSS viewports with runtime `innerWidth`,
-`innerHeight`, DPR and visual viewport metrics; exercise the owning behaviors
-and focused full-app layout tests. Repository UI changes follow the existing
+mutation, or full app server was used for these isolated presentation checks.
+Repository UI changes follow the existing
 [UI contract contributor scaffold](../../../docs/reference/architecture/ui-contract-contributor-guide.md).
+
+
+Profile v16 implementation checks, 21 October 2026:
+
+- Baseline `npm run ui:doctor` passed.
+- Focused profile, scope-button, shared-card and information-request suites:
+  **88 passed**.
+- Production-component layout fixture, automated headless WebKit: **11 passed**
+  across the widths/themes and long-label/focus case described above.
+- Design-system, accent, Apple hierarchy, render-performance and brand-asset
+  checks passed. The existing Connections browser-pack selector now covers the
+  production profile page, module CSS, hero, layout spec and fixture. Its
+  scheduling regression fails before the selector fix. Hosted browser/native
+  and release evidence remain separate gates.

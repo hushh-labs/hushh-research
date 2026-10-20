@@ -214,7 +214,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
           options: [{ id: on, label: "On", selected: p[key] }, { id: off, label: "Off", selected: !p[key] }] };
       };
       content.push(toggle("enabled", "Research public pages"), toggle("email_enabled", "Email me when it’s ready"));
-      if (p.enabled && model.result?.status !== "pending" && model.result?.status !== "paused" && !model.spent) content.push(action("refresh", "Check for updates", () => { model.refresh(); choosePanel(null); }));
+      if (p.enabled && model.result?.status !== "pending" && model.result?.status !== "paused" && (!model.spent || model.status.kind === "exhausted")) content.push(action("refresh", "Check for updates", () => { model.refresh(); choosePanel(null); }));
     } else content.push(...read("research-loading", "Checking your settings…"));
     if (model.preferenceFailed) content.push(...read("research-error", "Couldn’t save. Try again."));
     page("world-model-research", "Research and email", content);

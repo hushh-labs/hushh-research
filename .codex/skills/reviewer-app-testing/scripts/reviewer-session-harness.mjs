@@ -175,6 +175,22 @@ export async function waitForReviewerVaultAdmission(page, expectedUserId, timeou
   }, expectedUserId, { timeout: timeoutMs });
 }
 
+/** Runs on each document; logout landing must not silently authenticate again. */
+export function installReviewerBridge({ expectedUserId, vaultPassphrase, reviewerSessionPassphrase,
+  reviewerMutationPolicy, reviewerAuthMode, explicitLoginOnly, appOrigin }) {
+  const loginEntry = !explicitLoginOnly || (window.top === window &&
+    location.origin === appOrigin && location.pathname === "/login");
+  const bridge = { ...(window.__HUSHH_NATIVE_TEST__ || {}), enabled: true,
+    autoReviewerLogin: loginEntry, expectedUserId, reviewerMutationPolicy, reviewerAuthMode };
+  delete bridge.vaultPassphrase;
+  delete bridge.reviewerSessionPassphrase;
+  if (loginEntry) {
+    bridge.reviewerSessionPassphrase = reviewerSessionPassphrase;
+    if (vaultPassphrase) bridge.vaultPassphrase = vaultPassphrase;
+  }
+  window.__HUSHH_NATIVE_TEST__ = bridge;
+}
+
 export async function createReviewerSessionHarness({
   repoRoot,
   appOrigin = "https://uat.one.hushh.ai",
@@ -182,6 +198,7 @@ export async function createReviewerSessionHarness({
   allowMemoryPreparation = false,
   admitMutation = null,
   configurePage = null,
+  explicitLoginOnly = false,
   reviewerIdentity = /** @type {{ reviewerUid: string, reviewerVaultPassphrase: string } | null} */ (null),
 }) {
   const webDir = path.join(repoRoot, "hushh-webapp");
@@ -218,32 +235,15 @@ export async function createReviewerSessionHarness({
       ? "custom_token"
       : "local_credentials";
     await page.addInitScript(
-      ({
-        expectedUserId,
-        vaultPassphrase,
-        reviewerSessionPassphrase,
-        reviewerMutationPolicy,
-        reviewerAuthMode,
-      }) => {
-        window.__HUSHH_NATIVE_TEST__ = {
-          ...(window.__HUSHH_NATIVE_TEST__ || {}),
-          enabled: true,
-          autoReviewerLogin: true,
-          expectedUserId,
-          reviewerMutationPolicy,
-          reviewerAuthMode,
-          // The backend review-session mint requires the reviewer passphrase
-          // even when this context must not auto-unlock the vault.
-          reviewerSessionPassphrase,
-          ...(vaultPassphrase ? { vaultPassphrase } : {}),
-        };
-      },
+      installReviewerBridge,
       {
         expectedUserId: reviewerUid,
         vaultPassphrase: includePassphrase ? reviewerPassphrase : "",
         reviewerSessionPassphrase: reviewerPassphrase,
         reviewerMutationPolicy,
         reviewerAuthMode,
+        explicitLoginOnly,
+        appOrigin: normalizedOrigin,
       }
     );
   }
@@ -485,6 +485,7 @@ export async function createReviewerSessionHarness({
       // not inject or submit the passphrase. This context must prove the app
       // itself presents the locked-vault challenge first.
       await installBridge(page, { includePassphrase: false });
+      await configurePage?.(page);
       await page.goto(`${normalizedOrigin}/login?redirect=${encodeURIComponent(redirect)}`, {
         waitUntil: "domcontentloaded",
       });

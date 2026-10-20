@@ -93,7 +93,7 @@ type StatusKind =
   | "failed"
   /** Research's own service is unreachable; it is asked again after a wait. */
   | "outage"
-  /** Today's research is spent; asking again before tomorrow returns the same. */
+  /** This check reached its limit; only an explicit new check can start. */
   | "exhausted"
   | "insufficient"
   | "not_ready"
@@ -206,8 +206,8 @@ function statusCopy(input: {
   if (result?.status === "unavailable" && result.research_exhausted)
     return {
       kind: "exhausted",
-      title: "Nothing more to check today",
-      body: "Try again tomorrow.",
+      title: "This check has ended",
+      body: "Open Research and email to start a new check.",
     };
   if (input.failed || result?.status === "unavailable")
     return {
@@ -1165,7 +1165,8 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
               preferences={preferences}
               sourcesRequest={claims}
               canCheckForUpdates={
-                result?.status !== "pending" && result?.status !== "paused" && !spent
+                result?.status !== "pending" && result?.status !== "paused" &&
+                (!spent || status.kind === "exhausted")
               }
               pathname={pathname}
               embedded={embedded}

@@ -356,7 +356,7 @@ class ProfileResearchJobs:
             refresh_completed
             and state
             and same_context
-            and state["status"] in {"offered", "low_confidence"}
+            and (state["status"] in {"offered", "low_confidence"} or self.exhausted(state))
         )
         if state and same_context and self.reusable(state) and not fresh_discovery:
             if state["status"] == "pending":
@@ -398,6 +398,7 @@ class ProfileResearchJobs:
             raise RuntimeError("Discovery capacity is temporarily busy")
         throttle_resume = bool(
             self.progressive
+            and not fresh_discovery
             and state
             and same_context
             and state.get("status") == "unavailable"
@@ -466,6 +467,7 @@ class ProfileResearchJobs:
         resumed = False
         if (
             self.progressive
+            and not fresh_discovery
             and same_context
             and state
             and (
@@ -521,7 +523,12 @@ class ProfileResearchJobs:
             # Also release if shutdown cancels the task before its first tick.
             task.add_done_callback(lambda completed: (release_key(), self._finished(completed)))
             dispatched = True
-            self.decision("start", "resumed" if resumed else "started", pending(), next_state)
+            self.decision(
+                "start",
+                "refreshed" if fresh_discovery else "resumed" if resumed else "started",
+                pending(),
+                next_state,
+            )
         finally:
             if not dispatched:
                 self.active -= 1
