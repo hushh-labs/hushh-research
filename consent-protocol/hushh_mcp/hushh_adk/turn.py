@@ -200,7 +200,8 @@ async def run_specialist_adk_turn(
             )
     budget = _CallBudget(max_llm_calls)
     runner = Runner(
-        app=App(name=app_name, root_agent=agent, plugins=[budget, *product_activity_plugins()]), session_service=store
+        app=App(name=app_name, root_agent=agent, plugins=[budget, *product_activity_plugins()]),
+        session_service=store,
     )
     final_text = ""
     structured_output: Any = None
