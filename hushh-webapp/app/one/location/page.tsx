@@ -3364,7 +3364,16 @@ export function OneLocationAgentPageContent({
     setPagedRecipientsByUserId(
       new Map(latest.map((recipient) => [recipient.userId, recipient])),
     );
-  }, [vaultOwnerToken]);
+    // Only the complete directory can remove retained selections. A missing
+    // person on a bounded/search page is not evidence of a deleted connection.
+    const availableIds = new Set(latest.map((recipient) => recipient.userId));
+    const retainAvailable = (current: string[]) =>
+      connectionGraphRefreshRevisionRef.current === expectedRevision
+        ? current.filter((userId) => availableIds.has(userId))
+        : current;
+    setSelectedRecipientIds(retainAvailable);
+    setSelectedRequestOwnerIds(retainAvailable);
+  }, [setSelectedRecipientIds, vaultOwnerToken]);
 
   useEffect(() => {
     if (!vaultOwnerToken) {
@@ -4506,20 +4515,38 @@ export function OneLocationAgentPageContent({
     };
   }, [auth.userId, openCircleIdForRepair, router, vaultOwnerToken]);
 
-  const isPeopleViewForRepair = searchParams.get("view") === "people";
+  const isAudienceViewForRepair = searchParams.get("view") === "people" ||
+    ["share", "ask", "sos", "sms-contacts"].includes(searchParams.get("action") || "");
   useEffect(() => {
-    if (!auth.userId || !vaultOwnerToken || !isPeopleViewForRepair || openCircleIdForRepair) {
+    if (!auth.userId || !vaultOwnerToken || !isAudienceViewForRepair || openCircleIdForRepair) {
       return;
     }
-    // The people/Circle overview also needs a missed-push repair while it
-    // stays open; the normal focus and notification paths remain immediate.
+    // Every open audience surface needs a missed-push repair, including flows
+    // reached directly from Now. Normal focus/notification paths stay immediate.
+    let inFlight = false;
+    let cancelled = false;
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void refresh({ background: true });
-      }
+      if (document.visibilityState !== "visible" || inFlight) return;
+      inFlight = true;
+      const revision = connectionGraphRefreshRevisionRef.current;
+      void refresh({ background: true })
+        .then(async () => {
+          if (cancelled || connectionGraphRefreshRevisionRef.current !== revision) return;
+          // Workspace recipients are bounded. A searched/selected person can
+          // change outside that first page while its signature stays identical.
+          recipientPageRequestRef.current += 1;
+          shareRecipientPageRequestRef.current += 1;
+          setRecipientDirectoryRevision((current) => current + 1);
+          await Promise.all([reloadRecipientAuthority(revision), refreshSmsRoster()]);
+        })
+        .catch(() => undefined)
+        .finally(() => { inFlight = false; });
     }, 60_000);
-    return () => window.clearInterval(timer);
-  }, [auth.userId, isPeopleViewForRepair, openCircleIdForRepair, refresh, vaultOwnerToken]);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [auth.userId, isAudienceViewForRepair, openCircleIdForRepair, refresh, refreshSmsRoster, reloadRecipientAuthority, vaultOwnerToken]);
 
   const scheduleOneLocationStateRefresh = useCallback(
     (

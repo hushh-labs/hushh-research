@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   invalidateVaultState: vi.fn(),
   getIdToken: vi.fn(),
   unlockWarmRun: vi.fn(),
+  queueLocationRecipientKeyBootstrap: vi.fn(),
   authUser: {
     uid: "vault-owner",
     displayName: "Vault Owner",
@@ -107,7 +108,10 @@ vi.mock("@/lib/services/wallet-presentation-resource", () => ({
 }));
 
 vi.mock("@/lib/services/unlock-warm-orchestrator", () => ({
-  UnlockWarmOrchestrator: { run: mocks.unlockWarmRun },
+  UnlockWarmOrchestrator: {
+    run: mocks.unlockWarmRun,
+    queueLocationRecipientKeyBootstrap: mocks.queueLocationRecipientKeyBootstrap,
+  },
 }));
 
 vi.mock("@/lib/services/vault-service", () => ({
@@ -569,8 +573,33 @@ describe("VaultProvider app-resume expiry recovery", () => {
       vaultKey: "vault-key",
     });
     expect(mocks.unlockWarmRun).not.toHaveBeenCalled();
+    expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenCalledWith({
+      userId: "vault-owner", vaultOwnerToken: "vault-token", vaultKey: "vault-key",
+    });
 
     resolveIdToken?.("firebase-token");
+  });
+
+  it("prepares receiving on setup-route unlock and retries on reconnect without Location onboarding", () => {
+    const originalPath = window.location.pathname;
+    window.history.replaceState(null, "", "/one/setup");
+    try {
+      renderVault();
+      expect(mocks.queueLocationRecipientKeyBootstrap).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+      expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenCalledExactlyOnceWith({
+        userId: "vault-owner", vaultOwnerToken: "vault-token", vaultKey: "vault-key",
+      });
+      expect(mocks.unlockWarmRun).not.toHaveBeenCalled();
+      setVisibility("visible");
+      act(() => window.dispatchEvent(new Event("online")));
+      expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenCalledTimes(2);
+      fireEvent.click(screen.getByRole("button", { name: "Lock" }));
+      act(() => window.dispatchEvent(new Event("online")));
+      expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenCalledTimes(2);
+    } finally {
+      window.history.replaceState(null, "", originalPath);
+    }
   });
 
   it("retains the local unlock but withdraws authority when the token expires", async () => {
