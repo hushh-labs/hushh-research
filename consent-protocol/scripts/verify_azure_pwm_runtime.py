@@ -318,6 +318,7 @@ async def _probe_managed_text() -> None:
                     "additionalProperties": False,
                 },
                 max_output_tokens=256,
+                thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW),
             ),
         )
         results = [item async for item in model.generate_content_async(request)]
