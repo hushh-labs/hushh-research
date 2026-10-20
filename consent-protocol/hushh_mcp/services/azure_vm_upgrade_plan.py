@@ -64,6 +64,7 @@ class VmImageUpdatePlan:
     )
     _intent: bytes = field(repr=False)
     target_image: str
+    host_request_sha256: str
 
     def intent(self, *, job: str) -> dict:
         if not 1 <= len(job) <= 128:
@@ -78,9 +79,8 @@ class VmImageUpdatePlan:
         )
 
 
-def _require_update(
-    row: dict, spec: PodSpec, idle_record: dict
-) -> tuple[AzureVmHostBinding, dict, dict]:
+def approved_vm_update(row: dict, spec: PodSpec) -> tuple[AzureVmHostBinding, dict, dict]:
+    """Verify existing owner approval before asking the old runtime to drain."""
     from hushh_mcp.services.personal_agent_provisioning_service import _approval_is_well_formed
 
     metadata = row.get("backend_metadata") or {}
@@ -116,7 +116,6 @@ def _require_update(
         or not _approval_is_well_formed(row, approval)
         or approval["operationId"] != spec.upgrade_operation_id
         or approval["targetImage"] != spec.upgrade_target_image
-        or approval.get("handoffIdleRecord") != idle_record
         or approval.get("capabilityPlanDigest") is not None
         or spec.files_upgrade_plan is not None
         or (
@@ -127,6 +126,15 @@ def _require_update(
             )
         )
     ):
+        _refuse()
+    return host, metadata, approval
+
+
+def _require_update(
+    row: dict, spec: PodSpec, idle_record: dict
+) -> tuple[AzureVmHostBinding, dict, dict]:
+    host, metadata, approval = approved_vm_update(row, spec)
+    if approval.get("handoffIdleRecord") != idle_record:
         _refuse()
     from hushh_mcp.services.pod_upgrade_handoff import (
         PodUpgradeHandoffUnavailable,
@@ -237,7 +245,7 @@ def build_vm_image_update(
     source = str(spec.upgrade_target_image or "")
     registry, repository, image_digest = import_source(source)
     destination = host.image.split("@", 1)[0] + "@" + image_digest
-    replacement, _payload_sha = replacement_from_binding(
+    replacement, payload_sha = replacement_from_binding(
         installation=host.installation.model_dump(),
         previous_image=host.image,
         configuration_sha256=metadata.get("vmConfigurationSha256", ""),
@@ -279,4 +287,5 @@ def build_vm_image_update(
         tuple((s.stage, s.method, s.path, s.api, json.dumps(s.body).encode()) for s in steps),
         json.dumps(_intent(row, spec, host, approval, idle_record, steps)).encode(),
         destination,
+        payload_sha,
     )

@@ -66,7 +66,7 @@ ENFORCEMENT = {
     "Canonical skill center": (
         "mechanical",
         "Strongest section. sync_claude_agents.py --check verifies agent mirrors byte-for-byte; "
-        "skill_lint.py validates skill.json, required SKILL.md sections, bridge bodies and "
+        "skill_lint.py validates skill.json, required SKILL.md sections, exact native links and "
         "pinned host/import classifications. Pending import review remains separate debt.",
     ),
     "Project-Wide Routing Gate": (
@@ -224,8 +224,8 @@ def classification_findings(root: Path) -> list[str]:
 
 def c1_bridges_point_at_canonical() -> None:
     offenders = bridge_findings(REPO_ROOT) + classification_findings(REPO_ROOT)
-    record("C1 bridge bodies point at canonical", not offenders,
-           "; ".join(offenders) if offenders else "Existing canonical twins match on both hosts; absent discovery bridges are not covered.")
+    record("C1 native discovery links point at canonical", not offenders,
+           "; ".join(offenders) if offenders else "Native entrypoints resolve to the canonical .agents sources; copied Codex discovery is refused.")
 
 
 def c7_platform_authored_inventory(root: Path | None = None) -> None:

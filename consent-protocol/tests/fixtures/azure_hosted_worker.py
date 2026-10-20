@@ -157,7 +157,7 @@ def _files_metadata(metadata, source):
     return plan
 
 
-async def vm_upgrade_worker(pg, owner, installation):
+async def vm_upgrade_worker(pg, owner, installation, *, receipt=None):
     """The real VM plan over the existing journal; no cloud/provider simulation claim."""
     import hashlib
 
@@ -201,6 +201,12 @@ async def vm_upgrade_worker(pg, owner, installation):
             ).hexdigest(),
         },
     )
+    if receipt is not None:
+        from hushh_mcp.services.pod_upgrade_handoff import retained_idle_evidence
+
+        metadata["upgradeApproval"].update(
+            retained_idle_evidence(receipt, operation_id=operation, require_cursor=True)
+        )
     pg.execute(
         "UPDATE personal_agent_registry SET backend_metadata=%s::jsonb WHERE user_id=%s",
         (json.dumps(metadata), owner),
@@ -220,4 +226,4 @@ async def vm_upgrade_worker(pg, owner, installation):
     plan = build_vm_image_update(
         row, spec, idle_record=metadata["upgradeApproval"]["handoffIdleRecord"]
     )
-    return plan, plan.intent(job="vm-upgrade-1")
+    return plan, plan.intent(job="vm-upgrade-1"), row, spec

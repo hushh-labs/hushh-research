@@ -111,7 +111,12 @@ class PodUpgradeHandoffClient:
         self._request_budget = request_budget
 
     def _request(
-        self, method: str, path: str, *, body: Optional[dict[str, Any]] = None
+        self,
+        method: str,
+        path: str,
+        *,
+        body: Optional[dict[str, Any]] = None,
+        guard: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
         import requests  # type: ignore[import-untyped]
 
@@ -139,6 +144,8 @@ class PodUpgradeHandoffClient:
         }
         # Token acquisition may block. Recheck cancellation and authority at the
         # actual dispatch boundary, rather than submitting with an earlier grant.
+        if guard is not None:
+            guard()
         budget = min(60.0, self._request_budget()) if self._request_budget else 60.0
         if budget <= 0:
             raise PodUpgradeHandoffUnavailable("pod lifecycle deadline exceeded")
@@ -183,7 +190,7 @@ class PodUpgradeHandoffClient:
         }
         if guard is not None:
             guard()
-        self._request("POST", "/api/one/pod/upgrade/prepare", body=payload)
+        self._request("POST", "/api/one/pod/upgrade/prepare", body=payload, guard=guard)
         deadline = (
             time.monotonic() + max(1.0, float(timeout_seconds))
             if timeout_seconds is not None
@@ -192,7 +199,7 @@ class PodUpgradeHandoffClient:
         while True:
             if guard is not None:
                 guard()
-            status = self._request("GET", "/api/one/pod/upgrade/status")
+            status = self._request("GET", "/api/one/pod/upgrade/status", guard=guard)
             receipt = status.get("idleReceipt")
             if (
                 status.get("state") == "idle"
@@ -241,6 +248,7 @@ class PodUpgradeHandoffClient:
                     else {}
                 ),
             },
+            guard=guard,
         )
 
     def verify_model(self, *, deployment: str, expected_revision: str) -> dict[str, Any]:

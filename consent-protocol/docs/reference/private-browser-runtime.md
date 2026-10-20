@@ -309,6 +309,19 @@ does not install a host or enable VM updates. GET-only reconciliation, terminal
 power-cycle retirement and verified publication still need composition; an image
 tag or successful RunCommand is not recovery.
 
+The local image-update executor now joins the existing setup-worker cancellation
+boundary and rechecks the authenticated live drain before every cloud write. It
+retains the fixed host acknowledgement, verifies the target image and unchanged
+keys after restart, and releases only the original sealed idle cursor. The nearest
+19 plan/real-journal cases pass with synthetic provider transport, including
+withdrawn drain, missing host acknowledgement, changed recovery key and joined
+cancellation. Removing the fresh drain check fails the regression. Both modules
+and the handoff client typecheck. The handoff client also rechecks the caller's
+guard after token acquisition; removing it fails both prepare/release cancellation
+controls. All 47 affected handoff/plan/real-journal cases pass. This is not a live
+owner update: owner-JIT composition, atomic verified
+publication, ready-power retirement and read-only crash reconciliation remain open.
+
 The existing update publisher now retains the authenticated idle marker, committed
 prefix, exact committed-state hash and original runtime epoch under its current
 lease. VM preparation refuses absent, partial, altered or reordered cursors; older

@@ -66,13 +66,17 @@ def test_service_incarnation_uses_ready_revision_then_traffic() -> None:
     assert service_incarnation({"status": {}}) is None
 
 
-def test_handoff_rechecks_authority_after_identity_token_acquisition():
+@pytest.mark.parametrize("boundary", ["budget", "release_guard", "prepare_guard"])
+def test_handoff_rechecks_authority_after_identity_token_acquisition(boundary):
     admitted = [True]
     sent = []
 
-    def budget():
+    def guard():
         if not admitted[0]:
             raise PermissionError("worker cancelled during token acquisition")
+
+    def budget():
+        guard()
         return 10.0
 
     def token(_):
@@ -89,10 +93,15 @@ def test_handoff_rechecks_authority_after_identity_token_acquisition():
         hushh_id="ha1-owner",
         session=Session(),
         identity_token_provider=token,
-        request_budget=budget,
+        request_budget=budget if boundary == "budget" else None,
     )
     with pytest.raises(PermissionError, match="cancelled"):
-        client.release(operation_id="synthetic-operation", incarnation="synthetic-generation")
+        operation = client.prepare_and_wait if boundary == "prepare_guard" else client.release
+        operation(
+            operation_id="synthetic-operation",
+            incarnation="synthetic-generation",
+            guard=None if boundary == "budget" else guard,
+        )
     assert sent == []
 
 
