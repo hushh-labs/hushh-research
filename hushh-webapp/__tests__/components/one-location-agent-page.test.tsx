@@ -5781,7 +5781,7 @@ describe("OneLocationAgentPage", () => {
         useLayoutEffect(() => {
           firstCommit(screen.queryByRole("heading", { name: "Shared with me" }) !== null,
             screen.queryByRole("heading", { name: "Location" }) !== null);
-        }, [firstCommit]);
+        }, []);
         return null;
       }
       const view = render(<><OneLocationAgentPage /><FirstCommitProbe /></>);
