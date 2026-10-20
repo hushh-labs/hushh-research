@@ -326,7 +326,7 @@ describe("ContactSyncResultsSheet", () => {
       const proceed = screen.getByRole("link", {
         name: "Proceed to connections",
       });
-      expect(proceed).toHaveAttribute("href", "/one/connect?tab=all");
+      expect(proceed).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
       proceed.addEventListener("click", (event) => event.preventDefault(), {
         once: true,
       });
@@ -418,7 +418,7 @@ describe("ContactSyncResultsSheet", () => {
     );
     expect(
       screen.getByRole("link", { name: "Proceed to connections" }),
-    ).toHaveAttribute("href", "/one/connect?tab=all");
+    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
     expect(screen.queryByRole("button", { name: "Sync again" })).toBeNull();
 
     view.rerender(
@@ -441,7 +441,7 @@ describe("ContactSyncResultsSheet", () => {
     );
     expect(
       screen.getByRole("link", { name: "Proceed to connections" }),
-    ).toHaveAttribute("href", "/one/connect?tab=all");
+    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
     expect(
       screen.getByRole("button", { name: "Sync again" }),
     ).toBeInTheDocument();
@@ -464,7 +464,7 @@ describe("ContactSyncResultsSheet", () => {
     );
     expect(
       screen.getByRole("link", { name: "Proceed to connections" }),
-    ).toHaveAttribute("href", "/one/connect?tab=all");
+    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
     expect(
       screen.getByRole("button", { name: "Sync again" }),
     ).toBeInTheDocument();

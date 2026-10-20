@@ -2592,7 +2592,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.connect",
-          "purpose": "Find people, review scoped connection requests, and manage connections. The exact-person reviewPerson query sends nothing automatically; a retained Location task rechecks eligibility only after the owner returns with Continue.",
+          "purpose": "Find people opens by default; My connections is an adjacent local view with an independent accepted-roster search. Circles remains a route-backed surface. Review scoped requests only through the exact-person reviewPerson query; a retained Location task rechecks eligibility only after the owner returns with Continue.",
           "screen": "connect",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -2638,6 +2638,7 @@
       "voice_action_contract_ids": [
         "connect.accept_request",
         "connect.cancel_request",
+        "connect.open_connections",
         "connect.open_nearby",
         "connect.open_people",
         "connect.reject_request",
@@ -10384,5 +10385,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "9f7d645b482d4d7fdba29a7c02c395760c79c5b3ff340d79827d7a23076d0d28"
+  "content_sha256": "25679abf6e32081a2e0dda6ff39527b8c50df361430a6ba8b431b99fa0f846ea"
 }

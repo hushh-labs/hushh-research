@@ -12,6 +12,7 @@ import {
   Loader2,
   RefreshCw,
   Trash2,
+  MoreHorizontal,
   Search as SearchIcon,
   X,
 } from "@/components/icons";
@@ -97,6 +98,7 @@ import {
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
+  CONNECT_CONNECTION_VIEW_PARAM,
   CONNECT_CIRCLE_ACTION_PARAM,
   CONNECT_CIRCLE_ID_PARAM,
   CONNECT_SEARCH_QUERY_PARAM,
@@ -164,10 +166,12 @@ import {
   CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME,
 } from "./connect-surface-layout";
 import { cn } from "@/lib/utils";
+import styles from "@/components/connect/connect-workspace.module.css";
+import { useConnectionSearch } from "@/components/connect/use-connection-search";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   CONNECT_PAGE_CONTENT_CLASSNAME,
   CONNECT_SECTION_HEADING_CLASSNAME,
-  CONNECT_SECTION_TITLE_CONTROL_CLASSNAME,
   CONNECT_SWIPE_CLIP_GUARD_CLASSNAME,
   CONNECT_SWIPE_PANE_INSET_CLASSNAME,
   CONNECT_WRAPPING_TEXT_CLASSNAME,
@@ -350,25 +354,22 @@ async function mapWithConcurrency<T, R>(
 /** Fetch one small batch at a time as browsing or search reaches the list end. */
 const DEFAULT_PAGE_SIZE = 20;
 /**
- * A directory row's call to action. The button is the 44px target; the pill drawn
- * inside it is a compact 32px, so the row stays small without shrinking the tap
- * area (the shared Button clips overflow, so the target cannot be a pseudo-element).
+ * A directory row's call to action. Both the button target and its visible pill
+ * are 44px high. The pill slot keeps local styling independent of Button wrappers.
  * The label takes Profile's action typography through `data-profile-role="action"`
  * on the button, which the pill inherits.
  */
 const CONNECT_ROW_ACTION_CLASSNAME =
   "!h-11 !min-h-11 min-w-[72px] !border-0 !bg-transparent !p-0 !text-[color:var(--app-accent)] disabled:opacity-60";
 const CONNECT_ROW_ACTION_PILL_CLASSNAME =
-  "inline-flex h-8 min-w-[72px] items-center justify-center rounded-full border border-[color:var(--app-accent)] px-3";
+  "inline-flex h-11 min-w-[88px] items-center justify-center rounded-full border px-[15px]";
 /** An icon-only action: a 44px target around a 22px glyph. */
 const CONNECT_ROW_ICON_ACTION_CLASSNAME = "!size-11 !min-w-11 !bg-transparent !p-0";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
   "ui-text-compact-button-label h-11 min-h-11 rounded-xl px-2.5 text-[13px] leading-4";
 const CONNECT_REMOVE_BUTTON_CLASSNAME =
   "text-destructive hover:bg-destructive/10 hover:text-destructive";
-const CONNECT_SECTION_CONTROL_LABEL_CLASSNAME = "connect-section-control-label";
-const CONNECT_REFRESH_BUTTON_CLASSNAME =
-  "h-11 min-h-11 w-11 min-w-11 rounded-full p-0 text-muted-foreground hover:text-foreground disabled:opacity-70";
+const CONNECT_SECTION_CONTROL_LABEL_CLASSNAME = styles.utilityLabel;
 
 /** Maximum number of connection requests the People bulk action can send. */
 const MAX_BULK_CONNECTION_REQUESTS = 10;
@@ -593,6 +594,9 @@ export default function ConnectPageClient() {
     searchParams.get(CONNECT_CIRCLE_ACTION_PARAM),
   );
   const [createCircleDialogOpen, setCreateCircleDialogOpen] = useState(false);
+  const connectionEntryView = searchParams.get(CONNECT_CONNECTION_VIEW_PARAM) === "connections" ? "connections" : "discover";
+  const [connectionView, setConnectionView] = useState(connectionEntryView);
+  const [circleSearchActive, setCircleSearchActive] = useState(false);
   const circleFlowId = searchParams.get(CONNECT_CIRCLE_ID_PARAM) ?? "";
   const isFocusedCircleTask = isFocusedConnectCircleTask(
     surface,
@@ -607,11 +611,20 @@ export default function ConnectPageClient() {
   // scrolled halfway down handed that offset to the circles list, and to every
   // Circle flow opened after it. The Location hub hit this and fixed it the
   // same way.
-  useScrollReset(`${surface}:${circleFlowAction ?? ""}:${circleFlowId}`, {
+  useScrollReset(`${surface}:${connectionView}:${circleFlowAction ?? ""}:${circleFlowId}`, {
     behavior: "auto",
   });
 
   const [tab, setTab] = useState<ConnectTab>("people");
+  const [connectionsSearchDraft, setConnectionsSearchDraft] = useState({ ownerId: user?.uid ?? null, query: "" });
+  const connectionsQuery = connectionsSearchDraft.ownerId === (user?.uid ?? null) ? connectionsSearchDraft.query : "";
+  const setConnectionsQuery = useCallback((value: string) => setConnectionsSearchDraft({ ownerId: user?.uid ?? null, query: value }), [user?.uid]);
+  const debouncedConnectionsDraft = useDebouncedValue(connectionsSearchDraft, 300);
+  const debouncedConnectionsQuery = debouncedConnectionsDraft.ownerId === (user?.uid ?? null) ? debouncedConnectionsDraft.query : "";
+  useEffect(() => {
+    setConnectionView(connectionEntryView);
+    setConnectionsQuery("");
+  }, [connectionEntryView, setConnectionsQuery, user?.uid]);
   /**
    * What the Circles tab is doing, reported up.
    *
@@ -647,6 +660,7 @@ export default function ConnectPageClient() {
       appliedSearchQueryParamRef.current !== searchQueryParam
     ) {
       appliedSearchQueryParamRef.current = searchQueryParam;
+      setConnectionView("discover");
       setQuery(searchQueryParam);
     }
   }, [searchQueryParam]);
@@ -703,7 +717,6 @@ export default function ConnectPageClient() {
   // Open by default: My connections is the first thing a person opens
   // Connect to see, and a collapsed panel hid the list (and its only retry
   // affordance on refresh failure) behind one more tap.
-  const [connectionsExpanded, setConnectionsExpanded] = useState(true);
   const [connectionsLoadingMore, setConnectionsLoadingMore] = useState(false);
   const [connectionsRefreshingFirstPage, setConnectionsRefreshingFirstPage] =
     useState(false);
@@ -731,7 +744,8 @@ export default function ConnectPageClient() {
   const [directoryRefused, setDirectoryRefused] = useState(false);
   const directoryRetryAttemptRef = useRef(0);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
+  const [pendingRemoveTarget, setPendingRemoveTarget] = useState<{ ownerId: string; generation: number; connection: ConnectionSummaryEntry } | null>(null);
+  const pendingRemoveId = pendingRemoveTarget?.connection.connectionId ?? null;
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   /**
    * Publish the pinned header's height so the search row can sit under it.
@@ -808,6 +822,8 @@ export default function ConnectPageClient() {
 
   useEffect(() => {
     setBatchConnectDraft(null);
+    setBusyId(null);
+    setPendingRemoveTarget(null);
     setSelectedPeople(new Map());
     setIsConnectingMultiple(false);
     batchSendingRef.current = false;
@@ -844,8 +860,7 @@ export default function ConnectPageClient() {
     [user],
   );
 
-  const connectionAudience: ConnectionAudience =
-    tab === "advisors" ? "ria" : "all";
+  const connectionAudience: ConnectionAudience = tab === "advisors" ? "ria" : "all";
   const connectionAudienceRef = useRef(connectionAudience);
   connectionAudienceRef.current = connectionAudience;
 
@@ -949,7 +964,6 @@ export default function ConnectPageClient() {
         if (!result) {
           setConnectionsRefreshError(true);
           // A collapsed panel must not conceal its only retry affordance.
-          setConnectionsExpanded(true);
         }
         return true;
       } finally {
@@ -1229,9 +1243,6 @@ export default function ConnectPageClient() {
   const isAdvisorTab = tab === "advisors";
   // No count until the list has answered: "(0)" is a claim, not a placeholder.
   const connectionsHeadingLabel = isAdvisorTab ? "My RIAs" : "My connections";
-  const connectionsHeading = connectionsLoaded
-    ? `${connectionsHeadingLabel} (${connectionsTotalCount})`
-    : connectionsHeadingLabel;
   const handleRefreshConnections = useCallback(() => {
     if (connectionsRefreshingFirstPage) return;
     void refreshConnectionsFirstPage({ audience: connectionAudience });
@@ -1459,7 +1470,7 @@ export default function ConnectPageClient() {
         setIsSelectionMode(false);
         setSelectedPeople(new Map());
         setShowLimitBanner(false);
-        setPendingRemoveId(null);
+        setPendingRemoveTarget(null);
       }
       router.push(`${ROUTES.CONNECT}?${params.toString()}`, { scroll: false });
     },
@@ -1623,17 +1634,22 @@ export default function ConnectPageClient() {
   const handleRemove = useCallback(
     async (connection: ConnectionSummaryEntry) => {
       if (!user) return;
+      const generation = batchDraftGenerationRef.current;
+      const isCurrent = () => connectOwnerRef.current === user.uid && batchDraftGenerationRef.current === generation;
       try {
         setBusyId(connection.connectionId);
         const idToken = await user.getIdToken();
+        if (!isCurrent()) return;
         await ConnectionsService.removeConnection({
           idToken,
           connectionId: connection.connectionId,
         });
+        if (!isCurrent()) return;
         await refreshConnectionsFirstPage({
           audience: connectionAudienceRef.current,
           removedConnection: true,
         });
+        if (!isCurrent()) return;
         setCircleRefreshToken((token) => token + 1);
         suppressNextLocalGraphEventRef.current = true;
         CacheSyncService.onConnectionGraphMutated(user.uid);
@@ -1645,14 +1661,14 @@ export default function ConnectPageClient() {
         );
         toast.success("Connection removed");
       } catch (removeError) {
+        if (!isCurrent()) return;
         toast.error(
           removeError instanceof Error
             ? removeError.message
             : "Failed to remove connection",
         );
       } finally {
-        setBusyId(null);
-        setPendingRemoveId(null);
+        if (isCurrent()) { setBusyId(null); setPendingRemoveTarget(null); }
       }
     },
     [refreshConnectionsFirstPage, user],
@@ -2138,7 +2154,8 @@ export default function ConnectPageClient() {
   // Filter before sort, and read `isRia` rather than the tab: a row says what
   // it is, so a connection the server has not annotated is simply not an
   // advisor, instead of becoming one by sitting under the advisor tab.
-  const sortedConnections = connections;
+  const connectionSearch = useConnectionSearch({ ownerId: user?.uid ?? null, query: debouncedConnectionsQuery, audience: connectionAudience, loadPage: loadConnectionsPage, revision: connections });
+  const sortedConnections = connectionSearch.active ? connectionSearch.items : connections;
   const connectionGroups = useMemo(() => {
     if (isAdvisorTab) return [{ key: "advisors", label: null, items: sortedConnections }];
     return [
@@ -2146,9 +2163,7 @@ export default function ConnectPageClient() {
       { key: "other", label: "Other connections", items: sortedConnections.filter(connection => connection.connectedFromContacts !== true) },
     ].filter(group => group.items.length > 0);
   }, [isAdvisorTab, sortedConnections]);
-  const pendingRemoveConnection = connections.find(
-    (connection) => connection.connectionId === pendingRemoveId,
-  );
+  const pendingRemoveConnection = pendingRemoveTarget?.ownerId === user?.uid && pendingRemoveTarget?.generation === batchDraftGenerationRef.current ? pendingRemoveTarget.connection : null;
 
   // Voice surface for Connect. Until this existed the route derived the
   // generic "app" screen, so One knew a person was somewhere in the app and
@@ -2259,11 +2274,12 @@ export default function ConnectPageClient() {
         },
       ],
       actions: [
+        { id: "connect.open_connections", actionId: "connect.open_connections", label: "Open My connections", purpose: "Show accepted connections and their separate search." },
         {
           id: "connect.open_people",
           actionId: "connect.open_people",
           label: "Open Connect people",
-          purpose: "Show connections and the people directory.",
+          purpose: "Show Find people and the people directory.",
         },
         {
           id: "connect.open_nearby",
@@ -2288,7 +2304,7 @@ export default function ConnectPageClient() {
       // Only the search box carries a `data-voice-control-id` anchor. The tab
       // strip is the shared TopShellTabs, which has no per-option control id,
       // so claiming one here would describe a hook that does not exist.
-      controls: [
+      controls: surface === "all" && connectionView === "discover" && tab !== "nearby" ? [
         {
           id: "one-connect-search",
           label: "Search people",
@@ -2296,7 +2312,7 @@ export default function ConnectPageClient() {
           actionId: "connect.search_people",
           role: "textbox",
         },
-      ],
+      ] : [],
       concepts: [
         {
           id: "connection",
@@ -2306,10 +2322,10 @@ export default function ConnectPageClient() {
           aliases: ["connection", "connections", "connected people"],
         },
       ],
-      activeSection: surface === "circles" ? "Circles" : CONNECT_TAB_LABEL[tab],
-      activeTab: surface === "circles" ? "circles" : tab,
+      activeSection: surface === "circles" ? "Circles" : connectionView === "connections" ? "My connections" : CONNECT_TAB_LABEL[tab],
+      activeTab: surface === "circles" ? "circles" : connectionView === "connections" ? "connections" : tab,
       visibleModules:
-        tab === "nearby"
+        surface === "circles" ? ["Your circles", "Joined circles", "Circle ideas"] : connectionView === "connections" ? ["My connections"] : tab === "nearby"
           ? [
               "Advisors near you",
               "Insurance agents near you",
@@ -2328,7 +2344,7 @@ export default function ConnectPageClient() {
       ],
       activeControlId: null,
       lastInteractedControlId: null,
-      busyOperations: loading ? ["connect_directory_load"] : [],
+      busyOperations: connectionView === "connections" ? (connectionSearch.active ? connectionSearch.loading : connectionsRefreshingFirstPage) ? ["connect_connections_load"] : [] : loading ? ["connect_directory_load"] : [],
       // Counts only -- never who.
       screenMetadata: {
         connect_tab: tab,
@@ -2336,16 +2352,24 @@ export default function ConnectPageClient() {
         // meant which directory, and reusing it for a different question
         // would silently change what every existing reading of it meant.
         connect_surface: surface,
+        connection_view: connectionView,
         circle_count: circlesState.count,
         connection_count: connectionsTotalCount,
-        has_load_error: Boolean(error),
-        searching: query.trim().length > 0,
+        has_load_error: connectionView === "connections" ? (connectionSearch.active ? connectionSearch.error : connectionsRefreshError) : Boolean(error),
+        searching: connectionView === "connections" ? connectionsQuery.trim().length > 0 : query.trim().length > 0,
       },
     };
   }, [
     circleFlowAction,
     circlesState.count,
     connectionsTotalCount,
+    connectionSearch.active,
+    connectionSearch.loading,
+    connectionSearch.error,
+    connectionsRefreshingFirstPage,
+    connectionsRefreshError,
+    connectionView,
+    connectionsQuery,
     error,
     isFocusedCircleTask,
     loading,
@@ -2362,11 +2386,19 @@ export default function ConnectPageClient() {
   // refuses, because the person stops watching for the result.
   useLocalOnboardingActionHandler("connect.open_people", () => {
     selectSurface("all");
+    setConnectionView("discover");
     setTab("people");
     return { status: "succeeded", summary: "Connect people opened." };
   });
+  useLocalOnboardingActionHandler("connect.open_connections", () => {
+    selectSurface("all");
+    setTab("people");
+    setConnectionView("connections");
+    return { status: "succeeded", summary: "My connections opened." };
+  });
   useLocalOnboardingActionHandler("connect.open_nearby", () => {
     selectSurface("all");
+    setConnectionView("discover");
     setTab("nearby");
     return { status: "succeeded", summary: "Advisors around you opened." };
   });
@@ -2382,6 +2414,7 @@ export default function ConnectPageClient() {
       };
     }
     selectSurface("all");
+    setConnectionView("discover");
     setTab("people");
     setQuery(person);
     searchInputRef.current?.focus();
@@ -3033,11 +3066,11 @@ export default function ConnectPageClient() {
     <AppPageShell
       as="main"
       data-connect-page=""
-      // Opts the page in to the Profile type scale (app/globals.css, `data-profile-type-scale`).
-      data-profile-type-scale="page"
+      // Connect owns its role scale; Profile typography stays scoped to Profile.
+      data-connect-type-scale="page"
       fitContent
-      width={circleFlowAction === "circle-detail" ? "agent" : "reading"}
-      className="relative isolate"
+      width="reading"
+      className={cn("relative isolate", styles.workspace)}
       nativeTest={{
         routeId: "/one/connect",
         marker: "native-route-connect",
@@ -3051,7 +3084,13 @@ export default function ConnectPageClient() {
                 : circlesState.count === 0
                   ? "empty-valid"
                   : "loaded"
-            : error
+            : connectionView === "connections"
+              ? (connectionSearch.active ? connectionSearch.error : connectionsRefreshError)
+                ? "unavailable-valid"
+                : (connectionSearch.active ? connectionSearch.loading && !sortedConnections.length : !connectionsLoaded)
+                  ? "loading"
+                  : sortedConnections.length ? "loaded" : "empty-valid"
+              : error
               ? "unavailable-valid"
               : loading
                 ? "loading"
@@ -3063,10 +3102,12 @@ export default function ConnectPageClient() {
             ? circlesState.error
               ? "connect_circles_unavailable"
               : null
-            : error
+            : connectionView === "connections"
+              ? (connectionSearch.active ? connectionSearch.error : connectionsRefreshError) ? "connect_connections_unavailable" : null
+              : error
               ? "connect_directory_unavailable"
               : null,
-        errorMessage: surface === "circles" ? circlesState.error : error,
+        errorMessage: surface === "circles" ? circlesState.error : connectionView === "connections" ? (connectionSearch.active ? connectionSearch.error : connectionsRefreshError) ? "Connections are unavailable right now." : null : error,
       }}
     >
       <SettingsPresentationProvider density="compact">
@@ -3125,253 +3166,15 @@ export default function ConnectPageClient() {
                       data-connect-surface="all"
                       className={CONNECT_SWIPE_PANE_INSET_CLASSNAME}
                     >
-                      {tab === "nearby" ? (
-                        <div className="space-y-3">
-                          <div className="px-1">{directorySelector}</div>
-                          <NearbyDirectories getIdToken={getIdToken} />
-                        </div>
-                      ) : (
-                        <div className="space-y-3 sm:space-y-4">
-                          <SettingsGroup
-                            className="bg-transparent"
-                            titleControl={
-                              <Button
-                                type="button"
-                                variant="none"
-                                effect="fade"
-                                size="compact"
-                                aria-controls="connect-my-connections-panel"
-                                aria-expanded={connectionsExpanded}
-                                onClick={() =>
-                                  setConnectionsExpanded(
-                                    (expanded) => !expanded,
-                                  )
-                                }
-                                data-testid="connect-my-connections-toggle"
-                                showRipple={false}
-                                // A bare title, like "People" below it: no
-                                // border, fill or padding box of its own, so
-                                // the label starts on the page's column.
-                                className={cn(
-                                  CONNECT_SECTION_CONTROL_LABEL_CLASSNAME,
-                                  CONNECT_SECTION_TITLE_CONTROL_CLASSNAME,
-                                  "!bg-transparent hover:!bg-transparent",
-                                )}
-                              >
-                                <span
-                                  className={CONNECT_WRAPPING_TEXT_CLASSNAME}
-                                >
-                                  {connectionsHeading}
-                                </span>
-                                <ChevronDown
-                                  aria-hidden="true"
-                                  className={cn(
-                                    "ml-2 h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)] transition-transform duration-150 motion-reduce:transition-none",
-                                    connectionsExpanded && "rotate-180",
-                                  )}
-                                />
-                              </Button>
-                            }
-                            // Refresh stays beside the disclosure, never inside it: nested
-                            // controls are invalid and would make one of the two actions
-                            // unreachable to keyboard and assistive-technology users.
-                            titleAction={
-                              <Button
-                                type="button"
-                                variant="none"
-                                effect="fade"
-                                size="icon-touch"
-                                aria-label="Refresh contacts"
-                                aria-busy={connectionsRefreshingFirstPage}
-                                title="Refresh contacts"
-                                disabled={connectionsRefreshingFirstPage}
-                                onClick={handleRefreshConnections}
-                                className={CONNECT_REFRESH_BUTTON_CLASSNAME}
-                              >
-                                <RefreshCw
-                                  aria-hidden="true"
-                                  className={cn(
-                                    "h-3.5 w-3.5",
-                                    connectionsRefreshingFirstPage &&
-                                      "animate-spin",
-                                  )}
-                                />
-                              </Button>
-                            }
-                            separatorInset={false}
-                            headingClassName="!mt-0 !mb-2 !px-0"
-                            contentId="connect-my-connections-panel"
-                            shellClassName={cn(
-                              // Visible, not clipped: the 44px action targets reach 11px past
-                              // the column, and a clipped shell scrolls sideways to reveal
-                              // whichever one takes focus.
-                              "!overflow-visible !rounded-none !bg-transparent !shadow-none",
-                              !connectionsExpanded && "hidden",
-                            )}
-                            contentClassName="!divide-y-0"
-                            testId="connect-my-connections-group"
-                          >
-                            {connectionsRefreshError && (
-                              <SettingsRow
-                                title="Could not refresh connections"
-                                description="Your list may be out of date. Tap to retry."
-                                onClick={handleRefreshConnections}
-                                disabled={connectionsRefreshingFirstPage}
-                                density="compact"
-                              />
-                            )}
-                            {sortedConnections.length === 0 &&
-                            !connectionsLoaded ? (
-                              // The list's resting shape while its first page
-                              // is on the way: same rows, same height, no claim.
-                              Array.from({ length: 4 }, (_, index) => (
-                                <SettingsRow
-                                  key={`connection-placeholder-${index}`}
-                                  layout="person"
-                                  leading={
-                                    <Skeleton className="h-10 w-10 rounded-full" />
-                                  }
-                                  title={
-                                    <Skeleton className="h-4 w-32 rounded" />
-                                  }
-                                  disabled
-                                />
-                              ))
-                            ) : sortedConnections.length === 0 ? (
-                              <SettingsRow
-                                // No description. "Connections appear here." explained what
-                                // an empty list already showed, and the obvious replacement
-                                // -- pointing at the search box -- is the sentence the
-                                // directory section directly below already carries. Saying
-                                // it twice on one screen is what made it noise the first
-                                // time. The title is the whole message.
-                                title={
-                                  isAdvisorTab
-                                    ? "No RIAs yet"
-                                    : "No connections yet"
-                                }
-                                density="compact"
-                                disabled
-                              />
-                            ) : (
-                              connectionGroups.map((group) => (
-                                <section key={group.key} aria-label={group.label ?? connectionsHeadingLabel} data-testid={`connection-source-${group.key}`}>
-                                  {group.label ? (
-                                    <div
-                                      role="heading"
-                                      aria-level={3}
-                                      data-slot="settings-group-heading"
-                                      className="flex min-h-8 items-center gap-2 pb-0.5 pt-3"
-                                    >
-                                      <BookUser aria-hidden="true" className="size-4" color="currentColor" />
-                                      {group.label}
-                                    </div>
-                                  ) : null}
-                                  {group.items.map((connection) => {
-                                    const connectionName =
-                                      connection.displayName || connection.userId;
-                                    return (
-                                    <ConnectPersonRow
-                                      key={connection.connectionId}
-                                      leading={
-                                        <ConnectionPersonAvatar
-                                          size="compact"
-                                          className="!size-[26px]"
-                                          fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
-                                          photoUrl={connection.photoUrl ?? null}
-                                          label={connectionName}
-                                          verified={Boolean(connection.isRia)}
-                                        />
-                                      }
-                                      title={connectionName}
-                                      description={
-                                        connection.createdAt &&
-                                        !Number.isNaN(
-                                          Date.parse(connection.createdAt),
-                                        )
-                                          ? `Connected ${formatConnectedDate(new Date(connection.createdAt))}`
-                                          : "Connected"
-                                      }
-                                      voiceLabel={connectionName}
-                                      openLabel={`Open ${connectionName}'s profile`}
-                                      onOpen={
-                                        connection.publicPersonRef
-                                          ? () =>
-                                              router.push(
-                                                buildPersonProfileRoute(
-                                                  connection.publicPersonRef!,
-                                                  { from: ROUTES.CONNECT },
-                                                ),
-                                              )
-                                          : undefined
-                                      }
-                                      trailing={
-                                        <span className="-mr-[11px] flex shrink-0 items-center justify-end gap-0 whitespace-nowrap">
-                                          {connection.publicPersonRef ? (
-                                            <Button
-                                              type="button"
-                                              variant="none"
-                                              effect="fade"
-                                              size="compact"
-                                              aria-label={`Message ${connectionName}`}
-                                              className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
-                                              onClick={() => {
-                                                void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
-                                              }}
-                                            >
-                                              <ProfilePaneMessageIcon size={22} strokeWidth={1.65} />
-                                            </Button>
-                                          ) : <span className="size-11 shrink-0" aria-hidden="true" />}
-                                          <Button
-                                            type="button"
-                                            variant="none"
-                                            effect="fade"
-                                            size="compact"
-                                            onClick={() => {
-                                              setPendingRemoveId(
-                                                connection.connectionId,
-                                              );
-                                            }}
-                                            aria-label={`Remove connection with ${connectionName}`}
-                                            className={cn(CONNECT_ROW_ICON_ACTION_CLASSNAME, "text-destructive")}
-                                          >
-                                            <Trash2
-                                              aria-hidden="true"
-                                              className="size-[22px]"
-                                            />
-                                          </Button>
-                                        </span>
-                                      }
-                                    />
-                                    );
-                                  })}
-                                </section>
-                              ))
-                            )}
-                          </SettingsGroup>
-
-                          {connectionsHasMore ? (
-                            <div className="flex justify-center">
-                              <Button
-                                type="button"
-                                variant="none"
-                                effect="fill"
-                                size="compact"
-                                className={CONNECT_PAGER_BUTTON_CLASSNAME}
-                                disabled={
-                                  connectionsLoadingMore ||
-                                  connectionsRefreshingFirstPage
-                                }
-                                onClick={() => void handleLoadMoreConnections()}
-                              >
-                                {connectionsLoadingMore
-                                  ? "Loading…"
-                                  : "Load more connections"}
-                              </Button>
-                            </div>
-                          ) : null}
-
-                          <div className="space-y-4">
+                      <Tabs value={connectionView} onValueChange={setConnectionView} className={styles.connectionViews}>
+                        <TabsList variant="line" aria-label="Connection views" className={styles.viewTabs}>
+                          <TabsTrigger value="discover" data-voice-control-id="one-connect-discovery">Find people</TabsTrigger>
+                          <TabsTrigger value="connections" data-voice-control-id="one-connect-connections">
+                            {connectionsHeadingLabel} {connectionsLoaded ? <span className={styles.count}>{connectionsTotalCount}</span> : null}
+                          </TabsTrigger>
+                        </TabsList>
+                        <TabsContent forceMount value="discover" hidden={connectionView !== "discover"} aria-label="Find people">
+                          {tab === "nearby" ? <div className="space-y-3"><div>{directorySelector}</div><NearbyDirectories getIdToken={getIdToken} /></div> : (
                             <SettingsGroup
                               testId="connect-directory-group"
                               headingClassName={cn(
@@ -3419,21 +3222,8 @@ export default function ConnectPageClient() {
                                   </Button>
                                 ) : null
                               }
-                              description={
-                                isSelectionMode ? (
-                                  <span id="connect-selection-limit">
-                                    Pick up to {MAX_BULK_CONNECTION_REQUESTS},
-                                    across pages.
-                                  </span>
-                                ) : isAdvisorTab ? (
-                                  "Advisors with a verified profile."
-                                ) : hasQuery ? (
-                                  "Send a request."
-                                ) : (
-                                  "Find by name, email or phone."
-                                )
-                              }
-                              shellClassName="!overflow-visible !rounded-none !bg-transparent !shadow-none"
+                              description={isSelectionMode ? <span id="connect-selection-limit">Pick up to {MAX_BULK_CONNECTION_REQUESTS}, across pages.</span> : undefined}
+                              shellClassName="!overflow-visible !rounded-none !border-0 !bg-transparent !shadow-none"
                               contentClassName={CONNECT_DIRECTORY_CONTENT_CLASSNAME}
                               separatorInset
                               // The search row belongs to THIS list, so it is read after
@@ -3654,7 +3444,7 @@ export default function ConnectPageClient() {
                                       leading={
                                         <ConnectionPersonAvatar
                                           size="compact"
-                                          className="!size-[26px]"
+                                          className="!size-9 max-[350px]:!size-8"
                                           fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(person.userId))}
                                           photoUrl={person.photoUrl}
                                           label={title}
@@ -3665,7 +3455,7 @@ export default function ConnectPageClient() {
                                       // An email the server already returned for this viewer
                                       // (masked when it is not theirs to see), or no line.
                                       // Never a phone number, never a phone fallback.
-                                      description={getDirectoryPersonEmail(person)}
+                                      description={person.relationship === "pending_outgoing" || person.relationship === "pending_incoming" ? <><span className="block">{person.relationship === "pending_outgoing" ? "Request sent" : "Wants to connect"}</span>{getDirectoryPersonEmail(person) ? <span>{getDirectoryPersonEmail(person)}</span> : null}</> : getDirectoryPersonEmail(person)}
                                       openLabel={`Open ${title}'s profile`}
                                       onOpen={
                                         !isSelectionMode &&
@@ -3789,6 +3579,7 @@ export default function ConnectPageClient() {
                                             // rather than a longer word, so the row never
                                             // reflows mid-tap. `loading` also sets aria-busy.
                                             data-profile-role="action"
+                                            data-relationship={person.relationship}
                                             className={CONNECT_ROW_ACTION_CLASSNAME}
                                             loading={busyId === person.userId}
                                             aria-label={`Cancel your request to ${title}`}
@@ -3799,7 +3590,7 @@ export default function ConnectPageClient() {
                                               );
                                             }}
                                           >
-                                            <span className={CONNECT_ROW_ACTION_PILL_CLASSNAME}>
+                                            <span data-slot="connect-row-action-pill" className={CONNECT_ROW_ACTION_PILL_CLASSNAME}>
                                               {busyId === person.userId ? (
                                                 <Loader2
                                                   className="h-4 w-4 animate-spin"
@@ -3810,6 +3601,8 @@ export default function ConnectPageClient() {
                                               )}
                                             </span>
                                           </Button>
+                                        ) : person.relationship === "connected" ? (
+                                          <span className={styles.relationship}><Check aria-hidden="true" className="size-3.5" />Connected</span>
                                         ) : (
                                           <Button
                                             type="button"
@@ -3817,6 +3610,7 @@ export default function ConnectPageClient() {
                                             effect="fade"
                                             size="compact"
                                             data-profile-role="action"
+                                            data-relationship={person.relationship}
                                             className={CONNECT_ROW_ACTION_CLASSNAME}
                                             disabled={
                                               cta.disabled ||
@@ -3827,7 +3621,7 @@ export default function ConnectPageClient() {
                                               void handleConnect(person);
                                             }}
                                           >
-                                            <span className={CONNECT_ROW_ACTION_PILL_CLASSNAME}>
+                                            <span data-slot="connect-row-action-pill" className={CONNECT_ROW_ACTION_PILL_CLASSNAME}>
                                               {busyId === person.userId
                                                 ? "Sending..."
                                                 : cta.label}
@@ -3904,15 +3698,217 @@ export default function ConnectPageClient() {
                                   </div>
                                 )}
                             </SettingsGroup>
-                          </div>
-                        </div>
-                      )}
+                          )}
+                        </TabsContent>
+                        <TabsContent forceMount value="connections" hidden={connectionView !== "connections"} aria-label={connectionsHeadingLabel}>
+                          <SettingsGroup
+                            className="bg-transparent"
+                            titleControl={<span className={styles.listMeta}>{connectionsLoaded ? `${connectionsTotalCount} ${isAdvisorTab ? connectionsTotalCount === 1 ? "RIA" : "RIAs" : connectionsTotalCount === 1 ? "connection" : "connections"}` : "Connections"}</span>}
+                            titleAction={
+                              <Button type="button" variant="none" effect="fade" size="compact"
+                                aria-label="Refresh contacts" aria-busy={connectionsRefreshingFirstPage}
+                                disabled={connectionsRefreshingFirstPage} onClick={handleRefreshConnections}
+                                className={styles.utilityAction}>
+                                <RefreshCw aria-hidden="true" className={cn("size-4", connectionsRefreshingFirstPage && "animate-spin")} />
+                                {connectionsRefreshingFirstPage ? "Refreshing…" : "Refresh"}
+                              </Button>
+                            }
+                            toolbar={<div className={styles.rosterSearch}>
+                              <SearchIcon aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                              <Input type="search" aria-label="Search my connections by name, email or phone"
+                                placeholder="Name, email or phone" value={connectionsQuery}
+                                onChange={event => setConnectionsQuery(event.target.value)} />
+                            </div>}
+                            separatorInset={false}
+                            headingClassName="!mt-0 !mb-1 !px-0"
+                            contentId="connect-my-connections-panel"
+                            shellClassName={cn(
+                              // Visible, not clipped: the 44px action targets reach 11px past
+                              // the column, and a clipped shell scrolls sideways to reveal
+                              // whichever one takes focus.
+                              "!overflow-visible !rounded-none !border-0 !bg-transparent !shadow-none",
+                            )}
+                            contentClassName="!divide-y-0"
+                            testId="connect-my-connections-group"
+                          >
+                            {(connectionsRefreshError || connectionSearch.error) && (
+                              <SettingsRow
+                                title="Could not refresh connections"
+                                description="Your list may be out of date. Tap to retry."
+                                onClick={connectionSearch.active ? connectionSearch.retry : handleRefreshConnections}
+                                disabled={connectionsRefreshingFirstPage || connectionSearch.loading}
+                                density="compact"
+                              />
+                            )}
+                            {sortedConnections.length === 0 &&
+                            (!connectionsLoaded || connectionSearch.loading) ? (
+                              // The list's resting shape while its first page
+                              // is on the way: same rows, same height, no claim.
+                              Array.from({ length: 4 }, (_, index) => (
+                                <SettingsRow
+                                  key={`connection-placeholder-${index}`}
+                                  layout="person"
+                                  leading={
+                                    <Skeleton className="h-10 w-10 rounded-full" />
+                                  }
+                                  title={
+                                    <Skeleton className="h-4 w-32 rounded" />
+                                  }
+                                  disabled
+                                />
+                              ))
+                            ) : sortedConnections.length === 0 ? (
+                              <SettingsRow
+                                // No description. "Connections appear here." explained what
+                                // an empty list already showed, and the obvious replacement
+                                // -- pointing at the search box -- is the sentence the
+                                // directory section directly below already carries. Saying
+                                // it twice on one screen is what made it noise the first
+                                // time. The title is the whole message.
+                                title={
+                                  connectionSearch.active ? "No matches found" : isAdvisorTab ? "No RIAs yet" : "No connections yet"
+                                }
+                                density="compact"
+                                disabled
+                              />
+                            ) : (
+                              connectionGroups.map((group) => (
+                                <section key={group.key} aria-label={group.label ?? connectionsHeadingLabel} data-testid={`connection-source-${group.key}`}>
+                                  {group.label ? (
+                                    <div
+                                      role="heading"
+                                      aria-level={3}
+                                      data-slot="settings-group-heading"
+                                      className="flex min-h-8 items-center gap-2 pb-0.5 pt-3"
+                                    >
+                                      <BookUser aria-hidden="true" className="size-4" color="currentColor" />
+                                      {group.label}
+                                    </div>
+                                  ) : null}
+                                  {group.items.map((connection) => {
+                                    const connectionName =
+                                      connection.displayName || connection.userId;
+                                    return (
+                                    <ConnectPersonRow
+                                      key={connection.connectionId}
+                                      leading={
+                                        <ConnectionPersonAvatar
+                                          size="compact"
+                                          className="!size-9 max-[350px]:!size-8"
+                                          fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
+                                          photoUrl={connection.photoUrl ?? null}
+                                          label={connectionName}
+                                          verified={Boolean(connection.isRia)}
+                                        />
+                                      }
+                                      title={connectionName}
+                                      description={
+                                        connection.createdAt &&
+                                        !Number.isNaN(
+                                          Date.parse(connection.createdAt),
+                                        )
+                                          ? `Connected ${formatConnectedDate(new Date(connection.createdAt))}`
+                                          : "Connected"
+                                      }
+                                      voiceLabel={connectionName}
+                                      openLabel={`Open ${connectionName}'s profile`}
+                                      onOpen={
+                                        connection.publicPersonRef
+                                          ? () =>
+                                              router.push(
+                                                buildPersonProfileRoute(
+                                                  connection.publicPersonRef!,
+                                                  { from: ROUTES.CONNECT },
+                                                ),
+                                              )
+                                          : undefined
+                                      }
+                                      trailing={
+                                        <span className="flex shrink-0 items-center justify-end gap-0 whitespace-nowrap">
+                                          {connection.publicPersonRef ? (
+                                            <Button
+                                              type="button"
+                                              variant="none"
+                                              effect="fade"
+                                              size="compact"
+                                              aria-label={`Message ${connectionName}`}
+                                              className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
+                                              onClick={() => {
+                                                void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
+                                              }}
+                                            >
+                                              <ProfilePaneMessageIcon size={22} strokeWidth={1.65} />
+                                            </Button>
+                                          ) : <span className="size-11 shrink-0" aria-hidden="true" />}
+                                          <Popover>
+                                            <PopoverTrigger asChild>
+                                              <Button type="button" variant="none" effect="fade" size="compact"
+                                                aria-label={`Options for ${connectionName}`} className={CONNECT_ROW_ICON_ACTION_CLASSNAME}>
+                                                <MoreHorizontal aria-hidden="true" className="size-5" />
+                                              </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent align="end" className="w-56 p-1">
+                                              <Button type="button" variant="none" effect="fade" size="compact"
+                                                onClick={() => setPendingRemoveTarget(user ? { ownerId: user.uid, generation: batchDraftGenerationRef.current, connection } : null)}
+                                                aria-label={`Remove connection with ${connectionName}`}
+                                                className="min-h-11 w-full justify-start text-destructive">
+                                                <Trash2 aria-hidden="true" className="mr-2 size-4" />Remove connection
+                                              </Button>
+                                            </PopoverContent>
+                                          </Popover>
+                                        </span>
+                                      }
+                                    />
+                                    );
+                                  })}
+                                </section>
+                              ))
+                            )}
+                          </SettingsGroup>
+
+                          {(connectionSearch.active ? connectionSearch.hasMore : connectionsHasMore) ? (
+                            <div className="flex justify-center">
+                              <Button
+                                type="button"
+                                variant="none"
+                                effect="fill"
+                                size="compact"
+                                className={CONNECT_PAGER_BUTTON_CLASSNAME}
+                                disabled={
+                                  connectionsLoadingMore || connectionSearch.loading ||
+                                  connectionsRefreshingFirstPage
+                                }
+                                onClick={() => void (connectionSearch.active ? connectionSearch.loadMore() : handleLoadMoreConnections())}
+                              >
+                                {connectionsLoadingMore || connectionSearch.loading
+                                  ? "Loading…"
+                                  : "Load more connections"}
+                              </Button>
+                            </div>
+                          ) : null}
+
+
+                        </TabsContent>
+                      </Tabs>
                     </div>
                     <div
                       data-connect-surface="circles"
                       className={cn(CONNECT_SWIPE_PANE_INSET_CLASSNAME, "space-y-3 sm:space-y-4")}
                     >
-                      <LivingConnections
+
+                      <ConnectCirclesTab
+                        onSearchActiveChange={setCircleSearchActive}
+                        createDialogOpen={createCircleDialogOpen}
+                        onCreateDialogOpenChange={setCreateCircleDialogOpen}
+                        onStateChange={setCirclesState}
+                        currentUserId={user?.uid ?? null}
+                        isActive={surface === "circles"}
+                        // Use the existing exact-person, no-scope connection action.
+                        onRequestConnection={sendConnectRequest}
+                        onCancelConnectionRequest={cancelConnectionRequest}
+                        refreshToken={circleRefreshToken}
+                      />
+                      <div hidden={circleSearchActive}><LivingConnections
                         key={user?.uid ?? "signed-out"}
                         currentUserId={user?.uid ?? null}
                         circlesState={circlesState}
@@ -3922,23 +3918,11 @@ export default function ConnectPageClient() {
                         totalCount={connectionsTotalCount}
                         loading={!connectionsRefreshError && (!connectionsLoaded || connectionsRefreshingFirstPage) && sortedConnections.length === 0}
                         error={connectionsRefreshError}
-                        onFindPeople={() => { setTab("people"); commitSurface("all"); }}
+                        onFindPeople={() => { setConnectionView("discover"); setTab("people"); commitSurface("all"); }}
                         onCreateCircle={() => setCreateCircleDialogOpen(true)}
                         onRetry={handleRefreshConnections}
                         onRetryCircles={() => setCircleRefreshToken(value => value + 1)}
-                      />
-                      <ConnectCirclesTab
-                        createDialogOpen={createCircleDialogOpen}
-                        onCreateDialogOpenChange={setCreateCircleDialogOpen}
-                        onStateChange={setCirclesState}
-                        currentUserId={user?.uid ?? null}
-                        isActive={surface === "circles"}
-                        // The roster's Connect opens the SAME capability review the
-                        // directory opens, rather than sending outright.
-                        onRequestConnection={sendConnectRequest}
-                        onCancelConnectionRequest={cancelConnectionRequest}
-                        refreshToken={circleRefreshToken}
-                      />
+                      /></div>
                     </div>
                   </SwipeViews>
                 </div>
@@ -4197,7 +4181,7 @@ export default function ConnectPageClient() {
         <AlertDialog
           open={Boolean(pendingRemoveConnection)}
           onOpenChange={(open) => {
-            if (!open && !busyId) setPendingRemoveId(null);
+            if (!open && !busyId) setPendingRemoveTarget(null);
           }}
         >
           {/* The scope takes Profile's account-dialog roles (title, text, buttons)
@@ -4233,6 +4217,7 @@ export default function ConnectPageClient() {
         <ContactSyncResultsSheet
           {...contactSync.resultsSheetProps}
           onRequestConnection={requestConnectionFromContactMatch}
+          onViewConnections={() => setConnectionView("connections")}
         />
         <ContactDiscoverabilityConsentDialog
           {...contactSync.discoverabilityConsentDialogProps}

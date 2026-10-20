@@ -124,6 +124,7 @@ import { relationshipCta } from "@/lib/connections/relationship-label";
 import { ActionMenu } from "@/components/app-ui/action-menu";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { cn } from "@/lib/utils";
+import connectWorkspaceStyles from "@/components/connect/connect-workspace.module.css";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { CreateCirclePeopleBody, useCreateCirclePeopleModel, type CirclePeoplePageLoader } from "./create-circle-people-step";
 import {
@@ -1947,7 +1948,7 @@ export function CircleDetailFlow({
       ? `${memberTotalCount} ${memberTotalCount === 1 ? "match" : "matches"}`
       : `${filteredMembers.length} of ${members.length}`
     : visibleMemberSummary;
-  const showMemberSearch =
+  const showMemberSearch = livingCircleExperience ||
     (usesPagedMembers
       ? Math.max(memberTotalCount, visibleMemberCount)
       : members.length) >= 8 || memberSearch.trim().length > 0;
@@ -2161,16 +2162,6 @@ export function CircleDetailFlow({
     void loadEligibleConnections();
   };
 
-  useEffect(() => {
-    if (!livingCircleExperience || !circle?.id || !canInviteMembers) return;
-    // Connect keeps the entire add flow inline. Search its bounded candidate
-    // page here instead of opening the legacy Add people sheet.
-    const timer = window.setTimeout(() => {
-      void loadEligibleConnections({ page: 1, query: peopleSearch });
-    }, peopleSearch.trim() ? 250 : 0);
-    return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [circle?.id, canInviteMembers, livingCircleExperience, peopleSearch]);
 
   useEffect(() => {
     if (reloadSignal === lastEligibleReloadSignalRef.current) return;
@@ -2190,8 +2181,11 @@ export function CircleDetailFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [circle?.id, livingCircleExperience, peopleSearch, peopleSheetOpen, reloadSignal]);
 
+  const previousPeopleSearchRef = useRef("");
   useEffect(() => {
-    if (!peopleSheetOpen || !onLoadEligibleConnectionsPage || !circle) return;
+    const changed = previousPeopleSearchRef.current !== peopleSearch;
+    previousPeopleSearchRef.current = peopleSearch;
+    if (!changed || !peopleSheetOpen || !onLoadEligibleConnectionsPage || !circle) return;
     const timer = window.setTimeout(() => {
       void loadEligibleConnections({ page: 1, query: peopleSearch });
     }, 250);
@@ -2304,6 +2298,7 @@ export function CircleDetailFlow({
       await onInviteConnections(circle.id, userIds);
       if (scope !== peopleMutationScopeRef.current) return;
       toast.success("Circle members updated.");
+      setPeopleSheetOpen(false);
       peopleRequestRef.current += 1;
       setSelectedConnections(new Map());
       setEligibleConnections((current) => current.filter((person) => !userIds.includes(person.userId)));
@@ -2537,9 +2532,16 @@ export function CircleDetailFlow({
             </div>
           ) : null}
           {livingCircleExperience ? (
+            <Sheet modal open={peopleSheetOpen} onOpenChange={open => {
+              if (peopleSubmitInFlightRef.current) return;
+              if (open) openPeopleSheet();
+              else { setPeopleSheetOpen(false); peopleRequestRef.current += 1; setPeopleSearch(""); setSelectedConnections(new Map()); }
+            }}>
+              <SheetContent side="bottom" dragDismiss={false} className={cn(connectWorkspaceStyles.pickerSheet, "mx-auto flex max-h-[calc(85dvh-var(--kb-height,0px))] w-full flex-col overflow-hidden rounded-t-[24px] sm:max-w-lg")}>
+                <SheetHeader><SheetTitle>Add people</SheetTitle><SheetDescription>Select connections to add to {circle.name}.</SheetDescription></SheetHeader>
             <LivingCirclePanel
               key={circle.id}
-              focusOnAdding={memberSetup && needsFirstMember}
+              focusOnAdding
               circleName={circle.name}
               members={orbitMembers}
               memberCount={visibleMemberCount}
@@ -2563,6 +2565,8 @@ export function CircleDetailFlow({
               onLoadMore={() => void loadEligibleConnections({ page: peoplePage + 1, append: true, query: peopleSearch })}
               onRetry={() => void loadEligibleConnections({ page: 1, query: peopleSearch })}
             />
+              </SheetContent>
+            </Sheet>
           ) : null}
 
           {isOwner && circle.systemKind !== "trusted" ? (
@@ -3188,6 +3192,22 @@ export function CircleDetailFlow({
             className="space-y-2.5"
             aria-labelledby={CIRCLE_MEMBERS_HEADING_ID}
           >
+            {showMemberSearch ? (
+              <label className="relative block">
+                <span className="sr-only">Search members</span>
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                {/* The app's own field, so this search box and Connect's are
+                    one control rather than two that resemble each other. */}
+                <input
+                  value={memberSearch}
+                  onChange={(event) => setMemberSearch(event.target.value)}
+                  placeholder="Search members"
+                  autoComplete="off"
+                  className={cn(INPUT_CLASSNAME, "pl-11 pr-3.5")}
+                  data-testid="one-location-circle-member-search"
+                />
+              </label>
+            ) : null}
             <div className="flex items-baseline justify-between gap-3 px-1.5">
               <SectionLabel
                 as="div"
@@ -3206,25 +3226,13 @@ export function CircleDetailFlow({
                   Under an active query it counts what is ON SCREEN. The same
                   "3 people" above a filtered list of one is the heading
                   contradicting the list it heads. */}
-              <TrailingValue>{memberCountLabel}</TrailingValue>
+              <div className="flex items-center gap-3">
+                <TrailingValue>{memberCountLabel}</TrailingValue>
+                {livingCircleExperience && canInviteMembers ? <Button type="button" size="compact" onClick={openPeopleSheet} disabled={busy} data-testid="one-location-circle-add-people-row"><Plus aria-hidden="true" className="mr-1.5 size-4" />Add people</Button> : null}
+              </div>
             </div>
 
-            {showMemberSearch ? (
-              <label className="relative block">
-                <span className="sr-only">Search members</span>
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                {/* The app's own field, so this search box and Connect's are
-                    one control rather than two that resemble each other. */}
-                <input
-                  value={memberSearch}
-                  onChange={(event) => setMemberSearch(event.target.value)}
-                  placeholder="Search members"
-                  autoComplete="off"
-                  className={cn(INPUT_CLASSNAME, "pl-11 pr-3.5")}
-                  data-testid="one-location-circle-member-search"
-                />
-              </label>
-            ) : null}
+
 
             {!membersLoaded && loadError ? null : membersLoading && !members.length ? <CircleMembersLoading /> : filteredMembers.length ? (
               <SettingsGroup
