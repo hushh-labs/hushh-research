@@ -201,7 +201,7 @@ for (const dark of [false, true]) {
       }));
       // Feed's ordinary-row anatomy: a 26px face centred in a 30px well, so the
       // face starts 2px in from the row edge, and the row is compact.
-      expect(rowGeometry.every(row => Math.abs(row.avatarLeft - row.left) < 1 && row.avatarWidth === 36)).toBe(true);
+      expect(rowGeometry.every(row => Math.abs(row.avatarLeft - row.left) < 1 && row.avatarWidth === (width <= 350 ? 32 : 36))).toBe(true);
       expect(rowGeometry.every(row => row.height >= 70)).toBe(true);
       expect(rowGeometry.every(row => row.titleRight <= row.trailingLeft && row.date === "Connected 28 Sep")).toBe(true);
       expect(rowGeometry.every(row => row.actions.every(action => action.width >= 44 && action.height >= 44))).toBe(true);

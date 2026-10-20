@@ -300,6 +300,16 @@
   }
   .workspace :global([data-row-layout="person-compact"]) {
     min-height: 70px;
+    column-gap: 7px;
+  }
+  .workspace
+    :global([data-row-layout="person-compact"] > div:first-child > button),
+  .workspace
+    :global(
+      [data-row-layout="person-compact"] > div:first-child > div:first-child
+    ) {
+    column-gap: 11px;
+    padding-block: 8px;
   }
   .workspace :global([data-testid="connect-search-row"] input),
   .rosterSearch input,
@@ -326,6 +336,51 @@
       > div:last-child:not(:first-child)
   ) {
   padding-left: 49px;
+}
+@media (max-width: 620px) {
+  .workspace
+    :global(
+      [data-row-layout="person-compact"]
+        > div:first-child
+        > div:last-child:not(:first-child)
+    ) {
+    padding-left: 47px;
+  }
+}
+@media (max-width: 350px) {
+  .workspace
+    :global([data-row-layout="person-compact"] > div:first-child > button),
+  .workspace
+    :global(
+      [data-row-layout="person-compact"] > div:first-child > div:first-child
+    ) {
+    grid-template-columns: 32px minmax(0, 1fr);
+    column-gap: 8px;
+  }
+  .workspace
+    :global(
+      [data-row-layout="person-compact"]
+        > div:first-child
+        > button
+        > span:first-child
+    ),
+  .workspace
+    :global(
+      [data-row-layout="person-compact"]
+        > div:first-child
+        > div:first-child
+        > span:first-child
+    ) {
+    width: 32px;
+  }
+  .workspace
+    :global(
+      [data-row-layout="person-compact"]
+        > div:first-child
+        > div:last-child:not(:first-child)
+    ) {
+    padding-left: 40px;
+  }
 }
 .workspace :global([data-slot="settings-group-toolbar"]) {
   display: contents;

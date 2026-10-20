@@ -3444,7 +3444,7 @@ export default function ConnectPageClient() {
                                       leading={
                                         <ConnectionPersonAvatar
                                           size="compact"
-                                          className="!size-9"
+                                          className="!size-9 max-[350px]:!size-8"
                                           fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(person.userId))}
                                           photoUrl={person.photoUrl}
                                           label={title}
@@ -3794,7 +3794,7 @@ export default function ConnectPageClient() {
                                       leading={
                                         <ConnectionPersonAvatar
                                           size="compact"
-                                          className="!size-9"
+                                          className="!size-9 max-[350px]:!size-8"
                                           fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
                                           photoUrl={connection.photoUrl ?? null}
                                           label={connectionName}
