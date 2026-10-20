@@ -77,6 +77,24 @@ describe("FeedActionableRow", () => {
     expect(screen.getByText("Routine row")).toBeInTheDocument();
   });
 
+  it("opens the existing full review without deciding the request", () => {
+    const openDetails = vi.fn();
+    const allow = vi.fn();
+    const deny = vi.fn();
+    render(<FeedActionableRow item={actionable({
+      onSelect: openDetails,
+      phoneActions: [{ key: "review", label: "Review", tone: "primary", run: openDetails }],
+      actions: [
+        { key: "deny", label: "Don't allow", tone: "ghost", run: deny },
+        { key: "allow", label: "Allow", tone: "primary", run: allow },
+      ],
+    })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Review", exact: true }));
+    expect(openDetails).toHaveBeenCalledTimes(1);
+    expect(allow).not.toHaveBeenCalled();
+    expect(deny).not.toHaveBeenCalled();
+  });
+
   it("renders a simple upcoming item in the compact Feed rhythm", () => {
     render(
       <FeedActionableRow
@@ -93,7 +111,7 @@ describe("FeedActionableRow", () => {
 
     const row = screen.getByTestId("feed-actionable-calendar:event-1");
     expect(row).toHaveAttribute("data-row-layout", "settings");
-    expect(row).toHaveClass("[--type-row-label-size:13px]");
+    expect(row.querySelector('[data-profile-role="name"]')).toHaveTextContent("Team standup");
     expect(row.querySelector('[data-slot="feed-domain-icon"] svg'))
       .toHaveAttribute("viewBox", "0 0 24 24");
     expect(row.querySelector('[data-slot="feed-event-time"]')).toBeInTheDocument();

@@ -99,6 +99,16 @@ function renderMarker(
 }
 
 describe("MapSelfAvatarMarker", () => {
+  it("supports a shared person's accessible photo at the renderer pin anchor", () => {
+    const onSelect = vi.fn();
+    renderMarker({ anchor: "pin", testId: "shared-person-avatar", accessibleLabel: "Location of Aadhi", displayName: "Aadhi", onSelect });
+    const marker = screen.getByRole("button", { name: "Location of Aadhi" });
+    expect(marker.getAttribute("style")).toContain("translate(-50%, -100%)");
+    expect(screen.getByTestId("shared-person-avatar-fallback")).toHaveTextContent("A");
+    fireEvent.click(marker);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
   it("sits centred on the coordinate, not above it like a pin", () => {
     renderMarker();
 

@@ -39,8 +39,8 @@ export const CIRCLE_MEMBER_MENU_SLOT_PX = 44;
  * the row, to the right of the kebab, and centre it on the selected row. That
  * keeps both the member identity and any Connect/Respond/Cancel control visible
  * on the wide layouts where an anchored pointer menu is appropriate. Radix may
- * collision-flip the surface on a narrower pointer viewport; the menu itself
- * therefore repeats the member name as its visible context.
+ * collision-flip the surface on a narrower pointer viewport; its accessible
+ * name keeps the selected member's identity available to assistive technology.
  *
  * These values are exported because the real-browser layout contract measures
  * the same placement that the component passes to Radix.

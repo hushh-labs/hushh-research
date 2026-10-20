@@ -115,7 +115,7 @@ import {
 } from "@/lib/one-location/system-circles";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { LOCATION_ACTION_SHAPE } from "../location-action-styles";
-import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { CirclePersonSelectionRow } from "./circle-person-selection-row";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { LivingCirclePanel } from "@/components/connect/circles/living-circle-panel";
 import { CirclePhotoEditor } from "@/components/connect/circles/circle-photo-editor";
@@ -399,9 +399,9 @@ export function CirclesSection({
   };
 
   return (
-    <div className="space-y-3" data-testid="one-location-named-circles">
+    <div className="space-y-3" data-profile-type-scale="circles" data-testid="one-location-named-circles">
       <div className="flex w-full items-center justify-between gap-4">
-        <h2 className="text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]">
+        <h2 data-profile-role="group-label" className="text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]">
           Circles
         </h2>
 
@@ -419,6 +419,7 @@ export function CirclesSection({
           )}
         >
           <ActionMenu
+            profileTypeScale="circles"
             label="Add Circle"
             title="Circles"
             triggerIcon={Plus}
@@ -507,10 +508,10 @@ export function CirclesSection({
                   <UsersRound className="h-5 w-5" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="whitespace-normal text-[15px] font-semibold text-foreground [overflow-wrap:anywhere]">
+                  <p data-profile-role="name" className="whitespace-normal text-[15px] font-semibold text-foreground [overflow-wrap:anywhere]">
                     {invite.circleName}
                   </p>
-                  <p className={MUTED_TEXT}>
+                  <p data-profile-role="description" className={MUTED_TEXT}>
                     Invited by {connectPersonName({ displayName: invite.inviterDisplayName })}
                   </p>
                 </div>
@@ -760,8 +761,8 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
     saving, nameMissing, canSubmit, nameHelpId, showNameError, nameHelpText, submit, people, peopleProps, busy, showCircleType } = model;
 
   return (
-    <div data-testid="one-location-create-circle-flow">
-      {savedCircle ? <div hidden={step !== "people"}>
+    <div data-profile-type-scale={step === "people" ? "circles" : undefined} data-testid="one-location-create-circle-flow" data-circle-create-step={step} className={step === "people" ? "flex min-h-0 flex-1 flex-col" : undefined}>
+      {savedCircle ? <div hidden={step !== "people"} className={step === "people" ? "flex min-h-0 flex-1 flex-col" : undefined}>
         <CreateCirclePeopleBody {...peopleProps} model={people} />
       </div> : null}
       <div hidden={step !== "details"} className="space-y-5">
@@ -1052,12 +1053,12 @@ export function JoinCircleFlow({
   }, []);
 
   return (
-    <div className="space-y-5" data-testid="one-location-join-circle-flow">
+    <div className="space-y-5" data-profile-type-scale="circles" data-testid="one-location-join-circle-flow">
       <h1 className="sr-only">Join a Circle</h1>
 
       <div className="space-y-4">
         <div className="space-y-2">
-          <p id="one-location-join-code-label" className="text-[17px] font-semibold leading-[22px] text-foreground">
+          <p data-profile-role="label" id="one-location-join-code-label" className="text-[17px] font-semibold leading-[22px] text-foreground">
             Enter invite code
           </p>
         </div>
@@ -1154,10 +1155,10 @@ export function JoinCircleFlow({
               <UsersRound className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[17px] font-semibold leading-[22px] text-foreground">
+              <p data-profile-role="name" className="truncate text-[17px] font-semibold leading-[22px] text-foreground">
                 {preview.name}
               </p>
-              <p className="text-[14px] leading-5 text-[color:var(--app-secondary-label)]">
+              <p data-profile-role="description" className="text-[14px] leading-5 text-[color:var(--app-secondary-label)]">
                 {connectPersonName({ displayName: preview.ownerDisplayName })} ·{" "}
                 {preview.memberCount === 1
                   ? "1 member"
@@ -1165,7 +1166,12 @@ export function JoinCircleFlow({
               </p>
             </div>
           </div>
-          <p className="mt-3 text-[14px] leading-5 text-[color:var(--app-secondary-label)]">
+          {preview.alreadyMember ? (
+            <p data-profile-role="label" className="mt-3 text-foreground">
+              You&apos;re already in this Circle.
+            </p>
+          ) : null}
+          <p data-profile-role="description" className="mt-3 text-[14px] leading-5 text-[color:var(--app-secondary-label)]">
             Location and SMS stay private until you choose to share.
           </p>
         </div>
@@ -1240,7 +1246,7 @@ export function JoinCircleFlow({
         open={discardPreviewConfirmOpen}
         onOpenChange={setDiscardPreviewConfirmOpen}
       >
-        <AlertDialogContent size="sm">
+        <AlertDialogContent data-profile-type-scale="circles" size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>Use another code?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -1299,8 +1305,9 @@ function CircleMemberRow({
 }) {
   const isCurrentUser = member.userId === currentUserId;
   const memberName = connectPersonName(member);
-  const canShare =
-    !isCurrentUser && member.phoneVerified && member.secureLocationReady;
+  // Phone verification is required for emergency SMS, not private location
+  // shares. The sharing flow rechecks the current recipient key before review.
+  const canShare = !isCurrentUser && member.secureLocationReady;
   const canRemove = isOwner && member.role !== "owner";
 
   const relationship =
@@ -1356,6 +1363,7 @@ function CircleMemberRow({
       <ConnectionPersonAvatar
         label={memberName}
         photoUrl={member.photoUrl}
+        fromContacts={member.connectedFromContacts}
         size="list"
         verified={Boolean(member.isRia)}
         className={CIRCLE_MEMBER_AVATAR_CLASSNAME}
@@ -1366,13 +1374,12 @@ function CircleMemberRow({
           hasRelationshipControl && CIRCLE_MEMBER_ACTION_COPY_CLASSNAME,
         )}
       >
-        <p className={cn(CIRCLE_MEMBER_NAME_ROW_CLASSNAME, "flex items-center gap-1.5")}>
-          <span className={CIRCLE_MEMBER_NAME_CLASSNAME} title={memberName}>
+        <p data-profile-role="name" className={cn(CIRCLE_MEMBER_NAME_ROW_CLASSNAME, "flex items-center gap-1.5")}>
+          <span data-profile-role="name" className={CIRCLE_MEMBER_NAME_CLASSNAME} title={memberName}>
             {memberName}
           </span>
-          {member.connectedFromContacts ? <ContactSourceBadge /> : null}
         </p>
-        <p
+        <p data-profile-role="description"
           className={cn(
             MUTED_TEXT,
             CIRCLE_MEMBER_SECONDARY_CLASSNAME,
@@ -2440,7 +2447,7 @@ export function CircleDetailFlow({
     // screen used to pair a 24px stack gap with `SettingsGroup`'s own 28px
     // heading margin, so the one gap on the page that mattered least -- the
     // one above "Members" -- was also the largest.
-    <Tabs value={hasChat ? detailView : "members"} onValueChange={changeDetailView} className="gap-5" data-testid="one-location-circle-detail-flow">
+    <Tabs value={hasChat ? detailView : "members"} onValueChange={changeDetailView} className="gap-5" data-profile-type-scale="circles" data-testid="one-location-circle-detail-flow">
       {!circle ? (
         <>
           <TaskFlowHeader title={summary?.name ?? "Circle"} description={summary ? circleDetailMemberCountLabel(summary.memberCount) : "Getting members ready…"} />
@@ -2523,7 +2530,7 @@ export function CircleDetailFlow({
           {livingCircleExperience && canInviteMembers && !circle.isSystem && circle.systemKind == null && memberSetup && !needsFirstMember ? (
             <div data-testid="circle-member-setup" className="space-y-2" aria-live="polite">
               <h2 className="ui-text-card-title">Your Circle is ready</h2>
-              <p className={MUTED_TEXT}>
+              <p data-profile-role="description" className={MUTED_TEXT}>
                 You've added your first member. Add more people below or start chatting.
               </p>
               {!needsFirstMember && hasChat ? (
@@ -2581,7 +2588,7 @@ export function CircleDetailFlow({
                 if (!open && circle) setCircleName(circle.name);
               }}
             >
-              <SheetContent
+              <SheetContent data-profile-type-scale="circles"
                 side="bottom"
                 aria-describedby={undefined}
                 className="mx-auto w-full rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-lg sm:px-6"
@@ -2591,7 +2598,7 @@ export function CircleDetailFlow({
                 </SheetHeader>
                 <div className={CIRCLE_SHEET_BODY_CLASSNAME}>
                   <label className="block space-y-2">
-                    <span className="text-[15px] font-semibold leading-5 text-foreground">
+                    <span data-profile-role="label" className="text-[15px] font-semibold leading-5 text-foreground">
                       Circle name
                     </span>
                     <div className={CIRCLE_NAME_ROW_CLASSNAME}>
@@ -2624,7 +2631,7 @@ export function CircleDetailFlow({
                     </div>
                   </label>
                   {circleNameDirty && trimmedCircleName.length < 1 ? (
-                    <p className="text-sm text-destructive">Enter a name.</p>
+                    <p data-profile-role="description" className="text-sm text-destructive">Enter a name.</p>
                   ) : null}
                   <FlowActionGroup
                     stacked
@@ -2725,7 +2732,7 @@ export function CircleDetailFlow({
                 }
               }}
             >
-              <SheetContent
+              <SheetContent data-profile-type-scale="circles"
                 side="bottom"
                 aria-describedby={undefined}
                 onEscapeKeyDown={(event) => {
@@ -2750,10 +2757,10 @@ export function CircleDetailFlow({
                 {inviteCode ? (
                   <div className={CIRCLE_SHEET_BODY_CLASSNAME}>
                     <div className="rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] p-5 text-center shadow-[var(--app-card-shadow-standard)]">
-                      <p className="break-all font-mono text-2xl font-bold tracking-[0.12em] text-foreground">
+                      <p data-profile-role="name" className="break-all font-mono text-2xl font-bold tracking-[0.12em] text-foreground">
                         {inviteCode.code}
                       </p>
-                      <p className={cn(MUTED_TEXT, "mt-3")}>
+                      <p data-profile-role="description" className={cn(MUTED_TEXT, "mt-3")}>
                         Joining does not share location.
                       </p>
                     </div>
@@ -2808,10 +2815,10 @@ export function CircleDetailFlow({
                       "rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--app-card-shadow-standard)]",
                     )}
                   >
-                    <p className="text-[17px] font-semibold leading-[22px] text-foreground">
+                    <p data-profile-role="name" className="text-[17px] font-semibold leading-[22px] text-foreground">
                       Invite code unavailable
                     </p>
-                    <p className={cn(MUTED_TEXT, "mt-1")}>
+                    <p data-profile-role="description" className={cn(MUTED_TEXT, "mt-1")}>
                       Ask the Circle owner for a new code.
                     </p>
                   </div>
@@ -2861,7 +2868,7 @@ export function CircleDetailFlow({
               open={replaceCodeConfirmOpen}
               onOpenChange={setReplaceCodeConfirmOpen}
             >
-              <AlertDialogContent
+              <AlertDialogContent data-profile-type-scale="circles"
                 size="sm"
                 overlayClassName="z-[713]"
                 className="z-[714]"
@@ -2902,7 +2909,7 @@ export function CircleDetailFlow({
               }
             }}
           >
-            <SheetContent
+            <SheetContent data-profile-type-scale="circles"
               side="bottom"
               // Swiping down through the results is how a phone scrolls a list
               // back up. Left on, it drags the sheet away instead and can close
@@ -2957,7 +2964,7 @@ export function CircleDetailFlow({
                     </div>
                   ) : peopleLoadError ? (
                     <div className="space-y-3 rounded-2xl bg-muted/45 p-4">
-                      <p className="text-sm text-muted-foreground">
+                      <p data-profile-role="description" className="text-sm text-muted-foreground">
                         {peopleLoadError}
                       </p>
                       <Button
@@ -2997,45 +3004,12 @@ export function CircleDetailFlow({
                               selectedConnections.size >= selectionLimit;
 
                             return (
-                              <SettingsRow
+                              <CirclePersonSelectionRow
                                 key={connection.userId}
-                                layout="person"
-                                leading={
-                                  <ConnectionPersonAvatar
-                                    size="list"
-                                    photoUrl={connection.photoUrl ?? null}
-                                    label={connectPersonName(connection)}
-                                    verified={Boolean(connection.isRia)}
-                                  />
-                                }
-                                title={
-                                  <span className="flex min-w-0 items-center gap-1.5">
-                                    <span className="min-w-0 truncate">{connectPersonName(connection)}</span>
-                                    {connection.connectedFromContacts ? <ContactSourceBadge /> : null}
-                                  </span>
-                                }
-                                ariaPressed={selected}
+                                person={connection}
+                                selected={selected}
                                 disabled={!selected && selectionAtCapacity}
-                                trailing={
-                                  <span className="flex shrink-0 items-center gap-3">
-                                    <span
-                                      className={cn(
-                                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
-                                        selected
-                                          ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                                          : "border-border bg-transparent",
-                                      )}
-                                    >
-                                      {selected ? (
-                                        <Check
-                                          className="h-4 w-4"
-                                          weight="bold"
-                                        />
-                                      ) : null}
-                                    </span>
-                                  </span>
-                                }
-                                onClick={() =>
+                                onToggle={() =>
                                   setSelectedConnections((current) => {
                                     const next = new Map(current);
                                     if (next.has(connection.userId)) {
@@ -3347,7 +3321,7 @@ export function CircleDetailFlow({
                   Delete circle
                 </Button>
               </AlertDialogTrigger>
-              <AlertDialogContent>
+              <AlertDialogContent data-profile-type-scale="circles">
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete “{circle.name}”?</AlertDialogTitle>
                   <AlertDialogDescription>
@@ -3391,7 +3365,7 @@ export function CircleDetailFlow({
                     Leave circle
                   </Button>
                 </AlertDialogTrigger>
-                <AlertDialogContent>
+                <AlertDialogContent data-profile-type-scale="circles">
                   <AlertDialogHeader>
                     <AlertDialogTitle>Leave “{circle.name}”?</AlertDialogTitle>
                     <AlertDialogDescription>

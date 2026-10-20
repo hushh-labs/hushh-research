@@ -78,6 +78,9 @@ export interface MapSelfAvatarMarkerProps {
   /** The settled camera can safely own the visible HTML avatar. */
   showAvatar?: boolean;
   onSelect?: () => void;
+  /** Shared-person markers retain the geographic pin's bottom anchor. */
+  anchor?: "center" | "pin";
+  testId?: string;
 }
 
 function initialsOf(name: string | null): string {
@@ -150,6 +153,60 @@ export function MapSelfAvatarLegend({
   );
 }
 
+export function MapAvatarFace({
+  avatarUrl,
+  displayName,
+  stale,
+  testId,
+}: Pick<MapSelfAvatarMarkerProps, "avatarUrl" | "displayName" | "stale"> & { testId: string }) {
+  const initials = initialsOf(displayName);
+  return (
+    <>
+      {/*
+        The ring. Drawn as its own inset ring rather than a border on the
+        photo so staleness can change one colour without touching the face.
+      */}
+      <span
+        aria-hidden="true"
+        className={`absolute inset-0 rounded-full ${
+          stale
+            ? "bg-[color:var(--muted-foreground)]/35"
+            : "bg-[color:var(--app-accent)]/30"
+        }`}
+      />
+      <span
+        aria-hidden="true"
+        className="absolute inset-[3px] rounded-full bg-white shadow-[0_1px_4px_rgba(60,64,67,0.30),0_1px_2px_rgba(60,64,67,0.18)] dark:bg-background"
+      />
+      <Avatar
+        className="relative"
+        style={{
+          width: SELF_AVATAR_PHOTO_SIZE_PX,
+          height: SELF_AVATAR_PHOTO_SIZE_PX,
+        }}
+      >
+        {avatarUrl ? (
+          <AvatarImage
+            src={avatarUrl}
+            alt=""
+            data-testid={`${testId}-photo`}
+          />
+        ) : null}
+        {/*
+          The app's existing fallback, same order as the top bar: initials
+          when there is a name, the profile glyph when there is not.
+        */}
+        <AvatarFallback
+          data-testid={`${testId}-fallback`}
+          className="bg-[color:var(--app-accent)] text-[13px] font-semibold leading-none text-[color:var(--app-accent-fg)]"
+        >
+          {initials || <UserRound className="h-4 w-4" aria-hidden />}
+        </AvatarFallback>
+      </Avatar>
+    </>
+  );
+}
+
 function MapSelfAvatarMarkerImpl({
   point,
   camera,
@@ -161,6 +218,8 @@ function MapSelfAvatarMarkerImpl({
   stale,
   showAvatar = true,
   onSelect,
+  anchor: markerAnchor = "center",
+  testId = "one-location-map-self-avatar",
 }: MapSelfAvatarMarkerProps) {
   useLayoutEffect(() => {
     rendererOverlay?.setPoint(point);
@@ -177,16 +236,12 @@ function MapSelfAvatarMarkerImpl({
       ? anchor
       : null;
 
-  const initials = initialsOf(displayName);
-
   const marker = (
     <button
       type="button"
-      data-testid="one-location-map-self-avatar"
+      data-testid={testId}
       data-stale={stale ? "true" : undefined}
-      // Do not announce the person's name. On Your Map this remains the live
-      // device fix; an active Check-in may instead describe the public venue
-      // where the owner intentionally chose to appear.
+      // This label stays local, outside the renderer marker payload.
       aria-label={accessibleLabel}
       onClick={onSelect}
       // Web labels reserve this avatar's footprint in their collision layout.
@@ -206,57 +261,14 @@ function MapSelfAvatarMarkerImpl({
               width: SELF_AVATAR_MARKER_SIZE_PX,
               height: SELF_AVATAR_MARKER_SIZE_PX,
               // A transform, not left/top: camera updates do not need layout.
-              // Centred on the coordinate -- this is a puck, not a pin whose
-              // tip marks the spot.
-              transform: `translate3d(${visibleAnchor.x}px, ${visibleAnchor.y}px, 0) translate(-50%, -50%)`,
+              // Self is centred; shared people retain the pin's bottom anchor.
+              transform: `translate3d(${visibleAnchor.x}px, ${visibleAnchor.y}px, 0) translate(-50%, ${markerAnchor === "pin" ? "-100%" : "-50%"})`,
             }
           : undefined
       }
     >
       {visibleAnchor ? (
-        <>
-          {/*
-            The ring. Drawn as its own inset ring rather than a border on the
-            photo so staleness can change one colour without touching the face.
-          */}
-          <span
-            aria-hidden="true"
-            className={`absolute inset-0 rounded-full ${
-              stale
-                ? "bg-[color:var(--muted-foreground)]/35"
-                : "bg-[color:var(--app-accent)]/30"
-            }`}
-          />
-          <span
-            aria-hidden="true"
-            className="absolute inset-[3px] rounded-full bg-white shadow-[0_1px_4px_rgba(60,64,67,0.30),0_1px_2px_rgba(60,64,67,0.18)] dark:bg-background"
-          />
-          <Avatar
-            className="relative"
-            style={{
-              width: SELF_AVATAR_PHOTO_SIZE_PX,
-              height: SELF_AVATAR_PHOTO_SIZE_PX,
-            }}
-          >
-            {avatarUrl ? (
-              <AvatarImage
-                src={avatarUrl}
-                alt=""
-                data-testid="one-location-map-self-avatar-photo"
-              />
-            ) : null}
-            {/*
-              The app's existing fallback, same order as the top bar: initials
-              when there is a name, the profile glyph when there is not.
-            */}
-            <AvatarFallback
-              data-testid="one-location-map-self-avatar-fallback"
-              className="bg-[color:var(--app-accent)] text-[13px] font-semibold leading-none text-[color:var(--app-accent-fg)]"
-            >
-              {initials || <UserRound className="h-4 w-4" aria-hidden />}
-            </AvatarFallback>
-          </Avatar>
-        </>
+        <MapAvatarFace avatarUrl={avatarUrl} displayName={displayName} stale={stale} testId={testId} />
       ) : (
         accessibleLabel
       )}
