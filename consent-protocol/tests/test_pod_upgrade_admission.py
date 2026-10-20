@@ -151,7 +151,10 @@ async def test_durable_fence_recovers_across_restart_and_revalidates_receipt() -
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("committed", [False, True])
-async def test_lost_release_response_is_reconciled_from_sealed_state(monkeypatch, committed):
+@pytest.mark.parametrize("failure", [OSError, asyncio.CancelledError])
+async def test_lost_release_response_is_reconciled_from_sealed_state(
+    monkeypatch, committed, failure
+):
     log = MemoryLog()
     admission = PodUpgradeAdmission(log_resolver=lambda: log)
     idle = await admission.prepare(operation_id="operation-a", incarnation="revision-a")
@@ -161,10 +164,11 @@ async def test_lost_release_response_is_reconciled_from_sealed_state(monkeypatch
     async def interrupted(kind, payload):
         if committed:
             await append(kind, payload)
-        raise OSError("release response unavailable")
+        raise failure("release response unavailable")
 
     monkeypatch.setattr(log, "append", interrupted)
-    with pytest.raises(PodUpgradeAdmissionRefused, match="durable append"):
+    expected_error = PodUpgradeAdmissionRefused if failure is OSError else asyncio.CancelledError
+    with pytest.raises(expected_error):
         await admission.release(
             operation_id="operation-a", incarnation="revision-a", expected_idle_record=cursor
         )
@@ -177,6 +181,38 @@ async def test_lost_release_response_is_reconciled_from_sealed_state(monkeypatch
     assert released["releaseReceipt"]["releaseRecord"]["seq"] == 3
     permit = await admission.acquire_turn(incarnation="revision-a")
     await permit.release()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_recovery_and_idle_append_reconcile_before_admission(monkeypatch):
+    log = MemoryLog()
+    admission = PodUpgradeAdmission(log_resolver=lambda: log)
+    append, replay = log.append, log.replay
+
+    async def interrupted_idle(kind, payload):
+        result = await append(kind, payload)
+        if kind == "pod_upgrade_idle":
+            raise asyncio.CancelledError
+        return result
+
+    monkeypatch.setattr(log, "append", interrupted_idle)
+    with pytest.raises(asyncio.CancelledError):
+        await admission.prepare(operation_id="operation-a", incarnation="revision-a")
+    monkeypatch.setattr(log, "append", append)
+    recovered = await admission.wait_idle(operation_id="operation-a", incarnation="revision-a")
+    assert recovered["idleReceipt"]["idleRecord"] == recovered["retainedIdleRecord"]
+    assert len(log.records) == 2
+
+    async def interrupted_replay():
+        raise asyncio.CancelledError
+
+    admission = PodUpgradeAdmission(log_resolver=lambda: log)
+    monkeypatch.setattr(log, "replay", interrupted_replay)
+    with pytest.raises(asyncio.CancelledError):
+        await admission.status(incarnation="revision-a")
+    monkeypatch.setattr(log, "replay", replay)
+    with pytest.raises(PodUpgradeAdmissionRefused, match="preparing"):
+        await admission.acquire_turn(incarnation="revision-a")
 
 
 @pytest.mark.asyncio

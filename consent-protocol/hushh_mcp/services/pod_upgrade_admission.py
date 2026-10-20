@@ -220,9 +220,9 @@ class PodUpgradeAdmission:
     async def _hydrate(self, state: _State) -> None:
         if state.hydrated:
             return
-        state.hydrated = True
         log = self._log()
         if log is None:
+            state.hydrated = True
             return
         try:
             from hushh_mcp.services.pod_recovery_projection import replay_owner_records
@@ -233,11 +233,8 @@ class PodUpgradeAdmission:
             raise PodUpgradeAdmissionRefused(
                 f"pod lifecycle recovery unavailable: {type(exc).__name__}"
             ) from exc
-        try:
-            _restore_lifecycle(state, records, self._runtime_epoch)
-        except Exception:
-            state.hydrated = False
-            raise
+        _restore_lifecycle(state, records, self._runtime_epoch)
+        state.hydrated = True
 
     async def acquire_turn(self, *, incarnation: str) -> TurnPermit:
         key = str(incarnation or "unknown").strip() or "unknown"
@@ -279,15 +276,19 @@ class PodUpgradeAdmission:
             "issuedAt": datetime.now(timezone.utc).isoformat(),
         }
         receipt["committedCursor"] = cursor
-        marker = await self._append_marker(
-            "pod_upgrade_idle",
-            {
-                "operationId": operation,
-                "incarnation": state.incarnation,
-                "runtimeEpoch": self._runtime_epoch,
-                "idleReceipt": receipt,
-            },
-        )
+        try:
+            marker = await self._append_marker(
+                "pod_upgrade_idle",
+                {
+                    "operationId": operation,
+                    "incarnation": state.incarnation,
+                    "runtimeEpoch": self._runtime_epoch,
+                    "idleReceipt": receipt,
+                },
+            )
+        except (Exception, asyncio.CancelledError):
+            state.hydrated = False
+            raise
         receipt["idleRecord"] = _record_cursor(marker)
         if state.retained_idle_record is None:
             state.retained_idle_record = receipt["idleRecord"]
@@ -350,6 +351,8 @@ class PodUpgradeAdmission:
         key = str(incarnation or "unknown").strip() or "unknown"
         async with self._condition:
             state = self._states.get(key)
+            if state is not None:
+                await self._hydrate(state)
             if state is None or state.operation_id != operation_id or not state.draining:
                 raise PodUpgradeAdmissionRefused("upgrade handoff is not active")
             if timeout > 0 and (state.active or not state.drain_hooks_complete):
@@ -404,7 +407,7 @@ class PodUpgradeAdmission:
             }
             try:
                 marker = await self._append_marker("pod_upgrade_release", payload)
-            except Exception:
+            except (Exception, asyncio.CancelledError):
                 # The append may have committed before its response was lost.
                 # Re-read the sealed log before admitting work or retrying release.
                 state.hydrated = False
