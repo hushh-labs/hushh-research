@@ -16,8 +16,11 @@ This file is not a second release SOP. Before acting, read and follow:
 4. `.github/workflows/ship-ios-testflight.yml`
 
 TestFlight dispatch requires an explicit user request and confirmation, a green landed `main` SHA,
-and an actor authorized by the current `config/ci-governance.json`. Determine the current marketing
-version and build number from the repository/workflow; never hardcode them. Never read secret
+and an actor authorized by the current `config/ci-governance.json`. Follow `release-proof.md` →
+Live version and concurrent-release admission before packaging and when reconciling visibility:
+compare live Apple marketing versions, retained/in-flight uploads and the actual automatic tester
+group with the intended candidate; the source version or a higher build number alone is insufficient.
+Never hardcode the next version or assume one workflow serializes every developer. Never read secret
 values, mutate Cloud Run directly, merge code, deploy UAT, deploy production, or submit App Store
 review as an implied part of this task. Watch the workflow to a terminal state and distinguish
 workflow success, upload, Apple processing, and tester availability in the report.

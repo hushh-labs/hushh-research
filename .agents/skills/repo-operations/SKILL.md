@@ -67,7 +67,7 @@ bootstrap does not authorize bypassing approval on subsequent updates.
 2. Prefer live verification over assumptions for GitHub, CI, deploy, ruleset, and runtime state.
 3. Use `./bin/hushh` as the canonical repo command surface and `gh` for live repository state. Local admin work as `kushal@hushh.ai` uses verified ADC under `admin-release-sop.md`; a stale or differently selected CLI account is not an ADC failure.
 4. For merge or deploy work, follow `admin-release-sop.md` as the single state machine; verify pre-PR, DCO, current head SHA, required gates, queue state, landed SHA, post-merge smoke, and requested environment separately.
-5. For core workflow chains, monitor until terminal success or a concrete blocker; queued or in-progress authority runs mean the task is not done.
+5. For core workflow chains, monitor until terminal success or a concrete blocker; queued or in-progress authority runs mean the task is not done. For iOS uploads or tester-visibility reports, apply `.agents/skills/release-ios-appstore/references/release-proof.md`, including live marketing-version and concurrent-release admission before treating a higher build number as the latest update.
 6. For merge/deploy requests, keep merge-to-main and deploy-to-UAT as separate operator cadences.
 7. For DB migration/contract changes, run the DB release gate before calling UAT ready.
 8. For local runtime/server work, follow `branch-runtime-ops.md` for visible terminal defaults, inline override, restart, and health-probe rules.

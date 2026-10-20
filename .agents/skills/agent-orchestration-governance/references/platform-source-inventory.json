@@ -97,7 +97,7 @@
     },
     ".agents/adapters/claude/ship-ios-testflight/SKILL.md": {
       "classification": "owner_alias",
-      "sha256": "c16c284be74aa3518f146942ad49123ef8ca5ce4cfa4e656c0ee9d9f853b6345"
+      "sha256": "4dd70f070bfd930a09e8214dc1ac6eb852c76b2dc7fcdf01ae6e1e09740144d5"
     },
     ".agents/adapters/claude/ship-testflight/SKILL.md": {
       "classification": "owner_alias",

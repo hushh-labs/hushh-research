@@ -48,6 +48,47 @@ fast locally too. This skill does **not** merge — if the work is not on `main`
 merge and verify the selected backend's web/API deploy first, then release. It ships what is
 already on `main`.
 
+## Live version and concurrent-release admission
+
+Apply this to TestFlight and App Store releases, including ordinary uploads and distribution recovery.
+
+1. Before choosing packaging, read the app's live iOS pre-release versions, builds, retained
+   `buildUploads`, and App Store versions/states. Inspect active release jobs and uploads from
+   other developers, workflows and Xcode. The source checkout's `MARKETING_VERSION` and a prior
+   receipt are inputs, not the current Apple release baseline. Compare numeric version components,
+   not strings, upload times or build numbers alone: `1.4.1 (153)` is an older marketing version
+   than `1.4.2 (151)` even when uploaded later. Paginate the relevant collections.
+2. For an intended latest/default update, do not target a marketing version below the latest
+   intended tester-visible version. Check whether that version's train is still open; a closed
+   or approved train may require a higher version. Explicitly requested historical testing is
+   different and must not be reported as the latest update. Do not infer that every older build
+   is unavailable; check its eligibility and Previous Builds separately.
+3. Repackage only through the chosen workflow's supported marketing-version input or a reviewed
+   source version change. Verify the effective version in the app, extensions and upload receipt,
+   while preserving the authorized source SHA and backend. Already uploaded builds cannot be
+   renamed. If the workflow lacks an override, report that limitation; do not silently use the
+   App Store release workflow or change public-release state to repair a TestFlight-only task.
+4. Use the existing resolver's app-wide build/upload floor, not a remembered next number. Its
+   `max + 1` is not an atomic reservation. One workflow's concurrency group does not serialize
+   other release workflows or developers' manual uploads. Recheck live versions and in-flight
+   uploads before upload; if another release changes the intended baseline or consumes the
+   number, reconcile the exact upload outcome before coordinating a fresh allocation. Never
+   blindly replay an uncertain upload, cancel a peer's job, or overwrite their release.
+5. After processing, read back the complete `marketing version (build)` and intended group's
+   eligible versions/builds, automatic-distribution setting and exact tester membership. Include
+   existing automatic groups, not only groups named in release configuration. `VALID`, group
+   assignment, `autoNotifyEnabled` or a tester-level `INSTALLED` state does not establish that
+   this build is the default update, installed on a particular device, or that an email arrived.
+6. Separate internal testing, external beta review and public App Store states. External
+   `READY_FOR_BETA_SUBMISSION` / no beta-review submission means **not submitted**, not awaiting
+   an Apple decision. Public `PENDING_DEVELOPER_RELEASE` means approved but not publicly released.
+   Do not publish, withdraw, replace or submit that public version to repair tester visibility;
+   preserve the task's separate TestFlight/public-release authorization boundaries.
+
+Apple documents [version-grouped builds](https://developer.apple.com/help/app-store-connect/manage-builds/view-builds-and-metadata/)
+and [internal automatic distribution](https://developer.apple.com/help/app-store-connect/test-a-beta-version/add-internal-testers/).
+These operator checks complement existing workflow gates; prose is not an automated guard.
+
 ## Identity / governance
 
 The actor must be in `config/ci-governance.json` -> `production.manual_dispatch_users`. If not,
@@ -81,9 +122,10 @@ point to the runbook — do not work around it.
 2. **ASC key role too low.** Archive creates a dev asset and export creates a distribution asset,
    both via `-allowProvisioningUpdates`. The API key must be **Admin** (App Manager is not enough
    for the managed distribution certificate). Symptom: a cloud-signing permission error at export.
-3. **Shared build-number pool.** TestFlight and App Store share one `CFBundleVersion` pool, and the
-   ASC builds API lags, so back-to-back runs can collide on a build number. The resolver takes
-   `max(ASC history, pbxproj) + 1`; if two dispatches race, re-run once ASC has caught up.
+3. **Concurrent version changes.** The repo allocates build numbers across all trains and
+   retained uploads, but that does not select a current marketing version or reserve a number.
+   Follow live version and concurrent-release admission above; read back uncertain outcomes
+   before retrying, rather than dispatching duplicate builds as Apple history catches up.
 4. **dSYM "Upload Symbols Failed"** for Firebase/Google frameworks is **non-fatal** — it does not
    fail the build or the upload. Do not treat it as a failure.
 5. **Unaccepted Program License Agreement** silently blocks upload/processing — a user-only fix.
@@ -95,7 +137,8 @@ review". Before calling a release done, capture:
 
 - SHA released (short) and that "Main Post-Merge Smoke Gate" was `success` on that exact SHA.
 - Run URL + final status; mode (dry-run / prepare-only / submitted).
-- Version + resolved build number from the exact upload run.
+- Version + resolved build number from the exact upload run, compared with current Apple
+  marketing versions and the intended tester group's default/eligible build selection.
 - ASC state from the API or Job summary: uploaded / processing / "What's New" set / build attached
   to the version / review submission created — or, for prepare-only, explicitly "attached, NOT
   submitted for review"; for dry-run, "not uploaded".
