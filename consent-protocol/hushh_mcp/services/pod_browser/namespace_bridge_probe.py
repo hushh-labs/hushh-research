@@ -60,9 +60,9 @@ async def _worker(guards: dict) -> None:
         await network.channel.close()
 
 
-async def _stop_worker(process: asyncio.subprocess.Process) -> dict:
+async def _stop_worker(process: asyncio.subprocess.Process, *, grace_seconds: float = 15) -> dict:
     try:
-        await asyncio.wait_for(process.wait(), 15)
+        await asyncio.wait_for(process.wait(), grace_seconds)
     except TimeoutError:
         try:
             os.killpg(process.pid, signal.SIGKILL)

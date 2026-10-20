@@ -156,7 +156,7 @@ def _frame() -> dict:
     }
 
 
-def _command(*, bridge_fd: int | None = None) -> list[str]:
+def _command(*, bridge_fd: int | None = None, public_probe: bool = False) -> list[str]:
     # bubblewrap creates a new mount root, PID, IPC and network namespaces.
     # Only immutable browser/Python libraries are visible, with private tmpfs.
     command = [
@@ -213,7 +213,13 @@ def _command(*, bridge_fd: int | None = None) -> list[str]:
             sys.executable,
             "-m",
             "hushh_mcp.services.pod_browser."
-            + ("namespace_probe" if bridge_fd is None else "namespace_bridge_probe"),
+            + (
+                "namespace_public_probe"
+                if public_probe
+                else "namespace_probe"
+                if bridge_fd is None
+                else "namespace_bridge_probe"
+            ),
             "--inside",
             os.readlink("/proc/self/ns/net"),
         )

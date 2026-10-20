@@ -180,6 +180,11 @@ class ConnectedBrowserTransport:
             return
         await asyncio.shield(self._shutdown)
 
+    async def wait_closed(self) -> None:
+        """Join peer closure without cancelling the reader if a caller leaves."""
+        await asyncio.shield(self._pump)
+        await self.close()
+
     async def _finish_close(self) -> None:
         tasks = [task for task in (self._pump, self._inbound) if task]
         for task in tasks:

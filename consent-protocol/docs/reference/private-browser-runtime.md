@@ -24,7 +24,45 @@ The [Browser completion plan](../../../docs/future/personal-agent/browser-comple
 specifies the next native Gemini/Azure model adapters and headless/takeover
 qualification. Its target paths are not implemented capability claims.
 
-### Browser within One
+## Visual Map
+
+Target topology; all dashed paths remain gated and unavailable.
+
+```mermaid
+flowchart TD
+    UI["Source: One task card and private preview; cloud gated"]
+    One["Existing: owner private agent"]
+    Agent["Disabled: native ADK Computer Use task specialist"]
+    Model["Native Gemini adapter; synthetic SDK verification"]
+    Control["Foundation: exclusive control and exact authority ports"]
+    Broker["Foundation: HTTPS broker and dispatch receipts"]
+    Cloud["Unqualified: protected Chromium process in owner pod"]
+    Web["Task-authorized public HTTPS origins"]
+    Ledger["Existing action ledger; exact runtime review port"]
+    Information["Local port: selected non-secret PKM exports"]
+    Sessions["Local port: encrypted remembered sign-in"]
+    Store["Existing owner object store and sealed recovery log"]
+    UI -. "owner task" .-> One
+    UI -. "exclusive manual takeover; task-bound input" .-> Control
+    One -. "qualified task hand; isolated ADK runner" .-> Agent
+    Agent -. "screen processing requires provider disclosure" .-> Model
+    Model -. "unverified native action assessment" .-> Agent
+    Agent -. "typed actions" .-> Control
+    Control -. "task-only ephemeral bridge" .-> Cloud
+    Cloud -. "no direct egress; bounded request bridge" .-> Broker
+    Broker -. "DNS-pinned authorized requests" .-> Web
+    Control -. "exact action approval" .-> Ledger
+    Information -. "exact model-processing / disclosure approval" .-> Ledger
+    Information -. "approved fields and source revisions only" .-> Agent
+    Sessions -. "remember / per-task reuse approval" .-> Ledger
+    Sessions -. "encrypted objects; metadata-only log" .-> Store
+    Sessions -. "approved state through private memory bridge" .-> Cloud
+    Broker -. "exact transmission approval / outcome receipt" .-> Ledger
+    Cloud -. "private frames through task bridge" .-> Control
+    Control -. "validated ephemeral frames; qualified cloud required" .-> UI
+```
+
+## Browser within One
 
 Browser is a capability owned by One. One delegates a website task to the
 existing `agent_computer_use` specialist; the owner can preview or take control
@@ -147,6 +185,45 @@ but its digest does not qualify the newer source. A completed production image
 still requires exact-image acceptance; do not rebuild this synthetic probe merely
 to relabel the prior evidence.
 
+### Typed worker bridge and site access
+
+`connected_executor.py` connects the existing execution and session ports to the
+preconnected stream. The trusted launcher supplies the immutable binding to both
+ends; commands cannot choose another owner, task or incarnation. The pod retains
+the real network broker, current admission checks and dispatch receipts. Worker
+errors expose stable codes only. A lost reply during observation is also
+uncertain, because page scripts can transmit information without a mouse action.
+Peer closure initiates worker termination and joins broker/channel cleanup.
+
+Page-resource bursts now wait in a bounded worker queue before dispatch. The
+six-resource regression failed against the earlier four-call transport limit.
+The worker permits at most 512 requests over its lifetime; waiting requests have
+a deadline. Queue expiry means no dispatch, while reply loss never authorizes
+replay. This adapter does not issue readiness or install itself in pod startup.
+
+The public-site qualification probe uses only fixed documentation/search URLs,
+same-origin static resources and the existing public-address-pinned broker. It
+contains no model, login, owner information or production approval policy. A
+rendered frame alone is insufficient: the probe also requires successful document
+HTTP responses and worker/process-group teardown. Recorded results apply to the
+exact source snapshot and image used.
+
+The first public-site build, `456afab1-4f17-4e58-94ff-8b4e6984ad52`,
+ended `TIMEOUT` during Cloud Build setup; its Docker step remained queued.
+No browser job ran and this attempt provides no website-access evidence. Job,
+disposable identity and image absence were read back. The
+subsequent local queuing correction is not contained in that frozen build input.
+Do not retry an unchanged probe or label the platform delay a browser failure.
+
+Site admission is an owner/task allowlist, not a claim that a website has
+allowlisted Hussh. CAPTCHA, authentication rejection and website automation
+restrictions require an honest intervention/unavailable result. Never disguise
+the client or bypass a restriction to manufacture acceptance. Login uses owner
+takeover with model observations suppressed; passwords must not be requested in
+One's conversation. Selected non-secret PKM information retains separate
+processing and destination-disclosure consent. Automatic Secrets injection is
+not part of the qualified capability.
+
 ### Historical provider-managed qualification
 
 The working slice starts at `fd4770c16e`, including frozen main `f47a4832dbc`
@@ -206,44 +283,6 @@ principals used by this slice.
 No Browser readiness receipt or owner installation was issued. Resolve supported cloud
 identity, memory-only broker transport, denied egress and teardown independently
 before enabling either adapter.
-
-## Visual Map
-
-Target topology; all dashed paths remain gated and unavailable.
-
-```mermaid
-flowchart TD
-    UI["Source: One task card and private preview; cloud gated"]
-    One["Existing: owner private agent"]
-    Agent["Disabled: native ADK Computer Use task specialist"]
-    Model["Native Gemini adapter; synthetic SDK verification"]
-    Control["Foundation: exclusive control and exact authority ports"]
-    Broker["Foundation: HTTPS broker and dispatch receipts"]
-    Cloud["Unqualified: protected Chromium process in owner pod"]
-    Web["Task-authorized public HTTPS origins"]
-    Ledger["Existing action ledger; exact runtime review port"]
-    Information["Local port: selected non-secret PKM exports"]
-    Sessions["Local port: encrypted remembered sign-in"]
-    Store["Existing owner object store and sealed recovery log"]
-    UI -. "owner task" .-> One
-    UI -. "exclusive manual takeover; task-bound input" .-> Control
-    One -. "qualified task hand; isolated ADK runner" .-> Agent
-    Agent -. "screen processing requires provider disclosure" .-> Model
-    Model -. "unverified native action assessment" .-> Agent
-    Agent -. "typed actions" .-> Control
-    Control -. "task-only ephemeral bridge" .-> Cloud
-    Cloud -. "no direct egress; bounded request bridge" .-> Broker
-    Broker -. "DNS-pinned authorized requests" .-> Web
-    Control -. "exact action approval" .-> Ledger
-    Information -. "exact model-processing / disclosure approval" .-> Ledger
-    Information -. "approved fields and source revisions only" .-> Agent
-    Sessions -. "remember / per-task reuse approval" .-> Ledger
-    Sessions -. "encrypted objects; metadata-only log" .-> Store
-    Sessions -. "approved state through private memory bridge" .-> Cloud
-    Broker -. "exact transmission approval / outcome receipt" .-> Ledger
-    Cloud -. "private frames through task bridge" .-> Control
-    Control -. "validated ephemeral frames; qualified cloud required" .-> UI
-```
 
 ## Implemented foundation
 
