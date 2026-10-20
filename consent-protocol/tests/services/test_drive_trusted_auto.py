@@ -1682,3 +1682,125 @@ async def test_paid_delivery_preflight_checks_source_without_reclassifying_exist
         resource_key="synthetic-resource-key",
     )
     assert sharing.trusted_request_authority.await_count == 2
+
+
+@pytest.mark.parametrize("status", ["queued", "failed", "running"])
+async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effects(
+    request_bulk, sharing, monkeypatch, status
+):
+    from hushh_mcp.runtime_providers import managed_text
+    from hushh_mcp.services.drive_request_package_service import assessment_policy_version
+    from tests.services.test_drive_request_search_unit import _semantic_checkpoint
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini")
+    _membership(sharing, "active")
+    await DriveLivePreferences(db=sharing.db).set_background(
+        user_id="owner", enabled=True, confirmed=True
+    )
+    # Create an actual historical Gemini binding, not a current owner acceptance.
+    real_policy = managed_text.managed_text_policy
+    with monkeypatch.context() as historical:
+        historical.setattr(managed_text, "managed_text_policy", lambda: None)
+        created = await _request(sharing)
+    request_id = created["requestId"]
+    cp = _semantic_checkpoint("Elena Rostova")
+    cp.pop("request_revision")
+    cp.pop("request_origin_id")
+    with sharing.db.engine.connect() as connection:
+        old_request = sharing._request(connection, "owner", request_id)
+        private = (
+            sharing._open_request(old_request)
+            if hasattr(sharing, "_open_request")
+            else sharing.sharing_cipher.open(
+                old_request["request_envelope"],
+                user_id="owner",
+                resource_id=request_id,
+                purpose="request",
+            )
+        )
+        cp["semantic_purpose"] = private["purpose"]
+    cp["semantic_assessment_policy"] = assessment_policy_version(None)
+    cp["page_token"] = "preserve-provider-cursor"
+    cp["semantic_pending"] = [{"id": "pending-synthetic", "version": "12"}]
+    job = _search(request_bulk, request_id=request_id, count=1, selection=cp)
+    store = DriveOwnerSearchStore(db=sharing.db)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET status=:status WHERE job_id=:job"),
+            {"status": status, "job": job},
+        )
+        before = connection.execute(
+            text("SELECT metadata_envelope FROM drive_owner_search_results WHERE job_id=:job"),
+            {"job": job},
+        ).scalar_one()
+        request_before = connection.execute(
+            text("SELECT revision FROM drive_share_requests WHERE request_id=:request"),
+            {"request": request_id},
+        ).scalar_one()
+        effects_before = {
+            table: connection.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
+            for table in (
+                "drive_request_payment_orders",
+                "drive_bulk_shares",
+                "drive_bulk_share_effects",
+            )
+        }
+    assert real_policy() is not None
+    if status == "running":
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE drive_owner_search_jobs SET lease_id=:lease,lease_expires_at=clock_timestamp()+interval '60 seconds' WHERE job_id=:job"
+                ),
+                {"job": job, "lease": str(uuid4())},
+            )
+        assert (
+            await store.migrate_request_processor(user_id="owner", request_id=request_id) is False
+        )
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE drive_owner_search_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE job_id=:job"
+                ),
+                {"job": job},
+            )
+    assert await store.migrate_request_processor(user_id="owner", request_id=request_id) is True
+    assert await store.migrate_request_processor(user_id="owner", request_id=request_id) is False
+    with sharing.db.engine.begin() as connection:
+        row = store._row(
+            connection, "SELECT * FROM drive_owner_search_jobs WHERE job_id=:job", {"job": job}
+        )
+        after = store._checkpoint(row)
+        assert row["status"] == "queued"
+        assert after["page_token"] == cp["page_token"]
+        assert after["semantic_pending"] == cp["semantic_pending"]
+        assert after["semantic_plan_digest"] == cp["semantic_plan_digest"]
+        assert after["processor_migration"]["basis"] == "administrator_rollout"
+        assert after["processor_migration"]["from_binding"] is None
+        assert after["semantic_model_binding"] == managed_text.managed_text_binding()
+        assert after["semantic_assessment_policy"] != cp["semantic_assessment_policy"]
+        assert (
+            connection.execute(
+                text("SELECT metadata_envelope FROM drive_owner_search_results WHERE job_id=:job"),
+                {"job": job},
+            ).scalar_one()
+            == before
+        )
+        assert (
+            connection.execute(
+                text("SELECT revision FROM drive_share_requests WHERE request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == request_before
+        )
+        assert {
+            table: connection.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
+            for table in effects_before
+        } == effects_before
+    lease = await store.claim(user_id="owner", job_id=job)
+    assert lease is not None
+    await store.require_current(lease)
+    _membership(sharing, "removed")
+    with pytest.raises(DriveReadError):
+        await store.require_current(lease)

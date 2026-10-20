@@ -129,6 +129,13 @@ def _runtime_model(
         # Mirror the existing managed Agent Chat transport: Vertex mode with
         # the platform-managed key, held only by this turn-local model object.
         raise ValueError("Managed Vertex cannot be constructed from an API key")
+    from hushh_mcp.runtime_providers.managed_text import (
+        build_managed_text_model,
+        managed_text_policy,
+    )
+
+    if managed_text_policy() is not None:
+        return build_managed_text_model(scope="one_text_chat")
     return build_managed_gemini_adk_model(model, vertex_location=managed_location)
 
 
@@ -411,7 +418,7 @@ async def _stream_one_text_turn_once(
             "One text runtime completed without visible text or a directive"
         )
     logger.info(
-        "one_text_turn_complete model=%s first_visible_ms=%s elapsed_ms=%s directives=%s",
+        "one_text_turn_complete configured_model=%s first_visible_ms=%s elapsed_ms=%s directives=%s",
         runtime_model,
         (round((first_visible_at - started_at) * 1000) if first_visible_at is not None else None),
         round((time.perf_counter() - started_at) * 1000),
@@ -439,7 +446,9 @@ async def stream_one_text_turn(
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run One with same-model regional failover before any observable event."""
     locations: tuple[str | None, ...] = (None,)
-    if runtime_mode == "hushh_managed_vertex":
+    from hushh_mcp.runtime_providers.managed_text import managed_text_policy
+
+    if runtime_mode == "hushh_managed_vertex" and managed_text_policy() is None:
         binding = ManagedGeminiRuntimeBinding.from_environment()
         locations = tuple(binding.locations_for_model(runtime_model))
 
