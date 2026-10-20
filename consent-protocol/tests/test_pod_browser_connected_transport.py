@@ -274,3 +274,31 @@ async def test_connected_worker_bounds_and_serializes_a_page_subresource_burst()
         release.set()
         await asyncio.gather(host.close(), worker._channel.close())
         await asyncio.gather(*requests, return_exceptions=True)
+
+
+@pytest.mark.parametrize("method,body", [("GET", b""), ("POST", b"synthetic")])
+async def test_broker_supplies_authoritative_http_framing(method, body):
+    import httpcore
+
+    from hushh_mcp.services.pod_browser.contracts import BrowserRequest
+    from hushh_mcp.services.pod_browser.network import BrowserNetworkBroker
+    from tests.helpers.pod_browser import Authority, binding
+
+    auth = Authority(approved=True)
+    broker = BrowserNetworkBroker(
+        binding=binding(), allowed_origins=frozenset({"https://example.com"}), authority=auth
+    )
+    await broker._pool.aclose()
+    # Exercise httpcore's real HTTP/1.1 serializer, without external sockets.
+    broker._pool = httpcore.AsyncConnectionPool(
+        network_backend=httpcore.AsyncMockBackend(
+            [b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"]
+        )
+    )
+    try:
+        response = await broker.fetch(
+            BrowserRequest(url="https://example.com/", method=method, body=body)
+        )
+        assert response.status == 200 and response.body == b"ok"
+    finally:
+        await broker.close()

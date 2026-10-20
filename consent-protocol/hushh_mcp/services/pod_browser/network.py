@@ -172,7 +172,15 @@ class BrowserNetworkBroker:
                     httpcore.Request(
                         method=request.method,
                         url=request.url,
-                        headers=[*request.headers, ("Accept-Encoding", "identity")],
+                        # Raw httpcore requests do not add HTTP/1.1 framing.
+                        # Derive it here; worker-supplied routing/framing headers
+                        # remain forbidden by _validate.
+                        headers=[
+                            *request.headers,
+                            ("Host", httpcore.URL(request.url).host),
+                            ("Content-Length", str(len(request.body))),
+                            ("Accept-Encoding", "identity"),
+                        ],
                         content=request.body,
                         extensions={"timeout": {"connect": 5, "read": 10, "write": 5, "pool": 5}},
                     )

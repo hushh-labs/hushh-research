@@ -8,8 +8,10 @@ candidate composes authenticated owner task routes, exact reviews, ephemeral
 preview, takeover and remembered-session controls with an isolated native ADK
 runner. One exposes only a metadata-returning task hand from a qualified runtime;
 its transcript never receives screenshots, selected values or website sessions.
-Neither cloud has a qualified launcher/bridge, so default startup provides no
-browser runtime. Owner-admitted task rediscovery returns bounded metadata only. A current
+Neither cloud has an installed, qualified owner Browser runtime. GCP's real
+in-pod launcher and broker now pass synthetic public browsing; owner-review,
+model and startup composition remain open. Default startup provides no browser
+runtime. Owner-admitted task rediscovery returns bounded metadata only. A current
 owner can inspect or stop an old task, but cannot renew its expired processing
 grant by reconnecting. Original authorization still gates frames, input and resume.
 Preview/review Back closes the feature layer before leaving chat; it never stops
@@ -146,9 +148,8 @@ filesystem mechanism inside the same service: unprivileged bubblewrap with a
 fresh root, PID/proc and network namespaces, read-only browser dependencies and
 private temporary mounts. The browser remains UID 10002 with no new privileges;
 its own sandbox stays enabled. This is a synthetic probe, not a production
-launcher or readiness receipt. The production image still needs a trusted startup
-path separating host UID 10001 (One) from host UID 10002 (Browser); changing only
-the UID inside a user namespace does not establish that separation.
+readiness receipt. The startup implementation below now supplies host UID
+separation; changing only the UID inside a user namespace would not do so.
 
 The protected frame used Cloud Build `9884acbe-485f-4f52-99d1-785d230d5e6d`.
 Frame SHA-256 is
@@ -185,6 +186,43 @@ but its digest does not qualify the newer source. A completed production image
 still requires exact-image acceptance; do not rebuild this synthetic probe merely
 to relabel the prior evidence.
 
+### Fixed in-pod launcher
+
+`Dockerfile.inpod` extends an immutable pod image with pinned Playwright and
+Chromium headless-shell. Its fixed bootstrap forks a clean helper before
+application imports, drops all capability sets, and executes One as UID 10001
+and the helper as UID 10002. No root supervisor remains. Default image building
+and pod startup do not yet select this pilot image or install a Browser runtime.
+
+The helper accepts only launch/stop and one connected task descriptor over an
+inherited Unix sequenced-packet channel. It accepts no command, mount, environment
+or executable from a task. Its trusted namespace setup needs local Unix and
+`NETLINK_ROUTE` operations; it is not exposed to page input. The worker adds the
+stricter inherited syscall filter before importing Playwright or reading task
+metadata. Its private root omits `/app`, One's virtual environment and host
+temporary storage. Scratch is bounded to 256 MiB and shared memory to 64 MiB.
+These allocations count against the container's memory, not a separate browser
+memory budget.
+
+Launch and stop have deadlines. A lost helper channel fences the generation;
+no receipt is invented to release update admission. The helper has a twenty-minute
+cleanup backstop, distinct from the shorter task execution limit. The Gunicorn
+exit hook closes the shared launch channel and terminates the master before it
+can replace a failed worker using the previous generation's channel.
+
+The nearest 34 launcher, descriptor, transport, identity and update-boundary cases
+pass. Negative controls reproduce the missing inherited descriptor, network-family
+denial, HTTP framing and premature update-permit release defects. This local
+evidence does not qualify actual Gunicorn restart, detached-descendant teardown,
+model access or either installed owner service. The disposable in-pod probe uses
+the real bootstrap/launcher but a synthetic agent driver and public-site policy;
+it must not be reported as that missing production composition.
+
+The fixed bootstrap explicitly clears close-on-exec on its inherited channel:
+`dup2(fd, fd)` alone leaves the flag unchanged. If launch fails and worker shutdown
+cannot be confirmed, `BROWSER_LAUNCH_STOP_UNCONFIRMED` keeps update admission held,
+including failures before an executor reaches the task runtime.
+
 ### Typed worker bridge and site access
 
 `connected_executor.py` connects the existing execution and session ports to the
@@ -208,12 +246,23 @@ rendered frame alone is insufficient: the probe also requires successful documen
 HTTP responses and worker/process-group teardown. Recorded results apply to the
 exact source snapshot and image used.
 
-The first public-site build, `456afab1-4f17-4e58-94ff-8b4e6984ad52`,
-ended `TIMEOUT` during Cloud Build setup; its Docker step remained queued.
-No browser job ran and this attempt provides no website-access evidence. Job,
-disposable identity and image absence were read back. The
-subsequent local queuing correction is not contained in that frozen build input.
-Do not retry an unchanged probe or label the platform delay a browser failure.
+**GCP public-site result — 2026-10-20 09:54 UTC:** immutable synthetic image
+`sha256:f91166cae1b9f5d658c20fba020a48b4a7a8f4b85ebfee3dbd8f0ac3c6e8cbd7`
+ran the real UID 10001 bootstrap and UID 10002 launcher/worker. Chromium's sandbox
+and worker restrictions stayed enabled. The actual pinned-address broker served
+39 requests; both documentation and search-result documents returned HTTP 200.
+The two PNGs were 145,494 and 72,981 bytes. Browser initialization took 3.452 s;
+navigation/frame times were 1.212 s and 2.061 s. These exclude cloud provisioning
+and are individual synthetic samples, not owner cold-start or percentile claims.
+Stop was acknowledged; job, disposable identity and image absence were read back.
+
+The probe exposed missing HTTP/1.1 framing: raw `httpcore.Request` does not add
+`Host`. The broker now derives Host and Content-Length from the validated
+destination and exact approved body, while refusing worker-supplied routing and
+framing headers. The real serializer regression fails without that correction.
+Earlier failed build and launch receipts remain retained. Compressing the explicit
+source allowlist removed the observed oversized inline-script build stall; this
+does not establish an undocumented Cloud Build size limit.
 
 Site admission is an owner/task allowlist, not a claim that a website has
 allowlisted Hussh. CAPTCHA, authentication rejection and website automation

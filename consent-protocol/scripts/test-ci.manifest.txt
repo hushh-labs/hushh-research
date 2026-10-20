@@ -646,6 +646,8 @@ tests/test_plaid_server_custody_retire.py
 tests/test_hosting_mode_resolution.py
 tests/test_pod_binding_service.py
 tests/test_pod_browser_boundary.py
+tests/test_pod_browser_connected_transport.py
+tests/test_pod_browser_inpod_launcher.py
 tests/test_pod_browser_worker_identity.py
 tests/test_pod_browser_information.py
 tests/test_pod_browser_sessions.py

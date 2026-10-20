@@ -5,6 +5,35 @@ import pytest
 from hushh_mcp.services.pod_browser.contracts import BrowserRefused
 
 
+def test_bootstrap_channel_survives_exec_when_socketpair_allocates_fd_three():
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    path = Path(__file__).parents[1] / "browser_runtime/pod_entrypoint.py"
+    script = """
+import os, runpy, socket, sys
+bootstrap = runpy.run_path(sys.argv[1], run_name="bootstrap_test")
+parent, child = socket.socketpair()
+assert parent.fileno() == 3
+child.sendall(b"bounded-channel")
+child.close()
+if sys.argv[2] == "broken":
+    os.set_inheritable = lambda *_: None
+bootstrap["inherit_channel"](parent.detach())
+os.execv(sys.executable, [sys.executable, "-c",
+    "import socket; s=socket.socket(fileno=3); assert s.recv(15)==b'bounded-channel'; s.close()"])
+"""
+    for mutation in ("current", "broken"):
+        result = subprocess.run(  # noqa: S603 - fixed synthetic exec and local bootstrap
+            [sys.executable, "-c", script, str(path), mutation],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+        assert (result.returncode == 0) == (mutation == "current")
+
+
 def test_worker_privilege_drop_refuses_retained_authority_before_private_scratch(monkeypatch):
     from types import SimpleNamespace
 
@@ -107,7 +136,10 @@ def test_builtin_probe_never_starts_chromium_after_a_missing_process_guard(monke
     }
 
 
-def test_syscall_guard_preserves_chromium_connected_ipc_without_external_datagrams(monkeypatch):
+@pytest.mark.parametrize("launcher", [False, True])
+def test_syscall_guard_preserves_chromium_connected_ipc_without_external_datagrams(
+    monkeypatch, launcher
+):
     import ctypes
     import socket
     from types import SimpleNamespace
@@ -122,8 +154,8 @@ def test_syscall_guard_preserves_chromium_connected_ipc_without_external_datagra
         return numbers[name]
 
     def add(_context, _action, number, count, pointer):
-        if count:
-            comparison = ctypes.cast(pointer, ctypes.POINTER(process_guard._Comparison)).contents
+        for index in range(count):
+            comparison = ctypes.cast(pointer, ctypes.POINTER(process_guard._Comparison))[index]
             calls.append(
                 (
                     number,
@@ -144,14 +176,57 @@ def test_syscall_guard_preserves_chromium_connected_ipc_without_external_datagra
         seccomp_attr_set=lambda *_args: 0,
     )
     monkeypatch.setattr(process_guard.ctypes, "CDLL", lambda *_args, **_kwargs: library)
-    process_guard._syscalls()
+    process_guard._syscalls(namespace_launcher=launcher)
 
     def denied_kinds(name):
         return {row[4] for row in calls if row[0] == numbers[name] and row[1:4] == (1, 7, 0xF)}
 
     assert socket.SOCK_SEQPACKET not in denied_kinds(b"socketpair")
+    if launcher:
+        assert b"bind" not in numbers and b"mount" not in numbers
+        denied = {row[3] for row in calls if row[0] == numbers[b"socket"] and row[1:3] == (0, 4)}
+        assert socket.AF_INET in denied and socket.AF_INET6 in denied
+        # NETLINK appears once only in the rule refusing non-ROUTE protocols.
+        assert calls.count((numbers[b"socket"], 0, 4, 16, 0)) == 1
+        assert (numbers[b"socket"], 2, 1, 0, 0) in calls
+        assert socket.AF_UNIX not in denied
+        assert (numbers[b"socket"], 0, 5, 65, 0) in calls
+        assert b"connect" in numbers and b"ptrace" in numbers
+        return
     assert socket.SOCK_SEQPACKET in denied_kinds(b"socket")
     for name in (b"socket", b"socketpair"):
         assert socket.SOCK_DGRAM in denied_kinds(name)
         assert socket.SOCK_STREAM not in denied_kinds(name)
         assert (numbers[name], 0, 1, socket.AF_UNIX, 0) in calls
+
+
+def test_browser_worker_exit_fences_the_master_before_gunicorn_can_replace_it(monkeypatch):
+    import importlib.util
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    path = Path(__file__).parents[1] / "browser_runtime/gunicorn_lifecycle.py"
+    spec = importlib.util.spec_from_file_location("browser_lifecycle", path)
+    hook = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook)
+    calls = []
+
+    class Channel:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            calls.append("close")
+
+        def shutdown(self, _how):
+            calls.append("fence")
+
+    monkeypatch.setenv("HUSSH_BROWSER_LAUNCH_FD", "3")
+    monkeypatch.setattr(hook.socket, "socket", lambda **_kwargs: Channel())
+    server = SimpleNamespace(alive=True, halt=lambda **_kwargs: calls.append("halt"))
+    hook.child_exit(server, object())
+    assert calls == ["fence", "close", "halt"]
+    calls.clear()
+    monkeypatch.delenv("HUSSH_BROWSER_LAUNCH_FD")
+    hook.child_exit(server, object())
+    assert not calls  # ordinary non-Browser worker restart stays unchanged

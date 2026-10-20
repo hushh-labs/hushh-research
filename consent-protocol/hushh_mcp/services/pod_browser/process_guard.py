@@ -117,7 +117,25 @@ def _local_socket_types(
             raise ProcessGuardRefused("BROWSER_SYSCALL_GUARD_REFUSED")
 
 
-def _syscalls() -> None:
+def _launcher_socket_families(library: ctypes.CDLL, context: int, deny: int, number: int) -> None:
+    # bubblewrap configures only its new loopback through NETLINK_ROUTE. Its
+    # if_nametoindex ioctl also needs a local Unix datagram socket. Neither may
+    # create an internet socket; the worker tightens both after namespace setup.
+    for family in range(65):
+        if family in (socket.AF_UNIX, 16):  # AF_NETLINK on Linux
+            continue
+        comparison = _Comparison(0, 4, family, 0)  # SCMP_CMP_EQ
+        if library.seccomp_rule_add_array(context, deny, number, 1, ctypes.byref(comparison)):
+            raise ProcessGuardRefused("BROWSER_SYSCALL_GUARD_REFUSED")
+    comparison = _Comparison(0, 5, 65, 0)  # SCMP_CMP_GE, including unknown families
+    if library.seccomp_rule_add_array(context, deny, number, 1, ctypes.byref(comparison)):
+        raise ProcessGuardRefused("BROWSER_SYSCALL_GUARD_REFUSED")
+    comparisons = (_Comparison * 2)(_Comparison(0, 4, 16, 0), _Comparison(2, 1, 0, 0))
+    if library.seccomp_rule_add_array(context, deny, number, 2, comparisons):
+        raise ProcessGuardRefused("BROWSER_SYSCALL_GUARD_REFUSED")
+
+
+def _syscalls(*, namespace_launcher: bool = False) -> None:
     try:
         library = ctypes.CDLL("libseccomp.so.2", use_errno=True)
     except OSError:
@@ -145,7 +163,6 @@ def _syscalls() -> None:
             raise ProcessGuardRefused("BROWSER_SYSCALL_GUARD_REFUSED")
         names = (
             "connect",
-            "bind",
             "listen",
             "accept",
             "accept4",
@@ -158,9 +175,13 @@ def _syscalls() -> None:
             "process_vm_writev",
             "pidfd_getfd",
             "bpf",
-            "mount",
             "open_by_handle_at",
         )
+        # The clean fixed-command launcher creates the namespaces. It never
+        # handles page input; only its worker can use the stricter inherited
+        # filter below. Network and process-inspection denials apply to both.
+        if not namespace_launcher:
+            names += ("mount", "bind")
         deny = 0x00050000 | errno.EACCES  # SCMP_ACT_ERRNO
         for name in (*names, "socket", "socketpair"):
             number = library.seccomp_syscall_resolve_name(name.encode())
@@ -168,6 +189,9 @@ def _syscalls() -> None:
                 if name == "socketcall":  # multiplexor is absent on native amd64/arm64
                     continue
                 raise ProcessGuardRefused("BROWSER_SYSCALL_GUARD_REFUSED")
+            if name == "socket" and namespace_launcher:
+                _launcher_socket_families(library, context, deny, number)
+                continue
             comparison = _Comparison(0, 1, socket.AF_UNIX, 0)  # SCMP_CMP_NE
             conditional = name in {"socket", "socketpair"}
             if (

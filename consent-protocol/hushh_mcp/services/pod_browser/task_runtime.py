@@ -72,7 +72,7 @@ class _Task:
     review: BrowserReviewOffer | None = field(default=None, repr=False)
     closed: bool = False
     processing_approved: bool = False
-    model_stop_unconfirmed: bool = False
+    stop_refusal: str | None = None
     operation: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
 
@@ -344,8 +344,8 @@ class BrowserTaskRuntime:
             raise
         except Exception as exc:
             code = exc.code if isinstance(exc, BrowserRefused) else "BROWSER_TASK_UNAVAILABLE"
-            if code == "BROWSER_MODEL_STOP_UNCONFIRMED":
-                task.model_stop_unconfirmed = True
+            if code in {"BROWSER_MODEL_STOP_UNCONFIRMED", "BROWSER_LAUNCH_STOP_UNCONFIRMED"}:
+                task.stop_refusal = code
             task.code = code
             if task.control and task.control.outcome_uncertain:
                 task.phase = "outcome_uncertain"
@@ -391,7 +391,7 @@ class BrowserTaskRuntime:
             except asyncio.CancelledError:
                 pass
             except TimeoutError:
-                task.model_stop_unconfirmed = True
+                task.stop_refusal = "BROWSER_MODEL_STOP_UNCONFIRMED"
                 raise BrowserRefused("BROWSER_MODEL_STOP_UNCONFIRMED") from None
 
     async def _close(self, task: _Task) -> None:
@@ -404,8 +404,8 @@ class BrowserTaskRuntime:
                 async with asyncio.timeout(35):
                     await task.control.stop()
             await self._cancel_worker(task)
-            if task.model_stop_unconfirmed:
-                raise BrowserRefused("BROWSER_MODEL_STOP_UNCONFIRMED")
+            if task.stop_refusal:
+                raise BrowserRefused(task.stop_refusal)
             if task.control and task.control.outcome_uncertain:
                 task.phase, task.code = "outcome_uncertain", "BROWSER_OUTCOME_UNCERTAIN"
             task.closed, task.review = True, None
@@ -416,11 +416,7 @@ class BrowserTaskRuntime:
             task.closed = False
             task.review = None
             task.revision += 1
-            task.code = (
-                "BROWSER_MODEL_STOP_UNCONFIRMED"
-                if task.model_stop_unconfirmed
-                else "BROWSER_CLOSE_UNCONFIRMED"
-            )
+            task.code = task.stop_refusal or "BROWSER_CLOSE_UNCONFIRMED"
             task.phase = (
                 "outcome_uncertain"
                 if task.control and task.control.outcome_uncertain

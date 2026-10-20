@@ -11,6 +11,7 @@ import asyncio
 import json
 import socket
 from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from .connected_transport import ConnectedBrowserTransport
 from .contracts import (
@@ -22,9 +23,11 @@ from .contracts import (
     BrowserResponse,
     BrowserSessionExecutionPort,
 )
-from .network import BrowserNetworkBroker
 from .origin import public_origin
 from .session_state import RememberedState
+
+if TYPE_CHECKING:
+    from .network import BrowserNetworkBroker
 
 
 def _bound(payload: dict, binding: BrowserBinding, fields: set[str]) -> None:

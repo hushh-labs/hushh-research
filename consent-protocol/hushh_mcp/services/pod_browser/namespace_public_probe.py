@@ -54,6 +54,12 @@ class _PublicFixtureAuthority:
     async def check_no_pending_dispatch(self, binding: BrowserBinding) -> None:
         await self.check_binding(binding)
 
+    async def authorize_action(self, *args, **kwargs) -> None:
+        raise BrowserRefused("BROWSER_APPROVAL_REQUIRED")
+
+    async def require(self, *args, **kwargs) -> None:
+        raise BrowserRefused("BROWSER_APPROVAL_REQUIRED")
+
     async def authorize_request(
         self, binding: BrowserBinding, request: BrowserRequest, commitment: str
     ) -> BrowserNetworkPermit:
@@ -194,6 +200,70 @@ async def run_probe() -> dict:
         or broker.documents != {1: 200, 2: 200}
     ):
         result["code"] = "BROWSER_PUBLIC_SEARCH_REFUSED"
+    return result
+
+
+async def run_inpod_probe() -> dict:
+    """Qualify production launch/stop with synthetic authority, never enable it."""
+    from . import inpod_launcher
+    from .contracts import BrowserReadiness
+
+    if os.geteuid() != 10001 or not Path("/app/synthetic-secret").is_file():
+        return {"code": "BROWSER_NEGATIVE_CONTROL_MISSING"}
+    authority = _PublicFixtureAuthority()
+    broker = _ReceiptBroker(authority)
+    # Instrument only document HTTP statuses. The actual network/binding policy
+    # and connected launcher/worker remain their authored implementations.
+    inpod_launcher.BrowserNetworkBroker = lambda **_kwargs: broker  # type: ignore[misc,assignment]
+    launcher = inpod_launcher.InPodBrowserLauncher.from_bootstrap(
+        readiness=BrowserReadiness(
+            cloud="gcp",
+            component_digest="sha256:" + "0" * 64,
+            isolated=True,
+            direct_egress_denied=True,
+            broker_bridge_verified=True,
+            ephemeral_bridge_verified=True,
+            private_access_denied=True,
+            model_transport_verified=True,
+            model_name="synthetic-no-model",
+            model_transport="qualification-only",
+        ),
+        network_authority=lambda *_args: authority,
+    )
+    result: dict = {"code": "BROWSER_INPOD_PROBE_REFUSED", "agent_uid": os.geteuid()}
+    host = None
+    try:
+        result["stage"] = "launch"
+        host = await launcher.launch(
+            _BINDING, allowed_origins=(_ORIGIN,), consent=authority, authority=authority
+        )
+        result["stage"] = "visit"
+        result.update(await _visit(host))
+        result["stage"] = "stop"
+        await host.close()
+        result["stop_confirmed"] = True
+    except Exception as exc:
+        result["failure"] = (
+            exc.code if isinstance(exc, BrowserRefused) else "BROWSER_INPOD_PROBE_FAILED"
+        )
+        result["failure_type"] = type(exc).__name__
+    finally:
+        try:
+            if host is not None:
+                await host.close()
+            await launcher.close()
+        except Exception:
+            result["cleanup_unconfirmed"] = True
+        finally:
+            await broker.close()
+        result["document_statuses"] = broker.documents
+        result["broker_requests"] = authority.requests
+    if (
+        not result.get("stop_confirmed")
+        or result.get("cleanup_unconfirmed")
+        or broker.documents != {1: 200, 2: 200}
+    ):
+        result["code"] = "BROWSER_INPOD_PROBE_REFUSED"
     return result
 
 
