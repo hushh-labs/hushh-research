@@ -4,9 +4,11 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { FeedRow as RealFeedRow } from "@/components/feed/feed-row";
+import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -39,6 +41,7 @@ const mocks = vi.hoisted(() => {
     },
     refresh: vi.fn().mockResolvedValue(undefined),
     retryActionables: vi.fn().mockResolvedValue(undefined),
+    actionables: [] as FeedActionable[],
     clearSmsEmergencies: vi.fn(),
     markRead: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn().mockResolvedValue(undefined),
@@ -132,7 +135,7 @@ vi.mock("@/lib/feed/use-feed-briefing", () => ({
 
 vi.mock("@/lib/feed/use-feed-actionables", () => ({
   useFeedActionables: () => ({
-    actionables: [],
+    actionables: mocks.actionables,
     loading: false,
     error: null,
     retry: mocks.retryActionables,
@@ -310,6 +313,7 @@ describe("Feed history interactions", () => {
     window.localStorage.clear();
     vi.clearAllMocks();
     mocks.useRealFeedRow = false;
+    mocks.actionables = [];
     mocks.useActionTestRow = false;
     mocks.currentUser = mocks.user;
     mocks.user.getIdToken.mockResolvedValue("firebase-token");
@@ -333,6 +337,24 @@ describe("Feed history interactions", () => {
       next_cursor: null,
       unread_count: 1,
     };
+  });
+
+  it("keeps ended SMS out of Needs you and groups a live sender's earlier incidents in Live", async () => {
+    const sms = (id: string, sender: string, live = false): FeedActionable => ({
+      id, title: sender, person: { displayName: sender, photoUrl: null },
+      description: live ? "Emergency SMS · Active" : "Emergency SMS · Revoked",
+      icon: () => null, iconTone: "capability", actions: [], sortAt: 1,
+      smsEmergency: { senderId: sender }, emphasis: live ? "emergency" : undefined,
+      displayTimestamp: Date.parse("2026-08-12T09:00:00Z"),
+    });
+    mocks.actionables = [sms("a1", "Alex", true), sms("a2", "Alex"), sms("b1", "Blair"), sms("b2", "Blair"), {
+      id: "request", title: "Pending request", description: "Needs a decision", icon: () => null,
+      iconTone: "capability", actions: [], sortAt: 0,
+    }];
+    await renderAfterAutomaticRead();
+    expect(within(screen.getByRole("region", { name: "Live" })).getByText("2 recent SMS alerts · 1 active")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Recent SMS alerts" })).getByText("2 recent SMS alerts · All ended")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Needs you" })).queryByText(/SMS alerts/)).toBeNull();
   });
 
   it("opens Shared with me when the actual incoming location Feed row is tapped", async () => {

@@ -215,6 +215,8 @@ export interface FeedActionable {
    * `FeedActionableRow` omits the label entirely rather than fabricating one.
    */
   displayTimestamp?: number | null;
+  /** Presentation identity only; source grants and clear operations stay independent. */
+  smsEmergency?: { senderId: string };
   /**
    * High-priority visual treatment. "emergency" rows (an incoming SMS · Save My
    * Soul alert) render with prominent red styling and sort above everything else.
@@ -496,14 +498,16 @@ export function isIncomingLocationRequestActionable(
  * safety alert is never buried under routine activity. The share point stays
  * end-to-end encrypted; only the emergency intent (`shareKind`) is read here.
  */
-export function isActiveSmsEmergencyGrant(grant: OneLocationGrant): boolean {
-  return grant.status === "active" && grant.shareKind === "sos";
+export function isActiveSmsEmergencyGrant(grant: OneLocationGrant, nowMs = Date.now()): boolean {
+  const expiresAt = grant.expiresAt ? Date.parse(grant.expiresAt) : NaN;
+  return grant.status === "active" && grant.shareKind === "sos" &&
+    (!Number.isFinite(expiresAt) || expiresAt > nowMs);
 }
 
 /**
- * Any SOS grant a contact ever sent, live or revoked. Unlike
- * `isActiveSmsEmergencyGrant`, this keeps a revoked/expired SOS in the "Needs
- * you" feed as a historical alert instead of silently dropping it the instant
+ * Any available SOS grant a contact sent, live or revoked. Unlike
+ * `isActiveSmsEmergencyGrant`, this keeps a revoked/expired SOS in Feed
+ * as a historical alert instead of silently dropping it the instant
  * the sender cancels — a safety event must stay visible until the recipient
  * explicitly clears it.
  */
@@ -1296,7 +1300,10 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
       payment.expiresAt !== null &&
       payment.expiresAt > Date.now(),
   );
-  const paymentClockNow = useFeedPaymentClock(hasLivePaymentDeadline);
+  const hasSmsDeadline = (receivedGrants ?? []).some(
+    (grant) => isActiveSmsEmergencyGrant(grant) && Number.isFinite(Date.parse(grant.expiresAt ?? "")),
+  );
+  const paymentClockNow = useFeedPaymentClock(hasLivePaymentDeadline || hasSmsDeadline);
   const activeProgress = useMemo(
     () => projectFeedDriveProgress(activeProgressItems ?? []),
     [activeProgressItems],
@@ -1447,11 +1454,11 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
         .filter(
           (grant) =>
             isSmsEmergencyGrant(grant) &&
-            !isActiveSmsEmergencyGrant(grant) &&
+            !isActiveSmsEmergencyGrant(grant, paymentClockNow) &&
             !isClearedSmsEmergency(grant),
         )
         .map((grant) => grant.id),
-    [receivedGrants, isClearedSmsEmergency],
+    [receivedGrants, isClearedSmsEmergency, paymentClockNow],
   );
 
   // Server first, so the clear holds on every device. If the server cannot
@@ -1930,33 +1937,21 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
       }
     }
 
-    // SMS · Save My Soul emergency alerts — a share a contact started as an
-    // SOS. Rendered as pinned, emergency-styled cards at the very top of the
-    // feed so a safety alert is never buried under routine activity. A
-    // revoked/expired SOS stays as a historical entry ("Revoked") rather than
-    // vanishing the moment the sender cancels; the Feed page's existing Clear
-    // button (via `clearSmsEmergencies` above) is what removes it — no
-    // separate per-row control here.
+    // Keep each incident and its original sent time. Feed groups these by
+    // sender and separates ended alerts from pending tasks.
     const smsEmergencies = (receivedGrants ?? []).filter(
       (grant) =>
         isSmsEmergencyGrant(grant) &&
+        grant.recipientUserId === userId && grant.ownerUserId !== userId &&
         // A live SOS always shows; only an ended one can be cleared.
-        (isActiveSmsEmergencyGrant(grant) || !isClearedSmsEmergency(grant)),
+        (isActiveSmsEmergencyGrant(grant, paymentClockNow) || !isClearedSmsEmergency(grant)),
     );
     for (const grant of smsEmergencies) {
       const label = grant.ownerDisplayName?.trim() || "A contact";
-      const isRevoked = !isActiveSmsEmergencyGrant(grant);
-      // A revoked/expired SOS sorts and displays by when it stopped
-      // mattering, not when it was triggered — mirrors the
-      // `revokedAt || updatedAt || expiresAt` "stopped" convention in
-      // lib/one-location/activity.ts, extended with a createdAt fallback so
-      // this is never 0/null.
-      const resolvedAt = isRevoked
-        ? toTimestamp(grant.revokedAt) ||
-          toTimestamp(grant.updatedAt) ||
-          toTimestamp(grant.expiresAt) ||
-          toTimestamp(grant.createdAt)
-        : toTimestamp(grant.createdAt);
+      const isLive = isActiveSmsEmergencyGrant(grant, paymentClockNow);
+      const sentAt = toDisplayTimestamp(grant.createdAt);
+      const status = isLive ? "Active" : grant.status === "revoked" ? "Revoked"
+        : grant.status === "expired" || grant.status === "active" ? "Expired" : "Ended";
       items.push({
         id: `sms-emergency:${grant.id}`,
         icon: EmergencyRowIcon,
@@ -1968,25 +1963,18 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
                 photoUrl: grant.ownerPhotoUrl ?? null,
               }
             : null,
-        // Only a still-live alert gets the pinned "Live" emergency treatment.
-        // A revoked/expired one renders as a plain "Needs you" row (see
-        // feed-page.tsx); the red siren glyph is all that's left as the
-        // "this was an emergency" signal.
-        emphasis: isRevoked ? undefined : "emergency",
-        // "sent an SMS", not "triggered an SOS". SMS is Save my Soul, this
-        // product's own name for the lane, and the rule that recipient-facing
-        // copy never says "SOS" is already enforced for the notification
-        // copy by one-location-sms-revoke-notification.test.ts. This row was
-        // saying both at once: an "SOS" title above an "Emergency SMS" body.
-        title: `${label} sent an SMS`,
-        description: isRevoked
-          ? "Emergency SMS - Revoked"
-          : "Emergency SMS - Sent.",
-        href: buildOneLocationNotificationHref(grant.id),
-        chevron: true,
+        // Only a still-live alert gets the pinned Live treatment. Ended
+        // incidents remain in the sender's recent-alert disclosure.
+        emphasis: isLive ? "emergency" : undefined,
+        smsEmergency: { senderId: grant.ownerUserId },
+        // SMS is the product's Save My Soul lane.
+        title: label,
+        description: `Emergency SMS · ${status}`,
+        href: isLive ? buildOneLocationNotificationHref(grant.id) : null,
+        chevron: isLive,
         actions: [],
-        sortAt: resolvedAt || firstSeenAt(`sms-emergency:${grant.id}`),
-        displayTimestamp: resolvedAt || null,
+        sortAt: sentAt ?? firstSeenAt(`sms-emergency:${grant.id}`),
+        displayTimestamp: sentAt,
       });
     }
 
