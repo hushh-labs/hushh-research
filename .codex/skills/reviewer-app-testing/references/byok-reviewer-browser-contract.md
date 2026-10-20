@@ -61,6 +61,13 @@ artifact upload. The corresponding private key stays with the operator. Logs
 contain fixed stage/status codes only. This does not export old Memory, keys,
 tokens, private baselines or request bodies, even inside the sealed report.
 `pwm_expected_emails` binds the configured reviewer to the intended owner.
+`pwm_owner_confirmed_profile` must come from the human's explicit confirmation
+of their exact GitHub profile. Azure's `candidate_for_review` and `uncertain`
+decisions remain unchanged. Only a supported finding citing that exact profile,
+with a selected candidate and no blocking conflicts, is eligible for the existing
+owner-review Yes action. This confirmation does not extend to other social
+accounts or linked repositories. The sealed report records the separate review
+basis and original model identity; it never claims an independent contact link.
 An opaque salted commitment crosses contexts in process memory only, letting
 the cold export prove exact whole-domain equality; it is never an artifact.
 
