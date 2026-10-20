@@ -72,7 +72,8 @@
       "deploy/",
       "config/ci-governance.json",
       "config/protected-behaviors.json",
-      "config/runtime-capacity.json"
+      "config/runtime-capacity.json",
+      "config/release-cadence.json"
     ]
   },
   "pr_train": {
@@ -157,7 +158,8 @@
       "Roopmann30",
       "Divya-rajendran009",
       "imsharukhan"
-    ]
+    ],
+    "automatic_release_workflow": "release-cadence.yml"
   },
   "production": {
     "required_post_merge_check": "Main Post-Merge Smoke Gate",
@@ -173,6 +175,7 @@
       "DamriaNeelesh",
       "imsharukhan"
     ],
-    "owner_environment": "production"
+    "owner_environment": "production",
+    "automatic_release_workflow": "release-cadence.yml"
   }
 }

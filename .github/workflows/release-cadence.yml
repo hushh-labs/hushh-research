@@ -1,0 +1,67 @@
+name: UAT Release Cadence
+
+# A downstream observer only: no job or lock is added to Deploy to UAT.
+on:
+  schedule:
+    # Revisit deferred Apple reviews without holding any runner between checks.
+    - cron: '17 * * * *'
+    # Low-frequency catch-up also finds successful reruns of older failures.
+    - cron: '7 3 * * 1'
+  workflow_run:
+    workflows: [Deploy to UAT, Deploy to Production, Ship iOS to TestFlight, Release iOS to App Store]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      recover_checkpoint_sha:
+        description: Production operator only; exact ledger commit reviewed after an interrupted checkpoint publication
+        type: string
+        default: ""
+      full_reconcile:
+        description: Reconcile all post-activation UAT runs, including missed completion events
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release-cadence-accounting
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  reconcile:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.path != '.github/workflows/deploy-uat.yml'
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.recover_checkpoint_sha && 60 || 10 }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FULL_RECONCILE: ${{ inputs.full_reconcile }}
+      RECOVER_CHECKPOINT_SHA: ${{ inputs.recover_checkpoint_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require the protected main controller
+        run: test "$GITHUB_REF_NAME" = main
+      - name: Account verified deployments and dispatch eligible releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$FULL_RECONCILE" == true ]]; then args+=(--full); fi
+          if [[ -n "$RECOVER_CHECKPOINT_SHA" ]]; then args+=(--recover-head "$RECOVER_CHECKPOINT_SHA"); fi
+          python3 scripts/ci/release-cadence.py reconcile "${args[@]}"
+      - name: Publish immutable controller authority and accounting checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-cadence-authority
+          path: ${{ runner.temp }}/release-cadence-authority/checkpoint.json
+          retention-days: 90
+          overwrite: true
+          if-no-files-found: warn

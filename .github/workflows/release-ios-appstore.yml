@@ -1,4 +1,5 @@
 name: Release iOS to App Store
+run-name: ${{ inputs.cadence_origin && format('Cadence {0} appstore · {1}', inputs.cadence_ordinal, inputs.cadence_origin) || 'Release iOS to App Store' }}
 
 # Public App Store release for Hushh One iOS. Cuts a build from an exact green
 # `main` SHA and builds the Capacitor app against the backend chosen by
@@ -33,6 +34,18 @@ name: Release iOS to App Store
 on:
   workflow_dispatch:
     inputs:
+      cadence_origin:
+        description: Internal exact-run release cadence authority (leave blank for manual builds)
+        type: string
+        default: ""
+      cadence_ordinal:
+        description: Internal successful UAT deployment ordinal
+        type: string
+        default: ""
+      production_deploy_run_id:
+        description: Optional exact production deployment to join before upload; archive runs in parallel
+        type: string
+        default: ""
       sha:
         description: "Exact green main SHA to release"
         required: true
@@ -76,6 +89,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   checks: read
   # Workload identity for the production contract read (backend_target=production).
   id-token: write
@@ -103,11 +117,103 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preflight:
+    name: Authorize release and admit an editable Apple version
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    outputs:
+      ready: ${{ steps.packaging.outputs.ready || 'true' }}
+      marketing_version: ${{ steps.packaging.outputs.marketing_version }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Authorize exact main dispatch before allocating macOS
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUIRED_BRANCH: main
+          REQUIRE_CI_SUCCESS: '1'
+          REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = main
+          python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
+          bash scripts/ci/require-deploy-sha-on-main.sh "$RELEASE_SHA"
+      - uses: actions/setup-python@v6
+        if: inputs.cadence_origin != ''
+        with:
+          python-version: '3.13'
+      - if: inputs.cadence_origin != ''
+        run: python3 -m pip install --quiet pyjwt cryptography
+      - uses: google-github-actions/auth@v2
+        if: inputs.cadence_origin != ''
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
+      - uses: google-github-actions/setup-gcloud@v2
+        if: inputs.cadence_origin != ''
+      - name: Materialize automatic version-check credentials
+        if: inputs.cadence_origin != ''
+        run: bash scripts/ci/materialize-ios-asc-key.sh
+      - name: Admit automatic App Store version or defer without a Mac
+        id: packaging
+        if: inputs.cadence_origin != ''
+        env:
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          git show "$RELEASE_SHA:$PBXPROJ" > "$RUNNER_TEMP/release.pbxproj"
+          status=0
+          version="$(python3 scripts/ci/submit-appstore-version.py \
+            --resolve-marketing-version --defer-if-review --p8-path "$RUNNER_TEMP/asc.p8" \
+            --key-id "$ASC_KEY_ID" --issuer-id "$ASC_ISSUER_ID" \
+            --bundle-id "$IOS_BUNDLE_ID" --pbxproj "$RUNNER_TEMP/release.pbxproj")" || status=$?
+          if [[ "$status" == 75 ]]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            python3 - <<'PY'
+          import json, os, pathlib
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-appstore-deferred.json').write_text(
+              json.dumps({'sha': os.environ['RELEASE_SHA'], 'reason': 'apple_review_pending'}))
+          PY
+            echo "Apple review/release is pending; cadence will revisit the latest candidate. No Mac allocated." >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$status" == 0 ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "marketing_version=$version" >> "$GITHUB_OUTPUT"
+          else
+            exit "$status"
+          fi
+      - name: Preserve deferred App Store identity
+        if: steps.packaging.outputs.ready == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-appstore-deferred
+          path: ${{ runner.temp }}/ios-appstore-deferred.json
+          retention-days: 14
+          if-no-files-found: error
+      - name: Remove preflight signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/asc.p8"
+
   release:
     name: Build, upload & prepare iOS App Store release
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true'
     runs-on: macos-15
+    concurrency:
+      group: ios-build-and-upload
+      cancel-in-progress: false
+      queue: max
     environment: production
     timeout-minutes: 90
+    outputs:
+      build_number: ${{ steps.build_number.outputs.next_build }}
+      marketing_version: ${{ steps.identity.outputs.marketing_version }}
+      export_outcome: ${{ steps.export_ipa.outcome }}
 
     steps:
       - name: Assert manual dispatch originates from main
@@ -127,6 +233,8 @@ jobs:
 
       - name: Assert production dispatch actor policy
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"
@@ -147,10 +255,18 @@ jobs:
           git checkout --detach "${{ github.event.inputs.sha }}"
           git --no-pager log -1 --oneline
 
+      - name: Preserve current native release controls for historical source releases
+        run: |
+          set -euo pipefail
+          for file in scripts/ci/materialize-ios-asc-key.sh scripts/ci/release-cadence.py scripts/ci/release_cadence.py scripts/ci/release_cadence_github.py scripts/ci/submit-appstore-version.py config/release-cadence.json config/ci-governance.json; do
+            mkdir -p "$RUNNER_TEMP/native-release-tools/$(dirname "$file")"
+            git show "origin/main:$file" > "$RUNNER_TEMP/native-release-tools/$file"
+          done
+
       - name: Resolve App Store marketing version
         shell: bash
         env:
-          REQUESTED_MARKETING_VERSION: ${{ inputs.marketing_version }}
+          REQUESTED_MARKETING_VERSION: ${{ inputs.marketing_version || needs.preflight.outputs.marketing_version }}
         run: |
           set -euo pipefail
           version="$(python3 - <<'PY'
@@ -274,22 +390,6 @@ jobs:
           put PROD_FB_STORAGE "$PROD_FB_STORAGE"
           [ -n "$PROD_FB_MEASUREMENT" ] && put PROD_FB_MEASUREMENT "$PROD_FB_MEASUREMENT"
           echo "Production routing contract read (backend host ${PROD_BACKEND_HOST})."
-
-      - name: Verify matching production backend revision
-        if: env.BACKEND_TARGET == 'production'
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ github.event.inputs.sha }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/verify-cloudrun-revision-provenance.py \
-            --project "$PROD_GCP_PROJECT_ID" \
-            --region "$GCP_REGION" \
-            --service consent-protocol \
-            --expected-env production \
-            --expected-source deploy-production \
-            --expected-sha "$EXPECTED_SHA" \
-            --report-path "$RUNNER_TEMP/ios-backend-provenance.json"
 
       - name: Authenticate to Google Cloud (UAT)
         uses: google-github-actions/auth@v2
@@ -435,34 +535,14 @@ jobs:
           echo "Native GoogleService-Info.plist materialized (bundle ${IOS_BUNDLE_ID}, project ${FB_PROJECT_ID})."
 
       - name: Decode App Store Connect API key
+        run: bash "$RUNNER_TEMP/native-release-tools/scripts/ci/materialize-ios-asc-key.sh"
+
+      - name: Create App Store Connect Python venv
         shell: bash
         run: |
           set -euo pipefail
-          # The ASC signing key lives in GCP Secret Manager (hushh-pda-uat):
-          #   APPSTORE_CONNECT_API_KEY_P8_B64 / _KEY_ID / _ISSUER_ID.
-          get() {
-            gcloud secrets versions access latest --secret="$1" --project="${GCP_PROJECT_ID}" 2>/dev/null || true
-          }
-          for name in APPSTORE_CONNECT_API_KEY_P8_B64 APPSTORE_CONNECT_KEY_ID APPSTORE_CONNECT_ISSUER_ID; do
-            if ! gcloud secrets describe "$name" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
-              echo "Missing GCP secret $name in ${GCP_PROJECT_ID}." >&2
-              echo "See docs/guides/mobile/release-ios-appstore.md for setup." >&2
-              exit 1
-            fi
-          done
-          ASC_KEY_ID="$(get APPSTORE_CONNECT_KEY_ID)"
-          ASC_ISSUER_ID="$(get APPSTORE_CONNECT_ISSUER_ID)"
-          echo "::add-mask::${ASC_KEY_ID}"
-          echo "::add-mask::${ASC_ISSUER_ID}"
-          umask 077
-          get APPSTORE_CONNECT_API_KEY_P8_B64 | openssl base64 -d -A > "${RUNNER_TEMP}/asc.p8"
-          chmod 600 "${RUNNER_TEMP}/asc.p8"
-          if ! grep -q "BEGIN PRIVATE KEY" "${RUNNER_TEMP}/asc.p8"; then
-            echo "Decoded ASC key is not a valid PEM .p8 (check APPSTORE_CONNECT_API_KEY_P8_B64)." >&2
-            exit 1
-          fi
-          echo "ASC_KEY_ID=${ASC_KEY_ID}" >> "$GITHUB_ENV"
-          echo "ASC_ISSUER_ID=${ASC_ISSUER_ID}" >> "$GITHUB_ENV"
+          python3 -m venv "${RUNNER_TEMP}/asc-venv"
+          "${RUNNER_TEMP}/asc-venv/bin/pip" install --quiet --disable-pip-version-check pyjwt cryptography
 
       - name: Create signing keychain
         shell: bash
@@ -507,13 +587,6 @@ jobs:
           npm run --prefix hushh-webapp verify:capacitor:static
           npm run --prefix hushh-webapp verify:capacitor:plugins
           npm run --prefix hushh-webapp verify:capacitor:product-assets
-
-      - name: Create App Store Connect Python venv
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m venv "${RUNNER_TEMP}/asc-venv"
-          "${RUNNER_TEMP}/asc-venv/bin/pip" install --quiet --disable-pip-version-check pyjwt cryptography
 
       - name: Resolve next build number
         id: build_number
@@ -664,6 +737,39 @@ jobs:
 
           echo "OK: App.app.dSYM present and matching; every separately shipped image has symbols or a named exception."
 
+      - name: Join the exact parallel production deployment
+        if: inputs.production_deploy_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCTION_DEPLOY_RUN_ID: ${{ inputs.production_deploy_run_id }}
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: |
+          python3 "$RUNNER_TEMP/native-release-tools/scripts/ci/release-cadence.py" wait-production --run-id "$PRODUCTION_DEPLOY_RUN_ID" --sha "$RELEASE_SHA"
+
+      - name: Reauthenticate production identity before the upload gate
+        if: env.BACKEND_TARGET == 'production'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.PROD_GCP_PROJECT_ID }}
+
+      - name: Verify matching production backend revision
+        if: env.BACKEND_TARGET == 'production'
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.inputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/verify-cloudrun-revision-provenance.py \
+            --project "$PROD_GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --service consent-protocol \
+            --expected-env production \
+            --expected-source deploy-production \
+            --expected-sha "$EXPECTED_SHA" \
+            --report-path "$RUNNER_TEMP/ios-backend-provenance.json"
+
       - name: Export & upload to App Store Connect
         id: export_ipa
         shell: bash
@@ -707,6 +813,55 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
+      - name: Preserve redacted distribution outputs
+        id: identity
+        run: echo "marketing_version=$IOS_MARKETING_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build and upload summary
+        if: always()
+        run: |
+          echo "Source: ${{ inputs.sha }}; build: ${{ steps.build_number.outputs.next_build }}; export/upload: ${{ steps.export_ipa.outcome }}." >> "$GITHUB_STEP_SUMMARY"
+          echo "Apple processing and App Store preparation run on Ubuntu after successful upload." >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove protected build files
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/asc.p8" "GoogleService-Info.plist" "hushh-webapp/.env.native.ios.local"
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+
+  prepare:
+    name: Process and prepare uploaded App Store build
+    needs: release
+    if: ${{ needs.release.result == 'success' && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 40
+    env:
+      IOS_MARKETING_VERSION: ${{ needs.release.outputs.marketing_version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Only tooling comes from main. Build identity is the pinned macOS
+          # outputs, never this checkout's source or marketing version.
+          ref: main
+          persist-credentials: false
+      - name: Authorize submission actor including individual job reruns
+        run: python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: python3 -m pip install pyjwt cryptography
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Materialize runner-local App Store credentials
+        run: bash scripts/ci/materialize-ios-asc-key.sh
+
+      - name: Require automatic public-release privacy and compliance attestations
+        if: inputs.cadence_origin != '' && inputs.submit_for_review == true
+        run: bash scripts/ci/materialize-ios-testflight-release-config.sh
+
       - name: Prepare App Store version (set What's New, attach build; one-click submit)
         id: appstore
         if: ${{ github.event.inputs.dry_run != 'true' }}
@@ -725,17 +880,20 @@ jobs:
             echo "::warning title=Public App Store submission::submit_for_review=true -> this run will SUBMIT the build for public Apple review (IRREVERSIBLE). Confirm the publish-safety checklist in docs/guides/mobile/release-ios-appstore.md (led by PrivacyInfo.xcprivacy privacy-label reconciliation) is cleared, and that ASC metadata/screenshots/age rating/pricing are set for this version."
             echo "submit_for_review=true: will set What's New, attach the build, and SUBMIT for public App Store review."
             SUBMIT_ARGS+=(--submit)
+            if [ "${{ inputs.cadence_origin }}" != "" ]; then
+              SUBMIT_ARGS+=(--require-reviewer-account)
+            fi
           else
             echo "Prepare-only: setting What's New, ensuring the MANUAL App Store version, and attaching the build; NOT submitting for review."
           fi
-          "${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/submit-appstore-version.py \
+          python3 scripts/ci/submit-appstore-version.py \
             --p8-path "${RUNNER_TEMP}/asc.p8" \
             --key-id "${ASC_KEY_ID}" \
             --issuer-id "${ASC_ISSUER_ID}" \
             --bundle-id "${IOS_BUNDLE_ID}" \
             --pbxproj "${PBXPROJ}" \
             --marketing-version "${IOS_MARKETING_VERSION}" \
-            --build-number "${{ steps.build_number.outputs.next_build }}" \
+            --build-number "${{ needs.release.outputs.build_number }}" \
             --release-type "$RELEASE_TYPE" \
             --evidence-path "${RUNNER_TEMP}/ios-appstore-state.json" \
             --whats-new "$WHATS_NEW" \
@@ -746,9 +904,9 @@ jobs:
         shell: bash
         env:
           RELEASE_SHA: ${{ github.event.inputs.sha }}
-          BUILD_NUMBER: ${{ steps.build_number.outputs.next_build }}
+          BUILD_NUMBER: ${{ needs.release.outputs.build_number }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
-          EXPORT_OUTCOME: ${{ steps.export_ipa.outcome }}
+          EXPORT_OUTCOME: ${{ needs.release.outputs.export_outcome }}
           APPSTORE_OUTCOME: ${{ steps.appstore.outcome }}
         run: |
           set -euo pipefail
@@ -783,7 +941,7 @@ jobs:
         if: always()
         shell: bash
         env:
-          EXPORT_OUTCOME: ${{ steps.export_ipa.outcome }}
+          EXPORT_OUTCOME: ${{ needs.release.outputs.export_outcome }}
           APPSTORE_OUTCOME: ${{ steps.appstore.outcome }}
           RELEASE_NOTES: ${{ inputs.notes }}
         run: |
@@ -803,7 +961,7 @@ jobs:
             echo "| --- | --- |"
             echo "| SHA | \`${{ github.event.inputs.sha }}\` |"
             echo "| Version | ${MARKETING:-unknown} |"
-            echo "| Build | ${{ steps.build_number.outputs.next_build }} |"
+            echo "| Build | ${{ needs.release.outputs.build_number }} |"
             echo "| Bundle | ${IOS_BUNDLE_ID} |"
             if [ "${BACKEND_TARGET}" = "production" ]; then
               echo "| Backend | production (hushh-pda, one.hussh.ai) |"
@@ -832,3 +990,7 @@ jobs:
               echo "> review. Track the review state in App Store Connect."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove protected App Store files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/asc.p8" "$RUNNER_TEMP/asc-beta-review-contact.json" "$RUNNER_TEMP/asc-beta-review-notes.txt"
