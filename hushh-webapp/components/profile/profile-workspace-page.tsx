@@ -2039,7 +2039,7 @@ function ProfilePageContent({
     const presentation = SUPPORT_INTENT_PRESENTATION[kind];
 
     if (trimmedMessage.length < 10) {
-      setSupportMessageError("Add a few more details.");
+      setSupportMessageError("Write at least 10 characters.");
       setSupportComposerState({ status: "editing" });
       supportMessageRef.current?.focus();
       return { kind: "too_short" };

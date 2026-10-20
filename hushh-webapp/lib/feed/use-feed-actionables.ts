@@ -203,6 +203,8 @@ export interface FeedActionable {
   onSelect?: () => void;
   chevron?: boolean;
   actions: FeedActionButton[];
+  /** Phone controls for the same actions or their existing full review surface. */
+  phoneActions?: FeedActionButton[];
   sortAt: number;
   /**
    * Real-world instant to render as the row's local time label.
@@ -378,7 +380,7 @@ export function ownerConsentRequestActionable(
     sortAt: number;
   },
 ): FeedActionable {
-  // The reason stands alone on its own line here, so it keeps its capital.
+  // Preserve the authored reason as supporting copy.
   const reason = String(request.reason || "").trim();
   const decisionActions: FeedActionButton[] = request.complete
     ? [
@@ -419,6 +421,7 @@ export function ownerConsentRequestActionable(
       ? reason || "Waiting for your answer"
       : "Still arriving. Open Details to review it.",
     onSelect: handlers.openDetails,
+    phoneActions: [{ key: "review", label: "Review", tone: "primary", run: handlers.openDetails }],
     actions: [
       {
         key: "details",
@@ -1623,6 +1626,9 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
         title: displayPayment.title,
         description: displayPayment.description,
         href: paymentIsNonActionable ? payment.href : undefined,
+        onSelect: paymentIsNonActionable ? undefined : () => router.push(buildConsentCenterHref("pending", {
+          requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/feed",
+        })),
         chevron: paymentIsNonActionable,
         actions: paymentAction,
         sortAt:
@@ -2014,6 +2020,11 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
               }
             : null,
         title: label,
+        onSelect: () => router.push(buildOneLocationWorkflowHref({ requestId: request.id })),
+        phoneActions: [{
+          key: "review", label: "Review", tone: "primary",
+          run: () => router.push(buildOneLocationWorkflowHref({ requestId: request.id })),
+        }],
         // Names the amount, and says when it is extra time on a live share.
         description:
           request.message?.trim() || locationAskPromptLine(request, Date.now()),
@@ -2091,6 +2102,11 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
             : null,
         title: label,
         description: `Invited you to join ${circleName}.`,
+        onSelect: () => router.push(buildOneLocationWorkflowHref({ circleInviteId: invite.id })),
+        phoneActions: [{
+          key: "review", label: "Review", tone: "primary",
+          run: () => router.push(buildOneLocationWorkflowHref({ circleInviteId: invite.id })),
+        }],
         actions: [
           {
             key: "decline",
@@ -2145,7 +2161,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
       const reviewHref = buildConsentCenterHref("pending", {
         requestId: request.id,
       });
-      items.push({
+      const connectionRow: FeedActionable = {
         id: `connection:${request.id}`,
         todo: { source: "connections", title: `Review ${label}'s connection request`, href: reviewHref },
         icon: JoinRowIcon,
@@ -2243,7 +2259,16 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
         sortAt: firstSeenAt(`connection:${request.id}`),
         // Still never fabricate a visible time label from it.
         displayTimestamp: null,
-      });
+      };
+      const reportAction = connectionRow.actions.find(action => action.key === "report");
+      if (reportAction) {
+        connectionRow.onSelect = () => router.push(reviewHref);
+        connectionRow.phoneActions = [reportAction, {
+          key: "review", label: "Review", tone: "primary",
+          run: () => router.push(reviewHref),
+        }];
+      }
+      items.push(connectionRow);
     }
 
     // Kai debates remain visible while running and after completion until the

@@ -1002,6 +1002,8 @@ function FeedPageSession({
     <AppPageShell
       as="main"
       width="reading"
+      data-profile-type-scale="page"
+      data-feed-page=""
       className="pb-[calc(var(--app-screen-footer-pad)+16px)]"
     >
       <NativeTestBeacon
@@ -1040,10 +1042,7 @@ function FeedPageSession({
           {hasRegularActionables ? (
             <section aria-label="Needs you">
               <SectionLabel>Needs you</SectionLabel>
-              {/* The Profile type scale covers this list only (name, supporting line,
-                  action label); the other Feed sections keep theirs. */}
               <div
-                data-profile-type-scale=""
                 className="divide-y divide-[color:var(--foundation-hairline)]"
               >
                 {regularActionables.map((item) => (
@@ -1081,7 +1080,8 @@ function FeedPageSession({
                         key={link.href}
                         href={link.href}
                         prefetch={false}
-                        className="text-sm font-medium text-accent underline-offset-4 hover:underline"
+                        data-profile-role="action"
+                        className="text-accent underline-offset-4 hover:underline"
                       >
                         {link.label}
                       </Link>
@@ -1100,10 +1100,11 @@ function FeedPageSession({
                 role="alert"
                 className="flex min-h-[100px] flex-col items-center justify-center gap-2.5 rounded-[16px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 text-center"
               >
-                <p className="text-[17px] font-semibold leading-[22px] text-[color:var(--app-label)]">
+                <p data-profile-role="name" className="text-[color:var(--app-label)]">
                   Activity unavailable
                 </p>
                 <Button
+                  data-profile-role="action"
                   type="button"
                   variant="none"
                   effect="fade"
@@ -1120,10 +1121,11 @@ function FeedPageSession({
                 role="status"
                 className="mt-2 flex items-center justify-between gap-3 rounded-xl bg-foreground/[0.04] px-3 py-2 text-xs text-muted-foreground"
               >
-                <span>
+                <span data-profile-role="description">
                   Showing saved activity. Some updates couldn't refresh.
                 </span>
                 <Button
+                  data-profile-role="action"
                   type="button"
                   variant="none"
                   effect="fade"
@@ -1140,11 +1142,8 @@ function FeedPageSession({
                 role="status"
                 className="flex min-h-[100px] flex-col items-center justify-center gap-1 rounded-[16px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 text-center"
               >
-                <p className="text-[17px] font-semibold leading-[22px] text-[color:var(--app-label)]">
+                <p data-profile-role="name" className="text-[color:var(--app-label)]">
                   No activity yet
-                </p>
-                <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
-                  Your recent activity will appear here.
                 </p>
               </div>
             ) : null}
@@ -1175,11 +1174,12 @@ function FeedPageSession({
             {hasHistory && pagination.nextCursor ? (
               <div className="flex flex-col items-center gap-1 pt-2">
                 {loadMoreError ? (
-                  <p role="alert" className="text-xs text-muted-foreground">
+                  <p data-profile-role="description" role="alert" className="text-muted-foreground">
                     {loadMoreError} Try again.
                   </p>
                 ) : null}
                 <Button
+                  data-profile-role="action"
                   type="button"
                   variant="none"
                   effect="fade"
@@ -1201,6 +1201,7 @@ function FeedPageSession({
             {canClear ? (
               <div className="flex w-full justify-center pt-1" aria-live="polite">
                 <StockButton
+                  data-profile-role="action"
                   type="button"
                   variant="secondary"
                   size="compact"
@@ -1279,6 +1280,7 @@ function SectionLabel({ children }: { children: ReactNode }) {
     <AppSectionLabel
       as="h2"
       compact
+      data-profile-role="group-label"
       className="px-1 pb-1.5 pt-5 text-[color:var(--app-section-label)]"
     >
       {children}

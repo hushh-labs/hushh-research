@@ -49,14 +49,14 @@ export function CircleChatMessageActionDialog({ session, message, action, onClos
   const controls = <>{edit ? <Button variant="outline" className="min-h-11" disabled={busy} onClick={close}>Cancel</Button> : <AlertDialogCancel className="min-h-11" disabled={busy} onClick={close}>Cancel</AlertDialogCancel>}
     <Button className="min-h-11" variant={edit ? "default" : "destructive"} disabled={busy || edit && (!text.trim() || text.trim() === message.content?.text)} onClick={() => void submit()}>{edit ? "Save changes" : "Delete message"}</Button></>;
   if (edit) return <Dialog open onOpenChange={(open) => { if (!open) close(); }}>
-    <DialogContent className="motion-reduce:animate-none" onCloseAutoFocus={(event) => { event.preventDefault(); onRestoreFocus?.(); }} onEscapeKeyDown={(event) => { if (saving.current) event.preventDefault(); }}>
+    <DialogContent data-profile-type-scale="circles" className="motion-reduce:animate-none" onCloseAutoFocus={(event) => { event.preventDefault(); onRestoreFocus?.(); }} onEscapeKeyDown={(event) => { if (saving.current) event.preventDefault(); }}>
       <DialogHeader><DialogTitle>Edit message</DialogTitle><DialogDescription>Update the text. Attachments stay with the message.</DialogDescription></DialogHeader>
       <Textarea aria-label="Edit message text" value={text} maxLength={MAX_CHAT_TEXT} disabled={busy} onChange={(event) => { setText(event.target.value); sealed.current = null; setError(null); }} className="min-h-24" />
       {feedback}<DialogFooter>{controls}</DialogFooter>
     </DialogContent>
   </Dialog>;
   return <AlertDialog open onOpenChange={(open) => { if (!open) close(); }}>
-    <AlertDialogContent className="motion-reduce:animate-none" onCloseAutoFocus={(event) => { event.preventDefault(); onRestoreFocus?.(); }} onEscapeKeyDown={(event) => { if (saving.current) event.preventDefault(); }}>
+    <AlertDialogContent data-profile-type-scale="circles" className="motion-reduce:animate-none" onCloseAutoFocus={(event) => { event.preventDefault(); onRestoreFocus?.(); }} onEscapeKeyDown={(event) => { if (saving.current) event.preventDefault(); }}>
       <AlertDialogHeader><AlertDialogTitle>{action === "everyone" ? "Delete for everyone?" : "Delete for you?"}</AlertDialogTitle>
         <AlertDialogDescription>{action === "everyone" ? "This removes the message from this chat for all members. Members may have already saved a copy." : "This removes the message from your chat. Other members will still see it."}</AlertDialogDescription></AlertDialogHeader>
       {feedback}<AlertDialogFooter>{controls}</AlertDialogFooter>

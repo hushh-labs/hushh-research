@@ -50,7 +50,7 @@ export function CirclePhotoEditor({ circleId, photoUrl, canEdit, onUpdate, onOpe
       <CircleAvatar photoUrl={photoUrl} className="size-14" />
     </button>
     <Sheet modal open={open} onOpenChange={changeOpen}>
-      <SheetContent side="bottom" onCloseAutoFocus={(event) => { event.preventDefault(); trigger.current?.focus({ preventScroll: true }); }} className="mx-auto w-full rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-lg sm:px-6">
+      <SheetContent data-profile-type-scale="circles" side="bottom" onCloseAutoFocus={(event) => { event.preventDefault(); trigger.current?.focus({ preventScroll: true }); }} className="mx-auto w-full rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-lg sm:px-6">
         <SheetHeader><SheetTitle>Circle photo</SheetTitle><SheetDescription>Choose a photo for your circle.</SheetDescription></SheetHeader>
         <div className="flex flex-col items-center gap-4 py-5">
           <CircleAvatar photoUrl={draft} className="size-28" />
@@ -68,7 +68,7 @@ export function CirclePhotoEditor({ circleId, photoUrl, canEdit, onUpdate, onOpe
             }}><ImageIcon className="size-4" />{picking ? "Opening photos…" : "Choose photo"}</Button>
             {draft ? <Button variant="ghost" className="min-h-11" disabled={busy || picking} onClick={() => setDraft(null)}><Trash2 className="size-4" />Remove photo</Button> : null}
           </div>
-          {error ? <p role="alert" className="text-center text-sm text-destructive">{error}</p> : null}
+          {error ? <p data-profile-role="description" role="alert" className="text-center text-sm text-destructive">{error}</p> : null}
           <div className="flex w-full justify-center gap-2">
             <Button variant="ghost" className="min-h-11" disabled={busy || picking} onClick={() => changeOpen(false)}>Cancel</Button>
             <Button className="min-h-11" disabled={busy || picking || draft === photoUrl} isLoading={busy} onClick={async () => {

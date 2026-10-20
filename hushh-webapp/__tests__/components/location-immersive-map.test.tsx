@@ -37,7 +37,7 @@ const mapHarness = vi.hoisted(() => {
     removeMarkers: vi.fn(async () => undefined),
     removeCircles: vi.fn(async () => undefined),
     setCamera: vi.fn(async () => undefined),
-    setOnMarkerClickListener: vi.fn(async () => undefined),
+    setOnMarkerClickListener: vi.fn(async (_callback: (event: { markerId: string }) => void) => undefined),
     setOnBoundsChangedListener: vi.fn(async (_callback: CameraListener) => {}),
     setOnCameraIdleListener: vi.fn(async (_callback: CameraListener) => {}),
     setOnCameraMoveStartedListener: vi.fn(
@@ -440,6 +440,8 @@ import { forgetCachedRendererConsent } from "@/lib/one-location/map-renderer-con
 import { __resetNativeMapLifecycleForTests } from "@/lib/one-location/native-map-lifecycle";
 
 const DEFAULT_PLACE_FOCUS = { ...experienceHarness.placeFocus };
+let renderWebMarkerElements = false;
+let webMarkerElements = new Map<string, HTMLElement>();
 
 // jsdom never lays out elements, so the tray's content-measurement effect
 // (offsetHeight) would always read 0. Stub a representative expanded-header
@@ -459,6 +461,28 @@ Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
 });
 
 beforeEach(() => {
+  renderWebMarkerElements = false;
+  webMarkerElements = new Map();
+  mapHarness.map.addMarkers.mockImplementation(async (markers) => markers.map((value, index) => {
+    const id = `marker-${index}`;
+    if (renderWebMarkerElements) {
+      const marker = document.createElement("gmp-advanced-marker");
+      marker.title = (value as { title?: string }).title ?? "";
+      marker.appendChild(document.createElement("img"));
+      marker.addEventListener("click", () => {
+        const callback = mapHarness.map.setOnMarkerClickListener.mock.lastCall?.[0] as
+          unknown as ((event: { markerId: string }) => void) | undefined;
+        callback?.({ markerId: id });
+      });
+      document.querySelector("capacitor-google-map")?.appendChild(marker);
+      webMarkerElements.set(id, marker);
+    }
+    return id;
+  }));
+  mapHarness.map.removeMarkers.mockImplementation(async (...args: unknown[]) => {
+    const ids = args[0] as string[] | undefined;
+    ids?.forEach(id => { webMarkerElements.get(id)?.remove(); webMarkerElements.delete(id); });
+  });
   overlayHarness.enabled = false;
   overlayHarness.create.mockImplementation(async () => {
     if (!overlayHarness.enabled)
@@ -2858,7 +2882,7 @@ describe("LocationImmersiveMap reported map defects", () => {
       // Returning consented owner: check-in opens directly, no Your Map gate.
       seedConsentedRenderer();
     }
-    render(<LocationImmersiveMap {...props} />);
+    const view = render(<LocationImmersiveMap {...props} />);
     if (props.surface === "check-in") {
       expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     }
@@ -2869,6 +2893,7 @@ describe("LocationImmersiveMap reported map defects", () => {
         "true",
       );
     });
+    return view;
   }
 
   beforeEach(() => {
@@ -4155,6 +4180,66 @@ describe("LocationImmersiveMap reported map defects", () => {
       expect(mapHarness.map.removeCircles).toHaveBeenCalledTimes(3);
       expect(mapHarness.map.addCircles).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("renders each sharing owner's photo locally and refreshes profile-only changes", async () => {
+    overlayHarness.enabled = true;
+    renderWebMarkerElements = true;
+    stubPhoneGeometry();
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const first = incomingMarker(ANKIT, 25.4358, 81.8463);
+    const second = incomingMarker(ABDUL, 25.4501, 81.8201);
+    const payload = (url: string) => ({
+      markers: [
+        { ...first, grant: { ...first.grant, ownerPhotoUrl: url, recipientPhotoUrl: "https://avatars.test/viewer.jpg" } },
+        second,
+      ], preferences: { presenceMode: "ghost" },
+    });
+    serviceHarness.getMapState.mockResolvedValue(payload("https://avatars.test/share-owner.jpg"));
+    const view = await renderReadyMap();
+    await waitFor(() => expect(screen.getByTestId("one-location-map-person-avatar-photo")).toHaveAttribute("src", "https://avatars.test/share-owner.jpg"));
+    expect(screen.getByTestId("one-location-map-person-avatar-fallback")).toHaveTextContent("AR");
+    expect(screen.getByTestId("one-location-map-self-avatar-photo")).toHaveAttribute("src", "https://avatars.test/ankit.jpg");
+    expect(JSON.stringify(mapHarness.map.addMarkers.mock.calls)).not.toContain("avatars.test");
+    expect(JSON.stringify(mapHarness.map.addMarkers.mock.calls)).not.toContain(ANKIT);
+    const marker = webMarkerElements.get("marker-0")!;
+    expect(marker.title).toBe("Private location");
+    expect(marker.querySelector("button")).toBeNull();
+    mapHarness.map.setCamera.mockClear();
+    fireEvent.click(within(marker).getByTestId("one-location-map-person-avatar"));
+    await waitFor(() => expect(mapHarness.map.setCamera).toHaveBeenCalledWith(expect.objectContaining({ coordinate: { lat: 25.4358, lng: 81.8463 }, zoom: 15 })));
+    expect(mapHarness.map.setCamera).toHaveBeenCalledTimes(1);
+    serviceHarness.getMapState.mockResolvedValue(payload("https://avatars.test/share-owner-new.jpg"));
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() => expect(screen.getByTestId("one-location-map-person-avatar-photo")).toHaveAttribute("src", "https://avatars.test/share-owner-new.jpg"));
+    expect(marker.isConnected).toBe(false);
+    const current = screen.getByTestId("one-location-map-person-avatar-photo");
+    await act(async () => { mapHarness.listeners.cameraMoveStarted?.({ isGesture: true }); });
+    expect(current).toBeVisible();
+    serviceHarness.getMapState.mockResolvedValue({ markers: [], preferences: { presenceMode: "ghost" } });
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() => expect(current.isConnected).toBe(false));
+    expect(screen.queryByTestId("one-location-map-person-avatar")).toBeNull();
+    view.unmount();
+  });
+
+  it("lets the renderer hide and restore shared photos with their clusters", async () => {
+    overlayHarness.enabled = true;
+    renderWebMarkerElements = true;
+    stubPhoneGeometry();
+    serviceHarness.getMapState.mockResolvedValue({ markers: Array.from({ length: 9 }, (_, index) => incomingMarker(`Person ${index}`, 25.44 + index * 0.0001, 81.83)), preferences: { presenceMode: "ghost" } });
+    const view = await renderReadyMap();
+    await waitFor(() => expect(screen.getAllByTestId("one-location-map-person-avatar")).toHaveLength(9));
+    expect(mapHarness.map.enableClustering).toHaveBeenCalledWith(4);
+    const marker = webMarkerElements.get("marker-0")!;
+    const face = within(marker).getByTestId("one-location-map-person-avatar");
+    marker.remove();
+    expect(face.isConnected).toBe(false);
+    document.querySelector("capacitor-google-map")!.appendChild(marker);
+    expect(face.isConnected).toBe(true);
+    expect(within(marker).getByTestId("one-location-map-person-avatar")).toBe(face);
+    view.unmount();
+    expect(marker.querySelector("[data-testid='one-location-map-person-avatar']")).toBeNull();
   });
 
   it("names each pin by first name, and draws you as your own avatar", async () => {

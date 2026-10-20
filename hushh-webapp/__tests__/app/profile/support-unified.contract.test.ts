@@ -55,7 +55,7 @@ describe("Profile Help & feedback unified support flow", () => {
     const source = profileSource();
 
     expect(source).toContain("supportMessageRef.current?.focus()");
-    expect(source).toContain("Add a few more details.");
+    expect(source).toContain("Write at least 10 characters.");
     expect(source).toContain('role="alert"');
     expect(source).toContain('supportComposerState.status === "sent"');
     expect(source).toContain("supportSuccessHeadingRef.current?.focus()");
