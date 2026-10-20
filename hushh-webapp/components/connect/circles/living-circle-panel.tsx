@@ -1,16 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import Link from "next/link";
 import { Check, Plus, Trash2, UsersRound } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { PeopleOrbit } from "@/components/connect/people-orbit";
 import { CircleAvatar } from "./circle-photo-editor";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import styles from "../connect-workspace.module.css";
+import { SheetCount, SheetPersonRow, SheetSearch, sheetPartStyles } from "@/components/app-ui/sheet-parts";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
+import { TaskSurfaceToolbar, TaskSurfaceBody, TaskSurfaceFooter } from "@/lib/morphy-ux/ui/task-surfaces";
 import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
+import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { circleInviteSelectionLimit } from "@/lib/one-location/circle-invite-contract";
 import { connectPersonName } from "@/lib/connections/person-label";
 import type {
@@ -32,6 +33,7 @@ export function LivingCirclePanel({
   loading,
   error,
   selectedUserIds,
+  selectedPeople = candidates,
   submitting,
   onAdd,
   onSubmit,
@@ -56,6 +58,7 @@ export function LivingCirclePanel({
   loading: boolean;
   error: string | null;
   selectedUserIds: ReadonlySet<string>;
+  selectedPeople?: readonly OneLocationCircleEligibleConnection[];
   submitting: boolean;
   onAdd: (userId: string) => void;
   onSubmit: () => void;
@@ -71,6 +74,11 @@ export function LivingCirclePanel({
   /** First-member setup keeps the next action ahead of the decorative preview. */
   focusOnAdding?: boolean;
 }) {
+  const [peopleView, setPeopleView] = useState("all");
+  const peopleViewId = useId().replace(/:/g, "");
+  const visiblePeople = peopleView === "selected"
+    ? filterPeopleByQuery(selectedPeople.filter(person => selectedUserIds.has(person.userId)), searchQuery, connectPersonName)
+    : candidates;
   const [overCircle, setOverCircle] = useState(false);
   const [overRemoveZone, setOverRemoveZone] = useState(false);
   const [draggingMemberId, setDraggingMemberId] = useState<string | null>(null);
@@ -117,25 +125,29 @@ export function LivingCirclePanel({
   );
 
   if (focusOnAdding) return (
-    <section data-profile-type-scale="circles" data-testid="connect-circle-add-picker" className={styles.picker} aria-label={`Add people to ${circleName}`}>
-      <label className="mb-3 block shrink-0"><span className="sr-only">Search connections to add</span>
-        <Input type="search" value={searchQuery} onChange={event => onSearchChange(event.target.value)} placeholder="Name, email or phone" />
-      </label>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+    <section data-testid="connect-circle-add-picker" className="contents" aria-label={`Add people to ${circleName}`}>
+      <TaskSurfaceToolbar>
+        <SheetSearch value={searchQuery} onValueChange={onSearchChange} label="Search connections to add" placeholder="Name, email or phone" />
+        <SegmentedTabs className={sheetPartStyles.tabs} value={peopleView} onValueChange={setPeopleView} ariaLabel="People views" variant="subordinate"
+          tabSetId={peopleViewId} options={[{ value: "all", label: "All connections" }, { value: "selected", label: `Selected (${selectedUserIds.size})` }]} />
+      </TaskSurfaceToolbar>
+      <TaskSurfaceBody role="tabpanel" id={`top-shell-${peopleViewId}-panel-${peopleView}`} aria-labelledby={`top-shell-${peopleViewId}-tab-${peopleView}`}>
         {error ? <div className="flex items-center justify-between gap-3 py-3" role="status"><p className="text-sm text-muted-foreground">{error}</p><Button type="button" variant="ghost" size="compact" onClick={onRetry}>Retry</Button></div> : null}
-        {loading && !candidates.length ? <p className="py-4 text-sm text-muted-foreground">Loading connections…</p>
+        {loading && !candidates.length && peopleView === "all" ? <p className="py-4 text-sm text-muted-foreground">Loading connections…</p>
           : remainingCapacity <= 0 ? <p className="py-4 text-sm text-muted-foreground">This circle is full.</p>
-          : candidates.length ? candidates.map(person => <label key={person.userId} className="flex min-h-[72px] items-center gap-3 border-b border-border py-3">
-            <ConnectionPersonAvatar size="compact" className="!size-9" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} />
-            <span className={`min-w-0 flex-1 whitespace-normal [overflow-wrap:anywhere] ${styles.pickerName}`}>{connectPersonName(person)}</span>
-            <Checkbox checked={selectedUserIds.has(person.userId)} onCheckedChange={() => onAdd(person.userId)} disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)} aria-label={`Add ${connectPersonName(person)} to ${circleName}`} />
-          </label>) : !error ? <p className="py-4 text-sm text-muted-foreground">{searchQuery.trim() ? "No matching connections." : "No connections available to add."}</p> : null}
-        {hasMore && !loading && !error && remainingCapacity > 0 ? <Button type="button" variant="ghost" size="compact" className="my-3 w-full" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? "Loading…" : "Load more connections"}</Button> : null}
-      </div>
-      <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-border pt-4">
-        <span className="text-xs text-muted-foreground" role="status">{selectedUserIds.size} selected</span>
+          : visiblePeople.length ? visiblePeople.map(person => <SheetPersonRow key={person.userId}
+            avatar={<ConnectionPersonAvatar size="compact" className="!size-9" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} />}
+            name={connectPersonName(person)} checked={selectedUserIds.has(person.userId)}
+            onCheckedChange={() => onAdd(person.userId)}
+            disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)}
+            label={`Add ${connectPersonName(person)} to ${circleName}`} />)
+          : !error ? <p className="py-4 text-sm text-muted-foreground">{peopleView === "selected" ? "No people selected." : searchQuery.trim() ? "No matching connections." : "No connections available to add."}</p> : null}
+        {peopleView === "all" && hasMore && !loading && !error && remainingCapacity > 0 ? <Button type="button" variant="ghost" size="compact" className="my-3 w-full" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? "Loading…" : "Load more connections"}</Button> : null}
+      </TaskSurfaceBody>
+      <TaskSurfaceFooter>
+        <SheetCount>{selectedUserIds.size} selected</SheetCount>
         <Button type="button" size="compact" onClick={onSubmit} disabled={submitting || Boolean(error) || !selectedUserIds.size || selectedUserIds.size > selectionLimit}>{submitting ? "Adding people…" : "Add people"}</Button>
-      </footer>
+      </TaskSurfaceFooter>
     </section>
   );
 

@@ -10,9 +10,9 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import { TaskDialogContent, taskSurfaceStyles } from "@/lib/morphy-ux/ui/task-surfaces";
 import {
   Dialog,
-  DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -703,8 +703,8 @@ export function ConnectCirclesTab({
           if (!busy) onCreateDialogOpenChange?.(open);
         }}
       >
-        <DialogContent
-          className="sm:has-[[data-circle-create-step=people]]:max-w-2xl [&:has([data-circle-create-step=people])>[data-slot=dialog-header]]:sr-only"
+        <TaskDialogContent
+          className={taskSurfaceStyles.createDialog}
           showCloseButton={!busy}
           srDescription="Name your Circle and choose its type. Next, add people now or later."
           onEscapeKeyDown={(event) => {
@@ -719,7 +719,7 @@ export function ConnectCirclesTab({
             <DialogTitle>Create a Circle</DialogTitle>
           </DialogHeader>
           {form}
-        </DialogContent>
+        </TaskDialogContent>
       </Dialog>
     ) : (
       form
