@@ -503,8 +503,10 @@ async def _pod_startup() -> None:
         bool(os.getenv("HUSSH_BILLING_SPACE_ID")),
     )
 
+    from hushh_mcp.services.pod_azure_vm_identity import initialize_vm_installation
     from hushh_mcp.services.pod_storage import resolve_boot_custody
 
+    await asyncio.to_thread(initialize_vm_installation)
     boot_storage, boot_dek = await resolve_boot_custody()
     boot_log = getattr(boot_storage, "_log", None)
     # Recover durable identity strictly before pod_keypair() caches it.

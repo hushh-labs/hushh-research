@@ -47,6 +47,11 @@ class _State:
 
 def pod_incarnation() -> str:
     """The deployment incarnation used to bind handoff receipts."""
+    from hushh_mcp.services.pod_azure_vm_identity import active_vm_installation
+
+    vm = active_vm_installation()
+    if vm is not None:
+        return vm.generation
     return (
         str(
             os.getenv("HUSSH_POD_INCARNATION")

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -42,15 +41,20 @@ class AzureWorkloadCredential:
         self._client_id = client_id
 
     async def get_token(self, scope: str) -> AzureAccessToken:
-        from hushh_mcp.services.pod_workload_identity import get_workload_access_token
+        from hushh_mcp.services.pod_workload_identity import (
+            get_workload_access_token,
+            workload_client_id,
+        )
 
-        if scope != DATA_PLANE_SCOPE or os.getenv("AZURE_CLIENT_ID") != self._client_id:
+        if scope != DATA_PLANE_SCOPE:
             raise BrowserRefused("AZURE_PROBE_AUTH_REFUSED")
         try:
+            if workload_client_id() != self._client_id:
+                raise BrowserRefused("AZURE_PROBE_AUTH_REFUSED")
             access = await asyncio.to_thread(
                 get_workload_access_token, "https://management.azuredevcompute.io/"
             )
-            if os.getenv("AZURE_CLIENT_ID") != self._client_id:
+            if workload_client_id() != self._client_id:
                 raise BrowserRefused("AZURE_PROBE_AUTH_REFUSED")
             return AzureAccessToken(token=access.token, expires_at=int(access.expires_at))
         except asyncio.CancelledError:

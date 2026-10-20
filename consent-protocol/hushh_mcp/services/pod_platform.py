@@ -2,9 +2,11 @@
 
 Cloud Run sets ``K_SERVICE`` and ``K_REVISION``. Azure Container Apps sets
 ``CONTAINER_APP_NAME``, ``CONTAINER_APP_REVISION`` and
-``CONTAINER_APP_REPLICA_NAME``. Hussh renders none of them, so the answer here is
-the platform's, never a value a rendered environment could claim
+``CONTAINER_APP_REPLICA_NAME``. Hussh renders none of those native service fields
 (``docs/reference/architecture/byoc-azure.md``, agent environment contract).
+The disabled VM qualification instead uses an installation registered against
+fixed provider metadata before custody. Its revision is the verified installation
+generation; publishing that generation still requires lifecycle-controller proof.
 
 The incarnation fences (the erasure fence, upgrade admission, the heartbeat's
 self-report) compare these names against what the hub observed. Reading only the
@@ -15,6 +17,8 @@ from __future__ import annotations
 
 import os
 from typing import Literal
+
+from hushh_mcp.services.pod_azure_vm_identity import active_vm_installation
 
 WorkloadPlatform = Literal["gcp", "azure", "local"]
 
@@ -28,7 +32,9 @@ def _env(name: str) -> str:
 
 
 def workload_platform() -> WorkloadPlatform:
-    """``azure`` on Container Apps, ``gcp`` on Cloud Run, otherwise ``local``."""
+    """Verified VM or native service platform; never infer a VM from Azure env."""
+    if active_vm_installation() is not None:
+        return "azure"
     if _env(_AZURE_NAMES[0]):
         return "azure"
     if _env(_GCP_NAMES[0]):
@@ -42,12 +48,14 @@ def _platform_names() -> tuple[str, str]:
 
 def pod_service_name() -> str:
     """The platform's name for this pod's service, or ``""`` when not on one."""
-    return _env(_platform_names()[0])
+    vm = active_vm_installation()
+    return vm.resource_id if vm else _env(_platform_names()[0])
 
 
 def pod_revision_name() -> str:
     """The platform's name for the revision serving now, or ``""`` when not on one."""
-    return _env(_platform_names()[1])
+    vm = active_vm_installation()
+    return vm.generation if vm else _env(_platform_names()[1])
 
 
 __all__ = [

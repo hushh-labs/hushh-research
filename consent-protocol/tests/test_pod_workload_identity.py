@@ -147,6 +147,89 @@ def test_an_azure_pod_never_asks_the_google_metadata_server(monkeypatch):
         store._token()
 
 
+@pytest.mark.parametrize("defect", [None, "client_id", "resource", "expires_on", "token_type"])
+def test_vm_tokens_require_registered_exact_identity_resource_and_expiry(monkeypatch, defect):
+    from hushh_mcp.services import pod_azure_vm_identity as vm
+    from tests.pod_azure_fakes import vm_installation
+
+    installation, _ = vm_installation(monkeypatch)
+    with pytest.raises(PodWorkloadIdentityUnavailable):
+        get_workload_token(STORAGE)
+    vm.initialize_vm_installation()
+    calls = []
+
+    def mint(endpoint, params):
+        assert endpoint == vm.IMDS_IDENTITY_ENDPOINT
+        assert params == {
+            "api-version": "2018-02-01",
+            "resource": STORAGE,
+            "client_id": installation.client_id,
+        }
+        calls.append(params)
+        result = {
+            "access_token": "synthetic-vm-token",
+            "resource": STORAGE,
+            "expires_on": str(int(identity.time.time()) + 3600),
+            "token_type": "Bearer",
+        }
+        if defect:
+            result[defect] = "wrong"
+        return result
+
+    monkeypatch.setattr(identity, "imds_json", mint)
+    if defect:
+        with pytest.raises(PodWorkloadIdentityUnavailable):
+            get_workload_token(STORAGE)
+    else:
+        assert get_workload_token(STORAGE) == get_workload_token(STORAGE) == "synthetic-vm-token"
+        with pytest.raises(PodWorkloadIdentityUnavailable):
+            google_metadata_access_endpoint()
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("response", ["ok", "redirect", "oversize", "invalid", "transport"])
+def test_vm_imds_transport_bypasses_proxy_bounds_reads_and_closes(monkeypatch, response):
+    import httpx
+
+    from hushh_mcp.services import pod_azure_vm_identity as vm
+
+    original_client = httpx.Client
+    clients = []
+    monkeypatch.setenv("HTTP_PROXY", "http://untrusted.example")
+
+    def handler(request):
+        assert request.url.host == "169.254.169.254"
+        assert request.headers["metadata"] == "true"
+        if response == "transport":
+            raise httpx.ConnectError("synthetic-private-provider-detail", request=request)
+        if response == "redirect":
+            return httpx.Response(302, headers={"location": "https://untrusted.example"})
+        content = (
+            b'{"vmId":"synthetic"}'
+            if response == "ok"
+            else b"x" * (65537 if response == "oversize" else 2)
+        )
+        return httpx.Response(200, content=content)
+
+    def client(**kwargs):
+        assert kwargs["trust_env"] is False and kwargs["follow_redirects"] is False
+        assert kwargs["timeout"].connect == 2.0 and kwargs["timeout"].read == 5.0
+        instance = original_client(transport=httpx.MockTransport(handler), **kwargs)
+        clients.append(instance)
+        return instance
+
+    monkeypatch.setattr(vm.httpx, "Client", client)
+    if response == "ok":
+        assert vm.imds_json(vm.IMDS_COMPUTE, {"api-version": "2025-04-07"}) == {"vmId": "synthetic"}
+    else:
+        with pytest.raises(vm.AzureVmIdentityRefused) as error:
+            vm.imds_json(vm.IMDS_COMPUTE, {"api-version": "2025-04-07"})
+        assert str(error.value) == (
+            "VM metadata exceeds its bound" if response == "oversize" else "VM metadata unavailable"
+        )
+    assert len(clients) == 1 and clients[0].is_closed
+
+
 @pytest.mark.parametrize("platform_env", [{"K_SERVICE": "one-pod-ha1"}, {}])
 def test_google_and_local_workloads_keep_the_metadata_server(monkeypatch, platform_env):
     for name in ("CONTAINER_APP_NAME", "K_SERVICE"):

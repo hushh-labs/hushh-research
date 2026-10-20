@@ -4678,7 +4678,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/action_directive_ledger.py",
       "symbol": "ActionDirectiveStore",
-      "value": 961
+      "value": 963
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -12868,7 +12868,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pod_liveness_adapters.py",
       "symbol": "heal_pod",
-      "value": 95
+      "value": 103
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18736,7 +18736,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/action_directive_ledger.py",
       "symbol": null,
-      "value": 1073
+      "value": 1075
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19942,7 +19942,7 @@
       "limit": 500,
       "path": "consent-protocol/pod_server.py",
       "symbol": null,
-      "value": 764
+      "value": 766
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -75679,9 +75679,11 @@
       {
         "key": "class_size|consent-protocol/hushh_mcp/services/action_directive_ledger.py|ActionDirectiveStore|class exceeds the advisory operon budget",
         "before": 955,
-        "after": 961,
-        "source_sha256": "69b8c9d47a3b8ba65408eeac88956d44b1725958e842b7580470fd30efb746cf",
-        "review": "Single existing approval authority; Browser confirmation adds a narrow wrapper with exact private commitments."
+        "after": 963,
+        "source_sha256": "39e9642a5a087a110de874660002015f55333ab70bee2eb5c5fc6cb9ab2a0893",
+        "review": "Single existing approval authority; Browser confirmation adds a narrow wrapper with exact private commitments.",
+        "final_format_review": "Final Ruff formatting of the previously reviewed exact Browser approval wrapper; no behavioral addition.",
+        "final_reviewer": "read-only backend authority review, 2026-10-20"
       },
       {
         "key": "class_size|consent-protocol/hushh_mcp/services/pod_browser/control.py|BrowserControl|class exceeds the advisory operon budget",
@@ -75770,9 +75772,11 @@
       {
         "key": "module_size|consent-protocol/hushh_mcp/services/action_directive_ledger.py||module exceeds the advisory operon budget",
         "before": 1065,
-        "after": 1073,
-        "source_sha256": "69b8c9d47a3b8ba65408eeac88956d44b1725958e842b7580470fd30efb746cf",
-        "review": "Single existing approval authority; Browser confirmation adds a narrow wrapper with exact private commitments."
+        "after": 1075,
+        "source_sha256": "39e9642a5a087a110de874660002015f55333ab70bee2eb5c5fc6cb9ab2a0893",
+        "review": "Single existing approval authority; Browser confirmation adds a narrow wrapper with exact private commitments.",
+        "final_format_review": "Final Ruff formatting of the previously reviewed exact Browser approval wrapper; no behavioral addition.",
+        "final_reviewer": "read-only backend authority review, 2026-10-20"
       },
       {
         "key": "module_size|consent-protocol/tests/test_pod_browser_boundary.py||module exceeds the advisory operon budget",
@@ -75784,9 +75788,11 @@
       {
         "key": "module_size|consent-protocol/pod_server.py||module exceeds the advisory operon budget",
         "before": 748,
-        "after": 764,
-        "source_sha256": "63361ff74cd61512eece598d6f2f094e073efc41d17b2dfdb8f8eeec92ca7d12",
-        "review": "Recovery-ordered Browser startup/shutdown delegation only; composition extracted to its existing subsystem."
+        "after": 766,
+        "source_sha256": "12414b74e85db956b1dfbe893002307dbfe99bd83febffb0421487f6046c1ee2",
+        "review": "Recovery-ordered Browser startup/shutdown delegation only; composition extracted to its existing subsystem.",
+        "final_format_review": "Two-line VM identity registration before existing custody initialization; implementation stays in its typed module.",
+        "final_reviewer": "read-only backend authority review, 2026-10-20"
       },
       {
         "key": "module_size|consent-protocol/tests/test_pod_image_build_contract.py||module exceeds the advisory operon budget",
@@ -75801,6 +75807,14 @@
         "after": 503,
         "source_sha256": "91732b470d1203d757cd000d42c1a9bd0bbf802b37cec3fee002d99c70e14b78",
         "review": "Frontend reviewer confirms distinct owner authority, reauthentication, discovery and review-receipt cases; not a production wording or typing qualification."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pod_liveness_adapters.py|heal_pod|function exceeds the advisory gene budget",
+        "before": 95,
+        "after": 103,
+        "source_sha256": "670e3e42befed7b2b49c58228beff83a664809d7258d6645f7c69a0dc6c2a866",
+        "review": "Eight-line fail-closed Azure owner restart fence prevents an unavailable provider capability falling through to Google; nearest negative test retained.",
+        "reviewer": "read-only backend authority review, 2026-10-20"
       }
     ]
   }

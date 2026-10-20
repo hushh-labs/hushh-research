@@ -127,6 +127,7 @@ Apps with this built-in process boundary.
 | Azure Chromium prerequisite | The separate non-root `unshare(CLONE_NEWUSER)` check returns `EPERM` before our guard, on the ordinary application as well as Jobs. The earlier sandboxed Chromium attempt emitted no frame | Chromium's required sandbox remains unavailable. No weakened launch or readiness receipt is permitted |
 | Azure whole-deployment VM candidate | Non-zonal westus2 `Standard_B2als_v2`, Ubuntu `24.04.202610160`, Docker 29.1.3, app limited to 1 vCPU / 2 GiB. Protected Chromium renders documentation/search with HTTP 200 and 24 broker requests. Stop, container removal, deallocation, power restart and resource-group absence pass | Synthetic image `sha256:b0a0b7f8207d3643b7160c9755aeb3acdabb497d4c6e8e4729438c71215a60ab`. No owner model, actual Gunicorn lifecycle, encrypted recovery or authenticated external wake is qualified |
 | Full packaged pod image on Azure VM | The actual `Dockerfile.pod` image renders two public pages through 24 broker requests; disabled bootstrap drops all capabilities and starts no browser helper. Enabled bootstrap, private worker, stop, no OOM, deallocation and resource-group absence pass | Image `sha256:438433f083bc268767e51467000e2808b443631565958c8e1e3b43f61c47c4e1`, Cloud Build `f935b393-82ab-4f62-adc3-372a71d834d2`. Probe uses packaged code with a synthetic entrypoint, not Gunicorn, owner recovery or an installed release |
+| Azure VM encrypted recovery | Northcentralus B2als_v2, same pinned OS/runtime and 1 vCPU / 2 GiB application limit. Actual workload identity, Key Vault wrapping and Blob recovery retain the same sealed key, log record, sequence and incarnation after confirmed deallocation/start. Sibling-container reads and key signing return 403. Protected public browsing and joined stop pass | Image `sha256:9d33df90e7a44aeadb745bcc4147b26c5b86942738ac997fcefbaadec392e9e7`, build `e92d766b-ea03-4561-a393-e1ab6dd912c4`, source archive `3a3451d933495714c5f370e09c8b8f36165c0afb47854882c430f25cb63c86b3`. Synthetic entrypoint, not Gunicorn or an installed owner task. Resource group, deleted vault, source object and image absence verified |
 
 The Azure VM receipt records initialization at **0.759 s**, documentation frame at
 **2.544 s** and search frame at **2.153 s**. Deallocated-to-running VM power state
@@ -151,6 +152,29 @@ continuation. Current serialization omits only empty fields; nonempty safety
 checks still require exact review. These separate executor/model receipts do not
 prove a composed owner task.
 
+VM startup now checks a root-owned, bounded `/run/hussh-host/pod.json` against
+fixed-address Azure IMDS before resolving encrypted custody. The manifest binds
+the expected VM resource/UUID, explicit user-assigned identity, owner, immutable
+image and installation generation. VM metadata verifies the host identity; it does
+not independently attest the image or establish customer readiness. The VM
+installer must require this read-only mount and confirm registration before
+publishing the host. An absent directory preserves existing Cloud Run/Container
+Apps startup; conflicting or changed installation metadata refuses registration.
+The VM token transport bypasses proxies, refuses redirects and bounds reads.
+The first live identity check matched the VM, resource group, subscription and
+Linux fields but rejected Azure's public-cloud name casing. Source now normalizes
+that field's casing only, rejects other clouds/non-string values and preserves
+safe diagnostic reasons. All 55 focused identity cases pass. The rebuilt image's
+live recovery preserves the 60-byte sealed identity envelope and original log
+record through deallocation/start: initial custody **10.661 s**, restored custody
+**1.852 s**, provider start-to-running **10.841 s**. Browser initialization is
+**0.910 s**, with public page/frame results **0.689 / 1.291 s** and 36 broker
+requests. Neither run OOMs; both containers are removed. These are component
+timings, not owner wake or end-to-end task latency. Azure Monitor returned 400,
+so burst-credit consumption and sustained CPU performance remain unmeasured.
+The original casing refusal is retained as a negative control. This qualification
+changes no owner installation, image, model or region.
+
 Docker's default `/proc` submounts prevented bubblewrap from mounting its private
 proc namespace. The qualified transformation removes only those `/proc` entries,
 retains other masked/read-only paths and supplies equivalent AppArmor denials.
@@ -163,8 +187,9 @@ execution. Browser descendants retain the inherited network/mount restrictions.
 
 Before a customer offer, install root-owned, versioned host policy and verify it
 after every boot; qualify the actual immutable pod image and worker lifecycle;
-then prove identity, encrypted recovery, authenticated wake, idle deallocation,
-updates and erasure. The diagnostic wrapper and its temporary policy installation
+then prove full application recovery, authenticated owner wake, idle deallocation,
+updates and erasure. The synthetic identity/custody receipt above does not qualify
+those product paths. The diagnostic wrapper and temporary policy installation
 are not the production host runner.
 
 `task_lifecycle.py` owns execution, expiry and joined shutdown; authenticated owner
@@ -339,63 +364,42 @@ not part of the qualified capability.
 
 ### Historical provider-managed qualification
 
-The working slice starts at `fd4770c16e`, including frozen main `f47a4832dbc`
-and local ADK `42bb9823005`. The earlier controlled Chromium cookie/redirect,
-restoration and unapproved-recipient fixtures remain local evidence only; they
-were not repeated to claim cloud acceptance.
+These superseded provider-managed probes began at `fd4770c16e`, with frozen main
+`f47a4832dbc` and ADK `42bb9823005`. No owner information, model calls or owner
+installation entered these probes. They do not qualify the built-in deployment.
 
-| Native gate | Current evidence | Remaining proof |
+| Probe | Immutable provenance | Result and cleanup |
 | --- | --- | --- |
-| GCP | Native worker UID/GID 0; required identity change refused with `EPERM`. Current CLI has no user selector; Google's Scion integration documents the restriction | Supported non-root execution, sandboxed Chromium, private bridge and denied network access |
-| Azure | Workload identity, fixed UID/GID 10002, zero capabilities, no-new-privileges and tmpfs scratch pass. Pinned Chromium aborts with namespace denial and “No usable sandbox” | Supported namespace isolation without disabling seccomp, enforced network denial, Chromium/frame, private bridge and installed lifecycle |
+| GCP native sandbox | Build `053c57b0-5325-4ee9-bd0f-c9eebd454121`; image `sha256:f88b082d4c438e647a5fc751af7bc836f865e11fd16880efb898f5a0de1a43ed`; source `18bbea69af3354e941e6aa853d0eb4a67ac2194592023718aa84e871e729fc24` | Root execution; UID/GID changes refused `EPERM`; no Chromium frame. Job, temporary identity, image/tag and source archive removed |
+| Azure identity | Ubuntu image `sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac`; bundle `10505a548b9cd71abc4a38a625369702fd88867a851ccf8764eec0a616c9face`; controller `e5744691ebda19ca0003b71ae1054e5f356cff904ffd615f5094b3df6cff741e` | Workload identity, UID/GID 10002, zero capabilities and tmpfs passed. Source readback accepts only observed empty defaults; no CLI identity fallback |
+| Azure Chromium | Playwright image `sha256:72bd171a9ffc2b4b59532aaa6210e21014d07093120dc25528870c0b840da1f0`; bundle `a471410c772e4f4ba95db264ed63edb860a2afe4f5d69cfc1b727143c6ceffac`; controller `7a2f30c0c54040ebd56ca9f4c2dae42f5d7de43459338cc2552252bc9c14a326` | Namespace denied; no frame. Scratch, native sandbox and resource group removed |
+| Azure network follow-up | Bundle `9c78a4975196978b4166e8c45314b31d062187954b82f8962bef5a4f8d7c72b4`; controller `36780e0310871112e5097c2ad974cf80da165239b0824e66f55145a595a47ead` | TCP/UDP deny policy readback passed, but destination probes only timed out. Enforcement unqualified; sandbox/group absence confirmed |
 
-The Azure personal-identity 403 is resolved for the workload-identity probe; this
-is not an owner Browser enablement. Actual issuer expiry is preserved, and no CLI
-identity fallback enters the pod. The API mirrors HTTP policy and materializes two
-empty source collections. Validation accepts only those demonstrated defaults;
-changed types, identities, images, nonempty collections and unknown fields refuse.
-The unsupported exec user override was removed; configured non-root execution is
-independently checked by the fixed synthetic command.
+GCP executions share prefix `browser-probe-20261006-4d7b-`: `cfls5` failed the
+missing `/bridge` mount; `pw5kc` ran `/bin/echo` in 164 ms; `nm2lm` verified
+write/environment flags but refused that mount; `zdncq` passed an existing-path
+mount then refused root Chromium; `9rlhw` refused supplementary-group clearing;
+`tv4gn` confirmed root real/effective/saved IDs and refused UID/GID change.
+Diagnostic invocation latency is not browser startup latency. No sandbox snapshot
+was saved. Azure RBAC readback found no assignments for all ten disposable principals.
 
-The successful Azure source bundle is
-`10505a548b9cd71abc4a38a625369702fd88867a851ccf8764eec0a616c9face`;
-controller program `e5744691ebda19ca0003b71ae1054e5f356cff904ffd615f5094b3df6cff741e`.
-The synthetic Ubuntu image is pinned to
-`sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac`.
+The retained GCP probe checks synthetic mount, frame and direct-network boundaries:
 
-The separate Chromium probe used the fixed Microsoft Playwright image
-`sha256:72bd171a9ffc2b4b59532aaa6210e21014d07093120dc25528870c0b840da1f0`.
-It produced no frame: the sandboxed process exited with namespace denial. The
-worker identity and memory scratch passed, scratch was removed, and native
-termination and resource-group absence were confirmed. Its source bundle is
-`a471410c772e4f4ba95db264ed63edb860a2afe4f5d69cfc1b727143c6ceffac`;
-controller `7a2f30c0c54040ebd56ca9f4c2dae42f5d7de43459338cc2552252bc9c14a326`.
-A TCP connection was accepted under HTTP Full inspection; this alone proves
-neither a request reaching the destination nor its denial. Current source also
-requires explicit TCP/UDP default deny. The network-only follow-up accepted that
-strict readback, then observed only timeouts for all three destinations. Actual
-destination denial remains unqualified. Its source bundle is
-`9c78a4975196978b4166e8c45314b31d062187954b82f8962bef5a4f8d7c72b4`;
-controller `36780e0310871112e5097c2ad974cf80da165239b0824e66f55145a595a47ead`.
-Teardown and resource-group absence were confirmed again. Future qualification
-must collect the same sandbox's `egressDecisions` before teardown and correlate
-provider denial with the fixed targets and probe window. Timeouts and policy
-readback alone cannot establish enforcement.
+```bash
+cd consent-protocol
+.venv/bin/python -m hushh_mcp.services.pod_browser.gcp_probe
+```
 
-[Playwright's sandbox guidance](https://playwright.dev/python/docs/docker#crawling-and-scraping)
-requires selected namespace syscalls. Azure's [native API schema](https://raw.githubusercontent.com/Azure/azure-rest-api-specs/main/specification/app/data-plane/ContainerApps/preview/2026-09-01-preview/containerappssandbox.json)
-provides RuntimeDefault or Unconfined, without a custom-profile field. Disabling
-filtering is not this pilot's remediation. Retain the native gate and obtain a
-supported restricted namespace mechanism before another Chromium attempt.
-Sandbox termination and disposable resource-group absence were read back. Earlier
-failed receipts remain retained. Existing owner resources, keys, hosting and images
-were unchanged; no private information or model calls entered qualification.
-Scoped RBAC readback found zero remaining assignments for all ten disposable
-principals used by this slice.
+Outside the native launcher it returns `GCP_NATIVE_SANDBOX_REQUIRED`, exit 2,
+which is unavailable, not a pass. Native execution stdout/filesystem APIs are not
+qualified private preview transports. Timeouts or policy readback cannot establish
+network denial; a further native Azure probe would need correlated `egressDecisions`.
+Never disable Chromium sandboxing or syscall filtering to turn these failures green.
 
-No Browser readiness receipt or owner installation was issued. Resolve supported cloud
-identity, memory-only broker transport, denied egress and teardown independently
-before enabling either adapter.
+Historical provider contracts: [GCP sandbox CLI](https://docs.cloud.google.com/run/docs/reference/sandbox-cli),
+[Google Scion integration](https://github.com/GoogleCloudPlatform/scion/blob/main/pkg/runtime/cloudrun_sandbox_runtime.go),
+[Azure sandbox API](https://raw.githubusercontent.com/Azure/azure-rest-api-specs/main/specification/app/data-plane/ContainerApps/preview/2026-09-01-preview/containerappssandbox.json),
+[Azure network controls](https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-egress-policies).
 
 ## Implemented foundation
 
@@ -503,83 +507,16 @@ real login/SSO compatibility, provider retention or live update acceptance.
 
 ### GCP
 
-The earlier native Cloud Run sandbox design could read the launcher's filesystem.
-It required a browser-only launcher in a separate container with no private mounts,
-secrets, provider credentials or recovery material, with sandbox direct egress denied.
-The candidate task-only mailbox must be memory-backed, excluded from snapshots
-and artifacts, and erased on every terminal path before private use.
-
-`gcp_probe.py` is a controlled native probe, not a service deployment recipe.
-It checks a synthetic bind-mount round trip, Chromium startup/frame capture,
-and denied host-loopback, metadata and direct-public sockets. Timeouts do not
-count as network-denial evidence. It does not prove broker browsing, private
-sessions, live preview, teardown, provider transport or component provenance.
-
-Local invocation:
-
-```bash
-cd consent-protocol
-.venv/bin/python -m hushh_mcp.services.pod_browser.gcp_probe
-```
-
-Outside a native Cloud Run sandbox launcher this returns
-`GCP_NATIVE_SANDBOX_REQUIRED`, exit 2. That is an unavailable result, not a pass.
-The existing operator identity ran an isolated synthetic job under a temporary
-identity without project roles. No owner pod was changed. Build
-`053c57b0-5325-4ee9-bd0f-c9eebd454121` succeeded for the earlier seven-file digest
-`sha256:f88b082d4c438e647a5fc751af7bc836f865e11fd16880efb898f5a0de1a43ed`.
-The seven-file source commitment is
-`18bbea69af3354e941e6aa853d0eb4a67ac2194592023718aa84e871e729fc24`.
-
-**First gate failed; Computer Use remains unavailable.** These executions used
-that immutable image; diagnostic process success is not browser acceptance:
-
-| Execution | Actual outcome |
-| --- | --- |
-| `browser-probe-20261006-4d7b-cfls5` | Original `/bridge` destination failed before execution: `FetchSpec failed: loading container: file does not exist`. |
-| `browser-probe-20261006-4d7b-pw5kc` | Native `/bin/echo` control passed in 164 ms. This is sandbox invocation, not browser startup latency. |
-| `browser-probe-20261006-4d7b-nm2lm` | Write and environment flags passed; every nonexistent `/bridge` mount failed. |
-| `browser-probe-20261006-4d7b-zdncq` | Existing/same-path mount invocation passed. Chromium refused root with sandboxing enabled; no frame was produced. |
-| `browser-probe-20261006-4d7b-9rlhw` | Clearing supplementary groups refused with `EPERM`. |
-| `browser-probe-20261006-4d7b-tv4gn` | Native real/effective/saved UID/GID were all 0, supplementary groups empty; fixed UID/GID change still refused with `EPERM`. Launcher help exposes no user-selection flag. |
-
-Source corrects the mount path and explicitly checks the worker identity before
-IPC/browser initialization. This is a fail-closed guard, not proof of a working
-privilege drop on this substrate. Google's current [sandbox CLI](https://docs.cloud.google.com/run/docs/reference/sandbox-cli)
-has no user selector, and Google's [Scion integration](https://github.com/GoogleCloudPlatform/scion/blob/main/pkg/runtime/cloudrun_sandbox_runtime.go)
-documents root execution without identity-change capabilities. Changing IAM or
-the image's `USER` does not establish a supported identity change. A native
-identity mechanism and Chromium namespace compatibility need provider-backed evidence before the
-probe can progress. Direct-egress denial, mailbox round trip, frame/preview,
-resource peaks and teardown remain unverified. No sandbox was exported or saved.
-After retaining the synthetic receipts, the task-owned job, temporary identity,
-probe image/tag and source archive were removed. Existing owner resources,
-release channels and application traffic were unchanged.
+See the [consolidated native-probe receipts](#historical-provider-managed-qualification).
+The current deployment uses the built-in protected launcher; native root/`EPERM`
+findings describe the superseded sandbox adapter.
 
 ### Azure
 
-The earlier Early Access blocker is stale: Azure Sandboxes reached general
-availability in September 2026. Fresh read-only stable `2026-07-01` and preview
-SandboxGroups requests succeeded during the earlier inventory; no group existed in that readback. The legacy
-`SandboxPreview=NotRegistered` flag does not prove current unavailability.
-
-The earlier personal-identity execution 403 is historical. The October 19
-workload-identity probe above passes native creation, strict policy/source readback
-and non-root synthetic execution. These are separate from Chromium, enforced
-network-denial and private-bridge qualification. Both the public alias and its
-resolved image must not be trusted interchangeably: the controlled probe imports
-an immutable digest and binds its exact disk ID before execution.
-
-Real owner information and remembered logins remain refused. Native exec stdout
-and filesystem APIs are synthetic-probe channels only; they are not an accepted
-private frame/session transport. These historical provider-managed results do
-not qualify the newly approved whole-deployment VM candidate. Unsandboxed execution
-remains prohibited.
-
-Native cloud contracts: [GCP sandbox execution](https://docs.cloud.google.com/run/docs/code-execution),
-[GCP resource allocation](https://docs.cloud.google.com/run/docs/configuring/services/sandboxes),
-[Azure SandboxGroups](https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-overview),
-[Azure network controls](https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-egress-policies).
+See the [consolidated native-probe receipts](#historical-provider-managed-qualification).
+The former enrollment/personal-identity blockers were resolved for synthetic
+workload execution. Namespace and network findings did not qualify Chromium.
+The whole-deployment VM candidate has its own independent acceptance requirements.
 
 ### Responsive owner control — source only
 

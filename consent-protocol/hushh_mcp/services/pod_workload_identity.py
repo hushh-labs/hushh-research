@@ -1,12 +1,15 @@
 """The pod's own workload identity: an access token minted for the pod, as the pod.
 
-Two platforms, two sources, and neither is a secret Hussh holds:
+Two cloud platforms; credentials are minted by the selected workload:
 
 * **Azure Container Apps.** The platform injects ``IDENTITY_ENDPOINT`` (measured:
   ``http://localhost:12356/msi/token``, not an IMDS address) and ``IDENTITY_HEADER``.
   The pod's user-assigned identity is selected explicitly with ``AZURE_CLIENT_ID``,
   rendered by the hub as deployment topology, so a token is never silently minted
   for some other identity attached to the app.
+* **Azure VM qualification.** Startup verifies a root-protected installation
+  against fixed-address IMDS before custody. Only that registered installation
+  can select its explicit user-assigned identity through the VM token transport.
 * **Google Cloud.** The GCE metadata server. Its callers keep their own request
   mechanics; :func:`google_metadata_access_endpoint` is the one seam they ask first, and
   it refuses on Azure so an Azure pod never reaches for ``metadata.google.internal``.
@@ -25,6 +28,12 @@ import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any
 
+from hushh_mcp.services.pod_azure_vm_identity import (
+    IMDS_IDENTITY_ENDPOINT,
+    AzureVmIdentityRefused,
+    active_vm_installation,
+    imds_json,
+)
 from hushh_mcp.services.pod_platform import WorkloadPlatform, workload_platform
 
 GCE_METADATA_ACCESS_ENDPOINT = (
@@ -48,8 +57,9 @@ class PodWorkloadIdentityUnavailable(RuntimeError):
 @dataclass(frozen=True)
 class _AzureIdentity:
     endpoint: str
-    header: str
+    header: str = field(repr=False)
     client_id: str
+    vm: bool = False
 
 
 @dataclass(frozen=True)
@@ -86,6 +96,14 @@ def _local_endpoint(endpoint: str) -> bool:
 def _azure_identity() -> _AzureIdentity:
     import os  # noqa: PLC0415 - read per call; the platform owns these values
 
+    try:
+        vm = active_vm_installation()
+    except AzureVmIdentityRefused:
+        raise PodWorkloadIdentityUnavailable("VM installation identity changed") from None
+    if vm is not None:
+        return _AzureIdentity(
+            endpoint=IMDS_IDENTITY_ENDPOINT, header="", client_id=vm.client_id, vm=True
+        )
     endpoint = (os.getenv("IDENTITY_ENDPOINT") or "").strip()
     header = (os.getenv("IDENTITY_HEADER") or "").strip()
     client_id = (os.getenv("AZURE_CLIENT_ID") or "").strip()
@@ -98,6 +116,11 @@ def _azure_identity() -> _AzureIdentity:
     if not _CLIENT_ID.fullmatch(client_id):
         raise PodWorkloadIdentityUnavailable("AZURE_CLIENT_ID must name the pod's identity")
     return _AzureIdentity(endpoint=endpoint, header=header, client_id=client_id)
+
+
+def workload_client_id() -> str:
+    """The selected identity from verified VM installation or native ACA input."""
+    return _azure_identity().client_id
 
 
 def _expiry(body: dict[str, Any]) -> float:
@@ -142,6 +165,33 @@ def _mint(identity: _AzureIdentity, resource: str, session: Any) -> tuple[str, f
     return token, _expiry(body)
 
 
+def _mint_vm(identity: _AzureIdentity, resource: str) -> tuple[str, float]:
+    try:
+        body = imds_json(
+            IMDS_IDENTITY_ENDPOINT,
+            {
+                "api-version": "2018-02-01",
+                "resource": resource,
+                "client_id": identity.client_id,
+            },
+        )
+        token = body.get("access_token")
+        expiry = _expiry(body)
+        if (
+            not isinstance(token, str)
+            or not token.strip()
+            or len(token) > _MAX_TOKEN_CHARS
+            or str(body.get("client_id", identity.client_id)).lower() != identity.client_id.lower()
+            or body.get("resource") != resource
+            or str(body.get("token_type", "")).lower() != "bearer"
+            or expiry <= time.time()
+        ):
+            raise PodWorkloadIdentityUnavailable("VM identity response refused")
+        return token, expiry
+    except Exception:
+        raise PodWorkloadIdentityUnavailable("VM workload identity unavailable") from None
+
+
 def get_workload_access_token(resource: str, *, session: Any = None) -> WorkloadAccessToken:
     """Token and issuer expiry for the explicitly selected Azure workload.
 
@@ -160,17 +210,24 @@ def get_workload_access_token(resource: str, *, session: Any = None) -> Workload
         if cached is not None and now < cached.expires_at - _REFRESH_MARGIN_SECONDS:
             return cached
         _cache.pop(key, None)
-    if session is None:
-        import requests  # type: ignore[import-untyped]  # noqa: PLC0415
-
-        session = requests
-    token, expires_on = _mint(identity, resource, session)
+    if identity.vm:
+        token, expires_on = _mint_vm(identity, resource)
+    else:
+        token, expires_on = _mint_aca(identity, resource, session)
     issued = WorkloadAccessToken(token=token, expires_at=expires_on)
     refresh_at = expires_on - _REFRESH_MARGIN_SECONDS
     if refresh_at > time.time():
         with _cache_lock:
             _cache[key] = issued
     return issued
+
+
+def _mint_aca(identity: _AzureIdentity, resource: str, session: Any) -> tuple[str, float]:
+    if session is None:
+        import requests  # type: ignore[import-untyped]  # noqa: PLC0415
+
+        session = requests
+    return _mint(identity, resource, session)
 
 
 def get_workload_token(resource: str, *, session: Any = None) -> str:

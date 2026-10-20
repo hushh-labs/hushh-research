@@ -2,7 +2,11 @@
 
 **Status:** local integration plan, refreshed 2026-10-20. Main `f47a4832dbc` and
 frozen ADK `42bb9823005` are integrated through `b14bc29901`; the current local
-checkpoint is `468c0206c0`, with the reviewed changes below still uncommitted.
+checkpoint is `d3d1e758b6`. Browser composition, Shared continuity and predecessor
+acceptance are committed locally; VM identity qualification and the acceptance
+rerun correction remain in progress.
+The GCP qualification project's current refusal is a confirmed provider dunning
+denial despite open, linked billing; additional IAM grants are not a supported fix.
 The approved Browser-first implementation permits
 exact-SHA validation and governed dev acceptance after the candidate is complete.
 Application main merge, UAT/production and stable publication remain separate.
@@ -84,6 +88,9 @@ serving revisions, schema checks and existing health classifications. Advisory
 findings retain their existing policy. A landed merge SHA needs its own dev
 acceptance; a branch receipt cannot substitute. This operations change is prepared
 locally and is not active until separately authorized on main.
+Receipt discovery retains successful earlier attempts when a later rerun fails;
+every selected artifact still requires its own successful attempt and exact
+application SHA, services, digest and serving evidence.
 After an authorized main rollout, reconcile GitHub registry entries for deleted
 workflow files against main, active callers and recent runs. Disable only confirmed
 obsolete entries, preserving historical run evidence and platform-managed security.
@@ -189,68 +196,36 @@ action explanation through production capability composition.
 
 ## 5. Complete built-in Browser independently on GCP and Azure
 
-**Current truth at `468c0206c0` plus local changes, reviewed 2026-10-20 UTC: neither installed cloud journey is complete.**
-The [browser runtime owner](../../../consent-protocol/docs/reference/private-browser-runtime.md)
-records local authority, preview, responsive controls and remembered-session tests.
-The product manifest still withholds discovery and disables exposure. Browser
-bindings and ingress are dev-only. `BrowserReadiness.require_ready()` requires
-verified isolation, denied direct egress, a private ephemeral bridge and native model
-transport; an administrator login, policy readback or local Chromium fixture cannot
-issue those receipts.
-Source startup now installs the conditional composition after owner recovery;
-authenticated admission binds the task runtime to the effective owner model.
-It remains disabled without a deployment-qualified artifact. Verify that artifact
-against the immutable image, cloud, model and policy through the existing
-governed release authority; a hash-shaped field or startup consistency check
-cannot replace acceptance.
+**Neither installed cloud journey is complete.** GCP protected public browsing,
+Azure VM protected public browsing, encrypted recovery across deallocation/start
+and Azure native ADK screenshot continuation have separate qualification receipts.
+They do not establish the combined owner
+journey. Container Apps still refuses Chromium's required namespace operation;
+existing Azure owners remain on that host until an exact hosting offer is approved.
 
-| Cloud | Recorded blocker | Next bounded proof |
-| --- | --- | --- |
-| GCP | Protected namespace execution and the real launcher/broker pass public documentation/search with HTTP 200, frames and confirmed teardown | Qualify the full packaged image and model/approval composition; verify the installed owner journey |
-| Azure | Container Apps refuses required user namespaces. The disposable B2als_v2 VM renders protected public pages. A temporary Luna deployment returns a native computer action using the existing workload identity; it was removed afterward | Qualify the full packaged image, model continuation, persistent boot policy, encrypted recovery, authenticated wake and retained costs |
+The [Browser MVP and follow-on plan](./browser-completion-plan.md#immediate-mvp--critical-path-first)
+own implementation order and owner experience. The
+[runtime reference](../../../consent-protocol/docs/reference/private-browser-runtime.md#built-in-process-qualification--2026-10-20-utc)
+owns isolation, model, immutable image and teardown receipts. The
+[VM lifecycle proposal](./browser-completion-plan.md#azure-vm-hosting-proposal--qualification-only)
+owns unimplemented placement, ingress, wake, updates, erasure and retained costs.
 
-Browser remains in One's owner-controlled image and lifecycle. The latest owner
-decision permits qualifying another Azure host for the **whole deployment**, using
-disposable resources, without moving existing owners. The initial westus2
-`Standard_B2als_v2` VM has 2 vCPU / 4 GiB host capacity; the application remains
-limited to 1 vCPU / 2 GiB. Burst credits, disk/network charges, wake authority,
-updates, erasure and recovery require separate evidence. A VM frame alone does not
-qualify a customer hosting offer. Retain Chromium's sandbox and pod-secret
-protection; no privileged or unsandboxed retry is allowed.
+Before Browser enters a release:
 
-Implementation order, owned by the existing backend/browser and operations lanes:
+1. Prove the composed One task, exact review, preview/takeover, reconnect and Stop
+   on each cloud's qualified image. Preserve separate processing/disclosure consent,
+   manual-login observation suppression and uncertain-effect fences.
+2. Verify encrypted recovery, update drain, model access and idle teardown. Bind
+   acceptance to immutable image, cloud, model and configuration through the
+   existing release authority. A readiness flag or hash-shaped field is insufficient.
+3. Publish only an immutable dev offer, then exercise the separately approved
+   owner installation. A VM probe does not authorize moving an existing owner.
+4. Keep unsupported execution controls hidden and explain availability on demand.
+   Retain Chromium's sandbox and secret/process/network isolation without fallback.
 
-1. **Resolve built-in execution:** qualify identity, sandboxed Chromium, a synthetic
-   frame, denied metadata/private/direct-public access and exact teardown separately
-   per cloud. Use disposable resources, bounded runtime and no owner information.
-   Keep Chromium's sandbox and verified process restrictions; no privileged or unsandboxed fallback.
-2. **Complete private transport and composition:** supply real cloud adapters behind
-   the existing execution port, broker, task runtime and action authority. Both
-   synthetic probes now prove the private bridge; neither qualifies the installed
-   owner model or full application lifecycle.
-   Keep task scratch memory-backed and secrets out of the launcher and telemetry.
-3. **Connect One and owner control:** preserve ADK delegation, exact owner/incarnation
-   checks, separate screen-processing/disclosure approvals and bounded tasks. Prove
-   responsive viewport resizing with mouse, touch, keyboard and scrolling; reject
-   stale coordinates, fence agent actions before takeover, suppress observations
-   during login and require explicit handback with a fresh frame.
-4. **Prove lifecycle:** reconnect to the same authorized task after app closure,
-   cancel server-side, expire idle previews, checkpoint safely and drain on update.
-   Verify remembered-login opt-in, Forget races and encrypted recovery. Lost effects
-   remain uncertain and cannot be replayed. Test file transfer through its existing
-   scoped Files owner; do not grant the sandbox ambient library access.
-5. **Accept exact images:** after focused local checks, qualify both installed cloud
-   images through governed dev release and exact owner approval. Exercise research,
-   manual login, reviewed submission, takeover/handback, byte-verified download,
-   restart, idle release and wake. Record stage timings, preview latency, resources
-   and provider failures. Enable only the adapter whose full evidence passes.
-
-Browser completion requires the installed-image journeys on **both** clouds.
-Organization work can proceed independently, but cannot turn this unresolved
-capability into a readiness claim. A failed native prerequisite stays a named
-provider or integration blocker, with “Browser isn't available on this cloud yet”
-and no nonfunctional launch button. Neither a flag change nor administrator access
-is an acceptable substitute for the missing execution proof.
+Browser completion requires both installed cloud journeys. Promotion remains
+subject to the distinct environment gates below; source, disposable qualification
+and deployed owner acceptance must stay separately recorded.
 
 ## Promotion and stop conditions
 

@@ -257,48 +257,48 @@ class GitHub:
         for page in range(1, 4):
             runs = self.read(
                 f"workflows/deploy-{environment}.yml/runs?branch=main&event=workflow_dispatch"
-                f"&status=success&per_page=50&page={page}"
+                f"&per_page=50&page={page}"
             ).get("workflow_runs", [])
             for run in runs:
-                run_id, attempt = run.get("id"), run.get("run_attempt")
-                inventory = self.read(f"runs/{run_id}/artifacts?per_page=100")
-                require(
-                    inventory.get("total_count", 0) <= 100,
-                    "Artifact inventory is incomplete",
-                )
-                matches = [
-                    item
-                    for item in inventory.get("artifacts", [])
-                    if item.get("name")
-                    == f"release-acceptance-{environment}-{run_id}-{attempt}"
-                ]
-                require(len(matches) <= 1, "Acceptance artifact is ambiguous")
-                if not matches:
-                    continue
-                pin = {
-                    "run_id": run_id,
-                    "run_attempt": attempt,
-                    "artifact_id": matches[0]["id"],
-                }
-                for service in sorted(needed - accepted.keys()):
-                    try:
-                        accepted[service] = self.accept(pin, environment, sha, service)
-                    except Refused:
-                        # Other revisions/scopes and unqualified old receipts
-                        # cannot satisfy this request; keep searching within bound.
-                        continue
-                if needed <= accepted.keys():
-                    return {
-                        "status": "accepted",
-                        "environment": environment,
-                        "sha": sha,
-                        "services": accepted,
-                    }
+                for pin in self.attempt_pins(environment, run.get("id")):
+                    for service in sorted(needed - accepted.keys()):
+                        try:
+                            accepted[service] = self.accept(pin, environment, sha, service)
+                        except Refused:
+                            # Qualification belongs to this immutable attempt,
+                            # not to the latest rerun's status or service scope.
+                            continue
+                    if needed <= accepted.keys():
+                        return {
+                            "status": "accepted",
+                            "environment": environment,
+                            "sha": sha,
+                            "services": accepted,
+                        }
             if len(runs) < 50:
                 break
         raise Refused(
             "No complete healthy predecessor receipt for this exact SHA and resolved services"
         )
+
+    def attempt_pins(self, environment: str, run_id: int) -> list[dict]:
+        require(type(run_id) is int and run_id > 0, "Invalid acceptance run")
+        inventory = self.read(f"runs/{run_id}/artifacts?per_page=100")
+        require(inventory.get("total_count", 0) <= 100, "Artifact inventory is incomplete")
+        pins = {}
+        pattern = rf"release-acceptance-{re.escape(environment)}-{run_id}-([1-9][0-9]*)"
+        for item in inventory.get("artifacts", []):
+            match = re.fullmatch(pattern, item.get("name", ""))
+            if match is None:
+                continue
+            attempt = int(match[1])
+            require(attempt not in pins, "Acceptance artifact is ambiguous")
+            pins[attempt] = {
+                "run_id": run_id,
+                "run_attempt": attempt,
+                "artifact_id": item.get("id"),
+            }
+        return [pins[attempt] for attempt in sorted(pins, reverse=True)]
 
 
 def bounded_github_read(path: str, timeout: float) -> bytes:

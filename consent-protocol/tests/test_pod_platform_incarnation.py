@@ -56,6 +56,118 @@ def test_off_platform_there_is_no_incarnation_name(clean):
     assert (pod_service_name(), pod_revision_name()) == ("", "")
 
 
+@pytest.mark.parametrize(
+    "changed",
+    [
+        None,
+        "public_cloud_casing",
+        "resourceId",
+        "vmId",
+        "subscriptionId",
+        "resourceGroupName",
+        "azEnvironment",
+    ],
+)
+def test_vm_identity_requires_exact_provider_readback_before_registration(monkeypatch, changed):
+    from hushh_mcp.services import pod_azure_vm_identity as vm
+    from tests.pod_azure_fakes import vm_installation
+
+    installation, metadata = vm_installation(monkeypatch)
+    if changed == "public_cloud_casing":
+        metadata["azEnvironment"] = "AzurePublicCloud"
+    elif changed:
+        metadata[changed] = "other"
+        with pytest.raises(
+            vm.AzureVmIdentityRefused, match="VM metadata does not match installation"
+        ):
+            vm.initialize_vm_installation()
+        assert vm.active_vm_installation() is None
+        return
+    vm.initialize_vm_installation()
+    assert workload_platform() == "azure"
+    assert pod_service_name() == installation.resource_id
+    assert pod_revision_name() == pod_incarnation() == installation.generation
+    vm.initialize_vm_installation()  # same installation is idempotent
+    monkeypatch.setenv("HUSSH_POD_INCARNATION", "spoofed")
+    with pytest.raises(vm.AzureVmIdentityRefused):
+        pod_incarnation()
+
+
+@pytest.mark.parametrize(
+    "change", ["generation", "absent", "K_SERVICE", "CONTAINER_APP_NAME", "AZURE_CLIENT_ID"]
+)
+def test_vm_installation_cannot_change_or_masquerade_as_another_host(monkeypatch, change):
+    from hushh_mcp.services import pod_azure_vm_identity as vm
+    from tests.pod_azure_fakes import vm_installation
+
+    installation, _ = vm_installation(monkeypatch)
+    vm.initialize_vm_installation()
+    if change == "generation":
+        monkeypatch.setattr(
+            vm,
+            "_read_installation",
+            lambda: installation.model_copy(update={"generation": "vm_" + "c" * 32}),
+        )
+    elif change == "absent":
+        monkeypatch.setattr(vm, "_read_installation", lambda: None)
+    else:
+        monkeypatch.setenv(change, "other")
+    with pytest.raises(vm.AzureVmIdentityRefused):
+        vm.initialize_vm_installation()
+    assert vm._active == installation
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        None,
+        "file_writable",
+        "directory_writable",
+        "file_symlink",
+        "directory_symlink",
+        "oversize",
+        "unowned",
+    ],
+)
+def test_vm_installation_file_is_bounded_root_owned_and_not_followed(monkeypatch, tmp_path, defect):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import pod_azure_vm_identity as vm
+    from tests.pod_azure_fakes import vm_installation
+
+    read = vm._read_installation
+    installation, _ = vm_installation(monkeypatch)
+    directory = tmp_path / "host"
+    directory.mkdir(mode=0o755)
+    target = directory / vm.HOST_MANIFEST
+    target.write_text(installation.model_dump_json() if defect != "oversize" else "x" * 8193)
+    target.chmod(0o440)
+    original_stat = vm.os.fstat
+
+    def owner_stat(fd):
+        result = original_stat(fd)
+        return SimpleNamespace(st_mode=result.st_mode, st_uid=10001 if defect == "unowned" else 0)
+
+    monkeypatch.setattr(vm.os, "fstat", owner_stat)
+    monkeypatch.setattr(vm, "HOST_DIRECTORY", directory)
+    if defect == "file_writable":
+        target.chmod(0o666)
+    elif defect == "directory_writable":
+        directory.chmod(0o777)
+    elif defect == "file_symlink":
+        target.rename(directory / "other")
+        target.symlink_to(directory / "other")
+    elif defect == "directory_symlink":
+        link = tmp_path / "link"
+        link.symlink_to(directory)
+        monkeypatch.setattr(vm, "HOST_DIRECTORY", link)
+    if defect:
+        with pytest.raises((vm.AzureVmIdentityRefused, OSError)):
+            read()
+    else:
+        assert read() == installation
+
+
 def test_upgrade_receipts_bind_the_azure_revision_and_keep_the_override(clean):
     clean.setenv("HUSSH_ID", "ha1_owner")
     clean.setenv("CONTAINER_APP_NAME", "one-pod-ha1")

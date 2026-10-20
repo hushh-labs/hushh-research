@@ -33,12 +33,12 @@ Operating detail stays in the [dev pod runbook](../operations/dev-pod-first-ligh
 
 | Journey | Demonstrated outcome | Next measurable result |
 | --- | --- | --- |
-| Owner cloud / AI | Azure normal owner chat completes; provider-aware GCP/Azure onboarding and encrypted custom-key choices serve dev | The GCP qualification pod's owner-project Vertex returns 403. Resolve that exact provider/authority refusal; no implicit bridge substitution |
+| Owner cloud / AI | Azure normal owner chat completes; provider-aware GCP/Azure onboarding and encrypted custom-key choices serve dev | GCP qualification Vertex returns an explicit dunning denial despite an open, linked billing account. Provider billing resolution is required; no implicit bridge substitution |
 | Voice | Deployed app selects GCP recorded commands and disables Azure capture. Source-qualified pod guards refuse Azure transcription/Live and a shared Live key | The workflow reused reviewed Dev 25; pod guards are not installed. A fresh image needs exact-predecessor recovery and owner approval. GCP recorded audio remains live-unverified; conversational Live also needs a compatible native model |
 | Files | Dedicated ADK specialist and explorer. Personal and fresh Shared Move, stable identity, byte-exact download and Undo pass; earlier interrupted 4,195,328-byte transfer and selected analysis pass | Finish the retained synthetic deletion after the guarded correction serves; qualify fresh setup and current-image organization without disturbing owners |
 | Software updates | Personal Azure Dev 25 approved in Settings; same durable operation, recovery, installed digest, unchanged incarnation and exactly one Feed completion verified | Preserve exact tested predecessor compatibility; broader interruption and rollback acceptance stays distinct |
 | Puppy | Existing Hermes identity and grant; signed binding, sealed WSS, streamed Gemma 12B response and idle UI. Previous Stop, withdrawal, refusal and re-enable receipts retained | Keep the default and existing relay. No model sweep. Independent-network and cold-model percentiles are unclaimed; phone testing was waived |
-| Browser Use | GCP protected browsing and Azure full-image protected browsing pass. The native Azure ADK adapter completes a real synthetic screenshot continuation. Probe VM, model and images are removed; public-pilot startup and exact review are composed in source | **Disabled on both clouds.** These separate receipts do not prove the installed owner journey. Azure VM wake/recovery/update lifecycle remains unqualified; existing owners stay on Container Apps |
+| Browser Use | GCP and Azure protected browsing pass. Azure VM encrypted identity/log recovery survives deallocation/start; native ADK screenshot continuation passes separately. Disposable resources are removed; public-pilot startup and exact review are composed in source | **Disabled on both clouds.** Installed owner composition, authenticated VM wake/update/erasure and combined model execution remain open; existing owners stay on Container Apps |
 | Background / continuity | Files queue delivery and preservation of originals previously demonstrated on both clouds; durable update and command/MCP recovery owners exist | Prove current-image connectors/recorded commands and supported continuation. General goals, Azure due-time delivery and scheduled browser work are not qualified |
 | Erasure / transitions | Earlier Shared erasure verified object/Firebase absence. The retained fixture now receives the intended safe 409 instead of 500 on deployed `28a0fa1091` | Its upload remains unverified; account/vault stay fenced and retained. No direct provider deletion, SQL override or automatic retry. Migration, external revocation and cloud cleanup still need receipts |
 | Security | Runtime/authority negative controls and the critical Capacitor patch have source evidence | Dependency alerts, including companion alerts, remain an independent clearance requirement; green CI does not close them |
@@ -75,11 +75,16 @@ no budget, assertion, security or consent gate was weakened.
 
 ### GCP authority and Browser qualification
 
-The disposable GCP workload has the declared Vertex/Consumer roles; native
-owner-project requests still return 403 on REST v1 and the pinned SDK. A separate
-approved bridge diagnostic returned HTTP 200 in 1.046 s (3 input / 1 output tokens).
-Its temporary Job was removed. This proves bridge access only; it neither repairs
-nor authorizes replacing the selected owner-project connection.
+The disposable GCP workload has the declared Vertex/Consumer roles. A bounded
+native request on 20 October confirms the expected workload identity and an
+explicit provider **dunning denial** in **0.074 s**. The billing API independently
+reports the project linked and the account open. This is a provider billing
+restriction; the earlier generic 403 did not establish an IAM defect. No additional
+grant, model retry or project substitution was made. The diagnostic Job is absent.
+A separate approved bridge diagnostic returned HTTP 200 in 1.046 s (3 input /
+1 output tokens). That proves bridge access only, not the selected owner-project
+connection. The existing dependency classifier already recognizes this denial;
+its advisory release classification does not turn an unperformed journey into a pass.
 
 The approved built-in Browser probe ran on ordinary cloud containers. Azure's
 application service passes UID 10002, filesystem denial, direct-socket and Unix
@@ -122,6 +127,16 @@ on the disposable VM: initialization **0.909 s**, page/frame **1.758 / 1.371 s**
 capabilities and starts no helper. VM, ACR, source object and image absence were
 verified. This frozen image predates the final model/lifecycle fixes; its receipt
 qualifies the unchanged executor, not current Gunicorn/recovery composition.
+
+Rebuilt image `9d33df90e7a4` now passes synthetic encrypted recovery on a
+northcentralus B2als_v2 host with the application capped at 1 vCPU / 2 GiB.
+Actual IMDS identity and Key Vault/Blob custody retain the same key, sealed log,
+sequence and incarnation after deallocation/start; sibling reads and key signing
+are refused. Restored custody takes **1.852 s**; VM start-to-running **10.841 s**.
+Protected public frames and joined stop pass without OOM. Resource group, deleted
+vault, source object and image absence are verified. This is neither an owner
+installation nor an application wake measurement; burst-credit metrics remain
+unverified. Exact provenance is in the linked Browser qualification record.
 
 Public-pilot source binds recovery, the native model, exact hub review, sealed
 dispatch and update admission. Joined shutdown fixes cancel/drain/model-completion

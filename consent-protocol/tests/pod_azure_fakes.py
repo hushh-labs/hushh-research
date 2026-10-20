@@ -29,6 +29,45 @@ CLIENT_ID = "11111111-2222-3333-4444-555555555555"
 IDENTITY_ENDPOINT = "http://localhost:12356/msi/token"
 
 
+def vm_installation(monkeypatch):
+    """Synthetic root manifest + provider observation; no claim of cloud identity."""
+    from hushh_mcp.services import pod_azure_vm_identity as vm
+
+    for name in (
+        "K_SERVICE",
+        "K_REVISION",
+        "CONTAINER_APP_NAME",
+        "CONTAINER_APP_REVISION",
+        "IDENTITY_ENDPOINT",
+        "IDENTITY_HEADER",
+        "AZURE_CLIENT_ID",
+        "HUSSH_POD_INCARNATION",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("HUSSH_ID", "ha1_owner")
+    installation = vm.AzureVmInstallation(
+        version=1,
+        resource_id=f"/subscriptions/{CLIENT_ID}/resourceGroups/owner/providers/Microsoft.Compute/virtualMachines/one",
+        vm_id="99999999-2222-3333-4444-555555555555",
+        client_id=CLIENT_ID,
+        hushh_id="ha1_owner",
+        image_digest="sha256:" + "a" * 64,
+        generation="vm_" + "b" * 32,
+    )
+    metadata = {
+        "resourceId": installation.resource_id,
+        "vmId": installation.vm_id,
+        "subscriptionId": CLIENT_ID,
+        "resourceGroupName": "owner",
+        "osType": "Linux",
+        "azEnvironment": "AZUREPUBLICCLOUD",
+    }
+    monkeypatch.setattr(vm, "_active", None)
+    monkeypatch.setattr(vm, "_read_installation", lambda: installation)
+    monkeypatch.setattr(vm, "imds_json", lambda endpoint, params: metadata)
+    return installation, metadata
+
+
 class FakeResponse:
     def __init__(self, status: int, *, body: Any = None, content: bytes = b"", headers=None):
         self.status_code = status

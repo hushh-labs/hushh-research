@@ -191,9 +191,11 @@ That synthetic VM now renders public documentation/search through the real broke
 with Chromium's sandbox retained. Stop, container removal, deallocation, power
 restart and resource absence pass. Exact timings, image and security configuration
 are in the [runtime evidence](../../../consent-protocol/docs/reference/private-browser-runtime.md#built-in-process-qualification--2026-10-20-utc).
-The full packaged pod image now also passes protected execution, disabled
-bootstrap and teardown. It does not yet qualify Gunicorn startup, owner encrypted
-recovery or the combined model/task journey.
+The full packaged pod image also passes protected execution, disabled bootstrap
+and teardown. A rebuilt image preserves synthetic encrypted identity and recovery
+records through VM deallocation/start using its real workload identity, Blob
+storage and Key Vault. Gunicorn startup, authenticated owner wake and the combined
+model/task journey remain separate qualification requirements.
 Bind receipts to source, immutable image and configuration. Qualify each cloud
 independently and fail closed; there is no privileged browser or `--no-sandbox`
 retry. The VM must qualify the whole deployment's recovery, external wake,
@@ -207,13 +209,30 @@ Keep the existing `ComputeBackend`, Azure setup mutation journal, update
 admission and erasure reservation as the authorities. A VM requires explicit
 persisted host selection; it cannot masquerade as an ACA revision.
 
+The reviewed implementation boundary is an owner-selected Azure host kind and
+region, carried through authenticated authorization, the setup job, registry
+publication and `PodSpec`. Existing Azure rows retain Container Apps as their
+default. A mutable provider observation must not choose the host. The current
+setup's fixed `eastus2` region cannot silently select a VM qualified elsewhere.
+This placement extension is not implemented or offered to owners yet.
+The recovery probe moved to `northcentralus` only after `westus2` returned
+`AllocationFailed` and fresh quota, SKU and pinned-OS checks passed there.
+That diagnostic selection does not change the user's selected hosting region.
+
 | Boundary | Required implementation and proof |
 | --- | --- |
-| Identity / custody | Attach the owner setup's existing user-assigned identity. Read back VM resource ID, tags and identity. Add the VM's IMDS token transport, provider-derived incarnation and existing Key Vault/Blob recovery; do not synthesize ACA platform variables |
+| Identity / custody | VM IMDS transport, host binding and synthetic Key Vault/Blob recovery pass. Compose them into the owner setup's user-assigned identity, exact tags and actual application startup; do not synthesize ACA platform variables |
 | Private ingress | Stable HTTPS endpoint with the existing signed owner/pod admission and CORS checks. The probe's deny-all inbound policy is not customer ingress |
 | Wake / idle | Scope start/deallocate permission to the selected VM through the existing control plane. Coalesce concurrent requests. Persist scheduled work before wake; admit it only after authenticated recovery. Drain browser and relay before deallocation; verify provider power state |
 | Update / transition | Exact owner hosting offer, immutable image, predecessor recovery, old-writer fence and installed-digest readback. Preserve keys/storage; do not automatically move current ACA owners |
 | Erasure | Inventory VM, disks, network, identity, registry and custody through existing cleanup authority; retain repairable state until absence/retention is established |
+
+The existing HTTP wake assumes a platform that starts on an incoming request.
+A deallocated VM needs an authenticated, coalesced start operation bound to the
+recorded service identity and installation generation. Preserve accepted provider
+receipts across retry; do not reuse the owner's setup/update slot as a wake lock.
+Deletion of a sleeping VM must first recover the existing cryptographic-erasure
+path, or remain repairable. A provider DELETE alone is not that receipt.
 
 **Cost assumptions, 2026-10-20, westus2 USD retail:** Linux B2als_v2 host
 **2 vCPU / 4 GiB**, app **1 vCPU / 2 GiB**, single worker. The observed 30 GiB
@@ -240,22 +259,11 @@ and [billing states](https://learn.microsoft.com/en-us/azure/virtual-machines/st
 
 ### Historical provider-managed sandbox probes
 
-| Cloud | Recorded failure | Required next proof |
-| --- | --- | --- |
-| GCP | Native worker ran as root; required UID/GID changes returned `EPERM`; sandboxed Chromium produced no frame | Provider-supported non-root identity and Chromium namespace compatibility, then the existing native browser-only probe |
-| Azure | Workload identity, non-root/zero-capability execution and tmpfs pass. Chromium aborts on restricted namespaces; no frame. Network denial is unqualified | Provider-supported restricted namespace permissions, verified HTTP/TCP/UDP denial and the private memory-only broker bridge |
-
-These failures belong to the superseded provider-managed execution adapters.
-The [Google sandbox CLI](https://docs.cloud.google.com/run/docs/reference/sandbox-cli)
-documents no user selector; IAM grants or image `USER` alone cannot establish a
-working mechanism. The [Azure sandbox contract](https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-overview)
-requires Entra access; subscription administration does not prove data-plane access.
-
-Use disposable synthetic resources first. Prove Chromium/frame capture, explicit
-metadata/private/direct-public denial, broker-only web access, memory-backed scratch,
-immutable component provenance and teardown. Timeouts are not network-denial proof.
-Azure's current identity/policy probe cannot qualify the private bridge. Admit no
-real owner information before the complete cloud boundary passes.
+The earlier provider-managed sandbox adapters are superseded by the approved
+built-in Browser design. Their failed identity/namespace probes and immutable
+receipts remain in the [runtime history](../../../consent-protocol/docs/reference/private-browser-runtime.md#historical-provider-managed-qualification).
+Those failures do not invalidate the newer protected VM/Cloud Run execution
+receipts, and neither set establishes installed-owner acceptance.
 
 ## Full capability follow-on order
 
