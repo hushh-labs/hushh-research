@@ -14,6 +14,9 @@ from uuid import UUID, uuid4
 from hushh_mcp.consent.audit_logger import get_trace_id
 
 _operation: ContextVar[str | None] = ContextVar("drive_operation_tag", default=None)
+# The one live-read channel: Google Drive REST v3 over the owner's OAuth grant.
+# A fixed label, so measurement lines can say which channel produced them.
+CHANNEL = "google_drive_rest_v3"
 _STAGES = frozenset(
     {
         "search_claim",
@@ -30,6 +33,15 @@ _STAGES = frozenset(
 )
 
 
+class StageTimer:
+    """Elapsed milliseconds of one closed stage, set when the stage ends."""
+
+    __slots__ = ("ms",)
+
+    def __init__(self) -> None:
+        self.ms = 0.0
+
+
 @contextmanager
 def drive_stage(logger: logging.LoggerAdapter, stage: str):
     """Time a closed stage without logging arguments, exception text or identities."""
@@ -37,18 +49,20 @@ def drive_stage(logger: logging.LoggerAdapter, stage: str):
         raise ValueError("unknown Drive timing stage")
     started = time.perf_counter()
     outcome = "error"
+    timer = StageTimer()
     try:
-        yield
+        yield timer
         outcome = "ok"
     except asyncio.CancelledError:
         outcome = "cancelled"
         raise
     finally:
+        timer.ms = (time.perf_counter() - started) * 1000
         logger.info(
             "drive_stage.timing stage=%s outcome=%s duration_ms=%.2f",
             stage,
             outcome,
-            (time.perf_counter() - started) * 1000,
+            timer.ms,
         )
 
 

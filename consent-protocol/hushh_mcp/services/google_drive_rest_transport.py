@@ -23,7 +23,7 @@ from hushh_mcp.services.drive_search_paging_config import (
     FILE_LIST_PAGE_SIZE_MAX,
     OWNER_SEARCH_PAGE_SIZE_MAX,
 )
-from hushh_mcp.services.drive_telemetry import drive_logger, drive_stage
+from hushh_mcp.services.drive_telemetry import CHANNEL, drive_logger, drive_stage
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
@@ -346,7 +346,7 @@ class GoogleDriveRestTransport:
             raise DriveOAuthError("invalid_argument", status_code=400) from None
         if not connector_feature_enabled("google_drive_live", user_id):
             raise DriveOAuthError("connector_unavailable", status_code=403)
-        with drive_stage(logger, "credential"):
+        with drive_stage(logger, "credential") as credential_stage:
             row, credential = await self._oauth.current_credential(
                 user_id=user_id, required_profile="live"
             )
@@ -363,9 +363,9 @@ class GoogleDriveRestTransport:
         # plus its method; these owner, grant and generation checks wrap every
         # entry without change.
         operation = getattr(self, operations[tool_name])
-        with drive_stage(logger, "provider"):
+        with drive_stage(logger, "provider") as provider_stage:
             payload: dict = await operation(arguments, credential["accessToken"])
-        with drive_stage(logger, "connection_recheck"):
+        with drive_stage(logger, "connection_recheck") as recheck_stage:
             current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
         if (
             not current
@@ -378,6 +378,23 @@ class GoogleDriveRestTransport:
                 # not call it failed: "reconnect and retry" could repeat it.
                 raise DriveWriteError("write_outcome_unknown", outcome_unknown=True)
             raise DriveOAuthError("connection_changed", status_code=409)
+        if operations is not _WRITE_OPERATIONS:
+            rows, more = _listing_shape(tool_name, payload)
+            # One self-contained line per read: the fixed channel and tool name,
+            # row and more-pages counts, and each stage's milliseconds. Never a
+            # query, title, file ID, owner, token or page cursor.
+            logger.info(
+                "drive_rest.call channel=%s profile=live tool=%s rows=%d more=%d "
+                "credential_ms=%.2f provider_ms=%.2f recheck_ms=%.2f total_ms=%.2f",
+                CHANNEL,
+                tool_name,
+                rows,
+                more,
+                credential_stage.ms,
+                provider_stage.ms,
+                recheck_stage.ms,
+                credential_stage.ms + provider_stage.ms + recheck_stage.ms,
+            )
         return ExternalMcpToolResult(is_error=False, payload=payload, truncated=False)
 
     async def _read_file_content(self, arguments: dict[str, Any], token: str) -> dict:
@@ -786,6 +803,24 @@ def _resource_key_argument(arguments: dict[str, Any]) -> str | None:
     ):
         raise DriveOAuthError("invalid_argument", status_code=400)
     return value
+
+
+# The payload key that holds the rows of each listing tool; every other tool
+# returns one file or one text and reports -1 rows.
+_LISTING_ROWS = {
+    "search_files": "files",
+    "list_recent_files": "files",
+    "list_changes": "changes",
+    "list_shared_drives": "drives",
+}
+
+
+def _listing_shape(tool_name: str, payload: dict[str, Any]) -> tuple[int, int]:
+    """Row count and more-pages flag of a listing page; (-1, -1) for any other tool."""
+    rows = payload.get(_LISTING_ROWS.get(tool_name, ""))
+    if not isinstance(rows, list):
+        return -1, -1
+    return len(rows), int(bool(payload.get("nextPageToken")))
 
 
 def _page_files(page: dict[str, Any], *, max_files: int = 25) -> list[Any]:
