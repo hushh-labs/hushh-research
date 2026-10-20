@@ -268,7 +268,7 @@ describe("PeopleHub requests sent manage surface", () => {
     { canReceiveLocation: true, keyId: "recipient-key", publicKeyJwk: null },
   ])("explains blocked sharing and offers recovery without opening Share: %j", (readiness) => {
     const blockedRecipient = { ...recipient, ...readiness };
-    const { onStartShare, onInvite } = renderPeopleHub({
+    const { onStartShare, onStartAsk, onInvite } = renderPeopleHub({
       viewModel: vm({
         requestedByMe: [],
         receivedGrants: [],
@@ -287,12 +287,15 @@ describe("PeopleHub requests sent manage surface", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Roopmann V" });
     expect(within(dialog).getByText(
-      "Roopmann V needs to open Location in One and finish setup before receiving your location.",
+      "Roopmann V is connected on One. They need to open One before they can receive your location.",
     )).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Share my location" })).toBeNull();
     expect(onStartShare).not.toHaveBeenCalled();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Invite to One" }));
-    expect(onInvite).toHaveBeenCalledExactlyOnceWith();
+    expect(within(dialog).queryByRole("button", { name: "Invite to One" })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Manage connection" })).toBeEnabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ask for location" }));
+    expect(onStartAsk).toHaveBeenCalledExactlyOnceWith("owner_roopmann");
+    expect(onInvite).not.toHaveBeenCalled();
     expect(onStartShare).not.toHaveBeenCalled();
   });
 

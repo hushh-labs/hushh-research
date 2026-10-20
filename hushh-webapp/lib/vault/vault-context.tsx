@@ -196,6 +196,28 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const vaultOwnerToken =
     vaultIdentityMatches && tokenIsValid ? storedVaultOwnerToken : null;
   const tokenExpiresAt = vaultIdentityMatches ? storedTokenExpiresAt : null;
+
+  useEffect(() => {
+    if (!authReady || !currentUserId || !vaultKey || !vaultOwnerToken) return;
+    const retryReceivingSetup = () => {
+      if (document.visibilityState !== "visible") return;
+      UnlockWarmOrchestrator.queueLocationRecipientKeyBootstrap({
+        userId: currentUserId,
+        vaultOwnerToken,
+        vaultKey,
+      });
+    };
+    // A user may stay in Chat after all bounded offline retries expire. Resume
+    // and connectivity restoration must repair readiness without a new unlock.
+    window.addEventListener("online", retryReceivingSetup);
+    window.addEventListener("focus", retryReceivingSetup);
+    document.addEventListener("visibilitychange", retryReceivingSetup);
+    return () => {
+      window.removeEventListener("online", retryReceivingSetup);
+      window.removeEventListener("focus", retryReceivingSetup);
+      document.removeEventListener("visibilitychange", retryReceivingSetup);
+    };
+  }, [authReady, currentUserId, vaultKey, vaultOwnerToken]);
   const lastUpgradeKickoffKeyRef = useRef<string | null>(null);
   const tokenExpiresAtRef = useRef<number | null>(null);
   // Mirrors of the latest values so async event handlers and cleanup
@@ -884,6 +906,16 @@ export function VaultProvider({ children }: VaultProviderProps) {
       setVaultOwnerToken(token);
       setTokenExpiresAt(expiresAt);
       setVaultUserId(unlockingUserId);
+
+      // Receiving is account readiness, independent of optional onboarding and
+      // dashboard warming. In particular /one/setup can finish into Chat or
+      // Connect without ever opening Location. Start strict, session-fenced
+      // recovery here, before optional Firebase-token reads or route deferrals.
+      UnlockWarmOrchestrator.queueLocationRecipientKeyBootstrap({
+        userId: unlockingUserId,
+        vaultOwnerToken: token,
+        vaultKey: key,
+      });
 
       // Notify listeners (e.g. Siri handoff) that the vault is now unlocked
       // so they can resume any pending actions that were blocked by vault.

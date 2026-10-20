@@ -4244,7 +4244,14 @@ class OneLocationAgentService:
             else None
         )
         mutation_sql = """
-            WITH key_id_compatibility AS MATERIALIZED (
+            WITH prior_key_state AS MATERIALIZED (
+              SELECT EXISTS (
+                SELECT 1 FROM one_location_recipient_keys
+                WHERE user_id = :user_id AND key_id = :key_id
+                  AND public_key_fingerprint = :fingerprint
+                  AND algorithm = :algorithm AND status = 'active'
+              ) AS unchanged
+            ), key_id_compatibility AS MATERIALIZED (
               SELECT (
                 NOT EXISTS (
                   SELECT 1
@@ -4345,8 +4352,13 @@ class OneLocationAgentService:
               FROM upserted_key k
               RETURNING id
             )
-            SELECT k.*
+            SELECT k.*, (
+              NOT prior.unchanged
+              OR EXISTS (SELECT 1 FROM rotated_keys)
+              OR EXISTS (SELECT 1 FROM revoked_grants)
+            ) AS recipient_metadata_changed
             FROM upserted_key k
+            CROSS JOIN prior_key_state prior
             CROSS JOIN (SELECT COUNT(*) FROM revoked_grant_events) revoked_event_barrier
             CROSS JOIN (SELECT COUNT(*) FROM registered_key_event) registered_event_barrier
             """
@@ -4392,6 +4404,26 @@ class OneLocationAgentService:
                 "This secure key id is already bound to different key material.",
                 status_code=409,
             )
+        if row.get("recipient_metadata_changed"):
+            # Registration has committed. Wake viewers' own channels so open
+            # People, Share, Ask and SMS projections discard stale public keys.
+            # Identical warm-up registrations and private-key backup backfills
+            # do not repeatedly invalidate everyone else's lists.
+            try:
+                from hushh_mcp.services.connection_graph_service import (
+                    list_connection_graph_viewer_ids,
+                )
+                from hushh_mcp.services.connections_service import _notify_connection_graph_changed
+
+                # Read viewers after the key commit. A concurrent connection
+                # accept must either be visible here or emit its own doorbell
+                # after the committed key is readable. A pre-commit snapshot
+                # could miss that edge while its early event still saw no key.
+                with get_db_connection() as connection:
+                    viewers = list_connection_graph_viewer_ids(connection, user_id=user_id)
+                _notify_connection_graph_changed(user_ids={user_id, *viewers})
+            except Exception:  # registration is already committed
+                logger.warning("one_location.recipient_graph_sync_failed", exc_info=True)
         # The caller's own record, handed straight back to them. There is no
         # privacy line to draw against yourself, and withholding it here would
         # show a person their own masked phone where every other surface now
