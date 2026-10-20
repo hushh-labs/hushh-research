@@ -487,28 +487,48 @@
 .workspace :global([data-relationship]) {
   min-width: 88px;
 }
-.workspace :global([data-relationship] > span:first-child) {
+.workspace :global([data-slot="connect-row-action-pill"]) {
   min-width: 88px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: 999px;
+  padding-inline: 15px;
+  background: var(--app-card-surface-default-solid);
   border-color: color-mix(
     in srgb,
     var(--app-accent) 32%,
     var(--app-card-surface-default-solid)
   );
 }
-.workspace :global([data-relationship="pending_outgoing"] > span:first-child) {
-  border-color: transparent;
+.workspace
+  :global(
+    [data-relationship="pending_outgoing"] [data-slot="connect-row-action-pill"]
+  ) {
+  border-color: var(--app-card-border-standard);
   color: var(--app-secondary-label);
 }
-.workspace :global([data-relationship="pending_incoming"] > span:first-child) {
+.workspace
+  :global(
+    [data-relationship="pending_incoming"] [data-slot="connect-row-action-pill"]
+  ) {
   border-color: transparent;
   background: var(--app-accent-ring);
 }
 @media (max-width: 620px) {
   .workspace :global([data-relationship]),
-  .workspace :global([data-relationship] > span:first-child) {
+  .workspace :global([data-slot="connect-row-action-pill"]) {
     min-width: 78px;
+  }
+  .workspace :global([data-slot="connect-row-action-pill"]) {
+    padding-inline: 11px;
+  }
+}
+@media (max-width: 350px) {
+  .workspace :global([data-relationship]),
+  .workspace :global([data-slot="connect-row-action-pill"]) {
+    min-width: 72px;
+  }
+  .workspace :global([data-slot="connect-row-action-pill"]) {
+    padding-inline: 9px;
   }
 }
 

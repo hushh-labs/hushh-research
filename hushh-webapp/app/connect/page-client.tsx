@@ -354,16 +354,15 @@ async function mapWithConcurrency<T, R>(
 /** Fetch one small batch at a time as browsing or search reaches the list end. */
 const DEFAULT_PAGE_SIZE = 20;
 /**
- * A directory row's call to action. The button is the 44px target; the pill drawn
- * inside it is a compact 32px, so the row stays small without shrinking the tap
- * area (the shared Button clips overflow, so the target cannot be a pseudo-element).
+ * A directory row's call to action. Both the button target and its visible pill
+ * are 44px high. The pill slot keeps local styling independent of Button wrappers.
  * The label takes Profile's action typography through `data-profile-role="action"`
  * on the button, which the pill inherits.
  */
 const CONNECT_ROW_ACTION_CLASSNAME =
   "!h-11 !min-h-11 min-w-[72px] !border-0 !bg-transparent !p-0 !text-[color:var(--app-accent)] disabled:opacity-60";
 const CONNECT_ROW_ACTION_PILL_CLASSNAME =
-  "inline-flex h-8 min-w-[72px] items-center justify-center rounded-full border border-[color:var(--app-accent)] px-3";
+  "inline-flex h-11 min-w-[88px] items-center justify-center rounded-full border px-[15px]";
 /** An icon-only action: a 44px target around a 22px glyph. */
 const CONNECT_ROW_ICON_ACTION_CLASSNAME = "!size-11 !min-w-11 !bg-transparent !p-0";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
@@ -3591,7 +3590,7 @@ export default function ConnectPageClient() {
                                               );
                                             }}
                                           >
-                                            <span className={CONNECT_ROW_ACTION_PILL_CLASSNAME}>
+                                            <span data-slot="connect-row-action-pill" className={CONNECT_ROW_ACTION_PILL_CLASSNAME}>
                                               {busyId === person.userId ? (
                                                 <Loader2
                                                   className="h-4 w-4 animate-spin"
@@ -3622,7 +3621,7 @@ export default function ConnectPageClient() {
                                               void handleConnect(person);
                                             }}
                                           >
-                                            <span className={CONNECT_ROW_ACTION_PILL_CLASSNAME}>
+                                            <span data-slot="connect-row-action-pill" className={CONNECT_ROW_ACTION_PILL_CLASSNAME}>
                                               {busyId === person.userId
                                                 ? "Sending..."
                                                 : cta.label}

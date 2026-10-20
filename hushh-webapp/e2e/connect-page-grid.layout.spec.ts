@@ -398,7 +398,7 @@ for (const width of [320, 393, 1440]) {
     const actionBox = await add.boundingBox();
     // The v14 action fills its 44px target.
     expect(actionBox!.height).toBeGreaterThanOrEqual(44);
-    const pill = await add.locator("span").first().boundingBox();
+    const pill = await add.locator('[data-slot="connect-row-action-pill"]').boundingBox();
     expect(pill!.height).toBe(44);
     expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
     // The identity keeps its own column: the action never sits on the text.
