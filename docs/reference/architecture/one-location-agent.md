@@ -74,8 +74,11 @@ consent request to that person without disclosing coordinates; private sharing
 requires their registered public key and revalidates the complete audience before
 submission. Contact matches never merge different account IDs by display name.
 
-Material recipient-key changes capture direct and Circle viewers and send the
-existing silent `connection_graph_changed` doorbell after commit. Identical active
+After a material recipient-key change commits, a fresh read captures direct and
+Circle viewers and sends the existing silent `connection_graph_changed` doorbell.
+This closes the race with concurrent connection acceptance: the fresh read sees
+an earlier accepted edge, or the later acceptance event sees the committed key.
+Identical active
 keys and private backup-only backfills do not fan out; rotation, reactivation and
 repair of extra active keys do. Full account deletion captures surviving graph,
 Circle and pending-request viewers under the graph writer lock before erasure,

@@ -350,9 +350,22 @@ def test_recipient_key_registration_locks_before_mutation(
     assert calls[1] == ("SELECT :key_id AS key_id", {"key_id": "new-key"})
 
 
-@pytest.mark.parametrize("changed,rollback", [(True, False), (False, False), (True, True)])
+@pytest.mark.parametrize(
+    "changed,rollback,read_failure,notify_failure",
+    [
+        (True, False, False, False),
+        (False, False, False, False),
+        (True, True, False, False),
+        (True, False, True, False),
+        (True, False, False, True),
+    ],
+)
 def test_recipient_readiness_wakes_peers_only_after_a_changed_key_commits(
-    monkeypatch: pytest.MonkeyPatch, changed: bool, rollback: bool
+    monkeypatch: pytest.MonkeyPatch,
+    changed: bool,
+    rollback: bool,
+    read_failure: bool,
+    notify_failure: bool,
 ) -> None:
     from unittest.mock import MagicMock
 
@@ -376,14 +389,20 @@ def test_recipient_readiness_wakes_peers_only_after_a_changed_key_commits(
         committed = True
 
     def capture_viewers(conn, *, user_id):
-        assert conn is connection and not committed
+        # A new edge may commit after the key writer's old snapshot. Only a
+        # fresh post-key-commit read is allowed to choose the final audience.
+        assert conn is connection and committed
         assert user_id == "recipient"
         captures.append(user_id)
+        if read_failure:
+            raise RuntimeError("graph read unavailable")
         return {"connected-peer", "circle-peer"}
 
     def notify(**kwargs):
         assert committed
         notifications.append(kwargs["user_ids"])
+        if notify_failure:
+            raise RuntimeError("push unavailable")
 
     monkeypatch.setattr(one_location_service_module, "get_db_connection", transaction)
     monkeypatch.setattr(
@@ -406,9 +425,11 @@ def test_recipient_readiness_wakes_peers_only_after_a_changed_key_commits(
         result = register()
         assert result["canReceiveLocation"] is True
         assert "graph_viewer_ids" not in result
-    assert captures == (["recipient"] if changed else [])
+    assert captures == (["recipient"] if changed and not rollback else [])
     assert notifications == (
-        [{"recipient", "connected-peer", "circle-peer"}] if changed and not rollback else []
+        [{"recipient", "connected-peer", "circle-peer"}]
+        if changed and not rollback and not read_failure
+        else []
     )
 
 

@@ -1529,18 +1529,7 @@ class OneLocationAgentService:
                 {"recipient_key_lock_key": recipient_key_lock_key},
             )
             row = connection.execute(text(mutation_sql), params).mappings().first()
-            if row is None:
-                return None
-            result = dict(row)
-            if result.get("recipient_metadata_changed"):
-                from hushh_mcp.services.connection_graph_service import (
-                    list_connection_graph_viewer_ids,
-                )
-
-                result["graph_viewer_ids"] = list_connection_graph_viewer_ids(
-                    connection, user_id=params["user_id"]
-                )
-            return result
+            return dict(row) if row is not None else None
 
     @contextmanager
     def _key_bound_writer_guard(
@@ -4417,11 +4406,18 @@ class OneLocationAgentService:
             # Identical warm-up registrations and private-key backup backfills
             # do not repeatedly invalidate everyone else's lists.
             try:
+                from hushh_mcp.services.connection_graph_service import (
+                    list_connection_graph_viewer_ids,
+                )
                 from hushh_mcp.services.connections_service import _notify_connection_graph_changed
 
-                _notify_connection_graph_changed(
-                    user_ids={user_id, *row.get("graph_viewer_ids", [])}
-                )
+                # Read viewers after the key commit. A concurrent connection
+                # accept must either be visible here or emit its own doorbell
+                # after the committed key is readable. A pre-commit snapshot
+                # could miss that edge while its early event still saw no key.
+                with get_db_connection() as connection:
+                    viewers = list_connection_graph_viewer_ids(connection, user_id=user_id)
+                _notify_connection_graph_changed(user_ids={user_id, *viewers})
             except Exception:  # registration is already committed
                 logger.warning("one_location.recipient_graph_sync_failed", exc_info=True)
         # The caller's own record, handed straight back to them. There is no
