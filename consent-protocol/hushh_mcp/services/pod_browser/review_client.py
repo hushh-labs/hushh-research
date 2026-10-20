@@ -181,12 +181,9 @@ class PodBrowserReviews:
             if pending.receipt is not None:
                 if pending.receipt != receipt:
                     raise BrowserRefused("BROWSER_REVIEW_CHANGED")
-                # Never repeat a consume after a lost response. Validate the
-                # committed ledger state; a failed validation stays unresolved.
-                result = await self._call("validate", payload)
-                if result != {"status": "valid"}:
-                    raise BrowserRefused("BROWSER_REVIEW_UNAVAILABLE")
-                return
+                # Exact consume is idempotent at the existing hub ledger.
+                # Retry can recover loss before OR after commit; it never
+                # renews permission or dispatches a browser action.
             pending.receipt = receipt
             result = await self._call("consume", payload)
             if result != {"status": "consumed"}:

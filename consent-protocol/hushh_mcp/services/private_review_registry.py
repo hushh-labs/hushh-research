@@ -8,8 +8,8 @@ while a placement change commits. This helper never confirms on a pod's behalf.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
-from typing import TypeVar
+from collections.abc import Callable, Coroutine
+from typing import Any, TypeVar
 
 from hushh_mcp.services.action_directive_ledger import (
     ActionDirectiveAuthorityError,
@@ -47,7 +47,7 @@ async def with_private_review_registry(
     issuing: bool,
     owner_confirmation: bool,
     principal: VerifiedPod | VerifiedOwnerPod | None,
-    apply: Callable[[ActionDirectiveStore, str], Awaitable[T]],
+    apply: Callable[[ActionDirectiveStore, str], Coroutine[Any, Any, T]],
     db=None,
 ) -> T:
     from sqlalchemy import text

@@ -1046,7 +1046,9 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
         assert (await admission.status(incarnation="synthetic-incarnation"))["activeWork"] == 0
 
 
-def test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub(db, pg, monkeypatch):
+def test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub(
+    db, pg, monkeypatch, tmp_path
+):
     """Real registry/ledger CAS with only the HTTP hop replaced by an in-memory client."""
     import time
     from types import SimpleNamespace
@@ -1095,6 +1097,7 @@ def test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub(d
     lose_consume = False
     fail_issue = False
     revoked = False
+    fail_before_consume = [False]
 
     async def admission(binding):
         if revoked or binding != bound:
@@ -1107,6 +1110,9 @@ def test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub(d
         if operation == "issue" and fail_issue:
             fail_issue = False
             raise OSError("synthetic transient issuance failure")
+        if operation == "consume" and fail_before_consume[0]:
+            fail_before_consume[0] = False
+            raise OSError("synthetic failure before ledger admission")
         result = asyncio.run(
             mutate_browser_review(
                 operation, BrowserHubMutation.model_validate(json), principal=principal, db=db
@@ -1191,8 +1197,25 @@ def test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub(d
         lose_consume = True
         with pytest.raises(BrowserRefused, match="REVIEW_UNAVAILABLE"):
             await reviews.confirm_review(bound, offer.review_id, confirmed["receipt"])
+        with db.engine.connect() as conn:
+            consumed_receipt = conn.execute(
+                text(
+                    "SELECT consumed_at,expires_at FROM one_action_directive_ledger WHERE directive_id=:id"
+                ),
+                {"id": offer.review_id},
+            ).one()
         await reviews.confirm_review(bound, offer.review_id, confirmed["receipt"])
-        assert sum(op == "consume" for op, _ in calls) == 1
+        assert sum(op == "consume" for op, _ in calls) == 2
+        with db.engine.connect() as conn:
+            assert (
+                consumed_receipt
+                == conn.execute(
+                    text(
+                        "SELECT consumed_at,expires_at FROM one_action_directive_ledger WHERE directive_id=:id"
+                    ),
+                    {"id": offer.review_id},
+                ).one()
+            )
         assert confirmed == await mutate_browser_review(
             "confirm",
             BrowserHubMutation(review=offer.coordination, directive_id=offer.review_id),
@@ -1220,6 +1243,22 @@ def test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub(d
             bound, "disclose", {"destination": "private synthetic destination"}
         )
         assert fresh.review_id != disclosure.review_id
+        fresh_mutation = BrowserHubMutation(review=fresh.coordination, directive_id=fresh.review_id)
+        fresh_confirmation = await mutate_browser_review("confirm", fresh_mutation, db=db)
+        with db.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE one_action_directive_ledger SET expires_at=clock_timestamp()-interval '1 second' WHERE directive_id=:id"
+                ),
+                {"id": fresh.review_id},
+            )
+        with pytest.raises(ActionDirectiveAuthorityError):
+            await mutate_browser_review(
+                "consume",
+                fresh_mutation.model_copy(update={"receipt": fresh_confirmation["receipt"]}),
+                principal=principal,
+                db=db,
+            )
         revoked = True
         with pytest.raises(BrowserRefused, match="BINDING_REFUSED"):
             await reviews.require(bound, "model_process", terms)
@@ -1227,6 +1266,9 @@ def test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub(d
         assert not reviews._pending
 
     asyncio.run(scenario())
+    asyncio.run(
+        _composed_browser_owner_journey(db, monkeypatch, tmp_path, post, fail_before_consume)
+    )
     assert "private synthetic" not in json.dumps(calls)
     with db.engine.begin() as conn:
         rows = conn.execute(text("SELECT * FROM one_action_directive_ledger")).mappings().all()
@@ -1243,3 +1285,71 @@ def test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub(d
         with pytest.raises(IntegrityError, match="pod_chat_action_identity"):
             with db.engine.begin() as conn:
                 conn.execute(text("UPDATE one_action_directive_ledger SET " + mutation))
+
+
+async def _composed_browser_owner_journey(db, monkeypatch, tmp_path, post, fail_before_consume):
+    """Real composition, ledger and sealed log; no cloud/model acceptance claim."""
+    from hushh_mcp.one_adk.computer_use_agent import browser_task_invocation, start_browser_task
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+    from hushh_mcp.services.pod_browser.contracts import BrowserRefused
+    from hushh_mcp.services.pod_browser.review_contracts import BrowserHubMutation
+    from hushh_mcp.services.pod_browser.review_ledger import mutate_browser_review
+    from tests.helpers.pod_browser_composition import composed_browser_fixture, wait_phase
+
+    fixture = composed_browser_fixture(monkeypatch, tmp_path, post)
+    owner = fixture.owner
+    try:
+        runtime = await fixture.composed.bind(owner)
+        with browser_task_invocation(runtime, owner):
+            created = await start_browser_task(
+                "composed-request", "private synthetic research", ["https://example.com"]
+            )
+        assert created["status"] == "accepted" and "summary" not in created, created
+        task_id = created["binding"]["task_id"]
+
+        waiting = await wait_phase(runtime, owner, task_id, "needs_owner")
+        assert waiting.review.purpose == "model_process"
+        assert fixture.launcher.launch.await_count == 0 and not fixture.model_calls
+        mutation = BrowserHubMutation(
+            review=waiting.review.coordination, directive_id=waiting.review.review_id
+        )
+        with db.engine.begin() as conn:
+            conn.execute(text("UPDATE personal_agent_registry SET pod_key_id='replacement'"))
+        with pytest.raises(ActionDirectiveAuthorityError):
+            await mutate_browser_review("confirm", mutation, db=db)
+        assert fixture.launcher.launch.await_count == 0 and not fixture.model_calls
+        with db.engine.begin() as conn:
+            conn.execute(text("UPDATE personal_agent_registry SET pod_key_id='podk_test'"))
+        confirmed = await mutate_browser_review("confirm", mutation, db=db)
+        fail_before_consume[0] = True
+        with pytest.raises(BrowserRefused, match="REVIEW_UNAVAILABLE"):
+            await runtime.confirm_review(
+                owner, task_id, waiting.review.review_id, confirmed["receipt"]
+            )
+        assert fixture.launcher.launch.await_count == 0 and not fixture.model_calls
+        await runtime.confirm_review(owner, task_id, waiting.review.review_id, confirmed["receipt"])
+        completed = await wait_phase(runtime, owner, task_id, "completed")
+        assert fixture.launcher.launch.await_count == 1 and len(fixture.model_calls) == 1
+        assert (await runtime.list_tasks(owner))[0].binding == completed.binding
+        with browser_task_invocation(runtime, owner):
+            duplicate = await start_browser_task(
+                "composed-request", "private synthetic research", ["https://example.com"]
+            )
+        assert duplicate["binding"] == created["binding"]
+        assert fixture.launcher.launch.await_count == 1 and len(fixture.model_calls) == 1
+        held = await runtime.control(owner, task_id, "takeover", completed.control_epoch)
+        assert held.control_owner == "owner"
+        await runtime.control(owner, task_id, "resume", held.control_epoch)
+        await wait_phase(runtime, owner, task_id, "completed")
+        assert fixture.launcher.launch.await_count == 1 and len(fixture.model_calls) == 2
+        # The real update admission owns joined Browser teardown and sealed idle.
+        await fixture.admission.prepare(operation_id="synthetic-update", incarnation="revision-a")
+        idle = await fixture.admission.wait_idle(
+            operation_id="synthetic-update", incarnation="revision-a", timeout=1
+        )
+        assert idle["state"] == "idle" and idle["activeWork"] == 0 and idle["idleReceipt"]
+        assert fixture.executor.calls.count("close") == 1
+        assert "private synthetic research" not in str(await fixture.log.replay())
+    finally:
+        await fixture.composed.close()
+    fixture.launcher.close.assert_awaited_once()

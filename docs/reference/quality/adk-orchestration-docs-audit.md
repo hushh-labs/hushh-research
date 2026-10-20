@@ -149,6 +149,15 @@ composition remain unavailable in the controlled public pilot. The
 [Azure VM lifecycle and cost proposal](../../future/personal-agent/browser-completion-plan.md#azure-vm-hosting-proposal--qualification-only)
 records the missing host adapter and retained-resource costs.
 
+The composed local Browser journey now exercises One delegation, actual
+PostgreSQL owner approval, pre/post-commit response loss, duplicate discovery,
+takeover/handback and sealed update drain. The old consume implementation fails
+the pre-commit retry control. Browser/model execution is substituted in this
+check; cloud and installed-owner evidence remains separate. The internal Azure
+VM power port passes 91 focused ARM/identity/dispatch cases, preserving uncertain
+requests and authenticated drain. It has no customer wake caller yet and never
+equates a running VM with application readiness.
+
 ### Local integration candidate — 2026-10-19 UTC
 
 Main baseline `f47a4832dbc` and frozen local ADK `42bb9823005` are integrated

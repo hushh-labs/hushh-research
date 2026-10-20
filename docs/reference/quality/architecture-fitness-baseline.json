@@ -1645,7 +1645,7 @@
       }
     ],
     "evidence_revision": "3c28325791",
-    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248→252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication."
+    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248\u2192252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication."
   },
   "browser_schedule_core_fixture_review_20261013": {
     "findings": [
@@ -21931,7 +21931,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_binding_transactions.py",
       "symbol": null,
-      "value": 1245
+      "value": 1355
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21940,7 +21940,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_browser_boundary.py",
       "symbol": null,
-      "value": 1040
+      "value": 1049
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28588,7 +28588,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/azure_arm_client.py",
       "symbol": "ArmClient",
-      "value": 278
+      "value": 307
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -28615,7 +28615,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/azure_arm_client.py",
       "symbol": null,
-      "value": 532
+      "value": 562
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30875,7 +30875,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_pod_binding_transactions.py",
       "symbol": "test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub",
-      "value": 197
+      "value": 239
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -30911,7 +30911,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_pod_binding_transactions.py",
       "symbol": "scenario",
-      "value": 96
+      "value": 129
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -33042,7 +33042,7 @@
           "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
           "multiset_slot": 0,
           "previous": 546,
-          "rationale": "Owner A→B→A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
+          "rationale": "Owner A\u2192B\u2192A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
           "reviewed": 652,
           "source_sha256": "3c96b63943a6e971e4842d207b38e1daefba6ace756d6e531f13a5687d21cfca"
         },
@@ -40185,7 +40185,7 @@
         "disposition": "reviewed coupled contract",
         "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
         "measured": 782,
-        "rationale": "The three-line net increase preserves an existing Azure job’s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
+        "rationale": "The three-line net increase preserves an existing Azure job\u2019s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
         "slot": 0
       },
       {
@@ -55702,7 +55702,7 @@
         "value": 824
       }
     ],
-    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822→824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
+    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822\u2192824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
     "source_bindings": [
       {
         "git_blob": "1290d629bbccaf71af72949bfe4c15a9bfb4e5f1",
@@ -75815,6 +75815,52 @@
         "source_sha256": "670e3e42befed7b2b49c58228beff83a664809d7258d6645f7c69a0dc6c2a866",
         "review": "Eight-line fail-closed Azure owner restart fence prevents an unavailable provider capability falling through to Google; nearest negative test retained.",
         "reviewer": "read-only backend authority review, 2026-10-20"
+      }
+    ]
+  },
+  "browser_approval_vm_power_review_20261020": {
+    "candidate_parent_revision": "8d87e9e8d7",
+    "reviewers": [
+      "read-only browser_p0_plan_review",
+      "parent synthesis"
+    ],
+    "review": "Cohesive ARM pool ownership, guard ordering and per-request budgets; exact owner review retry regression with immutable expiry and real composed lifecycle. New fixture separated from journey assertions. Only six reviewed existing ceilings change; global budgets and unrelated findings unchanged. Static structure is not cloud acceptance.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/azure_arm_client.py|ArmClient|class exceeds the advisory operon budget",
+        "before": 278,
+        "after": 307,
+        "source_sha256": "c4102dc2b9aa3ebbc0e634c9f60eb99fd0884c7bb1cf54c28acf3d628767ebd9"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_binding_transactions.py|test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub|function exceeds the advisory gene budget",
+        "before": 197,
+        "after": 239,
+        "source_sha256": "317b80bcf2e8d7ab349154be832f50423832045ce12a135ef7feef3a07c5affd"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_binding_transactions.py|scenario|function exceeds the advisory gene budget",
+        "before": 96,
+        "after": 129,
+        "source_sha256": "317b80bcf2e8d7ab349154be832f50423832045ce12a135ef7feef3a07c5affd"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_binding_transactions.py||module exceeds the advisory operon budget",
+        "before": 1245,
+        "after": 1355,
+        "source_sha256": "317b80bcf2e8d7ab349154be832f50423832045ce12a135ef7feef3a07c5affd"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_browser_boundary.py||module exceeds the advisory operon budget",
+        "before": 1040,
+        "after": 1049,
+        "source_sha256": "4dc3ac2b589e8f1cdf0a4e1f23f544c15c32c690895f97526a760c7f8260989c"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/azure_arm_client.py||module exceeds the advisory operon budget",
+        "before": 532,
+        "after": 562,
+        "source_sha256": "c4102dc2b9aa3ebbc0e634c9f60eb99fd0884c7bb1cf54c28acf3d628767ebd9"
       }
     ]
   }

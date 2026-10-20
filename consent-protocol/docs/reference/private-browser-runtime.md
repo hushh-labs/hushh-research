@@ -439,6 +439,16 @@ binds the destination, source revisions, action sequence/control epoch and reque
 commitment. Changed terms need renewed approval, including autosaving input.
 No pod principal can confirm a review. Cached task approvals recheck current
 admission and their consumed ledger receipt; website disclosure is single use.
+Browser consume can acknowledge the same exact consumed receipt after a lost
+response. It never renews expiry or replays an action; an expired, unconsumed
+confirmation remains refused. The real PostgreSQL composition check covers
+loss before and after ledger commit, owner confirmation, duplicate task discovery,
+takeover/handback and joined update drain. Its browser and model ports are test
+substitutes, so it does not establish cloud or installed-owner acceptance.
+
+Public research permits navigation keys (Tab, arrows, scrolling keys and Escape).
+Text entry, paste, Enter and browser shortcuts remain unavailable in that pilot;
+the broker independently restricts every resulting website request.
 
 Manual takeover suppresses model screenshots, URLs, page text, tools and errors.
 Only explicit handback and a fresh observation allow processing again. Model URLs

@@ -2,9 +2,10 @@
 
 **Status:** local integration plan, refreshed 2026-10-20. Main `f47a4832dbc` and
 frozen ADK `42bb9823005` are integrated through `b14bc29901`; the current local
-checkpoint is `d3d1e758b6`. Browser composition, Shared continuity and predecessor
-acceptance are committed locally; VM identity qualification and the acceptance
-rerun correction remain in progress.
+checkpoint is `8d87e9e8d7`. Browser composition, Shared continuity, exact-attempt
+release acceptance and VM identity/recovery evidence are committed locally.
+The next local slice repairs Browser approval recovery and adds a bounded VM
+power port. Customer VM lifecycle and installed Browser acceptance remain open.
 The GCP qualification project's current refusal is a confirmed provider dunning
 denial despite open, linked billing; additional IAM grants are not a supported fix.
 The approved Browser-first implementation permits

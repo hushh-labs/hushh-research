@@ -66,7 +66,13 @@ async def change_browser_review(
         "terms": review.terms,
     }
     if operation == "consume":
-        await store.consume(**query, expected_channel="pod_chat")
+        try:
+            await store.consume(**query, expected_channel="pod_chat")
+        except ActionDirectiveAuthorityError:
+            # Recover only the same consumed Browser receipt under the current
+            # registry fence. No expiry or receipt is renewed or rewritten.
+            # This acknowledges permission; execution is separately journaled.
+            await store.require_consumed_browser(**query)
         return {"status": "consumed"}
     if operation == "validate":
         await store.require_consumed_browser(**query)

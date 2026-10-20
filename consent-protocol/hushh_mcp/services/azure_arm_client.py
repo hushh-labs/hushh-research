@@ -46,6 +46,7 @@ API_VERSIONS: dict[str, str] = {
     "cognitive_services": "2024-10-01",
     # Stable schema with CustomScaleRule.identity for secretless Files queue wake.
     "container_apps": "2025-01-01",
+    "virtual_machines": "2024-03-01",
     "authorization": "2022-04-01",
 }
 
@@ -267,6 +268,8 @@ class ArmClient:
     ) -> None:
         self._token = token
         self._session = session
+        self._owns_session = session is None
+        self._request_budget: Callable[[], float] = lambda: 60.0
         self._sleep = sleep
         self._clock = clock
         self._lro_timeout = lro_timeout_seconds
@@ -279,13 +282,15 @@ class ArmClient:
 
     def with_write_guard(self, guard: Callable[[], None]) -> ArmClient:
         """Narrow this operation's writes without mutating a shared client."""
-        fenced = copy.copy(self)
+        fenced = self._fork()
         previous = self._before_write
 
         def check() -> None:
-            guard()
             if previous is not None:
                 previous()
+            # The narrower operation's check is closest to dispatch. Inherited
+            # checks may perform I/O and cannot run after a final idle/lease fence.
+            guard()
 
         fenced._before_write = check
         return fenced
@@ -296,12 +301,26 @@ class ArmClient:
         Cleanup reconciles refused or uncertain requests before another dispatch;
         it must not hide a second mutation behind a transport retry.
         """
-        recorded = copy.copy(self)
+        recorded = self._fork()
         recorded._mutations = ArmMutationRecorder(
             journal, validate_url=require_arm_url, refuse=_mutation_refused
         )
         recorded._throttle_retries = recorded._transient_retries = 0
         return recorded
+
+    def _fork(self) -> ArmClient:
+        derived = copy.copy(self)
+        # An already open pool remains owned by the client that opened it.
+        # A derived client owns only a pool it subsequently creates itself.
+        if self._session is not None:
+            derived._owns_session = False
+        return derived
+
+    def with_request_budget(self, remaining: Callable[[], float]) -> ArmClient:
+        """Bound each provider request by the enclosing operation's remaining time."""
+        bounded = self._fork()
+        bounded._request_budget = remaining
+        return bounded
 
     def _http(self) -> Any:
         if self._session is None:
@@ -309,6 +328,12 @@ class ArmClient:
 
             self._session = requests.Session()
         return self._session
+
+    def close(self) -> None:
+        """Release an internally created HTTP pool; borrowed sessions stay owned by callers."""
+        if self._owns_session and self._session is not None:
+            self._session.close()
+            self._session = None
 
     def _send(
         self,
@@ -374,8 +399,13 @@ class ArmClient:
     def _send_once(
         self, method: str, url: str, headers: dict[str, str], body: Optional[dict]
     ) -> ArmResponse:
+        # Evaluate after token acquisition and the final authority guard. A slow
+        # read or expired lease must not dispatch a later mutation.
+        timeout = min(60.0, self._request_budget())
+        if timeout <= 0:
+            _mutation_refused("OperationDeadlineExpired")
         raw = self._http().request(
-            method, url, headers=headers, json=body, timeout=60, allow_redirects=False
+            method, url, headers=headers, json=body, timeout=timeout, allow_redirects=False
         )
         return _parse_response(raw, method)
 

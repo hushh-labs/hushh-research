@@ -160,6 +160,15 @@ async def test_composed_public_authority_fences_unknown_requests_and_recovery(tm
             bound,
             BrowserAction(operation="type", sequence=2, control_epoch=1, x=1, y=1, text="private"),
         )
+    for keys in (("Tab",), ("Shift", "Tab"), ("PageDown",), ("ArrowUp",)):
+        await action_auth.authorize_action(
+            bound, BrowserAction(operation="keys", sequence=2, control_epoch=1, keys=keys)
+        )
+    for keys in (("Enter",), ("Control", "v"), ("a",), ("Tab+Enter",)):
+        with pytest.raises(BrowserRefused, match="ACTION_NOT_QUALIFIED"):
+            await action_auth.authorize_action(
+                bound, BrowserAction(operation="keys", sequence=2, control_epoch=1, keys=keys)
+            )
     await action_auth.settle_dispatch(bound, action, uncertain=True)
     recovered = BrowserExecutionAuthority(bound, consent, journal, policy)
     with pytest.raises(BrowserRefused, match="OUTCOME_UNCERTAIN"):
