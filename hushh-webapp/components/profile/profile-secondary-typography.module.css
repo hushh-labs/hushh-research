@@ -1,5 +1,6 @@
 /* Keep the secondary Profile panes on Your account's 10/13/12 type scale.
-   Long-form legal documents retain their readable article typography. */
+   Embedded legal documents use the same scale in globals.css; public legal
+   pages retain their article typography. */
 @layer base {
   :global(.profile-pane-scroll-root) .paneReferrals,
   :global(.profile-pane-scroll-root) .paneDevices,

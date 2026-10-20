@@ -104,7 +104,8 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + componentCss + productFontStyle();
+  const { transform } = await import("lightningcss");
+  css = transform({ filename: "profile-legal.css", code: Buffer.from(stripAppFontFaces(compiler.build([...candidates])) + componentCss + productFontStyle()), minify: true }).code.toString();
 });
 
 async function mount(
@@ -485,18 +486,75 @@ function assertReaderGeometry(geometry: ReaderGeometry, label: string) {
 
 for (const width of [320, 393, 1440]) {
   for (const theme of ["light", "dark"] as const) {
-    test(`the in-pane reader is symmetric on the 4pt grid at ${width}px ${theme}`, async ({ page }) => {
+    for (const type of ["terms", "privacy"] as const) {
+    test(`the in-pane ${type} reader is symmetric on the 4pt grid at ${width}px ${theme}`, async ({ page }) => {
       const errors = await mount(page, {
         width,
         theme,
-        at: "/one?profile_pane=1&profile_panel=legal&profile_detail=terms",
+        at: `/one?profile_pane=1&profile_panel=legal&profile_detail=${type}`,
       });
-      await expect(pane(page).getByTestId("legal-reader-terms")).toBeVisible();
+      const reader = pane(page).getByTestId(`legal-reader-${type}`);
+      await expect(reader).toBeVisible();
       assertReaderGeometry(await readerGeometry(page), `${width}px ${theme}`);
+      const typography = await reader.evaluate(article => {
+        const size = (selector: string) => [...article.querySelectorAll(selector)].map(node => getComputedStyle(node).fontSize);
+        const weights = (selector: string) => [...article.querySelectorAll(selector)].map(node => getComputedStyle(node).fontWeight);
+        // The same production markup outside Profile keeps the public scale.
+        const publicArticle = article.cloneNode(true) as HTMLElement;
+        document.body.appendChild(publicArticle);
+        const publicBody = getComputedStyle(publicArticle.querySelector('.ui-text-body')!).fontSize;
+        const publicHeading = getComputedStyle(publicArticle.querySelector('.ui-text-section-title')!).fontSize;
+        publicArticle.remove();
+        return { body: size('.ui-text-body'), headings: size('.ui-text-section-title, .ui-text-headline'),
+          weights: weights('.ui-text-section-title, .ui-text-headline'),
+          metadata: getComputedStyle(article.querySelector('[data-testid="legal-reader-meta"]')!).fontSize,
+          publicBody, publicHeading };
+      });
+      expect(typography.body.length).toBeGreaterThan(0);
+      expect(typography.body.every(size => size === "13px")).toBe(true);
+      expect(typography.headings.every(size => size === "13px")).toBe(true);
+      expect(typography.weights.every(weight => weight === "600")).toBe(true);
+      expect(typography.metadata).toBe("12px");
+      expect(typography.publicBody).toBe("17px");
+      // Public section headings retain the larger responsive foundation role.
+      expect(parseFloat(typography.publicHeading)).toBeGreaterThanOrEqual(22);
       // CI's Linux faces set wider than a Mac. Widen on purpose.
       await page.addStyleTag({ content: "[data-legal-document] *{letter-spacing:0.03em}" });
       assertReaderGeometry(await readerGeometry(page), `${width}px ${theme} widened`);
       expect(errors).toEqual([]);
+    });
+    }
+
+    test(`request pricing has no inner divider and compact spacing at ${width}px ${theme}`, async ({ page }) => {
+      const errors = await mount(page, { width, theme, at: "/one?profile_pane=1&profile_panel=request-pricing" });
+      const pricing = pane(page).getByRole("region", { name: "Request pricing" });
+      const field = pricing.getByRole("textbox", { name: "Default price (USD)" });
+      await expect(field).toBeVisible();
+      const geometry = await pricing.evaluate(root => {
+        const form = root.querySelector("form")!;
+        const firstRow = root.querySelector('[data-row-layout="settings"]')!;
+        const rowGrid = firstRow.querySelector(':scope > .grid')!;
+        const description = firstRow.querySelector('[data-slot="settings-row-description"]')!.getBoundingClientRect();
+        const label = form.querySelector("label")!.getBoundingClientRect();
+        return { formBorder: getComputedStyle(form).borderTopWidth, rowBorder: getComputedStyle(firstRow).borderBottomWidth,
+          separator: getComputedStyle(firstRow, "::after").content, rowPadding: getComputedStyle(rowGrid).paddingTop,
+          labelGap: label.top - description.bottom,
+          overflow: root.scrollWidth > root.clientWidth };
+      });
+      expect(geometry.formBorder).toBe("0px");
+      expect(geometry.rowBorder).toBe("0px");
+      expect(geometry.separator).toBe("none");
+      expect(geometry.rowPadding).toBe("4px");
+      expect(geometry.labelGap).toBeGreaterThanOrEqual(0);
+      expect(geometry.labelGap).toBeLessThanOrEqual(8);
+      expect(geometry.overflow).toBe(false);
+      await expect(pricing.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+      await field.fill("0.49");
+      await expect(pricing.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+      await field.fill("0.50");
+      await expect(pricing.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+      expect(errors).toEqual([]);
+      if (width === 393 && theme === "light") await pricing.screenshot({ path: test.info().outputPath("request-pricing.png") });
     });
   }
 }
