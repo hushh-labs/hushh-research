@@ -74,13 +74,13 @@ describe("mutual connections line", () => {
         onOpen={openPerson}
         supplement={
           <DirectoryMutualLine
-            person={{ ...person, mutualConnectionCount: 1, mutualConnectionPreview: { displayName: "Alex", photoUrl: "https://example.com/alex.png", publicPersonRef: "person_alex" } }}
+            person={{ ...person, mutualConnectionCount: 1, mutualConnectionPreview: { displayName: "98******10", photoUrl: "https://example.com/alex.png", publicPersonRef: "person_alex" } }}
             onOpenMutual={openMutual}
           />
         }
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Open mutual connection Alex's profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open mutual connection Hussh member's profile" }));
     expect(openMutual).toHaveBeenCalledOnce();
     expect(openPerson).not.toHaveBeenCalled();
     expect(screen.getByTestId("mutual-connection")).toHaveTextContent("Mutual connection");

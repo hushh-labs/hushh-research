@@ -112,17 +112,39 @@ export function ConnectPersonRow({
   );
 }
 
+type ConnectPersonIdentity = Partial<Pick<
+  DirectoryPerson,
+  "displayName" | "email" | "maskedEmail" | "maskedPhone"
+>>;
+
+// Both server mask formats, plus contact-only email labels in partial previews.
+const CONTACT_ONLY_NAME = /^(?:\d{2}\*+\d{2}|\*{3,}\d{1,4}|[^\s@]+@[^\s@]+)$/;
+
+/** The shared directory may use a masked contact value as its missing-name fallback. */
+export function connectPersonName(
+  person: ConnectPersonIdentity,
+  fallback = "Hussh member",
+): string {
+  const name = person.displayName?.trim();
+  if (!name || CONTACT_ONLY_NAME.test(name)) return fallback;
+  const normalizedName = name.toLowerCase();
+  const isContactFallback = [person.email, person.maskedEmail, person.maskedPhone]
+    .some((contact) => contact?.trim().toLowerCase() === normalizedName);
+  return isContactFallback ? fallback : name;
+}
+
 /** Discovery shows a name, never contact identifiers or masked contact captions. */
 export function ConnectDirectoryPersonRow({
   person,
   ...props
 }: Omit<ComponentProps<typeof ConnectPersonRow>, "title" | "description"> & {
-  person: Pick<DirectoryPerson, "displayName">;
+  person: ConnectPersonIdentity;
 }) {
   return (
     <ConnectPersonRow
       {...props}
-      title={person.displayName || "Hussh member"}
+      title={connectPersonName(person)}
+      description={undefined}
     />
   );
 }
@@ -143,6 +165,7 @@ export function DirectoryMutualLine({
   const count = person.mutualConnectionCount ?? 0;
   if (count <= 0) return null;
   const preview = person.mutualConnectionPreview;
+  const previewName = preview ? connectPersonName(preview) : "Hussh member";
   const label = count === 1 ? "Mutual connection" : `${count} mutual connections`;
   const content = (
     <>
@@ -152,7 +175,7 @@ export function DirectoryMutualLine({
           className="!size-4 shrink-0"
           fallbackClassName="bg-foreground/10 text-[8px]"
           photoUrl={preview.photoUrl}
-          label={preview.displayName}
+          label={previewName}
         />
       ) : null}
       <span data-slot="settings-row-description" className="min-w-0 [overflow-wrap:anywhere]">
@@ -165,7 +188,7 @@ export function DirectoryMutualLine({
     <button
       type="button"
       onClick={onOpenMutual}
-      aria-label={`Open mutual connection ${preview.displayName}'s profile`}
+      aria-label={`Open mutual connection ${previewName}'s profile`}
       data-testid="mutual-connection"
       className={cn(
         lineClassName,
