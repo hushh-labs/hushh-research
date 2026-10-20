@@ -204,9 +204,16 @@ chronological Feed projection. Empty sections disappear:
 - **Live:** active location/emergency sharing.
 - **Needs you:** pending information, location, connection and Circle requests,
   Mail/KYC review and active Kai tasks, with existing vault/consent guards.
+- **Recent SMS alerts:** ended SMS incidents, grouped by sender. A sender with
+  an active SMS appears in Live instead, with earlier available incidents in
+  the same expandable group. Distinct people with the same name stay separate.
 - **Coming up:** up to three upcoming Calendar events.
 - **In progress:** Drive request search/sharing progress, grouped by request.
 - **History:** durable events grouped by Today, Yesterday and date.
+
+SMS liveness and Clear eligibility follow the server's received-grant status.
+While a live SOS is visible, Location status refreshes on the shared 10-second
+cadence, paused while hidden. Device clock skew cannot end a live emergency.
 
 The actionable and history mechanisms remain distinct:
 
@@ -232,6 +239,20 @@ The actionable and history mechanisms remain distinct:
 Both zones are built on the canonical `SettingsGroup` + `SettingsRow` list
 primitives (`FeedRow` for history, `FeedActionableRow` for the actionable
 zone), so the feed shares the app's list vocabulary.
+
+SMS groups are presentation over the existing received-grant resource. A new
+SMS can supersede an earlier grant; each incident keeps its own identity,
+status and original `createdAt` sent date/time, visible on phones. Revocation
+does not replace the sent time. Expiry removes Live treatment while Feed is
+mounted. Missing sent times are identified explicitly rather than fabricated.
+Ended incidents are readable in Feed and do not link to a live map that has
+already ended. The existing recipient-scoped Clear and cross-device persistence
+still apply only to ended incidents; active alerts cannot be cleared.
+
+The resource is bounded and subject to Location retention, so expansion shows
+recent available alerts, not a complete SMS archive. Durable location lifecycle
+events remain independent chronological history; matching display names do not
+authorize merging or deleting those source events.
 
 ## Person identity and responsive rows
 

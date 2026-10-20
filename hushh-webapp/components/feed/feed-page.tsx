@@ -41,6 +41,8 @@ import {
   readFeedClearedThroughId,
 } from "@/lib/feed/feed-clear-watermark";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
+import { FeedSmsAlertGroup } from "@/components/feed/feed-sms-alert-group";
+import { groupFeedSmsAlerts } from "@/lib/feed/feed-sms-grouping";
 import { FeedDriveProgressRow } from "@/components/feed/feed-drive-progress-row";
 import { FeedSharedFilesSheet } from "@/components/feed/feed-shared-files-sheet";
 import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
@@ -956,21 +958,24 @@ function FeedPageSession({
     );
     return groupItemsByDay(sorted);
   }, [items]);
-  // A live SOS share gets its own "Live" section, pinned above "Needs you",
-  // so a safety alert is never mistaken for a routine pending item. Revoked or
-  // expired SOS rows fall straight into the regular "Needs you" list.
+  // Repeated SMS incidents stay together by sender. Ended alerts are history,
+  // not pending tasks; a sender with a live alert stays in Live, with all of
+  // their available incidents accessible in the same disclosure.
   const allActionables = [...actionables, ...briefingActionables].sort(
     (a, b) => b.sortAt - a.sortAt,
   );
   const liveActionables = allActionables.filter(
-    (item) => item.emphasis === "emergency",
+    (item) => item.emphasis === "emergency" && !item.smsEmergency,
   );
   const regularActionables = allActionables.filter(
-    (item) => item.emphasis !== "emergency",
+    (item) => item.emphasis !== "emergency" && !item.smsEmergency,
   );
-  const hasLiveActionables = liveActionables.length > 0;
+  const smsGroups = groupFeedSmsAlerts(allActionables);
+  const liveSmsGroups = smsGroups.filter((group) => group.activeCount > 0);
+  const endedSmsGroups = smsGroups.filter((group) => group.activeCount === 0);
+  const hasLiveActionables = liveActionables.length > 0 || liveSmsGroups.length > 0;
   const hasRegularActionables = regularActionables.length > 0;
-  const hasActionables = hasLiveActionables || hasRegularActionables;
+  const hasActionables = hasLiveActionables || hasRegularActionables || endedSmsGroups.length > 0;
   const hasUpcomingEvents = upcomingActionables.length > 0;
   const hasProgress = inProgress.length > 0 || progressOverflow.length > 0;
   // Once cleared this session, the loaded history rows are hidden even though
@@ -1032,6 +1037,9 @@ function FeedPageSession({
                   testId="feed-live-group"
                   shellClassName="!bg-accent/[0.04] shadow-none ring-1 ring-inset ring-accent/10"
                 >
+                  {liveSmsGroups.map((group) => (
+                    <FeedSmsAlertGroup key={group.id} group={group} />
+                  ))}
                   {liveActionables.map((item) => (
                     <FeedActionableRow key={item.id} item={item} />
                   ))}
@@ -1051,6 +1059,17 @@ function FeedPageSession({
               </div>
             </section>
           ) : null}
+
+            {endedSmsGroups.length > 0 ? (
+              <section aria-label="Recent SMS alerts">
+                <SectionLabel>Recent SMS alerts</SectionLabel>
+                <SettingsGroup separatorInset testId="feed-ended-sms-group">
+                  {endedSmsGroups.map((group) => (
+                    <FeedSmsAlertGroup key={group.id} group={group} />
+                  ))}
+                </SettingsGroup>
+              </section>
+            ) : null}
 
             {hasUpcomingEvents ? (
               <section aria-label="Coming up">
