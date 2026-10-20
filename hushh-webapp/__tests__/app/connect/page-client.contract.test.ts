@@ -16,9 +16,16 @@ describe("Connect canonical surface contract", () => {
     );
 
     expect(source).toContain("<AppPageShell");
-    // Circle chat uses the shared conversation measure; the directory retains
-    // its canonical reading measure.
-    expect(source).toContain('width={circleFlowAction === "circle-detail" ? "agent" : "reading"}');
+    // The shared shell owns layout and navigation; Connect scopes its v14
+    // workspace measure without changing the application's global reading width.
+    expect(source).toContain('width="reading"');
+    expect(source).toContain('styles.workspace');
+    const workspace = readFileSync(
+      join(process.cwd(), "components/connect/connect-workspace.module.css"),
+      "utf8",
+    );
+    expect(workspace).toContain("--app-shell-reading: 728px;");
+    expect(workspace).toContain("max-width: 728px;");
     // The shared top bar owns the single "Connect" title (as on Feed), so the
     // page must not repeat it as an in-body header.
     expect(source).not.toContain("<PageHeader");

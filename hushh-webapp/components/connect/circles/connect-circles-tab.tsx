@@ -16,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { KeyRound, Plus, Search } from "@/components/icons";
+import { KeyRound, Search } from "@/components/icons";
 import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
@@ -28,7 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ConnectCircleRow } from "./connect-circle-row";
+import { ConnectCircleHeading, ConnectCircleRow } from "./connect-circle-row";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import styles from "../connect-workspace.module.css";
 
@@ -985,26 +985,12 @@ export function ConnectCirclesTab({
               onChange={(event) => setCircleQuery(event.target.value)}
             />
           </label>
-          <div className={styles.circleHeading}>
-            <h2>
-              Your circles{" "}
-              {!loading && !error ? (
-                <span className={styles.count}>{owned.length}</span>
-              ) : null}
-            </h2>
-            <Button
-              type="button"
-              variant="blue"
-              effect="fill"
-              size="compact"
-              className="min-h-11 rounded-full"
-              onClick={() => go({ action: "create-circle" })}
-              data-testid="connect-circle-create"
-            >
-              <Plus aria-hidden="true" className="mr-1.5 size-4" />
-              Create circle
-            </Button>
-          </div>
+          <ConnectCircleHeading
+            title="Your circles"
+            count={!loading && !error ? owned.length : undefined}
+            action="create"
+            onAction={() => go({ action: "create-circle" })}
+          />
         </>
       ) : null}
       {vaultOwnerToken === null ? (
@@ -1061,24 +1047,12 @@ export function ConnectCirclesTab({
           )}
           {joined.length ? (
             <section data-testid="connect-circle-group-joined">
-              <div className={styles.circleHeading}>
-                <h2>
-                  Joined circles{" "}
-                  <span className={styles.count}>{joined.length}</span>
-                </h2>
-                <Button
-                  type="button"
-                  variant="none"
-                  effect="fade"
-                  size="compact"
-                  className={styles.utilityAction}
-                  onClick={() => go({ action: "join-circle" })}
-                  data-testid="connect-circle-join"
-                >
-                  <KeyRound aria-hidden="true" className="size-4" />
-                  Join with code
-                </Button>
-              </div>
+              <ConnectCircleHeading
+                title="Joined circles"
+                count={joined.length}
+                action="join"
+                onAction={() => go({ action: "join-circle" })}
+              />
               <div
                 className={`${CONNECT_CIRCLE_GRID_CLASSNAME} ${styles.circleGroup}`}
               >

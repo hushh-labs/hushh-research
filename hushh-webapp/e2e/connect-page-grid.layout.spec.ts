@@ -151,7 +151,8 @@ async function settle(page: Page, _width: number) {
   await expect(page.getByTestId("connect-directory-group").getByText("Avery Stone")).toBeVisible();
   // Circles now lives in an inactive pager pane, including desktop; it must
   // not expose off-screen controls while the Connections pane is selected.
-  await expect(page.locator('[data-connect-surface="circles"]').getByRole("button", { name: /Circle ideas/ })).toHaveCount(1);
+  await expect(page.locator('[data-connect-surface="circles"]').getByRole("button", { name: /Circle ideas/, includeHidden: true })).toHaveCount(1);
+  await expect(page.locator('[data-connect-surface="circles"]').getByRole("button", { name: /Circle ideas/ })).toHaveCount(0);
   await expect(page.locator('[data-connect-surface="circles"]').locator('..')).toHaveAttribute("aria-hidden", "true");
   await expect
     .poll(() =>
@@ -391,10 +392,10 @@ for (const width of [320, 393, 1440]) {
     const add = first.getByRole("button", { name: "Connect", exact: true });
     await expect(add).toBeEnabled();
     const actionBox = await add.boundingBox();
-    // The button is a 44px target around a compact 32px pill.
+    // The v14 action fills its 44px target.
     expect(actionBox!.height).toBeGreaterThanOrEqual(44);
     const pill = await add.locator("span").first().boundingBox();
-    expect(pill!.height).toBeLessThanOrEqual(34);
+    expect(pill!.height).toBe(44);
     expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
     // The identity keeps its own column: the action never sits on the text.
     const textBox = await first.locator('[data-slot="settings-row-title"]').boundingBox();

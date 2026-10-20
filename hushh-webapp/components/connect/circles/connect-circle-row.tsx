@@ -3,6 +3,8 @@ import { useRef, useState } from "react";
 import {
   ChevronRight,
   LogOut,
+  KeyRound,
+  Plus,
   MoreHorizontal,
   Trash2,
 } from "@/components/icons";
@@ -182,6 +184,50 @@ export function ConnectCircleRow({
           <ChevronRight aria-hidden="true" className="size-4" />
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** Shared presentation for the existing Create/Join entry points. */
+export function ConnectCircleHeading({
+  title,
+  count,
+  action,
+  onAction,
+}: {
+  title: string;
+  count?: number;
+  action: "create" | "join";
+  onAction: () => void;
+}) {
+  const create = action === "create";
+  return (
+    <div className={styles.circleHeading}>
+      <h2>
+        {title}
+        {count !== undefined ? (
+          <>
+            {" "}
+            <span className={styles.count}>{count}</span>
+          </>
+        ) : null}
+      </h2>
+      <Button
+        type="button"
+        variant={create ? "blue" : "none"}
+        effect={create ? "fill" : "fade"}
+        size="compact"
+        className={create ? "min-h-11 rounded-full" : styles.utilityAction}
+        onClick={onAction}
+        data-testid={`connect-circle-${action}`}
+      >
+        {create ? (
+          <Plus aria-hidden="true" className="mr-1.5 size-4" />
+        ) : (
+          <KeyRound aria-hidden="true" className="size-4" />
+        )}
+        {create ? "Create circle" : "Join with code"}
+      </Button>
     </div>
   );
 }
