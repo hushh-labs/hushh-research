@@ -6532,7 +6532,7 @@
   "source_sha256": {
     "a2a_scope_map": "079807ec880bc7800616610d4aa2d33f9e0d863b8c51a559cc4b8086f522d139",
     "action_gateway": "b2ded1352d1ab5e6e93bdea63fb7b44f62ac1d6bfe689d9bbd9dcd4386233795",
-    "agent_registry": "02d99b10a4120cfd27e8e3394293860aa30fc54892dcd8aa062b633d1a5aa9f4",
+    "agent_registry": "b7c6a0a574932af6e68ec88fa3abccafc9e2e786e651bc9e0a7cdb5fc762b02f",
     "cache_manifest": "7b44ca869116d3fe4b1a9dd589a06cd863e81465e5ae708513b7d0636862703e",
     "data_plane": "efdfbfc0afd36b58b304af8d94af20c571cd6de5eea98f863f3cebef34bb0dde",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
