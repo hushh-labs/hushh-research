@@ -95,6 +95,17 @@ it("accepts only matching display-only research provenance", () => {
     grounded_answers: [{ answer, sources: [], citations: [citation], search_suggestions: [] }],
   };
   expect(pwmResultSchema.safeParse(citedAzure).success).toBe(true);
+  const untitledAnswer = {
+    answer,
+    sources: [],
+    citations: [{ ...citation, title: "" }],
+    search_suggestions: [],
+  };
+  const untitledResult = pwmResultSchema.parse({
+    ...citedAzure,
+    grounded_answers: [untitledAnswer],
+  });
+  expect(untitledResult.status === "offered" && untitledResult.grounded_answers[0]).toEqual(untitledAnswer);
   expect(pwmResultSchema.safeParse({
     ...citedAzure,
     grounded_answers: [{ answer, sources: [], search_suggestions: [] }],

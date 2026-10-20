@@ -23,7 +23,7 @@ export function AzureGroundedAnswer({
       <a
         key={citationIndex}
         href={citation.url}
-        title={citation.title}
+        title={citation.title || "Public page"}
         target="_blank"
         rel="noopener noreferrer"
         referrerPolicy="no-referrer"
@@ -50,7 +50,7 @@ export function AzureGroundedAnswer({
               referrerPolicy="no-referrer"
               className="font-medium text-[color:var(--app-accent)] underline underline-offset-2"
             >
-              {citation.title}
+              {citation.title || "Public page"}
             </a>
             <span className="block text-muted-foreground">{citation.url}</span>
           </li>

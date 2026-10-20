@@ -126,7 +126,7 @@ const azureGroundedCitationSchema = z
   .object({
     start_index: z.number().int().min(0),
     end_index: z.number().int().positive(),
-    title: z.string().min(1).max(1024),
+    title: z.string().max(1024),
     url: z.string().url().max(2048).refine((value) => {
       const parsed = new URL(value);
       return parsed.protocol === "https:" && !parsed.username && !parsed.password;

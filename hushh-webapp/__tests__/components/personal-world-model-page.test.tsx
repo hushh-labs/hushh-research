@@ -517,7 +517,7 @@ describe("Personal World Model page", () => {
     );
   });
 
-  it("shows an Azure grounded answer with its original UTF-16 citation and link", async () => {
+  it.each(["Hushh original title", ""])("shows an Azure grounded answer with its original UTF-16 citation and title %j", async (title) => {
     const draft = offered([{ statement: "Works at Hushh", kind: "career" }]);
     draft.research = {
       ...draft.research,
@@ -532,7 +532,7 @@ describe("Personal World Model page", () => {
       citations: [{
         start_index: answer.indexOf(citationText),
         end_index: answer.indexOf(citationText) + citationText.length,
-        title: "Hushh original title",
+        title,
         url: "https://hushh.ai/team?source=bing",
       }],
       search_suggestions: [],
@@ -545,7 +545,7 @@ describe("Personal World Model page", () => {
     expect(within(result).getByRole("link", { name: citationText })).toHaveAttribute(
       "href", "https://hushh.ai/team?source=bing",
     );
-    expect(within(result).getByRole("link", { name: "Hushh original title" })).toHaveAttribute(
+    expect(within(result).getByRole("link", { name: title || "Public page" })).toHaveAttribute(
       "href", "https://hushh.ai/team?source=bing",
     );
     expect(screen.getByText("Bing web research")).toBeInTheDocument();
