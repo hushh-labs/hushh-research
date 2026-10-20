@@ -341,8 +341,8 @@ class WorldModelReport(Contract):
     def identity_contract(self):
         if len({section.kind for section in self.sections}) != len(self.sections):
             raise ValueError("Duplicate sections")
-        if (self.match_status == "no_match") != (len(self.sections) == 0):
-            raise ValueError("A report needs findings or an explicit no-match result")
+        if self.match_status == "no_match" and self.sections:
+            raise ValueError("A no-match report cannot contain findings")
         expected = {
             "owner_linked": "matched",
             "candidate_for_review": "uncertain",
@@ -421,4 +421,19 @@ class WorldModelReport(Contract):
                     refs & topic_sources[section.kind]
                 ):
                     raise ValueError("Finding cites an unreceived source")
+        return self
+
+
+class FactReviewSelection(Contract):
+    """A model-owned subset of immutable, already cited report facts."""
+
+    kept_fact_ids: list[Annotated[str, Field(pattern=r"^f[1-9][0-9]{0,2}$")]] = Field(
+        max_length=MAX_WORLD_MODEL_FACTS
+    )
+    summary: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def distinct_fact_ids(self):
+        if len(set(self.kept_fact_ids)) != len(self.kept_fact_ids):
+            raise ValueError("Fact review repeats an ID")
         return self

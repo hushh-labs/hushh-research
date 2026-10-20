@@ -33,6 +33,22 @@ def test_owner_decisions_accept_full_draft_but_bound_the_request():
         OwnerDecisions.model_validate({"rejected": [*rows, "extra"]})
 
 
+@pytest.mark.parametrize("state", ["owner_linked", "candidate_for_review", "ambiguous"])
+def test_reviewed_empty_report_preserves_identity_instead_of_manufacturing_a_fact(state):
+    identity = {**assessment()["identity"], "state": state}
+    value = report(identity)
+    value["match_status"] = "matched" if state == "owner_linked" else "uncertain"
+    value["sections"] = []
+    accepted = WorldModelReport.model_validate(value)
+    assert accepted.identity.state == state
+    assert accepted.sections == []
+    # No-match still cannot carry a personal finding.
+    invalid = report({**identity, "state": "no_match"})
+    invalid["match_status"] = "no_match"
+    with pytest.raises(ValueError, match="no-match report"):
+        WorldModelReport.model_validate(invalid)
+
+
 def assessment():
     return {
         "candidates": [

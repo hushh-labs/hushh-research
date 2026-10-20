@@ -985,6 +985,15 @@ describe("Personal World Model page", () => {
     expect(onOpenAccount).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["matched", "uncertain"] as const)("preserves %s identity when review offers no new details", async (status) => {
+    const report = offered([], status);
+    report.research.candidates = [{ id: "c1", label: "Alice" }];
+    research(report);
+    render(<PersonalWorldModelPage embedded />);
+    expect(await screen.findByText("No new details to review")).toBeInTheDocument();
+    expect(screen.queryByText(/none confirmed as you/)).toBeNull();
+  });
+
   it("counts people with the owner's name when none was confirmed, and points to adding a page", async () => {
     const report = offered([], "no_match");
     report.research.candidates = [

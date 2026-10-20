@@ -146,6 +146,22 @@ call for an indexed URL/handle search. Unreadable pages remain unavailable. Fina
 compilation audits proposed batches for distinct, owner-reviewable personal
 statements; structural receipt validation does not make a proposal a verified fact.
 
+After compilation, GPT-5 mini reviews the immutable cited facts and returns only
+the IDs to keep plus a new summary. The host resolves those IDs without rewriting
+statements, topics, confidence or citations, then applies the same evidence
+validation. It never classifies meaning with a keyword filter. This extra call
+uses the existing 16-call budget and a 35-second bound. The accepted intermediate
+report is checkpointed first; a paused review resumes there without buying
+research or compilation again. A completed review is bound to that report's
+digest. Missing or repeated IDs fail closed.
+
+Review may retain zero findings without changing the assessed identity. An empty
+matched or uncertain report means no new personal statements remain to review;
+it does not imply no identity candidate exists. A no-match report still cannot
+contain findings. The shared client decoder accepts the same cardinality.
+This is semantic cleanup, not independent source verification or proof of owner
+identity, and it cannot recover facts omitted by compilation.
+
 Provisional extraction and final compilation use their scoped instructions
 authored inside the PWM manifest, rather than the whole research prompt. The
 model still chooses every fact; there is no host semantic deduplication or

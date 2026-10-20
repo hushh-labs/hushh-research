@@ -35,6 +35,7 @@ from hushh_mcp.one_adk.world_model_confidence import evidence_rating
 from hushh_mcp.one_adk.world_model_contracts import (
     MAX_WORLD_MODEL_FACTS,
     TOPICS,
+    FactReviewSelection,
     FindingBatch,
     IdentityAssessment,
     QueryPlan,
@@ -64,6 +65,8 @@ FOLLOWUP_SEARCH_RESERVE_SECONDS = FINAL_REPORT_RESERVE_SECONDS + 45
 PLANNER_MAX_SECONDS = 45
 MAX_AZURE_FINDING_BATCHES = 4
 FINDING_BATCH_MAX_SECONDS = 35
+FACT_REVIEW_MAX_SECONDS = 35
+FACT_REVIEW_MAX_OUTPUT_TOKENS = 4096
 _SEARCH_SLOTS = range(1, MAX_AZURE_SEARCH_INVOCATIONS + 1)
 _MODEL_SLOTS = range(MAX_SEARCHES + 1, MAX_SEARCHES + MAX_AZURE_MODEL_CALLS + 1)
 _CHECKPOINT_BYTES = 6 * 1024 * 1024
@@ -266,6 +269,45 @@ The host will apply the same validation again."""
     return instruction
 
 
+def _fact_review_instruction() -> str:
+    return (
+        _manifest_stage_instruction("OUTPUT BOUNDARIES")
+        + "\n\n"
+        + _manifest_stage_instruction("FACT REVIEW")
+    )
+
+
+def _reviewable_facts(report: WorldModelReport) -> list[dict[str, Any]]:
+    return [
+        {"id": f"f{index}", "topic": topic, **fact.model_dump()}
+        for index, (topic, fact) in enumerate(
+            ((section.kind, fact) for section in report.sections for fact in section.facts), 1
+        )
+    ]
+
+
+def _apply_fact_review(report: WorldModelReport, selection: FactReviewSelection) -> dict[str, Any]:
+    """Resolve model-chosen IDs without rewriting facts, citations or identity."""
+    offered = _reviewable_facts(report)
+    kept = set(selection.kept_fact_ids)
+    if not kept <= {row["id"] for row in offered}:
+        raise ValueError("Fact review selected an unoffered ID")
+    selected = {
+        topic: [
+            {key: value for key, value in row.items() if key not in {"id", "topic"}}
+            for row in offered
+            if row["topic"] == topic and row["id"] in kept
+        ]
+        for topic in (section.kind for section in report.sections)
+    }
+    result = report.model_dump()
+    result["summary"] = selection.summary
+    result["sections"] = [
+        {"kind": topic, "facts": facts} for topic, facts in selected.items() if facts
+    ]
+    return result
+
+
 def _validation_feedback(error: ValueError) -> list[dict[str, Any]]:
     """Locate failed constraints without echoing model input or exception context."""
     if isinstance(error, _MissingCandidateBridge):
@@ -324,7 +366,7 @@ def _structured_schema(value: Any, *, definitions: dict[str, Any]) -> Any:
 def azure_execution_contract() -> dict[str, Any]:
     """Invalidate old drafts when active transport instructions or bounds change."""
     return {
-        "revision": "observed-topic-report-contract-v22",
+        "revision": "observed-topic-report-contract-v23",
         "assessment": _ASSESSMENT_INSTRUCTION,
         "assessment_repair": _ASSESSMENT_REPAIR_INSTRUCTION,
         "single_page_assessment_repair": _SINGLE_PAGE_REPAIR_INSTRUCTION,
@@ -334,6 +376,10 @@ def azure_execution_contract() -> dict[str, Any]:
         "finding": _finding_instruction(),
         "finding_prompt_scope": "manifest-provisional-only-v1",
         "report_prompt_scope": "manifest-report-only-v1",
+        "fact_review": _fact_review_instruction(),
+        "fact_review_schema": FactReviewSelection.model_json_schema(),
+        "fact_review_max_seconds": FACT_REVIEW_MAX_SECONDS,
+        "fact_review_output_tokens": FACT_REVIEW_MAX_OUTPUT_TOKENS,
         "planner": _PLAN_INSTRUCTION,
         "planner_repair": "one-charged-validation-v1",
         "final_report_reserve_seconds": FINAL_REPORT_RESERVE_SECONDS,
@@ -348,6 +394,7 @@ def azure_execution_contract() -> dict[str, Any]:
             "default": "low",
             "identity": IDENTITY_REASONING,
             "finding": FINDING_REASONING,
+            "fact_review": FINDING_REASONING,
             "final_report": FINAL_REPORT_REASONING,
         },
         "identity_source_links": "received-reciprocal-graph-v1",
@@ -497,7 +544,12 @@ class AzurePwmGateway:
                 model=self.primary_deployment,
                 instructions=instruction
                 if purpose
-                in {"provisional_findings", "world_model_report", "world_model_report_repair"}
+                in {
+                    "provisional_findings",
+                    "world_model_report",
+                    "world_model_report_repair",
+                    "world_model_fact_review",
+                }
                 else _instruction(instruction + "\n" + _STRUCTURED_INSTRUCTION),
                 input=json.dumps(
                     {"purpose": purpose, "payload": payload, "schema": schema},
@@ -511,7 +563,7 @@ class AzurePwmGateway:
                     else IDENTITY_REASONING
                     if purpose in {"identity_assessment", "identity_assessment_repair"}
                     else FINDING_REASONING
-                    if purpose == "provisional_findings"
+                    if purpose in {"provisional_findings", "world_model_fact_review"}
                     else "low"
                 },
                 text={
@@ -1030,6 +1082,7 @@ async def run_world_model_azure(
     batches = history.setdefault("finding_batches", [])
     finding_attempts = history.setdefault("finding_attempts", {})
     usage_records = history.setdefault("usage_records", {})
+    pending_report = history.get("pending_report")
     if (
         not isinstance(receipts, dict)
         or not isinstance(attempts, dict)
@@ -1037,6 +1090,7 @@ async def run_world_model_azure(
         or not isinstance(batches, list)
         or not isinstance(finding_attempts, dict)
         or not isinstance(usage_records, dict)
+        or (pending_report is not None and not isinstance(pending_report, dict))
     ):
         raise ValueError("PWM checkpoint has invalid research fields")
     if (
@@ -1080,7 +1134,9 @@ async def run_world_model_azure(
             total += billed
         return total
 
-    if not set(_MODEL_SLOTS) - used:
+    if not set(_MODEL_SLOTS) - used and not (
+        pending_report is not None and history.get("fact_review") is not None
+    ):
         return {"status": "unavailable", "pkm_written": False, "research_exhausted": True}
     deadline = monotonic_clock() + TASK_SECONDS
     lock = asyncio.Lock()
@@ -1150,7 +1206,9 @@ async def run_world_model_azure(
         plan = _validate_plan(plan, identity=identity, assessment=assessment)
         if (
             not set(_SEARCH_SLOTS) - used
-            or len(set(_MODEL_SLOTS) - used) < 3
+            # Search, identity assessment, compilation and fact review each
+            # need a charged call, including after a repaired planner.
+            or len(set(_MODEL_SLOTS) - used) < 4
             or billed_searches() >= MAX_AZURE_BING_REQUESTS
         ):
             raise ResearchSliceComplete()
@@ -1258,9 +1316,9 @@ async def run_world_model_azure(
             _validate_candidate_sources(accepted, receipts)
         except ValueError as error:
             # Only a failed model contract gets one paid, tool-free repair.
-            # Keep the final-report slot/time and never replay a web search or
+            # Keep compilation and fact-review slots/time; never replay search or
             # invent an identity. Provider/authority failures are not repaired.
-            if len(set(_MODEL_SLOTS) - used) < 2:
+            if len(set(_MODEL_SLOTS) - used) < 3:
                 raise
             time_left(FINAL_REPORT_RESERVE_SECONDS + 1)
             invalid_assessment = value
@@ -1316,7 +1374,7 @@ async def run_world_model_azure(
             if (
                 len(batches) >= MAX_AZURE_FINDING_BATCHES
                 or len(finding_attempts) >= MAX_AZURE_FINDING_BATCHES
-                or len(set(_MODEL_SLOTS) - used) < 2
+                or len(set(_MODEL_SLOTS) - used) < 3
                 or deadline - monotonic_clock()
                 <= FINAL_REPORT_RESERVE_SECONDS + FINDING_BATCH_MAX_SECONDS + 5
             ):
@@ -1418,17 +1476,23 @@ async def run_world_model_azure(
             await checkpoint()
 
     try:
-        if not attempts:
+        if pending_report is None and not attempts:
             if await search_public_web(_first_identity_plan(identity)):
                 await assess_identity()
-        elif assessment is None and any(row.get("observed") for row in attempts.values()):
+        elif (
+            pending_report is None
+            and assessment is None
+            and any(row.get("observed") for row in attempts.values())
+        ):
             await assess_identity()
-        await record_pending_findings()
+        if pending_report is None:
+            await record_pending_findings()
 
         unsuccessful_steps = 0
         while (
-            set(_SEARCH_SLOTS) - used
-            and len(set(_MODEL_SLOTS) - used) >= 4
+            pending_report is None
+            and set(_SEARCH_SLOTS) - used
+            and len(set(_MODEL_SLOTS) - used) >= 5
             and billed_searches() < MAX_AZURE_BING_REQUESTS
         ):
             if assessment and deadline - monotonic_clock() <= FOLLOWUP_SEARCH_RESERVE_SECONDS + 10:
@@ -1463,7 +1527,7 @@ async def run_world_model_azure(
                 try:
                     plan = _planner_choice(choice, identity=identity, assessment=assessment)
                 except ValueError as error:
-                    if len(set(_MODEL_SLOTS) - used) < 4:
+                    if len(set(_MODEL_SLOTS) - used) < 5:
                         raise
                     time_left(FINAL_REPORT_RESERVE_SECONDS + 1)
                     feedback = _validation_feedback(error)
@@ -1541,7 +1605,10 @@ async def run_world_model_azure(
             if billed_searches() >= MAX_AZURE_BING_REQUESTS:
                 return {"status": "unavailable", "pkm_written": False, "research_exhausted": True}
             return {"status": "unavailable", "pkm_written": False}
-        if not set(_MODEL_SLOTS) - used:
+        required_slots = (
+            2 if pending_report is None else 0 if history.get("fact_review") is not None else 1
+        )
+        if len(set(_MODEL_SLOTS) - used) < required_slots:
             return {"status": "unavailable", "pkm_written": False, "research_exhausted": True}
         time_left(25)
         topic_attempt_ids = {
@@ -1576,42 +1643,96 @@ async def run_world_model_azure(
             report.validate_receipts(assessment, attempts, set(report_history["sources"]))
             return report
 
-        model_slot = await charge(_MODEL_SLOTS)
-        report_value = await provider_call(
-            slot=model_slot,
-            call=lambda: gateway.structured(
-                purpose="world_model_report",
-                instruction=_report_instruction(),
-                payload=report_payload,
-                schema=report_schema,
-                max_output_tokens=MAX_AZURE_REPORT_OUTPUT_TOKENS,
-            ),
-        )
-        try:
-            accepted_report = validate_report(report_value)
-        except ValueError as error:
-            # A failed model contract gets one charged correction, without
-            # fetching again, changing evidence or weakening the validator.
-            if not set(_MODEL_SLOTS) - used:
-                raise
-            time_left(26)
-            validation_errors = _validation_feedback(error)
-            repair_slot = await charge(_MODEL_SLOTS)
-            repaired = await provider_call(
-                slot=repair_slot,
+        if pending_report is None:
+            model_slot = await charge(_MODEL_SLOTS)
+            report_value = await provider_call(
+                slot=model_slot,
                 call=lambda: gateway.structured(
-                    purpose="world_model_report_repair",
-                    instruction=_report_instruction(repair=True),
-                    payload={
-                        **report_payload,
-                        "invalid_report": report_value,
-                        "validation_errors": validation_errors,
-                    },
+                    purpose="world_model_report",
+                    instruction=_report_instruction(),
+                    payload=report_payload,
                     schema=report_schema,
                     max_output_tokens=MAX_AZURE_REPORT_OUTPUT_TOKENS,
                 ),
             )
-            accepted_report = validate_report(repaired)
+            try:
+                accepted_report = validate_report(report_value)
+            except ValueError as error:
+                # A failed model contract gets one charged correction, without
+                # fetching again, changing evidence or weakening the validator.
+                if len(set(_MODEL_SLOTS) - used) < 2:
+                    raise
+                time_left(26)
+                validation_errors = _validation_feedback(error)
+                repair_slot = await charge(_MODEL_SLOTS)
+                repaired = await provider_call(
+                    slot=repair_slot,
+                    call=lambda: gateway.structured(
+                        purpose="world_model_report_repair",
+                        instruction=_report_instruction(repair=True),
+                        payload={
+                            **report_payload,
+                            "invalid_report": report_value,
+                            "validation_errors": validation_errors,
+                        },
+                        schema=report_schema,
+                        max_output_tokens=MAX_AZURE_REPORT_OUTPUT_TOKENS,
+                    ),
+                )
+                accepted_report = validate_report(repaired)
+            history["pending_report"] = accepted_report.model_dump()
+            await checkpoint()
+        else:
+            accepted_report = validate_report(pending_report)
+
+        # The model owns this subset decision. Keep the full accepted proposal
+        # checkpoint so a paused selection never rebuys compilation or search.
+        proposed = _reviewable_facts(accepted_report)
+        report_digest = hashlib.sha256(
+            json.dumps(accepted_report.model_dump(), sort_keys=True).encode()
+        ).hexdigest()
+        saved_review = history.get("fact_review")
+        if saved_review is not None:
+            if (
+                not isinstance(saved_review, dict)
+                or saved_review.get("report_sha256") != report_digest
+            ):
+                raise ValueError("Fact review does not belong to the pending report")
+            selection = FactReviewSelection.model_validate(saved_review.get("selection"))
+        else:
+            time_left(FACT_REVIEW_MAX_SECONDS + 5)
+            review_schema = FactReviewSelection.model_json_schema()
+            if proposed:
+                review_schema["properties"]["kept_fact_ids"]["items"]["enum"] = [
+                    row["id"] for row in proposed
+                ]
+            review_slot = await charge(_MODEL_SLOTS)
+            selected = await provider_call(
+                slot=review_slot,
+                call=lambda: gateway.structured(
+                    purpose="world_model_fact_review",
+                    instruction=_fact_review_instruction(),
+                    payload={
+                        "proposed_facts": proposed,
+                        "current_summary": accepted_report.summary,
+                        "identity": accepted_report.identity.model_dump(),
+                        "owner_decisions": decisions,
+                    },
+                    schema=review_schema,
+                    max_output_tokens=FACT_REVIEW_MAX_OUTPUT_TOKENS,
+                ),
+                max_seconds=FACT_REVIEW_MAX_SECONDS,
+                reserve_seconds=5,
+            )
+            selection = FactReviewSelection.model_validate(selected)
+        reviewed_report = validate_report(_apply_fact_review(accepted_report, selection))
+        history["fact_review"] = {
+            "report_sha256": report_digest,
+            "selection": selection.model_dump(),
+        }
+        await checkpoint()
+        accepted_report = reviewed_report
+
     except (ResearchSliceComplete, TimeoutError, asyncio.TimeoutError):
         await checkpoint()
         return {"status": "paused", "pkm_written": False, "restart_required": True}
