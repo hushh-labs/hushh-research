@@ -24,7 +24,7 @@ from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletio
 from hushh_mcp.services.actor_identity_service import ActorIdentityService, resolve_firebase_email
 from hushh_mcp.services.email_auth.identity import enterprise_account_deprovisioned
 from hushh_mcp.services.plg_catalog import activity_catalog, public_activity_catalog
-from hushh_mcp.services.plg_outcomes import value_summary
+from hushh_mcp.services.plg_outcomes import value_summaries
 from hushh_mcp.services.product_activity import enabled_for
 
 PAGE_SIZE = 25
@@ -326,10 +326,6 @@ def _matches(row: dict, request: AudienceRequest) -> bool:
     return bool(activity["counts"].get(key, 0) > 0)
 
 
-async def _verified(conn, uid: str, agent_id: str, since: datetime, now: datetime) -> dict:
-    return await value_summary(conn, uid, agent_id, since, now)
-
-
 async def audience_page(request: AudienceRequest, secret: str, now: datetime) -> dict:
     page, at = _cursor(request, secret, now)
     source = await asyncio.wait_for(asyncio.to_thread(_firebase_page, page), timeout=6)
@@ -381,6 +377,7 @@ async def audience_page(request: AudienceRequest, secret: str, now: datetime) ->
                     timeout=5,
                 )
             }
+            verified = await value_summaries(conn, ids, request.agentId, since, at)
             for uid in eligible:
                 if uid not in active:
                     continue
@@ -397,7 +394,7 @@ async def audience_page(request: AudienceRequest, secret: str, now: datetime) ->
                         limited=uid in capped,
                         enabled=enabled_for(uid),
                     ),
-                    "verified": await _verified(conn, uid, request.agentId, since, at),
+                    "verified": verified[uid],
                 }
                 if _matches(row, request):
                     result.append(row)

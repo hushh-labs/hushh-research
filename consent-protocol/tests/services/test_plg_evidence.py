@@ -589,6 +589,15 @@ async def test_audience_live_page_excludes_deleted_accounts_and_never_serializes
         fetch=AsyncMock(return_value=[]),
         fetchval=AsyncMock(return_value=False),
     )
+
+    async def source_page(query, *args, **_):
+        if "owners.user_id AS _plg_user_id" in query:
+            assert args[0] == ["active"]  # Tombstoned identities never reach the outcome query.
+            if "AS capped" in query:
+                return [{"_plg_user_id": "active", "capped": False}]
+        return []
+
+    conn.fetch.side_effect = source_page
     conn.transaction = lambda **_: Context(None)
     monkeypatch.setattr(
         audience,
@@ -719,6 +728,37 @@ async def test_domain_outcomes_classify_saved_artifacts_and_deduplicate_shared_o
     conn.fetchval.return_value = True
     capped = await outcomes.value_summary(conn, uid, "agent_calendar", NOW, NOW)
     assert capped["supported"] and capped["limited"] and capped["count"] == 1
+
+    # A full default audience page must not multiply eleven sources by 25 owners.
+    owners = [uid, *[f"page-owner-{n}" for n in range(24)]]
+    batch_calls = []
+
+    async def batch_fetch(query, ids, since, now, **_):
+        assert ids == owners and since == now == NOW
+        batch_calls.append(query)
+        if "AS capped" in query:
+            return [{"_plg_user_id": owner, "capped": owner == uid} for owner in owners]
+        source = next(q for q in fixtures if q.replace("$1", "owners.user_id") in query)
+        rows = [{"_plg_user_id": uid, **row} for row in fixtures[source]]
+        if source == outcomes.MAIL_SQL.replace("LIMIT 101", "LIMIT 1001"):
+            rows.append({"_plg_user_id": owners[1], "action_id": "mail-effect", "occurred_at": NOW})
+        return rows
+
+    batch_conn = SimpleNamespace(fetch=batch_fetch)
+    summaries = await outcomes.value_summaries(batch_conn, owners, "agent_one", NOW, NOW)
+    assert len(batch_calls) == 11
+    assert summaries[uid]["count"] == 11 and summaries[uid]["limited"]
+    assert summaries[owners[1]]["count"] == 1 and not summaries[owners[1]]["limited"]
+    assert all(summaries[owner]["count"] == 0 for owner in owners[2:])
+    assert all(row["proof"] == "one.distinct_domain_effects.v1" for row in summaries.values())
+    internal = await outcomes.value_summaries(batch_conn, owners, "agent_memory_merge", NOW, NOW)
+    assert not any(row["supported"] for row in internal.values()) and len(batch_calls) == 11
+    with pytest.raises(ValueError, match="bound"):
+        await outcomes.value_summaries(batch_conn, [*owners, "overflow"], "agent_one", NOW, NOW)
+    with pytest.raises(ValueError, match="incomplete"):
+        await outcomes.value_summaries(
+            SimpleNamespace(fetch=AsyncMock(return_value=[])), owners, "agent_one", NOW, NOW
+        )
 
 
 @pytest.mark.asyncio

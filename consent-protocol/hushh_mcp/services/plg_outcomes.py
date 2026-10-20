@@ -173,6 +173,92 @@ CAPACITY_SQL = """SELECT EXISTS(SELECT 1 FROM one_product_value_receipts
     AND occurred_at <= $3 AND expires_at > $3
   GROUP BY (occurred_at AT TIME ZONE 'UTC')::date HAVING COUNT(*)>=500)"""
 
+SOURCE_QUERIES = (
+    ("agent_email", MAIL_SQL.replace("LIMIT 101", "LIMIT 1001"), "gmail_send"),
+    ("agent_calendar", CALENDAR_SQL, "calendar_effect"),
+    ("agent_kyc", KYC_SQL, "gmail_send"),
+    ("agent_nav", NAV_SQL, "consent_decision"),
+    ("agent_location", LOCATION_SQL, "location_operation"),
+    ("agent_location", LOCATION_DIRECT_SQL, "location_direct"),
+    ("agent_documents", DOCUMENTS_SQL, "drive_permission"),
+    ("agent_connected_systems", CRM_SQL, "crm_intent"),
+)
+
+
+def _focus(agent_id: str, *agents: str) -> bool:
+    return agent_id == "agent_one" or agent_id in agents
+
+
+async def value_summaries(
+    conn, user_ids: list[str], agent_id: str, since: datetime, now: datetime
+) -> dict[str, dict]:
+    """Batch one bounded audience page using the same owner-specific source SQL.
+
+    LATERAL retains each owner's ordering and 1,001-row overflow sentinel. The
+    existing lifecycle transaction/locks remain owned by the audience caller.
+    One needs eleven database round trips for the page, rather than per person.
+    """
+    if len(user_ids) > 25 or len(set(user_ids)) != len(user_ids):
+        raise ValueError("Outcome page exceeds its owner bound")
+    if not user_ids:
+        return {}
+    cache: dict = {}
+    queries = []
+    if agent_id in DEFINITIONS:
+        if _focus(
+            agent_id, "agent_personal_information", "agent_kai", "agent_career", "agent_wallet"
+        ):
+            queries.append(MEMORY_SQL.replace("LIMIT 101", "LIMIT 1001"))
+        if _focus(agent_id, "agent_wallet"):
+            queries.append(WALLET_SQL)
+        queries.extend(query for agent, query, _ in SOURCE_QUERIES if _focus(agent_id, agent))
+        if _focus(agent_id, "agent_calendar", "agent_nav", "agent_location"):
+            capacity = await conn.fetch(
+                "SELECT owners.user_id AS _plg_user_id,("
+                + CAPACITY_SQL.replace("$1", "owners.user_id")
+                + ") AS capped FROM unnest($1::text[]) AS owners(user_id)",
+                user_ids,
+                since,
+                now,
+                timeout=5,
+            )
+            if (
+                len(capacity) != len(user_ids)
+                or {row["_plg_user_id"] for row in capacity} != set(user_ids)
+                or any(not isinstance(row["capped"], bool) for row in capacity)
+            ):
+                raise ValueError("Outcome capacity page is incomplete")
+            for row in capacity:
+                cache[(row["_plg_user_id"], since, now, "value_receipt_capacity")] = row["capped"]
+        for query in queries:
+            for uid in user_ids:
+                cache[(uid, since, now, query)] = []
+            rows = await conn.fetch(
+                "SELECT owners.user_id AS _plg_user_id,effect.* "
+                "FROM unnest($1::text[]) AS owners(user_id) CROSS JOIN LATERAL ("
+                + query.replace("$1", "owners.user_id")
+                + ") AS effect",
+                user_ids,
+                since,
+                now,
+                timeout=5,
+            )
+            for row in rows:
+                owner_rows = cache[(row["_plg_user_id"], since, now, query)]
+                owner_rows.append(
+                    {key: value for key, value in row.items() if key != "_plg_user_id"}
+                )
+                if len(owner_rows) > 1001:
+                    raise ValueError("Outcome source exceeds its owner bound")
+    summaries = {}
+    for uid in user_ids:
+        summaries[uid] = await value_summary(conn, uid, agent_id, since, now, cache=cache)
+        # Release this owner's bounded source records as soon as summarized.
+        for query in queries:
+            del cache[(uid, since, now, query)]
+        cache.pop((uid, since, now, "value_receipt_capacity"), None)
+    return summaries
+
 
 def confirmed_memory(row, user_id: str) -> bool:
     if row["authorization_mode"] != "owner_confirmed":
@@ -221,7 +307,7 @@ async def value_effects(
         effects[key] = min(effects.get(key, at), at)
 
     def focus(*agents):
-        return agent_id == "agent_one" or agent_id in agents
+        return _focus(agent_id, *agents)
 
     if focus("agent_calendar", "agent_nav", "agent_location"):
         key = (uid, since, now, "value_receipt_capacity")
@@ -259,16 +345,7 @@ async def value_effects(
                 and row["action_id"] in wallet
             ):
                 add("pkm_commit", row)
-    for agent, query, namespace in [
-        ("agent_email", MAIL_SQL.replace("LIMIT 101", "LIMIT 1001"), "gmail_send"),
-        ("agent_calendar", CALENDAR_SQL, "calendar_effect"),
-        ("agent_kyc", KYC_SQL, "gmail_send"),
-        ("agent_nav", NAV_SQL, "consent_decision"),
-        ("agent_location", LOCATION_SQL, "location_operation"),
-        ("agent_location", LOCATION_DIRECT_SQL, "location_direct"),
-        ("agent_documents", DOCUMENTS_SQL, "drive_permission"),
-        ("agent_connected_systems", CRM_SQL, "crm_intent"),
-    ]:
+    for agent, query, namespace in SOURCE_QUERIES:
         if focus(agent):
             for row in await rows(query):
                 add(namespace, row)
@@ -278,9 +355,11 @@ async def value_effects(
     ), limited
 
 
-async def value_summary(conn, uid: str, agent_id: str, since: datetime, now: datetime) -> dict:
+async def value_summary(
+    conn, uid: str, agent_id: str, since: datetime, now: datetime, *, cache: dict | None = None
+) -> dict:
     supported = agent_id in DEFINITIONS
-    effects, limited = await value_effects(conn, uid, agent_id, since, now)
+    effects, limited = await value_effects(conn, uid, agent_id, since, now, cache)
     return {
         "supported": supported,
         "proof": DEFINITIONS[agent_id][0] if supported else None,

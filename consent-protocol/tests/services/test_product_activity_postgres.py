@@ -92,6 +92,7 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
         asyncio.run(_assert_canonical_reply_association(url.set(database=database), monkeypatch))
         _assert_crm_outcome_query(engine)
         _assert_remaining_source_queries(engine)
+        asyncio.run(_assert_batched_outcomes(url.set(database=database)))
         action = "observation:one_memory_action:detail_edited"
         assert activity.observe(
             "owner", generation, action, "returned", "client_reported", "operation"
@@ -328,6 +329,12 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
                 == 0
             )
             conn.connection.cursor().execute(value_rollback)
+            assert (
+                conn.exec_driver_sql(
+                    "SELECT to_regclass('public.gmail_personal_information_reply_send_action')"
+                ).scalar()
+                is None
+            )
             conn.connection.cursor().execute(rollback)
             conn.connection.cursor().execute(migration)
             conn.connection.cursor().execute(correlation)
@@ -431,6 +438,14 @@ async def _assert_canonical_reply_association(url, monkeypatch):
     workflow = uuid4()
     try:
         async with pool.acquire() as conn:
+            index = await conn.fetchval(
+                "SELECT indexdef FROM pg_indexes WHERE schemaname='public' "
+                "AND indexname='gmail_personal_information_reply_send_action'"
+            )
+            assert (
+                "(reply_send_action_id)" in index
+                and "WHERE (reply_send_action_id IS NOT NULL)" in index
+            )
             await conn.execute(
                 """INSERT INTO gmail_personal_information_requests
               (workflow_id,user_id,gmail_message_id,gmail_thread_id,source_hmac,classification_confidence)
@@ -517,6 +532,64 @@ def _assert_crm_outcome_query(engine):
             {"uid": "owner", "since": now - timedelta(days=7), "until": now + timedelta(seconds=1)},
         ).all()
         assert [r.action_id for r in rows] == ["new"]
+
+
+async def _assert_batched_outcomes(url):
+    import asyncpg
+
+    conn = await asyncpg.connect(
+        url.set(drivername="postgresql").render_as_string(hide_password=False)
+    )
+    now = datetime.now(timezone.utc) + timedelta(seconds=1)
+    since = now - timedelta(days=7)
+    owners = ["owner", "other", *[f"empty-page-owner-{n}" for n in range(23)]]
+    try:
+        expected = {
+            uid: await outcomes.value_summary(conn, uid, "agent_one", since, now)
+            for uid in owners[:2]
+        }
+        queries = []
+
+        class PageConnection:
+            async def fetch(self, query, *args, **kwargs):
+                assert args[0] == owners
+                queries.append(query)
+                return await conn.fetch(query, *args, **kwargs)
+
+        actual = await outcomes.value_summaries(PageConnection(), owners, "agent_one", since, now)
+        assert len(queries) == 11
+        assert actual["owner"] == expected["owner"] and expected["owner"]["count"] > 0
+        assert actual["other"] == expected["other"]
+        assert all(actual[uid]["count"] == 0 for uid in owners[2:])
+        # The SQL limit belongs to each owner, never to the flattened page.
+        owners = [f"dense-page-owner-{n}" for n in range(25)]
+        await conn.executemany(
+            "INSERT INTO actor_profiles(user_id) VALUES($1)", [(uid,) for uid in owners]
+        )
+        await conn.executemany(
+            "INSERT INTO vault_keys(user_id) VALUES($1)", [(uid,) for uid in owners]
+        )
+        await conn.execute(
+            """WITH effects AS (
+              SELECT uid,uid||':'||n AS id,n FROM unnest($1::text[]) owners(uid)
+              CROSS JOIN generate_series(1,1002) numbers(n)
+            ) INSERT INTO gmail_owner_send_actions
+              (action_id,user_id,envelope_hmac,idempotency_hmac,recipient_count,state,expires_at,sent_at,gmail_message_id)
+              SELECT id,uid,repeat('a',64),md5(id)||md5(id),1,'sent',
+                $2::timestamptz+INTERVAL '1 day',$2::timestamptz-n*INTERVAL '1 second','provider-'||id
+              FROM effects""",
+            owners,
+            now,
+        )
+        queries.clear()
+        dense = await outcomes.value_summaries(PageConnection(), owners, "agent_email", since, now)
+        assert len(queries) == 1
+        assert all(row["count"] == 1000 and row["limited"] for row in dense.values())
+        assert all(
+            row["lastAt"] == (now - timedelta(seconds=1)).isoformat() for row in dense.values()
+        )
+    finally:
+        await conn.close()
 
 
 def _assert_remaining_source_queries(engine):

@@ -33,6 +33,9 @@ END $$;
 -- Link an information-request reply to the canonical, provider-confirmed send.
 ALTER TABLE gmail_personal_information_requests ADD COLUMN IF NOT EXISTS reply_send_action_id TEXT
   REFERENCES gmail_owner_send_actions(action_id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS gmail_personal_information_reply_send_action
+  ON gmail_personal_information_requests(reply_send_action_id)
+  WHERE reply_send_action_id IS NOT NULL;
 COMMENT ON TABLE one_product_value_receipts IS
  'Private best-effort provider-effect observations: opaque references, 500 per owner/UTC day, seven-day TTL. Never an action, consent, reward, delivery or business settlement authority.';
 COMMIT;
