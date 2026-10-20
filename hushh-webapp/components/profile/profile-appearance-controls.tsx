@@ -1,6 +1,7 @@
 "use client";
 
-import { AccentRowIcon, AppearanceRowIcon, DevicesProfileIcon } from "@/components/icons/agents";
+import { DevicesProfileIcon } from "@/components/icons/agents";
+import { PROFILE_ICONS } from "@/components/icons/profile-icons";
 import { NativeAccentChoice } from "@/components/app-ui/native-accent-choice";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import { SettingsGroup, SettingsRow } from "./settings-ui";
@@ -28,9 +29,9 @@ export function ProfileAppearanceControls({ value, nativeContext }: {
     finally { setSaving(false); }
   };
   return <SettingsGroup rowSizing="uniform">
-    <SettingsRow icon={AppearanceRowIcon} iconTone="capability" title="Appearance"
+    <SettingsRow icon={PROFILE_ICONS.appearance} iconTone="capability" title="Appearance"
       trailing={<ThemeToggleLean size="compact" className="w-[138px]" nativeContext={nativeContext} />} />
-    <SettingsRow icon={AccentRowIcon} iconTone="capability" title="Accent"
+    <SettingsRow icon={PROFILE_ICONS.accent} iconTone="capability" title="Accent"
       trailing={<NativeAccentChoice value={value} {...nativeContext} />} />
     {usesNativeHapticPreference() ? <SettingsRow icon={DevicesProfileIcon} iconTone="capability" title="App haptics"
       trailing={<div className="flex min-h-11 items-center"><Switch size="ios" aria-label="App haptics" hapticFeedback={false}
