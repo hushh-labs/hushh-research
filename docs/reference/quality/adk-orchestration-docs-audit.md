@@ -63,12 +63,12 @@ from this local implementation pass. No new deployment or owner install occurred
 | Dev app | Source `28a0fa109175`; hub `consent-protocol-00186-5zw` / image `d80e03ebc21a`; web `hushh-webapp-00154-jzm` / image `c7f92a59242b`; both 100% | ADC readback 12:21 UTC; [exact-SHA CI](https://github.com/hushh-labs/hushh-research/actions/runs/39122438292), [governed dev rollout](https://github.com/hushh-labs/hushh-research/actions/runs/39125450154) succeeded |
 | Personal Azure pod | `2026.10-dev.25+991a06ccbc01.4a3b29a7`; digest `sha256:4a3b29a74641d7eac470da43d18f01c5039f4c0327ed84811ce2f0bfa939ac9a`; revision `ca-hussh-one-pod--u36234007817f` | `op_b9a279571aaf47bcaffdbc4689c80d6c` verified 03:19:39 UTC; exact predecessor `250aea9e…fc69f1`; same identity and 1 vCPU / 2 GiB, min 0 / max 1 |
 | Schema / rollback | 65 rows, 964 applied, no required-contract/checksum mismatch; history cleanup deferred | Captured hub rollback `00185-f9z` / `e9482e4319ad`; web `00153-7ck` / `991a06ccbc01`. Application rollback cannot restore deleted history |
-| Local integration | Browser `80731a80b3`; frozen ADK `914e7c044c`; main through `c3f27e1f7f` integrated by `1953ce27fe` | Histories and nine unrelated edits preserved. Main's managed Azure capabilities coexist with owner-pod authority and disabled Azure pod voice. Local validation is recorded below; hosted CI and installed acceptance remain separate |
+| Local integration | Browser `80731a80b3`; frozen ADK `914e7c044c`; main through `ac9044ff54` integrated by `406fca7cbb` | Histories and nine unrelated edits preserved. Main's managed Azure capabilities coexist with owner-pod authority and disabled Azure pod voice. Local validation is recorded below; hosted CI and installed acceptance remain separate |
 | Browser component qualification | Image `sha256:b48f66b6…b32fbf24a4`: ordinary GCP frames/start 7.145 s, Azure frames/start 1.555 s; both confirmed Stop. Native ACA Luna research 19.460 s, five model round trips at capacity 50 | Synthetic grants, excludes owner HTTP acceptance and full-pod capacity. Capacity 1 returned 429; original failure retained. GCP native Gemini 3.8 research subsequently completed in 96.713 s through the approved bridge: three model round trips, two native actions and two screenshot continuations. This is one component sample, not a latency target pass. Disposable resources and temporary model/RBAC verified removed |
 
 ### Current local implementation
 
-Browser implementation is committed at `80731a80b3`; main through `c3f27e1f7f`
+Browser implementation is committed at `80731a80b3`; main through `ac9044ff54`
 and frozen ADK `914e7c044c` are preserved in the combined ancestry. This candidate
 remains uninstalled. Exact download ingress now preserves Browser control and Files
 authority, with malformed and neighboring paths refused.
@@ -106,7 +106,11 @@ passed backend, both native builds, web build, security and governance, then fai
 frontend authority fixtures and browser mounts. Local repairs retain the original
 failures. Main's subsequent messaging union passes 69 focused cases and 12 Chrome/
 WebKit cases, preserving both media behavior and owner isolation. The next exact
-candidate still requires terminal hosted success. This is not installed acceptance.
+candidate still requires terminal hosted success. Preferred-name integration also
+passes 192 frontend cases and 78 private/style cases. Signed pod chat now admits
+closed writing preferences without granting workspace connector authority; only
+the owner's device confirms an encrypted name save. Counts overlap other suites.
+This is not installed acceptance.
 
 Component image `sha256:2bfbf9da…dad8db81` now renders both public pages and confirms
 supervisor exit on Cloud Run (startup 6.951 s) and Container Apps (1.719 s).

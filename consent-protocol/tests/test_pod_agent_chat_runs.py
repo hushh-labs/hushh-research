@@ -157,6 +157,7 @@ async def test_private_chat_admits_only_closed_style_without_workspace_connector
     from hushh_mcp.one_adk.owner_style import (
         STATE_OWNER_STYLE,
         STATE_POD_STYLE_OWNER,
+        OwnerStyleError,
         resolve_owner_style,
     )
 
@@ -166,9 +167,12 @@ async def test_private_chat_admits_only_closed_style_without_workspace_connector
         "temp:hussh:workspace_chat_admission": True,
     }
     if style != {"preferred_name": "Synthetic name"}:
-        with pytest.raises(HTTPException) as refused:
+        with pytest.raises(OwnerStyleError):
             pod_agent_chat.trusted_state(turn, _owner())
+        with pytest.raises(HTTPException) as refused:
+            await pod_agent_chat.chat(_turn(communicationPreferences=style), _owner())
         assert refused.value.status_code == 400
+        assert refused.value.detail == {"code": "POD_CHAT_REQUEST_INVALID"}
         return
     state, options = pod_agent_chat.trusted_state(turn, _owner())
     assert state[STATE_POD_STYLE_OWNER] == "owner-a"
