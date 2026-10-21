@@ -330,6 +330,7 @@ POST /api/pkm/slice-price
 GET,POST /api/one/plg/activity
 POST /api/one/plg/snapshot
 POST /api/one/plg/audience
+POST /api/one/plg/customer-cohort
 POST /api/one/runtime/byoc/attach/retry
 POST /api/kai/gmail/webhook
 GET /api/one/agent-prompt
