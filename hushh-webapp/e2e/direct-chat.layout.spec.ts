@@ -837,7 +837,7 @@ for (const width of [320, 1440]) {
       await options.click();
     }
     await page.getByRole("menuitem", { name: "Delete chat" }).click();
-    await expect(page.getByRole("alertdialog")).toContainText("The other person keeps their copy");
+    await expect(page.getByRole("alertdialog")).toContainText("Their copy and your connection stay.");
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(chat).toBeVisible();
     if (width < 768) {
