@@ -148,21 +148,7 @@ async def test_mcp_mutation_cancellation_joins_before_reporting_quiescence():
     assert finished.is_set()
 
 
-def native_review(world, *, port=None):
-    name = mcp_tool_name("custom_test", "search")
-    binding = McpConnectionBinding(
-        world.storage.owner, "custom_test", 1, 1, "https://example.com/mcp"
-    )
-    provider = AsyncMock(return_value={"status": "ok"})
-
-    async def reviewed(q: str, tool_context: ToolContext):
-        result = await review_private_call(tool_context, binding, "search", "catalog-one", {"q": q})
-        if result is not None:
-            return result
-        return await provider(q)
-
-    tool = FunctionTool(reviewed)
-    tool.name = name
+def _native_review_model(name, authored_one):
     model = _ScriptedModel(
         [
             LlmResponse(
@@ -180,6 +166,39 @@ def native_review(world, *, port=None):
             LlmResponse(content=types.Content(role="model", parts=[types.Part(text="Completed.")])),
         ]
     )
+    if authored_one:
+        model._steps[-1] = LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name="finish_task",
+                            args={"outcome": "completed", "summary": "Connector task completed."},
+                        )
+                    )
+                ],
+            )
+        )
+    return model
+
+
+def native_review(world, *, port=None, authored_one=False, connector_id="custom_test"):
+    name = mcp_tool_name(connector_id, "search")
+    binding = McpConnectionBinding(
+        world.storage.owner, connector_id, 1, 1, "https://example.com/mcp"
+    )
+    provider = AsyncMock(return_value={"status": "ok"})
+
+    async def reviewed(q: str, tool_context: ToolContext):
+        result = await review_private_call(tool_context, binding, "search", "catalog-one", {"q": q})
+        if result is not None:
+            return result
+        return await provider(q)
+
+    tool = FunctionTool(reviewed)
+    tool.name = name
+    model = _native_review_model(name, authored_one)
     port = port or SimpleNamespace(
         issue=AsyncMock(
             return_value=IssuedActionDirective(
@@ -191,18 +210,33 @@ def native_review(world, *, port=None):
         ),
         consume=AsyncMock(),
     )
+    from hushh_mcp.one_adk.scheduled_one_agent import build_scheduled_one_agent
+
     runner = Runner(
         app=App(
             name="hussh_one",
-            root_agent=LlmAgent(
-                name="one", model=model, instruction="Use the requested connector.", tools=[tool]
+            root_agent=(
+                build_scheduled_one_agent(model=model)
+                if authored_one
+                else LlmAgent(
+                    name="one",
+                    model=model,
+                    instruction="Use the requested connector.",
+                    tools=[tool],
+                )
             ),
             resumability_config=ResumabilityConfig(is_resumable=True),
         ),
         session_service=world.sessions,
     )
     return SimpleNamespace(
-        runner=runner, tool=tool, model=model, port=port, provider=provider, name=name
+        runner=runner,
+        tool=tool,
+        model=model,
+        port=port,
+        provider=provider,
+        name=name,
+        agent_factory=build_scheduled_one_agent if authored_one else None,
     )
 
 

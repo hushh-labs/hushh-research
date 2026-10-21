@@ -9,6 +9,7 @@ from google.adk.sessions import Session
 
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
 from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
+from hushh_mcp.one_adk.scheduled_one_result import native_task_outputs, retain_native_task_output
 from hushh_mcp.services.pod_scheduled_contracts import ScheduleRefused
 
 _STATE = frozenset({"hussh:user_id", "hussh:conversation_id", "hussh:timezone"})
@@ -28,6 +29,7 @@ _EVENT = frozenset(
         "finish_reason",
         "interrupted",
         "actions",
+        "output",
     }
 )
 _ACTIONS = frozenset(
@@ -51,7 +53,7 @@ def _validate_event(event: Event, invocation: str) -> None:
         raise ScheduleRefused("SCHEDULE_NATIVE_LOGIN_REQUIRES_OWNER")
     # These SDK controls carry arbitrary state or change history. Qualify a typed
     # adapter before using them in an unattended recoverable task.
-    if event.output is not None or any(
+    if any(
         (
             event.actions.compaction,
             event.actions.render_ui_widgets,
@@ -76,6 +78,7 @@ def _validate_event(event: Event, invocation: str) -> None:
 
 
 def task_session_projection(session: Session, invocation: str) -> dict:
+    validated = native_task_outputs(session)
     projected = durable_external_read_projection(session).model_copy(deep=True)
     projected.state = {key: value for key, value in projected.state.items() if key in _STATE}
     for event in projected.events:
@@ -95,6 +98,7 @@ def task_session_projection(session: Session, invocation: str) -> dict:
         result = json.loads(redact_drive_session_json(json.dumps(document, allow_nan=False)))
         if not isinstance(result, dict):
             raise ValueError
+        retain_native_task_output(result, validated)
         return result
     except (ValueError, TypeError):
         raise ScheduleRefused("SCHEDULE_SESSION_CHECKPOINT_INVALID") from None

@@ -306,18 +306,35 @@ class RegisteredMcpToolset(BaseToolset):
             # Runs before every model step, so it sits on first-token latency.
             record_connector_discovery((time.perf_counter() - started) * 1000)
 
-    async def _discover(self, readonly_context):
-        context = readonly_context
+    async def _admitted_scope(self, context):
+        from hushh_mcp.one_adk.scheduled_one_agent import admitted_scheduled_surface
+
         if (
             context is None
             or not context.user_id
             or context.user_id != context.state.get("hussh:user_id")
-            or context.state.get("temp:one_execution_surface") != "typed_chat"
+            or not (
+                context.state.get("temp:one_execution_surface") == "typed_chat"
+                or admitted_scheduled_surface(context)
+            )
         ):
-            return []
+            return None
         scope = current_mcp_turn()
+        if admitted_scheduled_surface(context) and (
+            not scope.vault_only or not await scope.owner_is_admitted(context)
+        ):
+            raise ExternalMcpError(
+                "Scheduled connector custody unavailable.", code="MCP_OWNER_MISMATCH"
+            )
         if context.state.get("hussh:conversation_id") != scope.conversation_id:
             raise ExternalMcpError("Connector turn changed.", code="MCP_TURN_UNAVAILABLE")
+        return scope
+
+    async def _discover(self, readonly_context):
+        context = readonly_context
+        scope = await self._admitted_scope(context)
+        if scope is None:
+            return []
         scope.track_catalog_view(self)
         budget = mcp_call_timeout_seconds()
         definitions = []

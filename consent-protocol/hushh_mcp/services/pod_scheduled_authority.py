@@ -127,6 +127,8 @@ class ScheduledInvocationAuthority:
             self._credential
             and state is not None
             and getattr(context, "user_id", None) == self.owner_id
+            and getattr(context, "invocation_id", None)
+            == "scheduled_" + self.lease.claimed["last_run"]["id"]
             and state.get("hussh:user_id") == self.owner_id
             and state.get("temp:one_execution_surface") == "scheduled_task"
             and state.get("hussh:conversation_id")

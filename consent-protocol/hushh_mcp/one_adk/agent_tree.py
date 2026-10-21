@@ -2784,6 +2784,8 @@ def build_one_text_agent(
     allow_workspace_tools: bool = False,
     allow_private_mcp: bool = False,
     include_thought_summaries: bool = False,
+    execution_mode: Literal["chat", "task"] = "chat",
+    output_schema: Any = None,
     consent_bundle_lookup: Callable[[str, str], Awaitable[Any]] | None = None,
 ) -> LlmAgent:
     """Build the One TEXT head: same brain, same tools, text model.
@@ -2795,9 +2797,6 @@ def build_one_text_agent(
     A provider-specific composition may supply a separate Google Search model
     for its native tool; other specialists continue to inherit the text model.
     """
-    # Route modules construct both ADK apps during import so FastAPI can
-    # register the canonical endpoint. The shared resolver keeps that import
-    # credential-independent in tests while hosted runtimes stay explicit.
     text_model = _resolve_text_model(model, vertex_project=vertex_project)
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
 
@@ -2808,6 +2807,8 @@ def build_one_text_agent(
 
     return LlmAgent(
         name="one",
+        mode=execution_mode,
+        output_schema=output_schema,
         model=text_model,
         description=_ONE_MANIFEST.description,
         instruction=instruction_for_head(
@@ -2819,10 +2820,9 @@ def build_one_text_agent(
             google_search_model=google_search_model,
             allow_workspace_tools=allow_workspace_tools,
             allow_private_mcp=allow_private_mcp,
-            allow_receipt_tools=True,
+            allow_receipt_tools=execution_mode == "chat",
         ),
-        # Consent access is checked once per turn, then redacted before every
-        # model call (consent_redaction.py, CONTRACT C3).
+        # Consent is checked per turn and redacted per model call (C3).
         before_agent_callback=[timed_one_before_agent, track_current_consent],
         before_tool_callback=_before_one_tool,
         after_tool_callback=after_external_read_tool,

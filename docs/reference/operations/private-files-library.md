@@ -270,10 +270,23 @@ before approval consumption; a lost reply cannot replay the call. Snapshot CAS
 precedes publication into the live session. Generic schedule Resume refuses a
 retained checkpoint, and parked reads refuse uncertain dispatch. Controlled native
 ADK/PostgreSQL tests cover these boundaries; this is not installed acceptance.
-General One composition, safely reclaiming a parked execution segment and the
-owner-facing continuation route remain open. A process-local AI cache counter is
-not a cross-restart model identity; composition must freeze the durable selection
-floor, selection ID and resolved provider destination.
+The authored One constructor now supplies a native task head with the same roster
+and callbacks; client-only receipt tools stay in chat. Its schema-checked terminal
+requires the matching root `finish_task` call and successful response. It cannot
+supersede a pending review or uncertain dispatch. The read barrier permits only
+that native terminal control alongside its existing reviewed connector calls.
+Controlled acceptance now covers the actual One catalog and callback stack through
+review, fresh Runner, one connector effect and recovered terminal output. The
+model transport and MCP server are synthetic; the approval ledger is real local
+PostgreSQL. These are not installed-cloud receipts.
+
+The scheduled model port reopens the sealed owner choice and freezes its durable
+floor, selection ID, provider/model and non-secret destination. It refuses changed,
+cleared or unreadable selections; a process-local cache counter is only an in-flight
+fence. Keyless defaults retain verified owner Vertex/approved dev bridge or Azure
+workload identity, without managed fallback. Saved metadata does not prove provider
+availability. Production worker composition, other specialist/effect ports, safe
+parked-segment reclaim and the owner continuation route remain open.
 
 The sealed pod log owns the schedule, occurrence claim, cancellation and settlement.
 The due-time delivery contains identifiers only; an exact authenticated worker route

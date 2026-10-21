@@ -238,6 +238,7 @@ async def test_connector_task_context_cannot_change_the_configured_owner(
     with task.invocation.bind() as reference:
         context = SimpleNamespace(
             user_id=USER,
+            invocation_id="scheduled_" + task.lease.claimed["last_run"]["id"],
             state={
                 "hussh:user_id": USER,
                 "hussh:conversation_id": "scheduled_" + task.lease.claimed["last_run"]["id"],
@@ -250,3 +251,116 @@ async def test_connector_task_context_cannot_change_the_configured_owner(
         assert await tools.pod_tool_owner(context, "gmail") is None
     monkeypatch.setattr(tools, "pod_owner_user_id", lambda: USER)
     assert await tools.pod_tool_owner(context, "gmail") is None
+
+
+async def test_scheduled_model_uses_sealed_identity_across_cache_restart(
+    admitted_task, monkeypatch
+):
+    from hushh_mcp.services import pod_ai_selection as selections
+    from hushh_mcp.services import pod_owner_cloud
+    from hushh_mcp.services.pod_ai_selection_seal import OpenedSelection
+    from hushh_mcp.services.pod_scheduled_contracts import ScheduleRefused
+    from hushh_mcp.services.pod_scheduled_model import resolve_scheduled_model
+
+    task = admitted_task
+    monkeypatch.setattr(pod_owner_cloud, "owner_cloud_agent", lambda: True)
+    opened = OpenedSelection(
+        provider="openai",
+        model="synthetic-model",
+        api_key="PRIVATE_MODEL_KEY",
+        transport=None,
+        vertex_project=None,
+        vertex_location=None,
+        issued_at_ms=1,
+        selection_id="00000000-0000-4000-8000-000000000001",
+    )
+    try:
+        await selections.record_ai_selection(
+            task.world.log, hushh_id=OWNER, opened=opened, checked_at_ms=1
+        )
+        model = await resolve_scheduled_model(task.world.log, pod_id=OWNER, check=task.lease.check)
+        assert model.binding.model == "synthetic-model" and model.binding.selection_revision == 1
+        assert "PRIVATE_MODEL_KEY" not in repr(model) + model.binding.model_dump_json()
+        selections.set_active_ai_selection(None)  # process reload is not a persisted clear
+        again = await resolve_scheduled_model(
+            task.world.log, pod_id=OWNER, check=task.lease.check, expected=model.binding
+        )
+        assert again.binding == model.binding
+        await selections.clear_ai_selection(task.world.log, hushh_id=OWNER)
+        with pytest.raises(ScheduleRefused, match="SCHEDULE_MODEL_CHANGED"):
+            await resolve_scheduled_model(
+                task.world.log, pod_id=OWNER, check=task.lease.check, expected=model.binding
+            )
+        # An unreadable latest selection must not look like a cleared key.
+        await task.world.log.append(
+            selections.POD_AI_SELECTION_RECORD_KIND,
+            {"hushh_id": OWNER, "issuedAtMs": 2, "private": "PRIVATE_INVALID"},
+        )
+        with pytest.raises(ScheduleRefused, match="^SCHEDULE_MODEL_UNAVAILABLE$"):
+            await resolve_scheduled_model(task.world.log, pod_id=OWNER, check=task.lease.check)
+    finally:
+        selections.set_active_ai_selection(None)
+
+
+@pytest.mark.parametrize("cloud", ["gcp", "azure"])
+async def test_scheduled_cloud_model_binds_provider_and_destination(
+    admitted_task, monkeypatch, cloud
+):
+    from hushh_mcp import runtime_settings
+    from hushh_mcp.runtime_providers import azure_openai, factory
+    from hushh_mcp.services import (
+        agent_chat_service,
+        pod_inference_bridge,
+        pod_owner_cloud,
+        pod_workload_identity,
+    )
+    from hushh_mcp.services.pod_scheduled_contracts import ScheduleRefused
+    from hushh_mcp.services.pod_scheduled_model import resolve_scheduled_model
+
+    task = admitted_task
+    configured = SimpleNamespace(provider="openai", name="synthetic-model")
+    monkeypatch.setattr(pod_owner_cloud, "owner_cloud_agent", lambda: True)
+    monkeypatch.setattr(runtime_settings, "pod_user_adc_enabled", lambda: True)
+    monkeypatch.setattr(
+        agent_chat_service,
+        "load_one_agent_runtime_manifest",
+        lambda: SimpleNamespace(model=configured),
+    )
+    monkeypatch.setattr(pod_inference_bridge, "owner_inference_bridge", lambda: None)
+    monkeypatch.setattr(
+        factory.ManagedGeminiRuntimeBinding,
+        "from_environment",
+        lambda: SimpleNamespace(
+            auth_mode="vertex_adc", project="synthetic-project", primary_location="us-central1"
+        ),
+    )
+    topology = SimpleNamespace(
+        endpoint="https://synthetic.openai.azure.com/", deployment="synthetic-deployment"
+    )
+    monkeypatch.setattr(
+        azure_openai, "azure_openai_topology", lambda: topology if cloud == "azure" else None
+    )
+    identity = ["synthetic-identity"]
+    monkeypatch.setattr(pod_workload_identity, "workload_client_id", lambda: identity[0])
+    if cloud == "gcp":
+        with pytest.raises(ScheduleRefused, match="SCHEDULE_MODEL_UNAVAILABLE"):
+            await resolve_scheduled_model(task.world.log, pod_id=OWNER, check=task.lease.check)
+        configured.provider = "gemini"
+    target = await resolve_scheduled_model(task.world.log, pod_id=OWNER, check=task.lease.check)
+    assert target.binding.runtime_mode == ("user_adc" if cloud == "gcp" else "user_azure_mi")
+    assert target.binding.provider == ("gemini" if cloud == "gcp" else "azure_openai")
+    if cloud == "gcp":
+        monkeypatch.setattr(
+            pod_inference_bridge,
+            "owner_inference_bridge",
+            lambda: SimpleNamespace(
+                project="synthetic-bridge",
+                service_account="synthetic@synthetic-project.iam.gserviceaccount.com",
+            ),
+        )
+    else:
+        identity[0] = "replacement-identity"
+    with pytest.raises(ScheduleRefused, match="SCHEDULE_MODEL_CHANGED"):
+        await resolve_scheduled_model(
+            task.world.log, pod_id=OWNER, check=task.lease.check, expected=target.binding
+        )

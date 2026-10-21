@@ -31,6 +31,14 @@ def checkpoint_binding(row: dict) -> str:
     ).hexdigest()
 
 
+class ScheduledOneResult(BaseModel):
+    """Model-authored answer, never an effect receipt or approval authority."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
+    outcome: Literal["completed", "blocked"]
+    summary: str = Field(min_length=1, max_length=2000)
+
+
 class ScheduledModelBinding(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True, hide_input_in_errors=True)
     provider: Literal["gemini", "openai", "azure_openai", "puppy"]
@@ -39,6 +47,21 @@ class ScheduledModelBinding(BaseModel):
     # Durable sealed selection replay floor; never the process-local cache counter.
     selection_revision: int = Field(ge=0)
     selection_id: str | None = Field(default=None, min_length=1, max_length=128)
+    selection_issued_at_ms: int | None = Field(default=None, gt=0)
+    destination: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def bounded_destination(self):
+        if set(self.destination) - {
+            "endpoint",
+            "project",
+            "location",
+            "service_account",
+            "workload_client_id",
+            "transport",
+        } or any(not value or len(value) > 512 for value in self.destination.values()):
+            raise ValueError("Invalid scheduled model destination")
+        return self
 
 
 class ScheduledCheckpoint(BaseModel):

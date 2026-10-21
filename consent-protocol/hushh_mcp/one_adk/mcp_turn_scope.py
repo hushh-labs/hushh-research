@@ -288,12 +288,22 @@ class McpTurnResources:
         return sorted(entries, key=lambda entry: entry["name"].casefold())
 
     async def owner_is_admitted(self, context: Any) -> bool:
+        from hushh_mcp.one_adk.scheduled_one_agent import admitted_scheduled_surface
+        from hushh_mcp.services.pod_scheduled_authority import scheduled_tool_owner
+
+        scheduled = admitted_scheduled_surface(context)
         if (
             self._closed
             or context.state.get("hussh:conversation_id") != self.conversation_id
             or (self._owner is not None and context.user_id != self._owner)
             or context.user_id != context.state.get("hussh:user_id")
-            or context.state.get("temp:one_execution_surface") != "typed_chat"
+            or not (context.state.get("temp:one_execution_surface") == "typed_chat" or scheduled)
+        ):
+            return False
+        if scheduled and (
+            not self.vault_only
+            or self._owner_admission is None
+            or await scheduled_tool_owner(context) != self._owner
         ):
             return False
         if self._owner_admission is not None:

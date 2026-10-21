@@ -138,6 +138,12 @@ class ScheduledTaskCheckpointStorage:
                 raise ScheduleRefused("SCHEDULE_SESSION_NOT_RUNNING")
             if checkpoint.session != expected_session:
                 raise ScheduleRefused("SCHEDULE_SESSION_REVISION_CONFLICT")
+            if any(event.get("output") is not None for event in frozen.get("events", [])):
+                from hushh_mcp.one_adk.scheduled_one_result import require_settled_pending
+
+                if checkpoint.phase != "running":
+                    raise ScheduleRefused("SCHEDULE_DISPATCH_OUTCOME_UNCERTAIN")
+                require_settled_pending(frozen, checkpoint.pending)
             if settled_call is not None:
                 pending = checkpoint.pending.get(checkpoint.dispatch_handle or "", {})
                 if checkpoint.phase != "dispatching" or settled_call != (
