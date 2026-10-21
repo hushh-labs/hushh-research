@@ -52,5 +52,6 @@
 /.github/actions/ @hushh-labs/allowed-maintainers-to-approve
 /scripts/ci/ @hushh-labs/allowed-maintainers-to-approve
 /config/ci-governance.json @hushh-labs/allowed-maintainers-to-approve
+/config/release-cadence.json @hushh-labs/allowed-maintainers-to-approve
 /config/runtime-capacity.json @hushh-labs/allowed-maintainers-to-approve
 /.github/CODEOWNERS @hushh-labs/allowed-maintainers-to-approve

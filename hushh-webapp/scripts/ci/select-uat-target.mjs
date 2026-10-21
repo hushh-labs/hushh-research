@@ -35,6 +35,15 @@ const REPO = process.env.GITHUB_REPOSITORY || "hushh-labs/hushh-research";
 const TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
 const CHAT_ONLY_WORKFLOW = ".github/workflows/deploy-uat-one-chat.yml";
 const FULL_UAT_WORKFLOW = ".github/workflows/deploy-uat.yml";
+// Older native jobs created environment records just to read UAT secrets.
+// They never move the hosted services. Unknown mutation/rehearsal records
+// retain the existing fail-closed baseline behavior.
+const NATIVE_WORKFLOWS = new Set([
+  ".github/workflows/ship-ios-testflight.yml",
+  ".github/workflows/resume-ios-testflight.yml",
+  ".github/workflows/ios-voice-device.yml",
+  ".github/workflows/ship-android-playstore-v1.yml",
+]);
 
 const args = process.argv.slice(2);
 const limit = Number(valueOf("--limit") || 20);
@@ -118,7 +127,7 @@ async function uatActualSha() {
         }
         if (runId) {
           const run = await api(`/actions/runs/${runId}`);
-          if (workflowFile(run) === CHAT_ONLY_WORKFLOW) continue;
+          if (workflowFile(run) === CHAT_ONLY_WORKFLOW || NATIVE_WORKFLOWS.has(workflowFile(run))) continue;
         }
       }
       newestFullDeploymentId ??= deployment.id;
