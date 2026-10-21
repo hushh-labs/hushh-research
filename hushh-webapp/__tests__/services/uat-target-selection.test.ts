@@ -146,7 +146,13 @@ describe("the production selector CLI", () => {
     expect(run({ main: LIVE, live: LIVE, verified: false, candidates: [] }).status).toBe(1);
   });
 
-  it("ignores a newer Chat-only deployment even when Actions appends @main to its path", () => {
+  it.each([
+    ".github/workflows/deploy-uat-one-chat.yml",
+    ".github/workflows/ship-ios-testflight.yml",
+    ".github/workflows/resume-ios-testflight.yml",
+    ".github/workflows/ios-voice-device.yml",
+    ".github/workflows/ship-android-playstore-v1.yml",
+  ])("excludes newer records from %s from the full UAT baseline even with @main", (workflow) => {
     const result = run({
       main: LIVE, live: LIVE, candidates: [],
       deployments: [{ id: 2, sha: B }, { id: 1, sha: LIVE }],
@@ -155,13 +161,31 @@ describe("the production selector CLI", () => {
         1: [{ state: "success", log_url: "https://github.com/hushh-labs/hushh-research/actions/runs/123/job/1" }],
       },
       workflowPaths: {
-        456: ".github/workflows/deploy-uat-one-chat.yml@main",
+        456: `${workflow}@main`,
         123: ".github/workflows/deploy-uat.yml@main",
       },
     });
     expect(result.status).toBe(0);
     expect(result.output).toContain(`uat_actual_sha=${LIVE}\n`);
     expect(result.output).toContain("decision=NO_OP");
+  });
+
+  it("selects a newer green UAT target while a native record already names that main SHA", () => {
+    const result = run({
+      main: B, live: LIVE, candidates: [{ sha: B, gate: "success" }],
+      deployments: [{ id: 2, sha: B }, { id: 1, sha: LIVE }],
+      statuses: {
+        2: [{ state: "success", log_url: "https://github.com/hushh-labs/hushh-research/actions/runs/456/job/1" }],
+        1: [{ state: "success", log_url: "https://github.com/hushh-labs/hushh-research/actions/runs/123/job/1" }],
+      },
+      workflowPaths: {
+        456: ".github/workflows/ship-ios-testflight.yml@main",
+        123: ".github/workflows/deploy-uat.yml@main",
+      },
+    });
+    expect(result.status).toBe(0);
+    expect(result.output).toContain(`uat_actual_sha=${LIVE}\n`);
+    expect(result.output).toContain(`sha=${B}\ndecision=DEPLOY_EXACT_SHA\n`);
   });
 
   it("looks past 100 partial deployments for the last full UAT baseline", () => {

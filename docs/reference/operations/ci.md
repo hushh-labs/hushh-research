@@ -63,6 +63,11 @@ workflow. UAT never waits for that observer, a native build, production deployme
 or Apple processing. The observer has its own short accounting lock; UAT and
 production retain their existing independent mutation locks.
 
+Native jobs read their governed environment configuration with `deployment: false`,
+so they do not create hosted UAT/production deployment records. The UAT target
+selector also excludes historical native records from its hosted baseline;
+rollback, rehearsal and unknown mutation records retain their fail-closed checks.
+
 Starting with the commit that introduces `config/release-cadence.json`, every
 fourth distinct, healthy deployed source commit qualifies for a UAT-backed
 TestFlight build. Every eighth also qualifies for a production backend/frontend

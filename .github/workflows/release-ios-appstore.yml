@@ -120,7 +120,9 @@ jobs:
   preflight:
     name: Authorize release and admit an editable Apple version
     runs-on: ubuntu-latest
-    environment: production
+    environment:
+      name: production
+      deployment: false
     timeout-minutes: 15
     outputs:
       ready: ${{ steps.packaging.outputs.ready || 'true' }}
@@ -208,7 +210,9 @@ jobs:
       group: ios-build-and-upload
       cancel-in-progress: false
       queue: max
-    environment: production
+    environment:
+      name: production
+      deployment: false
     timeout-minutes: 90
     outputs:
       build_number: ${{ steps.build_number.outputs.next_build }}
@@ -833,7 +837,9 @@ jobs:
     needs: release
     if: ${{ needs.release.result == 'success' && inputs.dry_run != true }}
     runs-on: ubuntu-latest
-    environment: production
+    environment:
+      name: production
+      deployment: false
     timeout-minutes: 40
     env:
       IOS_MARKETING_VERSION: ${{ needs.release.outputs.marketing_version }}

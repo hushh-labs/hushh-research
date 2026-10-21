@@ -70,7 +70,9 @@ jobs:
   preflight:
     name: Resolve green UAT release source
     runs-on: ubuntu-latest
-    environment: uat
+    environment:
+      name: uat
+      deployment: false
     timeout-minutes: 15
     outputs:
       release_sha: ${{ steps.resolve.outputs.sha }}
@@ -228,7 +230,9 @@ jobs:
       group: ios-build-and-upload
       cancel-in-progress: false
       queue: max
-    environment: uat
+    environment:
+      name: uat
+      deployment: false
     timeout-minutes: 90
     outputs:
       build_number: ${{ steps.build_number.outputs.next_build }}
@@ -610,7 +614,9 @@ jobs:
     needs: [preflight, ship]
     if: ${{ needs.ship.result == 'success' && inputs.dry_run != true }}
     runs-on: ubuntu-latest
-    environment: uat
+    environment:
+      name: uat
+      deployment: false
     timeout-minutes: 35
     env:
       IOS_MARKETING_VERSION: ${{ needs.ship.outputs.marketing_version }}

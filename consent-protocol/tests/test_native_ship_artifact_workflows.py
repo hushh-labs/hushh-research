@@ -26,6 +26,22 @@ def _named(steps: list[dict], name: str) -> dict:
     return next(step for step in steps if step.get("name") == name)
 
 
+@pytest.mark.parametrize(
+    ("workflow_name", "environment_name"),
+    [("ship-ios-testflight.yml", "uat"), ("release-ios-appstore.yml", "production")],
+)
+def test_native_jobs_read_environment_configuration_without_hosted_deployment_records(
+    workflow_name: str, environment_name: str
+) -> None:
+    jobs = _workflow(workflow_name)["jobs"]
+    environments = [job["environment"] for job in jobs.values() if "environment" in job]
+    assert len(environments) == 3
+    assert all(
+        environment == {"name": environment_name, "deployment": False}
+        for environment in environments
+    )
+
+
 def test_android_release_is_green_main_uat_backed_and_fail_closed() -> None:
     workflow = _workflow("ship-android-playstore-v1.yml")
     # PyYAML 1.1 treats the unquoted Actions `on` key as a boolean.
