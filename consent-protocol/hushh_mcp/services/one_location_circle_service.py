@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import secrets
+import unicodedata
 import uuid
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -446,6 +447,22 @@ def _clean_kind(value: str | None) -> str:
     return kind
 
 
+CIRCLE_MAX_CUSTOM_TYPES = 3
+
+
+def _clean_custom_type_label(value: str | None, kind: str) -> str | None:
+    label = " ".join(unicodedata.normalize("NFKC", value or "").split())
+    if not label:
+        return None
+    if kind != "other" or len(label) > 32 or label.casefold() in {"family", "friends", "other"}:
+        raise OneLocationCircleError(
+            "LOCATION_CIRCLE_TYPE_INVALID",
+            "Choose Family or Friends, or name a custom type using up to 32 characters.",
+            status_code=422,
+        )
+    return label
+
+
 class OneLocationCircleService:
     """Owns named Circle state and atomic membership transitions."""
 
@@ -629,6 +646,16 @@ class OneLocationCircleService:
             "name": name,
             "photoUrl": row.get("photo_url") or None,
             "kind": str(row.get("kind") or "other"),
+            **(
+                {"customTypeLabel": row["custom_type_label"]}
+                if is_owner
+                and not is_system
+                and not is_trusted
+                and row.get("kind") == "other"
+                and isinstance(row.get("custom_type_label"), str)
+                and 0 < len(row["custom_type_label"]) <= 32
+                else {}
+            ),
             "role": role,
             "isSystem": is_system,
             # Which product-managed Circle this is. Trusted keeps a stable marker
@@ -831,6 +858,7 @@ class OneLocationCircleService:
                 f"""
                 SELECT
                   c.id, c.name, c.kind, c.member_limit, c.is_system, c.photo_url,
+                  c.metadata->>'customTypeLabel' AS custom_type_label,
                   c.system_kind,
                   c.created_at, c.updated_at,
                   c.owner_user_id, :user_id AS viewer_user_id, mine.role,
@@ -875,6 +903,7 @@ class OneLocationCircleService:
                 f"""
                 SELECT
                   c.id, c.name, c.kind, c.member_limit, c.is_system, c.photo_url,
+                  c.metadata->>'customTypeLabel' AS custom_type_label,
                   c.system_kind,
                   c.created_at, c.updated_at,
                   c.owner_user_id, :user_id AS viewer_user_id, mine.role,
@@ -1050,6 +1079,7 @@ class OneLocationCircleService:
                 f"""
                 SELECT
                   c.id, c.name, c.kind, c.member_limit, c.is_system, c.photo_url,
+                  c.metadata->>'customTypeLabel' AS custom_type_label,
                   c.system_kind, c.created_at, c.updated_at,
                   c.owner_user_id, :user_id AS viewer_user_id, mine.role,
                   owner_identity.display_name AS owner_display_name,
@@ -1303,13 +1333,19 @@ class OneLocationCircleService:
         owner_user_id: str,
         name: str,
         kind: str | None = None,
+        custom_type_label: str | None = None,
     ) -> dict[str, Any]:
         cleaned_name = _clean_name(name)
         cleaned_kind = _clean_kind(kind)
+        cleaned_type = _clean_custom_type_label(custom_type_label, cleaned_kind)
         try:
             with self._db.engine.begin() as conn:
                 circle_id = self.create_circle_in_transaction(
-                    conn, owner_user_id=owner_user_id, name=cleaned_name, kind=cleaned_kind
+                    conn,
+                    owner_user_id=owner_user_id,
+                    name=cleaned_name,
+                    kind=cleaned_kind,
+                    **({"custom_type_label": cleaned_type} if cleaned_type else {}),
                 )
             logger.info(
                 "one_location.circle_created owner=%s",
@@ -1329,10 +1365,12 @@ class OneLocationCircleService:
         name: str,
         kind: str | None = None,
         reuse_existing: bool = False,
+        custom_type_label: str | None = None,
     ) -> str:
         """Existing circle mutation with a caller-owned transaction and receipt."""
         cleaned_name = _clean_name(name)
         cleaned_kind = _clean_kind(kind)
+        cleaned_type = _clean_custom_type_label(custom_type_label, cleaned_kind)
         # Serializes this person's create/join against itself. There
         # is no ceiling left to check -- a person may belong to as many
         # Circles as people put them in.
@@ -1340,6 +1378,8 @@ class OneLocationCircleService:
             conn,
             user_id=owner_user_id,
         )
+        if cleaned_type:
+            self._check_custom_type_limit(conn, owner_user_id, cleaned_type)
         if reuse_existing:
             existing = _first(
                 conn.execute(
@@ -1363,7 +1403,7 @@ class OneLocationCircleService:
                     )
                     VALUES (
                       :owner_user_id, :name, :kind, 'active',
-                      :member_limit, NOW(), NOW(), '{}'::jsonb
+                      :member_limit, NOW(), NOW(), CAST(:metadata AS JSONB)
                     )
                     RETURNING id
                     """
@@ -1373,6 +1413,9 @@ class OneLocationCircleService:
                     "name": cleaned_name,
                     "kind": cleaned_kind,
                     "member_limit": CIRCLE_DEFAULT_MEMBER_LIMIT,
+                    "metadata": json.dumps(
+                        {"customTypeLabel": cleaned_type} if cleaned_type else {}
+                    ),
                 },
             )
         )
@@ -1805,6 +1848,98 @@ class OneLocationCircleService:
             )
         )
 
+    @staticmethod
+    def _check_custom_type_limit(
+        conn: Any, owner: str, label: str, exclude_circle_id: str | None = None
+    ) -> None:
+        row = (
+            _first(
+                conn.execute(
+                    text("""
+            SELECT COUNT(DISTINCT LOWER(BTRIM(metadata->>'customTypeLabel'))) AS type_count,
+              COALESCE(BOOL_OR(LOWER(BTRIM(metadata->>'customTypeLabel')) = LOWER(:label)), FALSE) AS already_exists
+            FROM one_location_circles
+            WHERE owner_user_id = :owner AND status = 'active' AND kind = 'other'
+              AND NOT is_system AND system_kind IS NULL
+              AND NULLIF(BTRIM(metadata->>'customTypeLabel'), '') IS NOT NULL
+              AND id IS DISTINCT FROM CAST(:exclude_circle_id AS UUID)
+        """),
+                    {"owner": owner, "label": label, "exclude_circle_id": exclude_circle_id},
+                )
+            )
+            or {}
+        )
+        if int(row.get("type_count") or 0) >= CIRCLE_MAX_CUSTOM_TYPES and not row.get(
+            "already_exists"
+        ):
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_TYPE_LIMIT",
+                "You can keep up to 3 custom types. Delete a type before adding another.",
+                status_code=409,
+            )
+
+    @staticmethod
+    def _lock_custom_type_rows(
+        conn: Any, owner: str, *, circle_id: str | None = None, label: str | None = None
+    ) -> list[dict[str, Any]]:
+        # Legacy join paths lock Circle before owner. NOWAIT avoids waiting in
+        # the inverse order while this operation holds the existing owner lock.
+        try:
+            return _all(
+                conn.execute(
+                    text("""
+                SELECT id FROM one_location_circles
+                WHERE owner_user_id = :owner AND status = 'active'
+                  AND NOT is_system AND system_kind IS NULL
+                  AND (CAST(:circle_id AS UUID) IS NULL OR id = CAST(:circle_id AS UUID))
+                  AND (CAST(:label AS TEXT) IS NULL OR (kind = 'other' AND
+                    LOWER(BTRIM(metadata->>'customTypeLabel')) = LOWER(:label)))
+                ORDER BY id FOR UPDATE NOWAIT
+            """),
+                    {"owner": owner, "circle_id": circle_id, "label": label},
+                )
+            )
+        except Exception as exc:
+            original = getattr(exc, "orig", exc)
+            if (
+                getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
+            ) == "55P03":
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_BUSY",
+                    "This Circle is being updated. Try again.",
+                    status_code=409,
+                ) from exc
+            raise
+
+    def delete_custom_type(self, *, owner_user_id: str, label: str) -> dict[str, Any]:
+        cleaned = _clean_custom_type_label(label, "other")
+        if not cleaned:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_TYPE_INVALID", "Choose a custom type to delete.", status_code=422
+            )
+        try:
+            with self._db.engine.begin() as conn:
+                self._lock_user_circle_memberships(conn, user_id=owner_user_id)
+                rows = self._lock_custom_type_rows(conn, owner_user_id, label=cleaned)
+                if not rows:
+                    return {"updatedCircleCount": 0}
+                result = conn.execute(
+                    text("""
+                    UPDATE one_location_circles
+                    SET metadata = COALESCE(metadata, '{}'::jsonb) - 'customTypeLabel', updated_at = NOW()
+                    WHERE owner_user_id = :owner AND status = 'active' AND kind = 'other'
+                      AND NOT is_system AND system_kind IS NULL
+                      AND LOWER(BTRIM(metadata->>'customTypeLabel')) = LOWER(:label)
+                    RETURNING id
+                """),
+                    {"owner": owner_user_id, "label": cleaned},
+                )
+                return {"updatedCircleCount": len(_all(result))}
+        except OneLocationCircleError:
+            raise
+        except Exception as exc:
+            raise self._safe_db_failure("delete_custom_type", exc) from exc
+
     def _update_circle_row(
         self,
         connection: Any,
@@ -1813,11 +1948,26 @@ class OneLocationCircleService:
         circle_id: str,
         name: str | None,
         kind: str | None,
+        custom_type_label: str | None = None,
     ) -> dict[str, Any]:
+        if kind is not None and connection is not None:
+            self._lock_user_circle_memberships(connection, user_id=owner_user_id)
+            if not self._lock_custom_type_rows(connection, owner_user_id, circle_id=circle_id):
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_OWNER_REQUIRED",
+                    "Only the Circle owner can change its type.",
+                    status_code=403,
+                )
+            if custom_type_label:
+                self._check_custom_type_limit(
+                    connection, owner_user_id, custom_type_label, circle_id
+                )
         statement = """
                 UPDATE one_location_circles
                 SET name = COALESCE(:name, name),
                     kind = COALESCE(:kind, kind),
+                    metadata = CASE WHEN :kind IS NULL THEN metadata
+                      ELSE (COALESCE(metadata, '{}'::jsonb) - 'customTypeLabel') || CAST(:type_metadata AS JSONB) END,
                     updated_at = NOW()
                 WHERE id = CAST(:circle_id AS UUID)
                   AND owner_user_id = :owner_user_id
@@ -1829,6 +1979,9 @@ class OneLocationCircleService:
             "owner_user_id": owner_user_id,
             "name": name,
             "kind": kind,
+            "type_metadata": json.dumps(
+                {"customTypeLabel": custom_type_label} if custom_type_label else {}
+            ),
         }
         result = (
             connection.execute(text(statement), params)
@@ -2065,12 +2218,14 @@ class OneLocationCircleService:
         circle_id: str,
         name: str | None = None,
         kind: str | None = None,
+        custom_type_label: str | None = None,
         command_operation_id: str | None = None,
         command_binding: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         cleaned_circle_id = _clean_circle_id(circle_id)
         cleaned_name = _clean_name(name) if name is not None else None
         cleaned_kind = _clean_kind(kind) if kind is not None else None
+        cleaned_type = _clean_custom_type_label(custom_type_label, cleaned_kind or "")
         if cleaned_name is None and cleaned_kind is None:
             raise OneLocationCircleError(
                 "LOCATION_CIRCLE_UPDATE_EMPTY",
@@ -2080,7 +2235,7 @@ class OneLocationCircleService:
         affected_user_ids: list[str] = []
         renamed_circle_name = cleaned_name or ""
         if command_operation_id is not None or command_binding is not None:
-            if kind is not None or cleaned_name is None:
+            if kind is not None or custom_type_label is not None or cleaned_name is None:
                 raise OneLocationCircleError(
                     "LOCATION_CIRCLE_COMMAND_REVIEW_REQUIRED",
                     "Review a circle rename without changing its type.",
@@ -2136,6 +2291,7 @@ class OneLocationCircleService:
                     circle_id=cleaned_circle_id,
                     name=cleaned_name,
                     kind=cleaned_kind,
+                    custom_type_label=cleaned_type,
                 )
                 if cleaned_name is not None:
                     affected_user_ids = self._active_circle_user_ids(conn, cleaned_circle_id)
