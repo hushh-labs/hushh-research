@@ -31,7 +31,7 @@ class ScheduledTaskJournal:
 
     async def snapshot(self) -> tuple[dict[str, dict], int]:
         await self.check()
-        records = await self.log.replay()
+        records, _ = await self.log.replay_since(max_records=30000, max_bytes=64 * 1024 * 1024)
         if len(records) > 30000:
             raise ScheduleRefused("SCHEDULE_HISTORY_LIMIT")
         rows: dict[str, dict] = {}

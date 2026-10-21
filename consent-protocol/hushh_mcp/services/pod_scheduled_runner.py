@@ -188,6 +188,9 @@ class ScheduledTaskRunner:
                 row["state"] = "cancelled"
             row["revision"] += 1
             if row["state"] == "pending_delivery":
+                # A completed occurrence's continuation is retained in history,
+                # never reinterpreted as the next recurring invocation.
+                row.pop("checkpoint", None)
                 row["delivery_revision"] = row["revision"]
             return row
 

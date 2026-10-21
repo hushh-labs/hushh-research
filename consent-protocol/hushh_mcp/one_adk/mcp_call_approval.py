@@ -74,6 +74,12 @@ def bind_mcp_approval_port(port: McpApprovalPort):
 async def review_private_call(*args, **kwargs):
     if _APPROVAL_PORT.get() is None:
         return {"status": "blocked", "error": "POD_MCP_REVIEW_UNAVAILABLE", "retryable": False}
+    context = args[0] if args else kwargs.get("context")
+    if context is not None and context.state.get("temp:one_execution_surface") == "scheduled_task":
+        from hushh_mcp.services.pod_scheduled_authority import scheduled_tool_owner
+
+        if await scheduled_tool_owner(context) is None:
+            raise ActionDirectiveAuthorityError("Scheduled connector authority changed.")
     return await review_or_resume_call(*args, **kwargs)
 
 
@@ -268,10 +274,15 @@ class McpCallApproval:
     ) -> McpCallApproval:
         state = context.state
         conversation = state.get("hussh:conversation_id")
+        from hushh_mcp.services.pod_scheduled_authority import scheduled_tool_context
+
         if (
             context.user_id != binding.owner_id
             or state.get("hussh:user_id") != binding.owner_id
-            or state.get("temp:one_execution_surface") != "typed_chat"
+            or (
+                state.get("temp:one_execution_surface") != "typed_chat"
+                and not scheduled_tool_context(context)
+            )
             or not isinstance(conversation, str)
             or not conversation
             or not tool_name

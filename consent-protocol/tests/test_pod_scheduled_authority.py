@@ -34,7 +34,18 @@ async def admitted_task(tmp_path, hub_key, monkeypatch):
             "agent_one.execute_task.v1": SimpleNamespace(
                 required_scopes=("pod.act", "pkm.read"),
                 max_active_seconds=600,
-                prepare=AsyncMock(return_value={"source_revision": 1}),
+                prepare=AsyncMock(
+                    return_value={
+                        "source_revision": 1,
+                        "agent_version": "1.0.0",
+                        "model_binding": {
+                            "provider": "gemini",
+                            "model": "synthetic",
+                            "runtime_mode": "byok",
+                            "selection_revision": 1,
+                        },
+                    }
+                ),
             )
         },
         delivery=SimpleNamespace(require_ready=lambda: None, offer=AsyncMock()),
@@ -214,3 +225,28 @@ def test_specialist_refuses_an_unbounded_task_deadline(deadline):
 
     with pytest.raises(PermissionError):
         _invocation_deadline(deadline)
+
+
+async def test_connector_task_context_cannot_change_the_configured_owner(
+    admitted_task, monkeypatch
+):
+    from hushh_mcp.one_adk import pod_connector_tools as tools
+
+    task = admitted_task
+    monkeypatch.setattr(tools, "owner_cloud_agent", lambda: True)
+    monkeypatch.setattr(tools, "pod_owner_user_id", lambda: USER)
+    with task.invocation.bind() as reference:
+        context = SimpleNamespace(
+            user_id=USER,
+            state={
+                "hussh:user_id": USER,
+                "hussh:conversation_id": "scheduled_" + task.lease.claimed["last_run"]["id"],
+                "temp:one_execution_surface": "scheduled_task",
+                "hussh:consent_token": reference,
+            },
+        )
+        assert await tools.pod_tool_owner(context, "gmail") == USER
+        monkeypatch.setattr(tools, "pod_owner_user_id", lambda: "another-owner")
+        assert await tools.pod_tool_owner(context, "gmail") is None
+    monkeypatch.setattr(tools, "pod_owner_user_id", lambda: USER)
+    assert await tools.pod_tool_owner(context, "gmail") is None

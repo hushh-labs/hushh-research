@@ -11,6 +11,7 @@ import secrets
 import time
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,26 @@ from hushh_mcp.services.pod_scheduled_contracts import ScheduleRefused
 if TYPE_CHECKING:
     from hushh_mcp.services.pod_scheduled_lease import ScheduledExecutionLease
     from hushh_mcp.services.pod_session_authority import PodSessionAuthority
+
+_CURRENT: ContextVar[ScheduledInvocationAuthority | None] = ContextVar(
+    "scheduled_invocation", default=None
+)
+
+
+def scheduled_tool_context(context) -> bool:
+    current = _CURRENT.get()
+    return current is not None and current.owns_tool_context(context)
+
+
+async def scheduled_tool_owner(context) -> str | None:
+    from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+
+    current = _CURRENT.get()
+    if current is None or not current.owns_tool_context(context):
+        return None
+    token = resolve_request_secret(context.state.get("hussh:consent_token"))
+    verdict = await current.verify(token, expected_scope="pkm.read")
+    return current.owner_id if verdict.valid else None
 
 
 class ScheduledGrantAuthority:
@@ -90,11 +111,30 @@ class ScheduledInvocationAuthority:
             raise ScheduleRefused("SCHEDULE_INVOCATION_ALREADY_BOUND")
         self._credential = "pod-task:" + secrets.token_urlsafe(32)
         reference = store_request_secret(self._credential)
+        binding = _CURRENT.set(self)
         try:
             yield reference
         finally:
             self._credential = ""
+            _CURRENT.reset(binding)
             consume_request_secret(reference)
+
+    def owns_tool_context(self, context) -> bool:
+        from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+
+        state = getattr(context, "state", None)
+        return bool(
+            self._credential
+            and state is not None
+            and getattr(context, "user_id", None) == self.owner_id
+            and state.get("hussh:user_id") == self.owner_id
+            and state.get("temp:one_execution_surface") == "scheduled_task"
+            and state.get("hussh:conversation_id")
+            == "scheduled_" + self.lease.claimed["last_run"]["id"]
+            and secrets.compare_digest(
+                resolve_request_secret(state.get("hussh:consent_token")), self._credential
+            )
+        )
 
     async def verify(self, token: str, *, expected_scope: str = "", **_ignored) -> ConsentVerdict:
         if not self._credential or not secrets.compare_digest(token, self._credential):

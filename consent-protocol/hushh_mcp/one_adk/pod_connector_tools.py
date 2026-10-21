@@ -37,7 +37,14 @@ async def pod_tool_owner(tool_context: Any, provider: str) -> Optional[str]:
     if provider not in _PROVIDERS or not owner_cloud_agent():
         return None
     state = getattr(tool_context, "state", None)
-    if state is None or state.get("temp:one_execution_surface") != "typed_chat":
+    if state is None:
+        return None
+    if state.get("temp:one_execution_surface") == "scheduled_task":
+        from hushh_mcp.services.pod_scheduled_authority import scheduled_tool_owner
+
+        owner = await scheduled_tool_owner(tool_context)
+        return owner if owner == pod_owner_user_id() else None
+    if state.get("temp:one_execution_surface") != "typed_chat":
         return None
     owner = str(state.get("hussh:user_id") or "").strip()
     if not owner or getattr(tool_context, "user_id", None) != owner:

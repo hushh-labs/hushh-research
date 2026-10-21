@@ -259,7 +259,21 @@ requirements. A claim-bound invocation port checks the current subject, exact
 terms, occurrence and original deadline on every access. Its memory-only handle
 is neither a browser session nor an action approval and is removed at scope exit.
 The specialist owner-read port accepts this explicit admission without a fabricated
-session token. General One composition and exact review continuation remain open.
+session token.
+
+The local native ADK continuation adapter stores a bounded session projection and
+private pending connector calls inside the same sealed schedule. It retains the
+original invocation and native confirmation markers; request credentials, raw
+connector payloads and unsupported SDK channels are excluded. The existing hub
+ledger still requires the owner's exact confirmation. Dispatch intent is sealed
+before approval consumption; a lost reply cannot replay the call. Snapshot CAS
+precedes publication into the live session. Generic schedule Resume refuses a
+retained checkpoint, and parked reads refuse uncertain dispatch. Controlled native
+ADK/PostgreSQL tests cover these boundaries; this is not installed acceptance.
+General One composition, safely reclaiming a parked execution segment and the
+owner-facing continuation route remain open. A process-local AI cache counter is
+not a cross-restart model identity; composition must freeze the durable selection
+floor, selection ID and resolved provider destination.
 
 The sealed pod log owns the schedule, occurrence claim, cancellation and settlement.
 The due-time delivery contains identifiers only; an exact authenticated worker route

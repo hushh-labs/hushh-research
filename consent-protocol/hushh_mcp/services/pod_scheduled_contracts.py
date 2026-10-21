@@ -15,6 +15,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from hushh_mcp.services.pod_scheduled_checkpoint import (
+    ScheduledCheckpoint,
+    validate_schedule_checkpoint,
+)
+
 
 class ScheduleRefused(RuntimeError):
     def __init__(self, code: str):
@@ -172,10 +177,13 @@ class _ScheduleRecord(BaseModel):
         "needs_review",
     ]
     last_run: _RunReceipt | None
+    checkpoint: ScheduledCheckpoint | None = Field(default=None, repr=False)
 
     @model_validator(mode="after")
     def bounded(self):
         ZoneInfo(self.timezone)
+        if self.checkpoint is not None:
+            validate_schedule_checkpoint(self.model_dump(), self.checkpoint)
         scopes = self.grant.get("scopes")
         if (
             self.delivery_revision > self.revision

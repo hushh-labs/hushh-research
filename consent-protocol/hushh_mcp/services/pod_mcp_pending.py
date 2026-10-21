@@ -3,11 +3,22 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Callable
 from copy import deepcopy
 from datetime import UTC, datetime
+from typing import Any, Protocol, TypeVar
 
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
-from hushh_mcp.services.pod_action_checkpoints import PodActionCheckpointStorage
+
+_T = TypeVar("_T")
+
+
+class PrivatePendingStorage(Protocol):
+    owner: str
+
+    async def read(self) -> tuple[dict[str, Any], str]: ...
+
+    async def change(self, mutate: Callable[[dict[str, Any]], _T]) -> _T: ...
 
 
 def _current(value: dict) -> bool:
@@ -19,7 +30,7 @@ def _current(value: dict) -> bool:
 
 
 class PodMcpPendingStore:
-    def __init__(self, storage: PodActionCheckpointStorage):
+    def __init__(self, storage: PrivatePendingStorage):
         self.storage = storage
 
     async def save(self, payload: dict) -> str:

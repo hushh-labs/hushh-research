@@ -197,6 +197,8 @@ class ScheduledTasks:
             if operation == "pause" and row["state"] == "running":
                 raise ScheduleRefused("SCHEDULE_ACTIVE_PAUSE_REFUSED")
             if operation == "resume":
+                if row.get("checkpoint") is not None:
+                    raise ScheduleRefused("SCHEDULE_EXACT_CONTINUATION_REQUIRED")
                 if (
                     row["incarnation"] != self.access.incarnation
                     or row["authorization_expires_at"] <= self.clock()

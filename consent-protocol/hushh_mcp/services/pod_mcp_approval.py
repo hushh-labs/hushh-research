@@ -7,12 +7,12 @@ lock. Only the authenticated browser route can confirm, never this machine port.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import hmac
 import json
 from dataclasses import asdict
 from datetime import datetime
+from functools import partial
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -220,10 +220,14 @@ class PodMcpApprovalPort:
         if await self.owner.authority.lease.state(force=True) != "held":
             raise ActionDirectiveAuthorityError("Private review incarnation changed.")
         try:
-            response = await asyncio.to_thread(
-                self.client.post,
-                f"/api/one/pod/mcp-approval/{operation}",
-                json=payload.model_dump(exclude_none=True),
+            from hushh_mcp.services.pod_object_version import run_write_to_completion
+
+            response = await run_write_to_completion(
+                partial(
+                    self.client.post,
+                    f"/api/one/pod/mcp-approval/{operation}",
+                    json=payload.model_dump(exclude_none=True),
+                )
             )
             if response.status_code != 200:
                 raise ActionDirectiveAuthorityError("Private connector authority unavailable.")
