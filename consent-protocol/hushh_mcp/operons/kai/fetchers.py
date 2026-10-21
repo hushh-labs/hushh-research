@@ -678,10 +678,16 @@ async def _fetch_yfinance_quote(ticker: str, *, timeout_seconds: float = 3.5) ->
         "price": info.get("currentPrice") or info.get("regularMarketPrice", 0),
         "change_percent": info.get("regularMarketChangePercent", 0),
         "volume": info.get("volume", 0),
-        "market_cap": info.get("marketCap", 0),
-        "pe_ratio": info.get("trailingPE", 0),
-        "pb_ratio": info.get("priceToBook", 0),
-        "dividend_yield": info.get("dividendYield", 0) or 0,
+        "market_cap": info.get("marketCap"),
+        "pe_ratio": info.get("trailingPE"),
+        "pb_ratio": info.get("priceToBook"),
+        "forward_pe": info.get("forwardPE"),
+        "ps_ratio": info.get("priceToSalesTrailing12Months"),
+        "ev_ebitda": info.get("enterpriseToEbitda"),
+        "enterprise_value": info.get("enterpriseValue"),
+        "52w_low": info.get("fiftyTwoWeekLow"),
+        "52w_high": info.get("fiftyTwoWeekHigh"),
+        "dividend_yield": info.get("trailingAnnualDividendYield"),
         "company_name": info.get("longName", ticker.upper()),
         "sector": info.get("sector", "Unknown"),
         "industry": info.get("industry", "Unknown"),
@@ -741,6 +747,8 @@ async def _fetch_yahoo_search_peers(ticker: str) -> List[str]:
         quotes = payload.get("quotes") or []
         peers: list[str] = []
         for row in quotes:
+            if str((row or {}).get("quoteType") or "").upper() != "EQUITY":
+                continue
             symbol = str((row or {}).get("symbol") or "").upper().strip()
             if symbol and symbol != ticker.upper() and symbol not in peers:
                 peers.append(symbol)
