@@ -334,7 +334,7 @@ describe("DirectMessagesPage", () => {
   }
 
   it("confirms whole-chat deletion and removes it only after acknowledgment", async () => {
-    const invalidateFeed = vi.spyOn(CacheSyncService, "onFeedChanged");
+    const invalidateFeed = vi.spyOn(CacheSyncService, "onFeedHistoryMutated");
     let finish!: () => void;
     mocks.deleteConversation.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }));
     renderConnectionThread();

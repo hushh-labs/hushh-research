@@ -33,7 +33,7 @@ import { useLocalOnboardingActionHandler, type LocalOnboardingActionHandler, typ
 import { ConnectionsService } from "@/lib/services/connections-service";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
-import { currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
+import { currentFeedInvalidationEpoch, currentFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
@@ -785,31 +785,42 @@ function FeedPageSession({
   const loadMore = useCallback(async () => {
     const requestedCursor = pagination.nextCursor;
     if (!user || !requestedCursor || loadMoreInFlightRef.current) return;
+    const presentationRevision = currentFeedPresentationRevision(user.uid);
+    const isCurrent = () => isSessionCurrent()
+      && currentFeedPresentationRevision(user.uid) === presentationRevision;
     // Intersection callbacks can repeat before React commits the busy state.
     loadMoreInFlightRef.current = true;
     setLoadMoreError(null);
     setLoadingMore(true);
     try {
       const idToken = await getSessionToken();
+      if (!isCurrent()) return;
       const response = await FeedService.list({
         idToken,
         cursor: requestedCursor,
         limit: 20,
-        isEffectCurrent: isSessionCurrent,
+        isEffectCurrent: isCurrent,
       });
+      if (!isCurrent()) return;
+      if (typeof response.history_revision === "string"
+        && response.history_revision !== visiblePage?.history_revision) {
+        CacheSyncService.onFeedHistoryMutated(user.uid);
+        void refresh({ force: true });
+        return;
+      }
       if (response.next_cursor === requestedCursor) {
         throw new Error("Feed cursor did not advance");
       }
       setPagination((current) =>
-        appendFeedPage(current, response, requestedCursor),
+        isCurrent() ? appendFeedPage(current, response, requestedCursor) : current,
       );
     } catch {
-      setLoadMoreError("Couldn't load more.");
+      if (isCurrent()) setLoadMoreError("Couldn't load more.");
     } finally {
       loadMoreInFlightRef.current = false;
       setLoadingMore(false);
     }
-  }, [user, pagination.nextCursor, getSessionToken, isSessionCurrent, setPagination]);
+  }, [user, pagination.nextCursor, getSessionToken, isSessionCurrent, setPagination, visiblePage?.history_revision, refresh]);
 
   // The owner's "One sent N files" card opens its file list in place.
   const [sharedFiles, setSharedFiles] = useState<{

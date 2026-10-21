@@ -130,6 +130,8 @@ export type FeedListResponse = {
   items: FeedItem[];
   next_cursor: string | null;
   unread_count: number;
+  /** Opaque owner received-message deletion revision; absent on older backends. */
+  history_revision?: string | null;
 };
 
 /** A removal the server stored for this account. */

@@ -52,6 +52,13 @@ def test_delete_chat_is_viewer_only_durable_and_new_messages_restore_it(
     other = service.send_message(viewer, recipient_user_id="carol", content="Keep this other chat")
     conversation = first["conversation"]["id"]
     peer_before = service.list_messages(peer, conversation)["items"]
+    with projection_db.engine.begin() as connection:
+        connection.execute(text("ALTER TABLE feed_events ADD COLUMN dismissed_at timestamptz"))
+        connection.execute(text("ALTER TABLE actor_identity_cache ADD COLUMN email text"))
+    feed = FeedService()
+    monkeypatch.setattr(feed, "_get_db", lambda: projection_db)
+    before_revision = feed.list_feed(viewer, cursor=0)["history_revision"]
+    peer_revision = feed.list_feed(peer, cursor=0)["history_revision"]
     events.clear()
     assert service.delete_conversation(viewer, conversation) == {
         "conversationId": conversation,
@@ -60,14 +67,21 @@ def test_delete_chat_is_viewer_only_durable_and_new_messages_restore_it(
     }
     assert events and {event[0] for event in events} == {viewer}
     assert any(event[1].get("action") == "conversation_deleted" for event in events)
-    assert any(event[1]["type"] == "feed_changed" for event in events)
+    assert any(
+        event[1]["type"] == "feed_changed" and event[1].get("reason") == "history_mutated"
+        for event in events
+    )
     assert service.list_messages(viewer, conversation)["items"] == []
     assert service.list_messages(peer, conversation)["items"] == peer_before
     assert (
         service.list_conversations(viewer, limit=1)["items"][0]["id"] == other["conversation"]["id"]
     )
     assert service.list_conversations(viewer)["unreadCount"] == 0
+    after_revision = feed.list_feed(viewer, cursor=0)["history_revision"]
+    assert isinstance(after_revision, str) and after_revision != before_revision
+    assert feed.list_feed(peer, cursor=0)["history_revision"] == peer_revision
     assert service.delete_conversation(viewer, conversation)["deleted"] is True
+    assert feed.list_feed(viewer, cursor=0)["history_revision"] == after_revision
     with pytest.raises(DirectMessagesError):
         service.delete_conversation("outsider", conversation)
     for operation in (
@@ -93,13 +107,9 @@ def test_delete_chat_is_viewer_only_durable_and_new_messages_restore_it(
             operation()
     # Feed uses source visibility before grouping/counting and before decrypting.
     with projection_db.engine.begin() as connection:
-        connection.execute(text("ALTER TABLE feed_events ADD COLUMN dismissed_at timestamptz"))
-        connection.execute(text("ALTER TABLE actor_identity_cache ADD COLUMN email text"))
         assert (
             connection.execute(text(_GROUPED_FEED_COUNT_SQL), {"user_id": viewer}).scalar_one() == 0
         )
-    feed = FeedService()
-    monkeypatch.setattr(feed, "_get_db", lambda: projection_db)
     source = first if viewer == "bob" else second
     enriched = feed._with_direct_message_previews(
         viewer,
@@ -113,6 +123,7 @@ def test_delete_chat_is_viewer_only_durable_and_new_messages_restore_it(
     )
     assert "_direct_message_preview" not in enriched[0]
     new = service.send_message(peer, recipient_user_id=viewer, content="A fresh message")
+    assert feed.list_feed(viewer, cursor=0)["history_revision"] == after_revision
     assert [item["content"] for item in service.list_messages(viewer, conversation)["items"]] == [
         "A fresh message"
     ]

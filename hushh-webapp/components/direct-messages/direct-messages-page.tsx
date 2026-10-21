@@ -629,7 +629,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     invalidateInboxRead();
     setInbox(current => current?.ownerId === ownerId
       ? { ...current, items: current.items.filter(item => item.id !== conversationId) } : current);
-    CacheSyncService.onFeedChanged(ownerId);
+    CacheSyncService.onFeedHistoryMutated(ownerId);
     dispatchFeedStateChanged("action");
     const peer = peerPersonRef ?? inboxItems.find(item => item.id === conversationId)?.peerPersonRef;
     const selections = [`conversation:${conversationId}`, ...(peer ? [`person:${peer}`] : [])];

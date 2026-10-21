@@ -486,6 +486,29 @@ class FeedService:
         """
         bounded_limit = max(1, min(limit, _MAX_LIMIT))
         db = self._get_db()
+        # Read before the page: a concurrent deletion may conservatively label
+        # newer rows with an older revision, never stale rows with a newer one.
+        revision_rows = (
+            db.execute_raw(
+                """SELECT md5(concat_ws(':',
+                count(*) FILTER (WHERE m.deleted_for_recipient_at IS NOT NULL),
+                max(m.deleted_for_recipient_at),
+                count(*) FILTER (WHERE m.deleted_for_everyone_at IS NOT NULL),
+                max(m.deleted_for_everyone_at))) AS history_revision
+            FROM feed_events f
+            JOIN messages m ON m.id = CASE WHEN f.source_row_id ~*
+              '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+              THEN f.source_row_id::uuid ELSE NULL END
+            JOIN conversations c ON c.id = m.conversation_id
+            WHERE f.user_id = :user_id AND f.source_domain = 'connections'
+              AND f.event_type = 'direct_message_received'
+              AND m.sender_user_id <> :user_id
+              AND :user_id IN (c.participant_a_user_id, c.participant_b_user_id)
+            """,
+                {"user_id": user_id},
+            ).data
+            or []
+        )
         rows = (
             db.execute_raw(
                 self._grouped_feed_sql(count=False),
@@ -505,6 +528,7 @@ class FeedService:
             "items": [self._to_item(row, user_id) for row in rows],
             "next_cursor": next_cursor,
             "unread_count": self.unread_count(user_id),
+            "history_revision": revision_rows[0]["history_revision"] if revision_rows else None,
         }
 
     def _with_drive_payment_status(

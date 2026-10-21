@@ -2009,7 +2009,7 @@ class DirectMessagesService:
                     "action": "conversation_deleted",
                 },
             )
-            self._event_notifier(viewer, {"type": "feed_changed"})
+            self._event_notifier(viewer, {"type": "feed_changed", "reason": "history_mutated"})
         except Exception as exc:  # noqa: BLE001 - committed state is authoritative
             logger.warning("direct_messages.delete_chat_event_failed error=%s", type(exc).__name__)
         return {"conversationId": conversation_key, "deleted": True, "scope": "me"}

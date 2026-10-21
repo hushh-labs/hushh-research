@@ -305,9 +305,10 @@ def _reset_frame() -> dict[str, str]:
     return {"event": "feed_reset", "data": "{}"}
 
 
-def _general_feed_frame() -> dict[str, str]:
-    # Owner-scoped and content-free: whatever the producer wrote stays in the DB.
-    return {"event": "feed_changed", "data": "{}"}
+def _general_feed_frame(item: dict[str, Any]) -> dict[str, str]:
+    # Only an explicit history reset reason crosses this content-free boundary.
+    payload = {"reason": "history_mutated"} if item.get("reason") == "history_mutated" else {}
+    return _json_frame("feed_changed", payload)
 
 
 def _feed_changed_frame(item: dict[str, Any]) -> dict[str, str] | None:
@@ -472,7 +473,7 @@ async def document_feed_event_generator(
                 )
             elif event_type == GENERAL_FEED_EVENT_TYPE:
                 # Installed v1 builds ignore it; it never shortens their long-poll.
-                yield _general_feed_frame()
+                yield _general_feed_frame(item)
             elif event_type == FEED_CHANGED_EVENT_TYPE:
                 frame = _feed_changed_frame(item)
                 if frame is not None:

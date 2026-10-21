@@ -175,6 +175,20 @@ describe("document feed stream manager", () => {
       [{ general: true, consent: true, requestId: REQUEST }],
     ]);
     expect(deps.dispatchPayout).toHaveBeenCalledTimes(0);
+    deps.dispatchFeed.mockClear();
+    stream.push('event: feed_changed\ndata: {}\n\n' + 'event: feed_changed\ndata: {"reason":"history_mutated","content":"discard"}\n\n');
+    await tick(10_000);
+    expect(deps.dispatchFeed.mock.calls).toEqual([
+      [{ general: true, consent: false }],
+      [{ general: true, consent: false, historyMutated: true }],
+    ]);
+    deps.dispatchFeed.mockClear();
+    stream.push('event: feed_changed\ndata: {"reason":"history_mutated"}\n\n');
+    await tick(10_000);
+    expect(deps.dispatchFeed.mock.calls).toEqual([
+      [{ general: true, consent: false, historyMutated: true }],
+      [{ general: true, consent: false, historyMutated: true }],
+    ]);
     manager.stop();
   });
 

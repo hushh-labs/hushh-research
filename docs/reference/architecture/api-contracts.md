@@ -2261,8 +2261,16 @@ message after deletion starts visible history again. Empty hidden conversations
 are excluded before inbox pagination; unread counts, attachment access, reply,
 edit, reaction, send retry, and derived Feed previews respect the caller's
 deletion flags. Metadata-only `conversation_deleted` and `feed_changed`
-doorbells notify only that caller, and clients invalidate owner-scoped inbox and
-Feed reads before refreshing. No schema migration or new history store is
+doorbells notify only that caller. The general Feed frame permits only the
+exact `{reason:"history_mutated"}` metadata hint, which invalidates saved Feed
+pagination and fences stale unmount saves. A fresh authoritative read replaces
+loaded history after deletion; ordinary arrivals preserve the reading position.
+Feed list responses also carry an opaque owner-scoped `history_revision` derived
+from received-message deletion flags across all source rows. It is read before
+the page so a racing deletion cannot label stale rows with a newer revision.
+This repairs missed hints and fences older pagination completions; older
+backends without the optional field retain compatibility behavior.
+Clients invalidate owner-scoped inbox and Feed reads before refreshing. No schema migration or new history store is
 introduced.
 
 The send route also accepts `attachment: {name, mimeType, data}` with canonical
