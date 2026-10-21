@@ -66,7 +66,7 @@ omitted; section counts are current account state, not product limits.
 | No activity yet | Valid only when all rendered content families and errors are absent. No second explanatory sentence is mounted in the current empty state. |
 | History day labels | Today, Yesterday, or local weekday/month/day; newest timestamp first. |
 | Existing Drive access completes without charge | Confirmed checkout completion invalidates consent and Feed before refreshing. An earlier pending read cannot restore Pay. History describes the server's current participant-scoped no-charge receipt; stored metadata cannot assert it. |
-| Load more / Loading… / Retry | Twenty-row history paging. Older-page failure retains existing rows and says Couldn't load more. Try again. |
+| Automatic older history / Retry | Prefetches the next twenty-row page within 240px of the app scroll end. Shows Loading older activity… while reading; stops at the final cursor. Duplicate reads are blocked. Failure or a repeated cursor retains existing rows and pauses automatic reads until Retry. Load more remains a fallback when IntersectionObserver is unavailable. |
 
 The session is keyed by account. Switching account retires read/clear
 watermarks, pending UI, paging and Undo ownership. First/older pages
@@ -528,7 +528,7 @@ Source: [page](../../components/feed/feed-page.tsx),
 | Surface/state | Exact English |
 | --- | --- |
 | Admission/sections | `Loading feed…`; accessible `Loading feed`; `Live`; `Needs you`; `Recent SMS alerts`; `Coming up`; `In progress`; `Today`; `Yesterday`; older local weekday/month/day |
-| Failure/empty/paging | `Activity unavailable`; `Retry`; `Showing saved activity. Some updates couldn't refresh.`; `No activity yet`; `Load more`; `Loading…`; `Couldn't load more. Try again.` |
+| Failure/empty/paging | `Activity unavailable`; `Retry`; `Showing saved activity. Some updates couldn't refresh.`; `No activity yet`; fallback `Load more`; `Loading…`; `Loading older activity…`; `Couldn't load more. Try again.` |
 | History swipe/confirm | `Keep`; `Remove`; `Remove from feed?`; event label; `Cancel`; `Remove` |
 | History outcome | `Removed from Feed`; `Undo`; `Couldn't confirm removal. Try again.`; `Couldn't remove this item. Try again.`; `This item can no longer be restored.`; `Couldn't restore this item. Try again.`; `Kept in Feed` |
 | Clear | `Clear Feed`; `Confirm clear`; `Clearing…`; `Feed cleared`; `Couldn't clear your feed.` |

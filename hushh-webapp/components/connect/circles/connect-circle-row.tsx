@@ -148,7 +148,7 @@ export function ConnectCircleRow({
               <MoreHorizontal aria-hidden="true" className="size-5" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-52 p-1">
+          <PopoverContent align="end" className="flex w-52 flex-col gap-1 p-1">
             <Button
               type="button"
               variant="none"

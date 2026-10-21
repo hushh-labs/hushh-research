@@ -1,7 +1,9 @@
 # Calendar Subagent UI Contract
 
-Status: current source-backed product reference inspected at revision
-`49b175bdc4bf636ede1b2353f4c493496a94c9cc` on 21 October 2026.
+Status: source-backed product reference. The original single-account inventory
+was inspected at revision `49b175bdc4bf636ede1b2353f4c493496a94c9cc` on
+21 October 2026. The three-account board section below reflects this checkout;
+it does not claim a deployed provider run.
 Owner: frontend architecture with Calendar service and private-agent runtime
 owners. Classification: `canonical`, package-local.
 
@@ -62,12 +64,13 @@ flowchart TD
 
 ## Reading the contract
 
-The three connected tabs are **Schedule**, **Invitations**, and **Insights**.
-Schedule adds **Today** and **Free time**; Invitations adds response filters;
-Insights contains its own overview, library, meeting detail and asset filters.
-These are different local state owners rather than additional application routes.
-Normal first mount is Schedule/Today. Tab selection does not write a URL query
-or a server preference.
+When Calendar status returns an `accounts` collection, the connected tabs are
+**Board**, **Invitations**, and **Insights**. The board opens first and presents
+each account's Events/Free time alongside shared free time. The detailed
+Schedule/Today sections below document the retained single-account fallback
+for servers that have not supplied `accounts`. Invitations adds response
+filters; Insights retains its existing library and detail paths. Tab selection
+does not write a URL query or a server preference.
 
 Use `F` for Firebase ID-token authority and `V` for the current same-owner
 vault-owner token. `F`-only sends `Authorization: Bearer F`; dual `F+V` sends
@@ -83,6 +86,31 @@ is derived from current source and existing fixture assertions; it is not a
 measurement of a live signed-in route or a physical phone. Browser zoom changes
 the CSS viewport. A screenshot at 50% zoom cannot establish a second product
 breakpoint or be used to halve these CSS values.
+
+## Three-account board in this checkout
+
+The default Google Calendar grant remains the legacy account. Up to two
+additional, distinct Google subjects use owner-bound OAuth attempts and
+encrypted account-specific credentials. Status returns the existing top-level
+default fields plus `accounts` and `account_limit:3`; the UI presents one to
+three accounts in independent columns on desktop and stacked cards on narrow
+screens. Add, targeted reconnect, permission upgrade and disconnect act on one
+account. A disconnected slot can be reused. Google Mail authority remains
+separate from Calendar authority.
+
+| Surface | Current behavior and failure boundary |
+| --- | --- |
+| Board read | `POST /api/one/calendar/board/day` reads each connected account for the selected local date and display zone. The backend pages readable events, includes hidden invitations, checks account bindings before/after reads, and reports unreadable calendars instead of silently claiming every event is visible. The UI keeps all returned events, including declined invitations, in a scrollable account column. |
+| Free time | Each account has its own full-day free windows. The server intersects all sets and returns shared openings only when every account check is complete. Free/busy failure, reauthorization or an account change leaves shared availability incomplete. Duration is 15, 30 or 60 minutes; selected calendar exclusions affect availability only and require a visible confirmation. The existing One slot handoff remains available for a single default account. With multiple accounts, shared openings are a comparison snapshot only: One's current proposal rechecks the default grant, so the board does not offer a booking handoff that could miss a newly busy secondary account. Nothing is reserved by a displayed opening. |
+| Overlaps | A warning icon appears on affected event rows; a zero-overlap board uses a success icon. The server compares busy events across different accounts, excludes transparent/cancelled/declined events and suppresses mirrored occurrences. Conflict coverage is marked incomplete when any calendar's event details are unreadable. |
+| Event detail | Opens and closes on the Calendar page, shows source account, time, location, description and safe provider/meeting links. The existing invitation response component remains mounted for actionable invitations. |
+| Conflict choice | The person chooses one meeting to keep and up to two overlapping invitations to decline, writes a separate note to each organizer and reviews the exact Calendar and Mail steps before confirmation. `POST /api/one/calendar/conflicts/review` prepares a sealed, ten-minute plan; it makes no provider change. `POST /api/one/calendar/conflicts/confirm` checks the account, event, conflict and kept-meeting state again before each decline. The dialog remains on Calendar. |
+| Partial outcome | Calendar RSVP and organizer email have independent results. A definitely failed Mail send can be reviewed for a manual email-only retry while the invitation remains declined; a sent or unknown retry is not offered again. The account board refreshes after a confirmed result when the dialog closes. Draft choices/notes survive an in-place board refresh, while a fresh provider review is required after authority changes. |
+
+The old Schedule geometry and single-account copy below describe the retained
+fallback, not the board. The board's new UI and backend tests use synthetic
+accounts; live Google OAuth, Mail delivery and deployed migrations need
+environment-backed acceptance before rollout can be claimed.
 
 ## Entry, onboarding and completion
 
@@ -930,7 +958,7 @@ linked Python/Pydantic and TypeScript definitions own executable validation.
 | Method + suffix | Actual caller / body | Authority | Response and effect |
 | --- | --- | --- | --- |
 | GET `status/{user_id}` | Page, chat/invitation connection reads; same owner path | `F` | `configured,connected,google_email,status,access_level,scope_csv,calendar_list_access` → account, connection/permission eligibility. Stored grant metadata; no events request. Ordinary auth can schedule best-effort identity sync. |
-| POST `connect/start` | Web CTA; `user_id,access_level,redirect_uri`. Schema also permits `login_hint`, not sent by helper | `F`, same owner | `configured,authorize_url,redirect_uri,expires_at`;10-minute one-use OAuth attempt, no event write. |
+| POST `connect/start` | Web CTA; `user_id,access_level,redirect_uri`, with `additional:true` for another account and optional `account_id,login_hint` for targeted reconnect | `F`, same owner | `configured,authorize_url,redirect_uri,expires_at`;10-minute one-use OAuth attempt, no event write. |
 | POST `connect/complete` | Exported compatibility Calendar helper; `user_id,code,state,redirect_uri` | `F`, bound one-use attempt | Verified Calendar connection fields; exchanges code/stores credential envelope. Actual shared callback uses endpoint below. |
 | POST `connect/native/start` | Native CTA; `access_level`, optional `include_calendar_list:true`; owner from `F` | `F` | `configured,server_client_id,service,access_level,state,include_calendar_list`; public client/state only. |
 | POST `connect/native/complete` | `user_id,access_level,server_auth_code,state` | `F`, same owner/service/transport/scope/generation attempt | Verified status; no Google token returned to UI. |

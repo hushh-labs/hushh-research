@@ -70,6 +70,7 @@ import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
 import { useFeedHistoryPresentation } from "@/lib/feed/use-feed-history-presentation";
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
 import { ROUTES } from "@/lib/navigation/routes";
+import { getAppScrollRoot } from "@/lib/navigation/use-scroll-reset";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { listKaiActionsForSurface } from "@/lib/kai/actions/kai-action-gateway";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
@@ -353,6 +354,9 @@ function FeedPageSession({
   const { page: visiblePage, pagination, setPagination, hasNew, showNew } = useFeedHistoryPresentation(user?.uid, data);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const loadMoreInFlightRef = useRef(false);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  const [automaticPaginationAvailable, setAutomaticPaginationAvailable] = useState(false);
   const [dismissedItemIds, setDismissedItemIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -780,7 +784,9 @@ function FeedPageSession({
 
   const loadMore = useCallback(async () => {
     const requestedCursor = pagination.nextCursor;
-    if (!user || !requestedCursor || loadingMore) return;
+    if (!user || !requestedCursor || loadMoreInFlightRef.current) return;
+    // Intersection callbacks can repeat before React commits the busy state.
+    loadMoreInFlightRef.current = true;
     setLoadMoreError(null);
     setLoadingMore(true);
     try {
@@ -791,15 +797,19 @@ function FeedPageSession({
         limit: 20,
         isEffectCurrent: isSessionCurrent,
       });
+      if (response.next_cursor === requestedCursor) {
+        throw new Error("Feed cursor did not advance");
+      }
       setPagination((current) =>
         appendFeedPage(current, response, requestedCursor),
       );
     } catch {
       setLoadMoreError("Couldn't load more.");
     } finally {
+      loadMoreInFlightRef.current = false;
       setLoadingMore(false);
     }
-  }, [user, pagination.nextCursor, loadingMore, getSessionToken, isSessionCurrent, setPagination]);
+  }, [user, pagination.nextCursor, getSessionToken, isSessionCurrent, setPagination]);
 
   // The owner's "One sent N files" card opens its file list in place.
   const [sharedFiles, setSharedFiles] = useState<{
@@ -1009,6 +1019,24 @@ function FeedPageSession({
   // revoked SOS card, which has nothing left to act on and is the one
   // actionable type Clear also removes.
   const canClear = hasHistory || hasClearableSmsEmergencies;
+  useEffect(() => {
+    const available = typeof IntersectionObserver !== "undefined";
+    setAutomaticPaginationAvailable(available);
+    const sentinel = loadMoreSentinelRef.current;
+    if (!available || !sentinel || !pagination.nextCursor || loadingMore ||
+        loadMoreError || !clearWatermarkHydrated || !visiblePage || clearing) return;
+    let active = true;
+    const observer = new IntersectionObserver((entries) => {
+      if (!active || !entries.some((entry) => entry.isIntersecting)) return;
+      active = false;
+      observer.disconnect();
+      void loadMore();
+    }, { root: getAppScrollRoot(), rootMargin: "240px 0px" });
+    observer.observe(sentinel);
+    // Reobserve after each page: short/grouped pages may leave the end visible.
+    // Errors deliberately stop automatic reads until the person chooses Retry.
+    return () => { active = false; observer.disconnect(); };
+  }, [pagination.nextCursor, loadingMore, loadMoreError, clearWatermarkHydrated, visiblePage, clearing, loadMore]);
   const hasUsableContent = hasActionables || hasUpcomingEvents || hasProgress || hasHistory || hasBankPayout;
   const beaconDataState = hasUsableContent ? "loaded" : contentLoading
     ? "loading"
@@ -1216,14 +1244,15 @@ function FeedPageSession({
                 ))
               : null}
 
-            {hasHistory && pagination.nextCursor ? (
-              <div className="flex flex-col items-center gap-1 pt-2">
+            {pagination.nextCursor ? (
+              <div ref={loadMoreSentinelRef} className="flex min-h-11 flex-col items-center justify-center gap-1 pt-2">
                 {loadMoreError ? (
                   <p data-profile-role="description" role="alert" className="text-muted-foreground">
                     {loadMoreError} Try again.
                   </p>
                 ) : null}
-                <Button
+                {loadingMore ? <p role="status" className="text-sm text-muted-foreground">Loading older activity…</p> : null}
+                {!automaticPaginationAvailable || loadMoreError ? <Button
                   data-profile-role="action"
                   type="button"
                   variant="none"
@@ -1237,7 +1266,7 @@ function FeedPageSession({
                     : loadMoreError
                       ? "Retry"
                       : "Load more"}
-                </Button>
+                </Button> : null}
               </div>
             ) : null}
             {/* Clearing is housekeeping, not a task: it sits quietly after the

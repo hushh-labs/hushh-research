@@ -36,6 +36,27 @@ def _legacy_alias_tokens(graph: dict[str, object]) -> set[str]:
     return tokens
 
 
+def test_circle_type_delete_inventory_has_no_model_or_server_execution_binding() -> None:
+    graph = runtime.load_capability_graph()
+    workflow = next(
+        item for item in graph["workflows"] if item["capability_id"] == "workflow.setup.location"
+    )
+    endpoint = next(
+        item
+        for item in workflow["api_endpoints"]
+        if item["path"] == "/api/one/location/circle-types"
+    )
+    assert endpoint["method"] == "DELETE"
+    assert endpoint["authorization"] == "vault_owner"
+    assert endpoint["binding_status"] == "discovered_unbound"
+    assert runtime.get_capability(endpoint["capability_id"]) is None
+    assert not runtime.is_server_direct_capability(endpoint["capability_id"])
+    catalog = runtime._location_brain_catalog_from_graph(graph)
+    cards = runtime._location_brain_index_cards(catalog)
+    assert all(card["candidate_id"] != endpoint["capability_id"] for card in cards)
+    assert all(card.get("kind") != "endpoint_inventory" for card in cards)
+
+
 def test_location_semantic_retrieval_ignores_legacy_aliases_and_routes_held_out_phrase(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
