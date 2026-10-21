@@ -638,6 +638,16 @@ for (const scrollAway of [false, true]) test(`a delayed inline photo preserves $
     await expect(page.getByRole("button", { name: "Go to latest messages" })).toBeVisible();
   }
   const before = await list.evaluate(node => node.scrollTop);
+  await list.evaluate(node => {
+    const beforePhotoLoad = (event: Event) => {
+      if (!(event.target instanceof HTMLImageElement) || event.target.alt !== "Photo") return;
+      // Some browsers deliver an anchoring scroll after layout, before React's
+      // image-load callback. Preserve that ordering deterministically.
+      node.dispatchEvent(new Event("scroll"));
+      node.removeEventListener("load", beforePhotoLoad, true);
+    };
+    node.addEventListener("load", beforePhotoLoad, true);
+  });
   await fixture(page, "fixture.releasePhotos()");
   const image = page.getByRole("img", { name: "Photo", exact: true });
   await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(400);

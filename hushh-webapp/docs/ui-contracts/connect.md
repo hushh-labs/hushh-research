@@ -800,7 +800,8 @@ photos render as images, without document filename, size or MIME metadata; tap
 opens the shared dialog and Escape/overlay Back closes it. Document cards retain
 their filename/download behavior. Photo reads remain authenticated and lazy;
 failed loads can retry, retired visits cannot project bytes, and blob URLs are
-released on replacement, removal or unmount.
+released on replacement, removal or unmount. A delayed photo retains an existing
+bottom pin when layout grows; a reader who has scrolled up keeps that position.
 
 Finishing a validated voice recording sends it through the existing send owner
 without a second attachment-approval step. Cancel/background/retired capture

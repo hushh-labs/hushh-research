@@ -630,6 +630,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const visibleBottom = useRef(false);
   const atBottomRef = useRef(true);
+  const scrollMetrics = useRef<{ top: number; height: number } | null>(null);
   const prependPosition = useRef<{ top: number; height: number } | null>(null);
   const messagesRef = useRef(messages); messagesRef.current = messages;
   const reading = useRef(false);
@@ -719,7 +720,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     selectionRef.current = routeSelection;
     acknowledged.current.clear(); setContactInfoOpen(false); setJumpTarget(null); setRecordingVoice(false); jumping.current = false;
     readThrough.current = null; reading.current = false; visibleBottom.current = false;
-    atBottomRef.current = true; prependPosition.current = null; setAtBottom(true);
+    atBottomRef.current = true; scrollMetrics.current = null; prependPosition.current = null; setAtBottom(true);
     const previousAttempt = sendAttempts.current.get(draftScope);
     setUnconfirmedDraft(previousAttempt?.unconfirmed ? previousAttempt.content : null);
     setDraft(drafts.current.get(draftScope) ?? ""); setAttachment(attachmentDrafts.current.get(draftScope) ?? null); setSending(sendingSelections.current.has(draftScope));
@@ -1102,6 +1103,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
       node.scrollTop = prependPosition.current.top + node.scrollHeight - prependPosition.current.height;
       prependPosition.current = null;
     } else if (atBottomRef.current) node.scrollTop = node.scrollHeight;
+    scrollMetrics.current = { top: node.scrollTop, height: node.scrollHeight };
   }, [activeConversationId, messages]);
 
   useEffect(() => {
@@ -1110,6 +1112,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     if (!node || !bottom) return;
     const resize = new ResizeObserver(() => {
       if (atBottomRef.current) node.scrollTop = node.scrollHeight;
+      scrollMetrics.current = { top: node.scrollTop, height: node.scrollHeight };
     });
     resize.observe(node);
     for (const child of Array.from(node.children)) resize.observe(child);
@@ -1121,7 +1124,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     }, { threshold: 0 });
     observer.observe(bottom);
     return () => { resize.disconnect(); observer.disconnect(); };
-  }, [hasRouteSelection, routeSelection, loadingThread]);
+  }, [hasRouteSelection, routeSelection, loadingThread, messages]);
 
   useEffect(() => {
     const markRead = async () => {
@@ -1882,7 +1885,16 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 role="log"
                 aria-live={atBottom && foreground() ? "polite" : "off"}
                 onScroll={(event) => {
-                  const node = event.currentTarget; const next = node.scrollHeight - node.scrollTop - node.clientHeight <= 8;
+                  const node = event.currentTarget;
+                  const previous = scrollMetrics.current;
+                  // Image layout can dispatch scroll before its load callback.
+                  // Keep an existing bottom pin; an upward reader scroll still wins.
+                  if (atBottomRef.current && !prependPosition.current && previous &&
+                      node.scrollHeight > previous.height && node.scrollTop + 1 >= previous.top) {
+                    node.scrollTop = node.scrollHeight;
+                  }
+                  const next = node.scrollHeight - node.scrollTop - node.clientHeight <= 8;
+                  scrollMetrics.current = { top: node.scrollTop, height: node.scrollHeight };
                   atBottomRef.current = next; setAtBottom(next); if (next) setReadRevision((value) => value + 1);
                 }}
                 aria-label={`${selectedLabel} message feed`}
@@ -2038,6 +2050,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                     }} onPhotoLoad={() => {
                                       const node = messageListRef.current;
                                       if (node && atBottomRef.current) node.scrollTop = node.scrollHeight;
+                                      if (node) scrollMetrics.current = { top: node.scrollTop, height: node.scrollHeight };
                                     }} />
                                   </>
                                 )}
