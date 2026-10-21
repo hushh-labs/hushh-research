@@ -306,6 +306,70 @@ class StubResolver:
         return self.scopes
 
 
+async def test_question_retry_is_atomic_and_does_not_reopen_or_duplicate_feed(answer_engine):
+    from uuid import uuid4
+
+    service = PkmAnswerRequestService(_db(answer_engine))
+    operation = str(uuid4())
+    terms = {
+        "requester_user_id": REQUESTER,
+        "owner_user_id": OWNER,
+        "question": "What are your food preferences?",
+        "client_request_id": operation,
+    }
+    results = await asyncio.gather(service.create(**terms), service.create(**terms))
+    assert results == [{"requestId": operation}, {"requestId": operation}]
+    with answer_engine.begin() as connection:
+        assert (
+            connection.execute(text("SELECT count(*) FROM pkm_answer_requests")).scalar_one() == 1
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM feed_events WHERE event_type='answer_request_received'")
+            ).scalar_one()
+            == 1
+        )
+        connection.execute(
+            text(
+                "UPDATE pkm_answer_requests SET status='cancelled' WHERE request_id=CAST(:id AS UUID)"
+            ),
+            {"id": operation},
+        )
+    assert await service.create(**terms) == {"requestId": operation}
+    with answer_engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT status FROM pkm_answer_requests WHERE request_id=CAST(:id AS UUID)"),
+                {"id": operation},
+            ).scalar_one()
+            == "cancelled"
+        )
+    with pytest.raises(AnswerRequestError, match="retry_conflict"):
+        await service.create(**{**terms, "question": "What is your favourite destination?"})
+    with pytest.raises(AnswerRequestError, match="retry_conflict"):
+        await service.create(**{**terms, "period_start": "2026-01-01", "period_end": "2026-12-31"})
+    other_requester = "requester-account-C"
+    with answer_engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO connections (user_a_id,user_b_id,status) VALUES (:a,:b,'active')"),
+            {"a": OWNER, "b": other_requester},
+        )
+    with pytest.raises(AnswerRequestError, match="retry_conflict"):
+        await service.create(**{**terms, "requester_user_id": other_requester})
+    with answer_engine.connect() as connection:
+        assert (
+            connection.execute(text("SELECT count(*) FROM pkm_answer_requests")).scalar_one() == 1
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM feed_events WHERE event_type='answer_request_received'")
+            ).scalar_one()
+            == 1
+        )
+    second = await service.create(**{**terms, "client_request_id": str(uuid4())})
+    assert second["requestId"] != operation
+
+
 async def _ask(
     engine, resolver, *, dated=True, question="How much did you spend on travel last year?"
 ):

@@ -25,6 +25,24 @@ from hushh_mcp.services.external_connector_registry_service import (
 )
 
 
+def test_feature_readiness_does_not_wait_for_connector_providers(route_client, monkeypatch):
+    client, app, _ = route_client
+    unavailable = Mock(side_effect=RuntimeError("provider unavailable"))
+    monkeypatch.setattr(routes, "get_external_connector_registry_service", unavailable)
+    monkeypatch.setattr(routes, "get_external_connector_credentials_service", unavailable)
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
+    assert client.get("/api/connectors/features").status_code == 401
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    response = client.get("/api/connectors/features")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {
+        "features": routes.connector_features("owner"),
+        "driveAgentPackagesEnabled": True,
+    }
+    unavailable.assert_not_called()
+
+
 def test_collection_processing_needs_explicit_owner_permission(route_client, monkeypatch):
     from hushh_mcp.services import drive_collection_store
 

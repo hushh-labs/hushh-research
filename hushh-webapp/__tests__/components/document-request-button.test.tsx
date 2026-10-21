@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createRef } from "react";
 const state = vi.hoisted(() => ({
   uid: "b",
   unlocked: true,
@@ -36,6 +37,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
 vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => state.epoch,
   isVaultSessionEpochCurrent: (epoch: number) => epoch === state.epoch,
+  subscribeVaultSessionEpoch: () => () => undefined,
 }));
 vi.mock("@/lib/services/external-connector-service", () => ({
   ExternalConnectorService: { overview: state.overview },
@@ -93,6 +95,19 @@ async function open(value = "Six months of statements") {
 }
 const send = () => fireEvent.click(screen.getByRole("button", { name: "Send request" }));
 describe("asking a connection about their Drive", () => {
+  it("retains an accepted question while profile eligibility is rechecked", async () => {
+    let accept!: (value: ReturnType<typeof queryView>) => void;
+    state.createQuery.mockReturnValueOnce(new Promise((resolve) => { accept = resolve; }));
+    const view = mount();
+    await open("Which files cover the trip?");
+    send();
+    await waitFor(() => expect(state.createQuery).toHaveBeenCalledOnce());
+    view.rerender(<DocumentRequestButton personRef={personRef} personName="A" canRequest={false} />);
+    expect(screen.getByLabelText("Your question")).toHaveValue("Which files cover the trip?");
+    await act(async () => accept(queryView("Which files cover the trip?")));
+    await screen.findByTestId("drive-query-card");
+    expect(state.createQuery).toHaveBeenCalledOnce();
+  });
   beforeEach(() => {
     vi.resetAllMocks();
     state.uid = "b";
@@ -109,6 +124,20 @@ describe("asking a connection about their Drive", () => {
     state.quote.mockResolvedValue({ amountCents: 1000, version: 1, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true });
   });
   afterEach(cleanup);
+
+  it.each(["Request files", "Ask about files"])("restores focus after %s closes with its opener removed", async (label) => {
+    const returnFocusRef = createRef<HTMLButtonElement>();
+    const content = (showTrigger: boolean) => <>
+      <button ref={returnFocusRef}>Share profile</button>
+      <DocumentRequestButton personRef={personRef} personName="A" showTrigger={showTrigger} canRequest={showTrigger} returnFocusRef={returnFocusRef} />
+    </>;
+    const view = render(content(true));
+    fireEvent.click(await screen.findByRole("button", { name: label, exact: true }));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    view.rerender(content(false));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    await waitFor(() => expect(returnFocusRef.current).toHaveFocus());
+  });
 
   it("offers one question field and no period or Google account step", async () => {
     mount();
@@ -254,16 +283,31 @@ describe("asking a connection about their Drive", () => {
     );
   });
 
-  it("does not offer asking when the feature is off", async () => {
+  it("keeps action positions and explains unavailable intake without sending", async () => {
     state.overview.mockResolvedValueOnce({ features: { drive_document_sharing: false } });
     mount();
     await waitFor(() => expect(state.overview).toHaveBeenCalled());
-    expect(screen.queryByRole("button", { name: "Ask about files" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Request files" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Ask about files" }));
+    await screen.findByText("File requests are unavailable for this connection.");
+    expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
+    expect(state.createQuery).not.toHaveBeenCalled();
   });
 });
 
 describe("requesting exact files from a connection", () => {
+  it("keeps an accepted file receipt through a connection refresh", async () => {
+    let accept!: (value: { requestId: string; status: string; revision: number }) => void;
+    state.create.mockReturnValueOnce(new Promise((resolve) => { accept = resolve; }));
+    const view = mount();
+    await openFiles();
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() => expect(state.create).toHaveBeenCalledOnce());
+    view.rerender(<DocumentRequestButton personRef={personRef} personName="A" canRequest={false} />);
+    await act(async () => accept({ requestId, status: "pending", revision: 1 }));
+    await screen.findByText("Request sent.");
+    expect(state.create).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Request more files" })).toBeDisabled();
+  });
   const firebaseProof = "synthetic-firebase-proof";
   beforeEach(() => {
     vi.resetAllMocks();

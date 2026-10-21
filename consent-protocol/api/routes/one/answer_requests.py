@@ -66,6 +66,8 @@ _STATUS = {
     "connection_required": 403,
     "no_self_request": 422,
     "invalid_question": 422,
+    "invalid_request_key": 422,
+    "retry_conflict": 409,
     "invalid_period": 422,
     "invalid_price": 422,
     "invalid_envelope": 422,
@@ -400,6 +402,12 @@ async def create_answer_request(
             ) from None
     if not owner_user_id:
         raise HTTPException(status_code=422, detail="Choose who to ask.")
+    retry_options = {}
+    if body.get("clientRequestId") is not None:
+        try:
+            retry_options["client_request_id"] = str(UUID(str(body["clientRequestId"])))
+        except (TypeError, ValueError):
+            raise _http(AnswerRequestError("invalid_request_key")) from None
     # The public reference locates the person; the store separately locks and
     # checks the active connection before admitting the question.
     try:
@@ -410,6 +418,7 @@ async def create_answer_request(
             question=str(body.get("question") or ""),
             period_start=body.get("periodStart"),
             period_end=body.get("periodEnd"),
+            **retry_options,
         )
         background_tasks.add_task(service.resolve_pending, request_id=result["requestId"])
         return dict(result)

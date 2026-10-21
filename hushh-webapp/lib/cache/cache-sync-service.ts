@@ -664,6 +664,7 @@ export class CacheSyncService {
     // Reads right after this change must not take the web proxy's hot copy
     // from before it (see consent-read-after-write.ts).
     noteConsentMutated(userId);
+    this.onFeedChanged(userId);
     // Consent changes alter which lifecycle cards and safe descriptors are
     // authoritative. The Chat-history owner clears its own snapshot without
     // making this cache owner import native-capacitor modules.

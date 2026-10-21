@@ -40,6 +40,13 @@ const mocks = vi.hoisted(() => {
       unread_count: 1,
     },
     refresh: vi.fn().mockResolvedValue(undefined),
+    resourceMissing: false,
+    historyLoading: false,
+    historyError: null as string | null,
+    actionablesLoading: false,
+    actionablesError: null as string | null,
+    progressLoading: false,
+    progressError: null as string | null,
     retryActionables: vi.fn().mockResolvedValue(undefined),
     actionables: [] as FeedActionable[],
     clearSmsEmergencies: vi.fn(),
@@ -86,9 +93,9 @@ vi.mock("@/hooks/use-auth", () => ({
 
 vi.mock("@/lib/cache/use-stale-resource", () => ({
   useStaleResource: () => ({
-    data: mocks.data,
-    loading: false,
-    error: null,
+    data: mocks.resourceMissing ? null : mocks.data,
+    loading: mocks.historyLoading,
+    error: mocks.historyError,
     refresh: mocks.refresh,
   }),
 }));
@@ -103,10 +110,10 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
   },
 }));
 
-vi.mock("@/lib/services/cache-service", () => ({
-  CACHE_KEYS: { FEED_LIST: (userId: string) => `feed:${userId}` },
-  CACHE_TTL: { MEDIUM: 5 * 60 * 1000 },
-}));
+vi.mock("@/lib/services/cache-service", async (original) => {
+  const actual = await original<typeof import("@/lib/services/cache-service")>();
+  return { ...actual, CACHE_KEYS: { ...actual.CACHE_KEYS, FEED_LIST: (userId: string) => `feed:${userId}` } };
+});
 
 vi.mock("@/lib/services/feed-service", () => ({
   FeedService: {
@@ -137,8 +144,10 @@ vi.mock("@/lib/feed/use-feed-briefing", () => ({
 vi.mock("@/lib/feed/use-feed-actionables", () => ({
   useFeedActionables: () => ({
     actionables: mocks.actionables,
-    loading: false,
-    error: null,
+    loading: mocks.actionablesLoading,
+    error: mocks.actionablesError,
+    progressLoading: mocks.progressLoading,
+    progressError: mocks.progressError,
     retry: mocks.retryActionables,
     hasClearableSmsEmergencies: true,
     clearSmsEmergencies: mocks.clearSmsEmergencies,
@@ -217,6 +226,18 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 }));
 
 import { FeedPage } from "@/components/feed/feed-page";
+import { CacheService } from "@/lib/services/cache-service";
+
+beforeEach(() => {
+  CacheService.getInstance().clear();
+  mocks.resourceMissing = false;
+  mocks.historyLoading = false;
+  mocks.historyError = null;
+  mocks.actionablesLoading = false;
+  mocks.actionablesError = null;
+  mocks.progressLoading = false;
+  mocks.progressError = null;
+});
 import { resolveLocalOnboardingHandler, prepareLocalOnboardingAction } from "@/lib/agent/local-onboarding-actions";
 
 vi.mock("@/lib/services/connections-service", () => ({
@@ -310,6 +331,25 @@ async function renderAfterAutomaticRead() {
 }
 
 describe("Feed history interactions", () => {
+  it("keeps loaded history usable while another lane is still loading", async () => {
+    mocks.actionablesLoading = true;
+    render(<FeedPage />);
+    await screen.findByText("row-5");
+    expect(screen.getByRole("region", { name: "Needs you status" })).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByText("No activity yet")).toBeNull();
+    expect(screen.queryByLabelText("Loading feed")).toBeNull();
+  });
+
+  it("offers recovery for a failed lane while another cold lane is pending", () => {
+    mocks.resourceMissing = true;
+    mocks.historyLoading = true;
+    mocks.actionablesError = "Unavailable";
+    render(<FeedPage />);
+    expect(screen.getByText("Some activity could not load. Other updates are still loading.")).toBeVisible();
+    expect(screen.queryByText("No activity yet")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(mocks.retryActionables).toHaveBeenCalled();
+  });
   beforeEach(() => {
     window.localStorage.clear();
     vi.clearAllMocks();
@@ -384,7 +424,7 @@ describe("Feed history interactions", () => {
       expect(mocks.list).not.toHaveBeenCalled();
       act(() => { first.notify(true); first.notify(true); });
       await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
-      expect(mocks.list).toHaveBeenLastCalledWith({ idToken: "firebase-token", cursor: "older-1", limit: 20 });
+      expect(mocks.list).toHaveBeenLastCalledWith({ idToken: "firebase-token", cursor: "older-1", limit: 20, isEffectCurrent: expect.any(Function) });
       await act(async () => resolvePage({ items: [olderRow("4")], next_cursor: "older-2", unread_count: 0 }));
       await screen.findByText("row-4");
       await waitFor(() => expect(observers.at(-1)).not.toBe(first));
@@ -397,6 +437,41 @@ describe("Feed history interactions", () => {
       act(() => { first.notify(true); last.notify(true); });
       expect(mocks.list).toHaveBeenCalledTimes(2);
       view.unmount();
+      root.remove();
+    });
+
+    it("continues usable history while an unrelated lane is slow", async () => {
+      mocks.actionablesLoading = true;
+      mocks.list.mockResolvedValueOnce({ items: [olderRow("4")], next_cursor: null, unread_count: 0 });
+      render(<FeedPage />);
+      await waitFor(() => expect(observers.length).toBeGreaterThan(0));
+      act(() => observers.at(-1)!.notify(true));
+      await screen.findByText("row-4");
+      expect(screen.getByRole("region", { name: "Needs you status" })).toHaveAttribute("aria-busy", "true");
+    });
+
+    it("continues from the restored older-page cursor on a same-session return", async () => {
+      mocks.list.mockResolvedValueOnce({ items: [olderRow("4")], next_cursor: "older-2", unread_count: 0 });
+      const root = document.createElement("div");
+      root.dataset.appScrollRoot = "true";
+      document.body.append(root);
+      const first = render(<FeedPage />, { container: root });
+      await waitFor(() => expect(observers.length).toBeGreaterThan(0));
+      act(() => observers.at(-1)!.notify(true));
+      await screen.findByText("row-4");
+      first.unmount();
+      mocks.list.mockClear();
+      mocks.list.mockResolvedValueOnce({ items: [olderRow("3")], next_cursor: null, unread_count: 0 });
+      const priorCount = observers.length;
+      const secondRoot = document.createElement("div");
+      root.append(secondRoot);
+      const second = render(<FeedPage />, { container: secondRoot });
+      await screen.findByText("row-4");
+      await waitFor(() => expect(observers.length).toBeGreaterThan(priorCount));
+      act(() => observers.at(-1)!.notify(true));
+      await screen.findByText("row-3");
+      expect(mocks.list).toHaveBeenCalledExactlyOnceWith({ idToken: "firebase-token", cursor: "older-2", limit: 20, isEffectCurrent: expect.any(Function) });
+      second.unmount();
       root.remove();
     });
 
@@ -582,7 +657,7 @@ describe("Feed history interactions", () => {
     expect(screen.queryByText("row-5")).toBeNull();
     await waitFor(() => expect(mocks.clear).toHaveBeenCalledWith({
       idToken: "firebase-token",
-      userId: "feed-user",
+      userId: "feed-user", isEffectCurrent: expect.any(Function),
       upToId: "5",
     }));
     await waitFor(() =>
@@ -614,7 +689,7 @@ describe("Feed history interactions", () => {
 
     expect(mocks.clear).toHaveBeenCalledWith({
       idToken: "firebase-token",
-      userId: "feed-user",
+      userId: "feed-user", isEffectCurrent: expect.any(Function),
       upToId: "5",
     });
     expect(mocks.clear.mock.invocationCallOrder[0]).toBeLessThan(
@@ -651,7 +726,7 @@ describe("Feed history interactions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "row-5" }));
     await waitFor(() => expect(mocks.dismiss).toHaveBeenCalledWith({
-      idToken: "firebase-token", userId: "feed-user", itemId: "5",
+      idToken: "firebase-token", userId: "feed-user", isEffectCurrent: expect.any(Function), itemId: "5",
     }));
     expect(screen.getByRole("button", { name: "row-5" })).toBeInTheDocument();
 
@@ -663,7 +738,7 @@ describe("Feed history interactions", () => {
     expect(undo?.action?.onClick).toBeTypeOf("function");
     await act(async () => { undo?.action?.onClick?.(); });
     await waitFor(() => expect(mocks.restore).toHaveBeenCalledWith({
-      idToken: "firebase-token", userId: "feed-user", itemId: "5",
+      idToken: "firebase-token", userId: "feed-user", isEffectCurrent: expect.any(Function), itemId: "5",
       dismissalToken: "dismissal-token",
     }));
     expect(screen.getByRole("button", { name: "row-5" })).toBeInTheDocument();
@@ -729,7 +804,7 @@ describe("Feed history interactions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "row-6" }));
     await waitFor(() => expect(mocks.dismiss).toHaveBeenCalledWith({
-      idToken: "firebase-token", userId: "feed-user", itemId: "6",
+      idToken: "firebase-token", userId: "feed-user", isEffectCurrent: expect.any(Function), itemId: "6",
     }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "row-6" })).toBeNull());
     expect(screen.queryByRole("button", { name: "row-5" })).toBeNull();
@@ -747,7 +822,7 @@ describe("Feed history interactions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "row-6" }));
     await waitFor(() => expect(mocks.dismiss).toHaveBeenCalledWith({
-      idToken: "firebase-token", userId: "feed-user", itemId: "6",
+      idToken: "firebase-token", userId: "feed-user", isEffectCurrent: expect.any(Function), itemId: "6",
     }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "row-6" })).toBeNull());
     expect(screen.queryByRole("button", { name: "row-5" })).toBeNull();

@@ -78,7 +78,7 @@ it("sends only the question and confirms after server acceptance", async () => {
   fireEvent.change(field, { target: { value: question } });
   expect(send).toBeEnabled();
   fireEvent.click(send);
-  await waitFor(() => expect(mocks.create).toHaveBeenCalledWith("token", "connected-person", { question }));
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledWith("token", "connected-person", { question }, expect.objectContaining({ clientRequestId: expect.any(String), isEffectCurrent: expect.any(Function) })));
   expect(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
   expect(screen.queryByText(/Request sent/)).toBeNull();
   accept({ requestId: "33333333-3333-4333-8333-333333333333" });
@@ -102,6 +102,21 @@ it("retains a failed question and Cancel resets the next request", async () => {
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
   expect(await screen.findByLabelText("Your question")).toHaveValue("");
+});
+
+it("reuses the attempt identity after an uncertain response and offers status recovery", async () => {
+  mocks.gates.mockResolvedValue({ requests: true, payments: true });
+  mocks.create.mockRejectedValueOnce(new Error("Network interrupted")).mockResolvedValueOnce({ requestId: "33333333-3333-4333-8333-333333333333" });
+  render(<RequestScopeButton personRef="connected-person" personName="Asha" />);
+  fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
+  fireEvent.change(await screen.findByLabelText("Your question"), { target: { value: "What is your age?" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+  const link = await screen.findByRole("link", { name: "Check request status" });
+  const retryId = mocks.create.mock.calls[0]![3].clientRequestId;
+  expect(link.getAttribute("href")).toContain(retryId);
+  fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+  await screen.findByText(/Request sent/);
+  expect(mocks.create.mock.calls[1]![3].clientRequestId).toBe(retryId);
 });
 
 // The regression this change fixes: the dialog read one flag for both gates,

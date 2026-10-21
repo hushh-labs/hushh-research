@@ -544,7 +544,7 @@ function unimplemented(error: unknown): boolean {
   );
 }
 type RecordValue = Record<string, unknown>;
-export type SharingSessionGuard = () => void;
+export type SharingSessionGuard = (() => void) & { canDispatch?: () => boolean };
 function record(value: unknown): RecordValue {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new DriveSharingError("invalid_response");
@@ -1202,7 +1202,7 @@ export class DriveSharingService {
       {
         isEffectCurrent: () => {
           guard();
-          return true;
+          return guard.canDispatch?.() !== false;
         },
         method: body === undefined ? "GET" : "POST",
         cache: "no-store",

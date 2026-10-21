@@ -28,12 +28,16 @@ export function RequestCardsButton({
   personName,
   className,
   renderTrigger,
+  canRequest = true,
+  showTrigger = true,
   returnFocusRef,
 }: {
   personRef: string;
   personName: string;
   className?: string;
   renderTrigger?: (label: string) => ReactNode;
+  canRequest?: boolean;
+  showTrigger?: boolean;
   returnFocusRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const { user } = useAuth();
@@ -67,6 +71,8 @@ export function RequestCardsButton({
     sending = useRef(false),
     attempt = useRef(walletOperationId());
   const visibilityRevision = useRef(0);
+  const eligibility = useRef(canRequest);
+  eligibility.current = canRequest;
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -83,10 +89,17 @@ export function RequestCardsButton({
     return () => document.removeEventListener("visibilitychange", change);
   }, []);
   useEffect(() => {
+    // Credential renewal revalidates transport authority without dismissing a
+    // review or receipt. A true lock/person/account change still retires it.
+    if (!isVaultUnlocked) setOpen(false);
+    setBusy(false);
+    setError(null);
+  }, [isVaultUnlocked, vaultOwnerToken, epoch]);
+  useEffect(() => {
     setOpen(false);
     setBusy(false);
     setError(null);
-  }, [user?.uid, vaultOwnerToken, isVaultUnlocked, epoch, personRef]);
+  }, [user?.uid, personRef]);
   const review = () => {
     if (!user || sent) return false;
     if (!isVaultUnlocked || !vaultOwnerToken) {
@@ -124,6 +137,7 @@ export function RequestCardsButton({
       isVaultSessionEpochCurrent(operationEpoch);
     if (
       sending.current ||
+      !eligibility.current ||
       !owner.user ||
       !owner.token ||
       !owner.vaultKey ||
@@ -140,6 +154,7 @@ export function RequestCardsButton({
         vaultKey: owner.vaultKey,
         getIdToken: () => owner.user!.getIdToken(),
         isCurrent,
+        canDispatch: () => eligibility.current,
       };
       // Establish the existing recipient key so a first-time requester can receive
       // the owner's encrypted response; no payment card is read here.
@@ -148,6 +163,10 @@ export function RequestCardsButton({
         strictRecovery: true,
       });
       if (!isCurrent()) return;
+      if (!eligibility.current) {
+        setError("Your connection needs to be confirmed before sending. Your review is kept.");
+        return;
+      }
       if (key.userId !== owner.user.uid || !key.publicKeyJwk)
         throw new Error("Recipient key unavailable.");
       await WalletCardAccessService.createRequest(
@@ -174,7 +193,7 @@ export function RequestCardsButton({
   };
   return (
     <>
-      <Button
+      {showTrigger ? <Button
         ref={triggerRef}
         type="button"
         variant="none"
@@ -185,7 +204,7 @@ export function RequestCardsButton({
         data-voice-control-id="person-profile-request-card"
       >
         {renderTrigger?.(sent ? "Card request sent" : "Request cards") ?? (sent ? "Card request sent" : "Request cards")}
-      </Button>
+      </Button> : null}
       <Dialog
         modal
         open={open && isVaultUnlocked}
@@ -199,7 +218,9 @@ export function RequestCardsButton({
           description={`Ask ${personName} to choose a card to share with you.`}
           showCloseButton={!busy}
           onCloseAutoFocus={(event) => {
-            const target = sent ? returnFocusRef?.current : triggerRef.current;
+            const target = !sent && showTrigger
+              ? triggerRef.current ?? returnFocusRef?.current
+              : returnFocusRef?.current;
             if (target) {
               event.preventDefault();
               target.focus();
@@ -213,6 +234,7 @@ export function RequestCardsButton({
           }}
         >
           <IllustratedRequestBody>
+          {!canRequest ? <p role="status" className="text-sm text-muted-foreground">Your connection needs to be confirmed before sending.</p> : null}
           {error ? (
             <p role="alert" className="text-sm text-destructive">
               {error}
@@ -226,7 +248,7 @@ export function RequestCardsButton({
                 type="button"
                 variant="blue-gradient"
                 effect="fill"
-                disabled={busy}
+                disabled={busy || !canRequest}
                 onClick={() => void send()}
               >
                 {busy ? "Sending…" : "Send request"}

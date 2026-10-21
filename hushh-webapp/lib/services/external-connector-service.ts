@@ -421,6 +421,13 @@ export class ExternalConnectorService {
     return (await this.overview(vaultOwnerToken)).connectors;
   }
 
+  static async featureReadiness(vaultOwnerToken: string): Promise<Pick<ConnectorOverview, "features" | "driveAgentPackagesEnabled">> {
+    const response = await ApiService.apiFetch("/api/connectors/features", {
+      method: "GET", headers: authHeaders(vaultOwnerToken), cache: "no-store",
+    });
+    return readJsonOrThrow<Pick<ConnectorOverview, "features" | "driveAgentPackagesEnabled">>(response);
+  }
+
   static async overview(
     vaultOwnerToken: string,
     options: { sourceRead?: boolean } = {},

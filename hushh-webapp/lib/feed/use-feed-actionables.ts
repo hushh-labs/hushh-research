@@ -29,6 +29,8 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
+import { currentConsentInvalidationEpoch } from "@/lib/cache/consent-read-after-write";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import {
   isConsentChangeWorthRefreshing,
   useFeedLiveRefresh,
@@ -596,6 +598,12 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
   const { vaultOwnerToken: ownerToken, getVaultOwnerToken } = useVault();
   const vaultOwnerToken = enabled ? ownerToken : null;
   const userId = enabled ? user?.uid ?? null : null;
+  const authGeneration = getAuthSessionGeneration();
+  const consentReadLifecycle = {
+    requestScope: `consent:${authGeneration}`,
+    getRequestVersion: () => currentConsentInvalidationEpoch(userId),
+    isRequestCurrent: () => getAuthSessionGeneration() === authGeneration,
+  };
   const checkoutScope = useRef<{ userId: string | null } | null>(null);
   const checkoutRows = useRef<FeedActionable[]>([]);
   useEffect(() => {
@@ -712,6 +720,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
   }, []);
 
   const consentSummaryResource = useStaleResource({
+    ...consentReadLifecycle,
     cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "one:consents")
       : "consent_center_summary_guest",
@@ -723,7 +732,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     // would re-read the same cached page it was trying to move past.
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken) throw new Error("Sign in to review consents");
+      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to review consents");
       return ConsentCenterService.getSummary({
         idToken,
         userId: user.uid,
@@ -737,6 +746,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
 
   const listedPendingCountRef = useRef<number | null>(null);
   const consentListResource = useStaleResource({
+    ...consentReadLifecycle,
     cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
           userId,
@@ -752,7 +762,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken) throw new Error("Sign in to review consents");
+      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to review consents");
       // A new pending count means a request arrived or left: the service's own
       // cached page predates it, so read past it.
       const countChanged =
@@ -775,6 +785,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
   // actionable summary count (which only describes requests needing action).
   const progressPageSize = 100;
   const receivedOverflowResource = useStaleResource({
+    ...consentReadLifecycle,
     cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
           userId,
@@ -790,7 +801,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken) throw new Error("Sign in to view requests");
+      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
       return ConsentCenterService.listEntries({
         idToken,
         userId: user.uid,
@@ -805,6 +816,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
   // B's sent requests are absent from A's received count and list. Fetching
   // this lane independently is necessary even when Needs you is empty.
   const sentProgressResource = useStaleResource({
+    ...consentReadLifecycle,
     cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
           userId,
@@ -820,7 +832,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken) throw new Error("Sign in to view requests");
+      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
       return ConsentCenterService.listEntries({
         idToken,
         userId: user.uid,
@@ -837,6 +849,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
   // access management. Keep the live status through the remaining background
   // search without changing that bucket or displaying unconfirmed file data.
   const activeProgressResource = useStaleResource({
+    ...consentReadLifecycle,
     cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
           userId,
@@ -852,7 +865,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken) throw new Error("Sign in to view requests");
+      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
       return ConsentCenterService.listEntries({
         idToken,
         userId: user.uid,
@@ -1620,6 +1633,8 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
                   if (!current()) return;
                   if (typeof checkoutUrl === "string") window.location.assign(checkoutUrl);
                   else {
+                    CacheSyncService.onConsentMutated(userId);
+                    notifyFeedActionResolved();
                     await Promise.all([refreshDocumentRequests(), sentProgressRefresh({ force: true })]);
                   }
                 } catch (cause) {

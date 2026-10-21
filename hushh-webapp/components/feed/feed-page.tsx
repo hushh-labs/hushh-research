@@ -18,6 +18,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { Button as StockButton } from "@/components/ui/button";
@@ -31,6 +32,8 @@ import {
 import { useLocalOnboardingActionHandler, type LocalOnboardingActionHandler, type LocalActionPreparer } from "@/lib/agent/local-onboarding-actions";
 import { ConnectionsService } from "@/lib/services/connections-service";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
@@ -64,6 +67,7 @@ import {
 } from "@/lib/feed/use-feed-actionables";
 import { useFeedBriefing } from "@/lib/feed/use-feed-briefing";
 import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
+import { useFeedHistoryPresentation } from "@/lib/feed/use-feed-history-presentation";
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
 import { ROUTES } from "@/lib/navigation/routes";
 import { getAppScrollRoot } from "@/lib/navigation/use-scroll-reset";
@@ -85,7 +89,6 @@ import {
   createFeedPaginationState,
   isFeedIdAtOrBefore,
   latestFeedId,
-  reconcileFeedFirstPage,
 } from "@/lib/feed/feed-pagination";
 
 function dayLabel(value: string): string {
@@ -296,7 +299,7 @@ export function FeedPage() {
   // together, so no state or late response from one account can reach another.
   return (
     <FeedPageSession
-      key={user?.uid ?? "signed-out"}
+      key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`}
       user={user}
       authLoading={authLoading}
     />
@@ -311,8 +314,44 @@ function FeedPageSession({
   authLoading: boolean;
 }) {
   useDocumentFeedStream(user);
+  const sessionGeneration = getAuthSessionGeneration();
+  const isSessionCurrent = useCallback(() => getAuthSessionGeneration() === sessionGeneration, [sessionGeneration]);
+  const getSessionToken = useCallback(async () => {
+    const token = await user!.getIdToken();
+    if (!isSessionCurrent()) throw new DOMException("The Feed session changed.", "AbortError");
+    return token;
+  }, [user, isSessionCurrent]);
   const router = useRouter();
-  const [pagination, setPagination] = useState(createFeedPaginationState);
+  const {
+    data,
+    loading,
+    error: resourceError,
+    refresh,
+  } = useStaleResource<FeedListResponse>({
+    cacheKey: user?.uid
+      ? CACHE_KEYS.FEED_LIST(user.uid)
+      : "feed_list_signed_out",
+    enabled: Boolean(user?.uid),
+    resourceLabel: "feed_list",
+    requestScope: String(getAuthSessionGeneration()),
+    getRequestVersion: () => currentFeedInvalidationEpoch(user!.uid),
+    isRequestCurrent: isSessionCurrent,
+    retainOnInvalidate: true,
+    // `force` must reach FeedService: it keeps its own short-TTL cache in front
+    // of the request, so dropping the flag here made a forced refresh return the
+    // same page it already had and the list looked live without being live.
+    load: async (options) => {
+      const idToken = await getSessionToken();
+      return FeedService.list({
+        idToken,
+        userId: user!.uid,
+        limit: 20,
+        force: options?.force,
+        isEffectCurrent: isSessionCurrent,
+      });
+    },
+  });
+  const { page: visiblePage, pagination, setPagination, hasNew, showNew } = useFeedHistoryPresentation(user?.uid, data);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const loadMoreInFlightRef = useRef(false);
@@ -534,31 +573,7 @@ function FeedPageSession({
       : null,
   );
 
-  const {
-    data,
-    loading,
-    error: resourceError,
-    refresh,
-  } = useStaleResource<FeedListResponse>({
-    cacheKey: user?.uid
-      ? CACHE_KEYS.FEED_LIST(user.uid)
-      : "feed_list_signed_out",
-    enabled: Boolean(user?.uid),
-    resourceLabel: "feed_list",
-    retainOnInvalidate: true,
-    // `force` must reach FeedService: it keeps its own short-TTL cache in front
-    // of the request, so dropping the flag here made a forced refresh return the
-    // same page it already had and the list looked live without being live.
-    load: async (options) => {
-      const idToken = await user!.getIdToken();
-      return FeedService.list({
-        idToken,
-        userId: user!.uid,
-        limit: 20,
-        force: options?.force,
-      });
-    },
-  });
+
 
   // Import the old per-device Clear once, then retire it. A failed request
   // leaves the old watermark in place for another attempt on the next visit.
@@ -569,8 +584,8 @@ function FeedPageSession({
     let active = true;
     void (async () => {
       try {
-        const idToken = await user.getIdToken();
-        await FeedService.clear({ idToken, userId: user.uid, upToId: oldWatermark });
+        const idToken = await getSessionToken();
+        await FeedService.clear({ idToken, userId: user.uid, upToId: oldWatermark, isEffectCurrent: isSessionCurrent });
         if (!active) return;
         try {
           window.localStorage.removeItem(clearedIdStorageKey);
@@ -587,7 +602,7 @@ function FeedPageSession({
       }
     })();
     return () => { active = false; };
-  }, [user, clearedIdStorageKey, refresh]);
+  }, [user, clearedIdStorageKey, refresh, getSessionToken, isSessionCurrent]);
 
   // Keep the open list live. A direct authoritative read also detects an Undo
   // from another session after this session removed a row. The service seeds
@@ -600,9 +615,9 @@ function FeedPageSession({
       }
       void (async () => {
         try {
-          const idToken = await user.getIdToken();
+          const idToken = await getSessionToken();
           const latest = await FeedService.list({
-            idToken, userId: user.uid, limit: 20, force: true,
+            idToken, userId: user.uid, limit: 20, force: true, isEffectCurrent: isSessionCurrent,
           });
           const returnedIds = new Set(latest.items.map((item) => item.id));
           const restoredIds = new Set<string>();
@@ -622,7 +637,7 @@ function FeedPageSession({
           // Keep the server-acknowledged hide until a later read succeeds.
         }
       })();
-    }, [refresh, user]),
+    }, [refresh, user, getSessionToken, isSessionCurrent]),
     Boolean(user?.uid),
   );
 
@@ -648,16 +663,11 @@ function FeedPageSession({
     return () => window.clearTimeout(timer);
   }, [data?.items, refresh, user?.uid]);
 
-  useEffect(() => {
-    if (!data) return;
-    setPagination((current) => reconcileFeedFirstPage(current, data));
-  }, [data]);
-
   const latestIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    latestIdRef.current = latestFeedId(data?.items ?? []);
-  }, [data]);
+    latestIdRef.current = latestFeedId(visiblePage?.items ?? []);
+  }, [visiblePage]);
 
   const markSeen = useCallback(() => {
     const latestId = latestIdRef.current;
@@ -669,8 +679,8 @@ function FeedPageSession({
 
     void (async () => {
       try {
-        const idToken = await user.getIdToken();
-        await FeedService.markRead({ idToken, upToId: latestId });
+        const idToken = await getSessionToken();
+        await FeedService.markRead({ idToken, upToId: latestId, isEffectCurrent: isSessionCurrent });
         CacheSyncService.onFeedReadSettled(user.uid);
         // Recount after success so a row that arrived above the posted
         // watermark remains unread instead of being swallowed by optimistic 0.
@@ -682,7 +692,7 @@ function FeedPageSession({
         console.warn("[FeedPage] Failed to mark notifications read:", error);
       }
     })();
-  }, [user]);
+  }, [user, getSessionToken, isSessionCurrent]);
 
   // Mark the current watermark when the Feed is visible, and again for a truly
   // newer live row. Keep the hidden/unmount calls as a final settlement path
@@ -707,16 +717,16 @@ function FeedPageSession({
   // their own request.
   useEffect(() => {
     for (const item of [
-      ...(data?.items ?? []),
+      ...(visiblePage?.items ?? []),
       ...pagination.additionalItems,
     ]) {
       if (!item.read) visitUnreadIdsRef.current.add(item.id);
     }
-  }, [data, pagination.additionalItems]);
+  }, [visiblePage, pagination.additionalItems]);
 
   useEffect(() => {
-    if (data?.items[0]?.id) markSeen();
-  }, [data?.items, markSeen]);
+    if (visiblePage?.items[0]?.id) markSeen();
+  }, [visiblePage?.items, markSeen]);
 
   // Keep unchanged rows stable, but include the presentation metadata: bundled
   // consent details and current counterpart photos can change under the same id.
@@ -733,7 +743,7 @@ function FeedPageSession({
     const merged: FeedItem[] = [];
     // Drop anything at or below the persisted append-only id watermark.
     for (const item of [
-      ...(data?.items ?? []),
+      ...(visiblePage?.items ?? []),
       ...pagination.additionalItems,
     ]) {
       if (isFeedItemHidden(item, isLocalCrmBuildEnabled())) continue;
@@ -761,7 +771,7 @@ function FeedPageSession({
     // a bundle fold into the newest of them.
     return collapseDriveLifecycleRows(collapseConsentBundleRows(merged));
   }, [
-    data,
+    visiblePage,
     pagination.additionalItems,
     clearedThroughId,
     clearWatermarkHydrated,
@@ -780,11 +790,12 @@ function FeedPageSession({
     setLoadMoreError(null);
     setLoadingMore(true);
     try {
-      const idToken = await user.getIdToken();
+      const idToken = await getSessionToken();
       const response = await FeedService.list({
         idToken,
         cursor: requestedCursor,
         limit: 20,
+        isEffectCurrent: isSessionCurrent,
       });
       if (response.next_cursor === requestedCursor) {
         throw new Error("Feed cursor did not advance");
@@ -798,7 +809,7 @@ function FeedPageSession({
       loadMoreInFlightRef.current = false;
       setLoadingMore(false);
     }
-  }, [user, pagination.nextCursor]);
+  }, [user, pagination.nextCursor, getSessionToken, isSessionCurrent, setPagination]);
 
   // The owner's "One sent N files" card opens its file list in place.
   const [sharedFiles, setSharedFiles] = useState<{
@@ -829,9 +840,9 @@ function FeedPageSession({
   const restoreItem = useCallback(async (itemId: string, dismissalToken: string) => {
     if (!user) return;
     try {
-      const idToken = await user.getIdToken();
+      const idToken = await getSessionToken();
       const restored = await FeedService.restore({
-        idToken, userId: user.uid, itemId, dismissalToken,
+        idToken, userId: user.uid, itemId, dismissalToken, isEffectCurrent: isSessionCurrent,
       });
       if (!restored) {
         toast.error("This item can no longer be restored.");
@@ -850,7 +861,7 @@ function FeedPageSession({
     } catch {
       toast.error("Couldn't restore this item. Try again.");
     }
-  }, [user, refresh]);
+  }, [user, refresh, getSessionToken, isSessionCurrent]);
 
   const removeItem = useCallback(async (item: FeedItem) => {
     if (!user || removalInFlightRef.current.has(item.id)) return;
@@ -858,9 +869,9 @@ function FeedPageSession({
     removalInFlightRef.current.add(item.id);
     setRemovingItemId(item.id);
     try {
-      const idToken = await user.getIdToken();
+      const idToken = await getSessionToken();
       const dismissal = await FeedService.dismiss({
-        idToken, userId: user.uid, itemId: item.id,
+        idToken, userId: user.uid, itemId: item.id, isEffectCurrent: isSessionCurrent,
       });
       if (startingUndoEpoch !== undoEpochRef.current) {
         void refresh({ force: true });
@@ -906,7 +917,7 @@ function FeedPageSession({
       removalInFlightRef.current.delete(item.id);
       setRemovingItemId((current) => current === item.id ? null : current);
     }
-  }, [user, refresh, restoreItem, data?.items, pagination.additionalItems]);
+  }, [user, refresh, restoreItem, data?.items, pagination.additionalItems, getSessionToken, isSessionCurrent]);
 
   const handleClearAll = useCallback(async () => {
     if (!user || clearing) return;
@@ -914,10 +925,10 @@ function FeedPageSession({
     setClearing(true);
     try {
       if (items.length > 0) {
-        const idToken = await user.getIdToken();
+        const idToken = await getSessionToken();
         const latestId = latestFeedId(items);
         if (!latestId) throw new Error("Feed contains no valid row id");
-        await FeedService.clear({ idToken, userId: user.uid, upToId: latestId });
+        await FeedService.clear({ idToken, userId: user.uid, upToId: latestId, isEffectCurrent: isSessionCurrent });
         undoEpochRef.current += 1;
         for (const toastId of undoToastIdsRef.current) toast.dismiss?.(toastId);
         undoToastIdsRef.current.clear();
@@ -955,6 +966,9 @@ function FeedPageSession({
     hasClearableSmsEmergencies,
     clearSmsEmergencies,
     refresh,
+    getSessionToken,
+    isSessionCurrent,
+    setPagination,
   ]);
 
   // Present strictly newest-first by wall-clock time, then club into day
@@ -1010,7 +1024,7 @@ function FeedPageSession({
     setAutomaticPaginationAvailable(available);
     const sentinel = loadMoreSentinelRef.current;
     if (!available || !sentinel || !pagination.nextCursor || loadingMore ||
-        loadMoreError || contentLoading || clearing) return;
+        loadMoreError || !clearWatermarkHydrated || !visiblePage || clearing) return;
     let active = true;
     const observer = new IntersectionObserver((entries) => {
       if (!active || !entries.some((entry) => entry.isIntersecting)) return;
@@ -1022,8 +1036,9 @@ function FeedPageSession({
     // Reobserve after each page: short/grouped pages may leave the end visible.
     // Errors deliberately stop automatic reads until the person chooses Retry.
     return () => { active = false; observer.disconnect(); };
-  }, [pagination.nextCursor, loadingMore, loadMoreError, contentLoading, clearing, loadMore]);
-  const beaconDataState = contentLoading
+  }, [pagination.nextCursor, loadingMore, loadMoreError, clearWatermarkHydrated, visiblePage, clearing, loadMore]);
+  const hasUsableContent = hasActionables || hasUpcomingEvents || hasProgress || hasHistory || hasBankPayout;
+  const beaconDataState = hasUsableContent ? "loaded" : contentLoading
     ? "loading"
     : showColdError
       ? "error"
@@ -1138,6 +1153,16 @@ function FeedPageSession({
               </section>
             ) : null}
 
+            {hasUsableContent ? <>
+              <FeedLaneStatus label="Needs you" loading={actionablesLoading && !hasActionables} error={actionablesError} retry={retryActionables} />
+              <FeedLaneStatus label="In progress" loading={progressLoading && !hasProgress} error={progressError} retry={retryActionables} />
+              <FeedLaneStatus label="Recent activity" loading={loading && !hasHistory} error={resourceError} retry={() => refresh({ force: true })} />
+            </> : null}
+            {!hasUsableContent && contentLoading && hasRefreshError ? <div role="status" className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+              <span>Some activity could not load. Other updates are still loading.</span>
+              <Button type="button" variant="none" size="compact" onClick={() => void retryFeed()}>Retry</Button>
+            </div> : null}
+
             {contentLoading && !hasHistory && !hasActionables && !hasProgress ? (
               <FeedRowsSkeleton />
             ) : null}
@@ -1195,6 +1220,7 @@ function FeedPageSession({
               </div>
             ) : null}
 
+            {hasNew ? <div role="status"><Button type="button" variant="none" onClick={showNew}>New activity</Button></div> : null}
             {hasHistory
               ? dayGroups.map((group) => (
                   <section key={group.label} aria-label={group.label}>
@@ -1320,6 +1346,18 @@ function FeedPageSession({
       />
     </AppPageShell>
   );
+}
+
+function FeedLaneStatus({ label, loading, error, retry }: { label: string; loading: boolean; error: string | null; retry: () => Promise<unknown> }) {
+  if (!loading && !error) return null;
+  return <section aria-label={`${label} status`} aria-busy={loading} className="space-y-2">
+    <SectionLabel>{label}</SectionLabel>
+    {loading ? <Skeleton className="h-14 w-full rounded-xl" /> : null}
+    {error ? <div role="status" className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+      <span>{label} could not refresh.</span>
+      <Button type="button" variant="none" size="compact" onClick={() => void retry()}>Retry</Button>
+    </div> : null}
+  </section>;
 }
 
 /** Day / section divider that follows the shared readable label scale. */
