@@ -34,7 +34,10 @@ async def test_connected_bridge_services_fetch_while_browser_action_waits_and_cl
     assert host._pump.done() and worker._pump.done()
 
 
-async def test_connected_bridge_concurrent_close_waits_for_actual_handler_cleanup():
+@pytest.mark.parametrize("peer_reset", [False, True])
+async def test_connected_bridge_concurrent_close_waits_for_actual_handler_cleanup(
+    monkeypatch, peer_reset
+):
     from hushh_mcp.services.pod_browser.connected_transport import ConnectedBrowserTransport
 
     left, right = socket.socketpair()
@@ -50,6 +53,14 @@ async def test_connected_bridge_concurrent_close_waits_for_actual_handler_cleanu
 
     host = await ConnectedBrowserTransport.connect(left, handler)
     worker = await ConnectedBrowserTransport.connect(right, handler)
+    if peer_reset:
+        original_wait = worker._writer.wait_closed
+
+        async def reset_after_close():
+            await original_wait()
+            raise ConnectionResetError("synthetic terminated browser peer")
+
+        monkeypatch.setattr(worker._writer, "wait_closed", reset_after_close)
     turn = asyncio.create_task(host.exchange({"operation": "navigate"}))
     closers = []
     try:
@@ -136,7 +147,7 @@ async def test_connected_executor_retains_host_authority_and_cleans_up(fault):
         stops.append("terminated")
 
     class Driver(Executor):
-        async def execute(self, action):
+        async def execute(self, action, *, scope=None):
             frame = await super().execute(action)
             if fault == "revoked_after_frame":
                 auth.revoked = True
@@ -207,7 +218,7 @@ async def test_connected_worker_network_binds_owner_and_sanitizes_private_errors
     worker = ConnectedBrowserWorker(binding())
 
     class Driver(Executor):
-        async def execute(self, action):
+        async def execute(self, action, *, scope=None):
             request = BrowserRequest(url="https://example.com/", method="GET")
             assert (await worker.fetch(request)).body == b"ok"
             changed = request.model_dump(mode="json")

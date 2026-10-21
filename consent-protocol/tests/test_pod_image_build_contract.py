@@ -317,11 +317,12 @@ def test_the_pod_runs_exactly_one_worker():
             execve=execute,
         ),
         sys=SimpleNamespace(platform="linux", argv=["pod_entrypoint.py"]),
+        host_secret=lambda: effects.append(("host_secret",)),
         drop=lambda identity: effects.append(("drop", identity)),
     )
     with pytest.raises(Executed):
         bootstrap["main"]()
-    assert effects[0:2] == [("umask", 0o077), ("drop", 10001)]
+    assert effects[0:3] == [("umask", 0o077), ("host_secret",), ("drop", 10001)]
     _, executable, arguments, environment = effects[-1]
     assert executable == "/opt/venv/bin/gunicorn"
     assert arguments[arguments.index("-w") + 1] == "1"

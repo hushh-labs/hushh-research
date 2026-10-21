@@ -376,7 +376,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Perform bounded browser tasks for One through the owner's isolated, authorized browser.",
+      "description": "Perform bounded browser tasks for One inside the owner's authorized private-agent container.",
       "evaluations": [],
       "failure_states": [
         "auth_required",
@@ -478,7 +478,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "0472a9d433aac464e86f04dae8e5a73e39bfdbe25c19014b8d587364d2f0bd4b",
+      "system_instruction_sha256": "c77979736702511bdbcdea1c9d28c0ab07aa66b821d1002344ef5941e4903ee5",
       "telemetry_namespace": "agent.computer_use",
       "tools": [],
       "ui_type": "chat",

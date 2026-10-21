@@ -15,6 +15,7 @@ environment is refused too), and callers get ``AzureAgentUnreadable`` instead of
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -25,6 +26,16 @@ GONE_ENVIRONMENT_DELETED = "environment_deleted"
 GONE_ACCESS_REMOVED = "access_removed"
 #: Hussh's read of the agent was refused while its environment reads: not absence.
 AGENT_UNREADABLE = "agent_unreadable"
+
+
+async def joined_observation(read: Callable[[], AzureAgentObservation]) -> AzureAgentObservation:
+    """A cancelled caller must retain borrowed transport until its reader exits."""
+    from hushh_mcp.services.azure_setup_worker import run_setup_thread
+
+    observation: AzureAgentObservation = await run_setup_thread(
+        lambda *, guard, advance: read(), advance=lambda _: None
+    )
+    return observation
 
 
 class AzureJitAuthorizationRequired(RuntimeError):

@@ -62,8 +62,10 @@ async def review_provider_action(
 
 def gemini_before_tool(control: BrowserControl, processing: BrowserModelProcessing):
     async def before_tool(tool, args, tool_context):
+        await control.require_model_observation()
         decision = args.get("safety_decision")
         if decision is None:
+            control.admit_native_call(tool_context.function_call_id)
             return None
         if (
             not isinstance(decision, dict)
@@ -72,6 +74,7 @@ def gemini_before_tool(control: BrowserControl, processing: BrowserModelProcessi
         ):
             raise BrowserRefused("BROWSER_PROVIDER_REVIEW_INVALID")
         if decision["decision"] == "proceed":
+            control.admit_native_call(tool_context.function_call_id)
             return None  # Ordinary action and network consent still apply.
         explanation = (
             decision.get("explanation") or "The model flagged this browser action for review."
@@ -88,6 +91,7 @@ def gemini_before_tool(control: BrowserControl, processing: BrowserModelProcessi
         )
         # ADK's public confirmation seam is set only AFTER the owner ledger
         # receipt was consumed for this exact call/viewport/control epoch.
+        control.admit_native_call(tool_context.function_call_id)
         tool_context.tool_confirmation = ToolConfirmation(confirmed=True)
         return None
 

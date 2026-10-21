@@ -177,6 +177,15 @@ def erasure_target(backend: UserAzureBackend, spec: PodSpec) -> dict[str, str]:
     }
 
 
+async def joined_erasure_target(backend: UserAzureBackend, spec: PodSpec) -> dict[str, str]:
+    from hushh_mcp.services.azure_setup_worker import run_setup_thread
+
+    target: dict[str, str] = await run_setup_thread(
+        lambda *, guard, advance: erasure_target(backend, spec), advance=lambda _: None
+    )
+    return target
+
+
 async def erase_through_backend(
     backend: UserAzureBackend,
     spec: PodSpec,

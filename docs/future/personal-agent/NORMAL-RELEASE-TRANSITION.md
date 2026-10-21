@@ -1,30 +1,31 @@
 # Private agent: normal release transition
 
-**Status:** local integration plan, refreshed 2026-10-20. Main `f47a4832dbc` and
-frozen ADK `42bb9823005` are integrated through `b14bc29901`; historical integration
-checkpoint `0bb98bd384` precedes unified development-source consolidation and the
-current Browser approval work. The readiness memo owns current source/serving status. Browser composition, Shared continuity, exact-attempt
-release acceptance and VM identity/recovery evidence are committed locally.
-Browser approval recovery and the bounded VM power port now have focused local
-proof. Durable power-cycle composition and a disposable normal-entrypoint VM now
-have authenticated drain, same-key restart and cleanup evidence. Source adds a
-fixed image-only host update, encrypted Browser terminal-result recovery and an
-explicit owner retention review. Customer VM update/erasure/idle composition and
-installed Browser acceptance remain open. Combined protected Chromium/native ADK
-public research now passes on GCP and the disposable Azure VM; active-task owner
-approval, takeover and reconnect remain distinct. Dev migration 966 is registered
-but absent from the 20 October 22:05 UTC ledger read, so it must serve before
-real Browser task approval. Newly parked dev migration 969 separately admits the
-GCP Browser configuration operation; it is not proof of installed activation.
-GCP dev acceptance uses the explicitly approved Gemini
-bridge: the owner confirms the organizational AI restriction is why it exists.
-Native project Vertex is not a dev release prerequisite; additional IAM grants
-are not a supported fix for the recorded provider dunning denial.
-The approved Browser-first implementation permits
-exact-SHA validation and governed dev acceptance after the candidate is complete.
-Application main merge, UAT/production and stable publication remain separate.
-The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
-actual journey acceptance; this plan does not convert source checks into live proof.
+**Status:** authorized execution, refreshed 2026-10-21 UTC. Continue on the
+infrastructure branch; preserve concurrent work and the active ADK tree. Prior
+main `f47a4832dbc` and frozen ADK `42bb9823005` integration remains preserved.
+Take the fresh dependency-relevant intake once after implementation, then freeze.
+
+One and Browser share the owner's image, container, non-root identity and
+lifecycle. GCP remains Cloud Run with Chromium's sandbox enabled; Azure remains
+Container Apps with it explicitly disabled. The whole owner pod is the compromise
+boundary. No VM migration, separate Browser service or artificial keepalive.
+
+The same immutable component image now produces real public-page frames and
+confirmed supervisor shutdown on both services. Native model execution, owner
+approval/takeover/login/reconnect, delivery, capacity and installed acceptance
+remain separate gates. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
+owns current source and serving evidence; qualification does not enable a pod.
+
+Execution order: Browser → measured common capacity → agreed core lifecycle →
+fresh main/ADK intake → core mirror and exact-SHA hosted CI → governed image build
+→ exact-image qualification → governed metadata publication → exact owner installations → combined acceptance → **Admin SOP main merge and
+landed-SHA validation/dev receipt**. Main integration is now explicitly authorized
+after those gates. UAT/production, stable publication and automatic owner upgrades
+remain unauthorized. General scheduled-task expansion and coding activation are
+outside this Browser-plus-core gate; preserve supported schedules.
+
+GCP dev uses the approved personal Gemini bridge because native organization AI
+is restricted. More IAM grants cannot repair the recorded provider dunning denial.
 
 ## Visual Context
 
@@ -68,8 +69,8 @@ resources, product agents and release authority are unchanged.
 - Keep unrelated PDF, native dependency and tooling edits outside the release.
   Freeze one dependency-complete revision after these seams are resolved.
 - Run affected contract checks while implementing. Run the local core mirror once
-  on that final revision, then one hosted PR validation after a later authorized
-  push. Re-run a failed job; do not push repeatedly to monitor CI.
+  on that final revision, then one hosted PR validation on the authorized
+  branch push. Re-run a failed job; do not push repeatedly to monitor CI.
 
 ## 2. Consolidate the existing release path
 
@@ -91,7 +92,7 @@ every unmeasured helper extraction a prerequisite for the exact-SHA acceptance g
 | Rollout/readback | Share revision, traffic, schema, health and rollback-receipt handling | Each environment's approvals, capacity decisions, worker fences and recovery prerequisites |
 | Dev-only machinery | Remove duplicate implementations after all callers use the common helpers; retain a thin governed environment entrypoint where dispatch contracts require it | Existing main-owned dev dispatch; branch qualification; preview isolation |
 | Erasure parity | Apply the account-deletion fence and rollback-boundary proof to dev when the same migration boundary applies | UAT/production backup, deletion policy and writer-drain checks |
-| Pod publication | Graduate the existing image/release owners explicitly; current build recipe publishes pod images only for dev | Separate dev/stable channels, exact predecessor recovery, signed immutable offers and owner approval |
+| Pod publication | Graduate the existing image/release owners explicitly; current build recipe publishes pod images only for dev | Separate dev/stable channels, exact predecessor recovery, reviewed digest-pinned offers and owner approval |
 
 Thin environment entrypoints may remain for GitHub permissions and dispatch
 compatibility. They must call the common implementation rather than carry their own
@@ -157,7 +158,7 @@ require a verified update receipt, independently of the managed-app announcement
 | Puppy | Unavailable | BYOC only, exact trusted-device grant and signed owner/pod binding |
 | Software updates | Managed service version and release notes | Exact-release approval, durable progress, recovery and installed-digest verification |
 | Recorded voice | Existing Shared contract | GCP's authorized native path; Azure disabled |
-| Browser | Unavailable for persistent private work | Sandboxed Chromium inside the owner deployment; unavailable per cloud until isolation and runtime composition qualify |
+| Browser | Unavailable for persistent private work | Same owner container; explicit GCP sandbox-on / Azure sandbox-off qualification, owner policy and installed acceptance |
 | Scheduled private work | Explain the private-pod requirement | Only supported, qualified task types; no implied general cron capability |
 
 Use authoritative placement/capability observations in onboarding, Settings, chat
@@ -213,54 +214,59 @@ action explanation through production capability composition.
 
 ## 5. Complete built-in Browser independently on GCP and Azure
 
-**Neither installed cloud journey is complete.** GCP protected public browsing,
-Azure VM protected public browsing, encrypted recovery across deallocation/start
-and Azure native ADK screenshot continuation have separate qualification receipts.
-They do not establish the combined owner
-journey. Container Apps still refuses Chromium's required namespace operation;
-existing Azure owners remain on that host until an exact hosting offer is approved.
+**Neither installed owner Browser journey is complete.** Both ordinary hosting
+services now pass synthetic browsing and joined process shutdown under the shared
+owner boundary. Historical protected-process and VM evidence remains historical;
+no owner hosting migration follows from it.
 
-The [Browser MVP and follow-on plan](./browser-completion-plan.md#immediate-mvp--critical-path-first)
-own implementation order and owner experience. The
-[runtime reference](../../../consent-protocol/docs/reference/private-browser-runtime.md#built-in-process-qualification--2026-10-20-utc)
-owns isolation, model, immutable image and teardown receipts. The
-[VM lifecycle proposal](./browser-completion-plan.md#azure-vm-hosting-proposal--qualification-only)
-owns unimplemented placement, ingress, wake, updates, erasure and retained costs.
+The [runtime reference](../../../consent-protocol/docs/reference/private-browser-runtime.md)
+owns exact mode, image, model, authority and lifecycle contracts. Before release:
 
-Before Browser enters a release:
+1. Compose the actual native model, exact reviews, selected-information/session
+   ports, Browser work delivery and bounded Files transfer. Prove research,
+   takeover, login observation suppression, handback, reconnect and Stop on each
+   cloud without goal replay or uncertain-effect replay.
+2. Compare the same candidate at 1 vCPU / 2 GiB and 2 vCPU / 4 GiB. Choose the
+   smallest common passing configuration with measured headroom. Keep existing
+   owner resources until an exact configuration/update approval. Capacity does
+   not change minimum-zero sleeping policy; scratch is separately budgeted.
+3. Use two runs of the existing main-owned `deploy-dev.yml`, not another workflow:
+   **A:** remove the old `deploy/pod-release-reuse.json` pin, validate the complete
+   source SHA, then dispatch `build_pod_image=true` (`scope=all` for frontend changes).
+   This builds and archives the immutable image and deploys the backend; Browser
+   remains unavailable. Qualify that exact image/source on each host. **B:** commit
+   reviewed version-2 receipts, the assembler's Browser-qualification checksum pins
+   and a new reuse pin naming A's image/source/run/archive checksum. Obtain exact-SHA
+   CI for B, then dispatch the same workflow with `scope=backend` and
+   `build_pod_image=true`. It publishes qualified dev metadata without rebuilding
+   the pod; both runs are governed backend deployments. Verify recovery,
+   drain, digest, policy and serving readback through the existing owner approval
+   flow. Image-only approval never grants Browser activation or larger capacity.
+4. Keep unavailable controls hidden, with useful explanations on attempted use.
+   Shared continuity, exact BYOC placement and existing information stay intact.
 
-1. Prove the composed One task, exact review, preview/takeover, reconnect and Stop
-   on each cloud's qualified image. Preserve separate processing/disclosure consent,
-   manual-login observation suppression and uncertain-effect fences.
-2. Verify encrypted recovery, update drain, model access and idle teardown. Bind
-   acceptance to immutable image, cloud, model and configuration through the
-   existing release authority. A readiness flag or hash-shaped field is insufficient.
-3. Publish only an immutable dev offer, then exercise the separately approved
-   owner installation. GCP Browser setup additionally needs migration 969 and
-   exact policy review through its distinct Browser plan; Files or image-only
-   approval cannot grant it. Azure target-evidence refresh requires the qualified
-   root updater/helper bundle. A VM probe does not authorize moving an existing owner.
-4. Keep unsupported execution controls hidden and explain availability on demand.
-   Retain Chromium's sandbox and secret/process/network isolation without fallback.
-
-Browser completion requires both installed cloud journeys. Promotion remains
-subject to the distinct environment gates below; source, disposable qualification
-and deployed owner acceptance must stay separately recorded.
+The future workspace contract covers bounded scratch/cache, periodic encrypted
+checkpoints, revision references, restart, cancellation and erasure. No general
+shell or coding workload is enabled by this release.
 
 ## Promotion and stop conditions
 
 1. **Local review:** resolve integration seams and verify source, generated contracts,
    cohort predicates, announcements, lifecycle cleanup and workflow responsibilities.
-2. **Dev:** later authorized exact-SHA validation/deployment, serving readback, then
-   separately approved pod updates and the affected owner journeys.
-3. **UAT:** separate authorization; rehearse legacy/new/BYOC/pending cohorts, billing
+2. **Dev:** exact-SHA image build, exact-image qualification and validated metadata
+   publication as above; serving readback, separately approved pod updates and the
+   affected owner journeys.
+3. **Main:** reviewed PR and ordinary merge queue under Admin SOP after dev acceptance.
+   Use an Admin bypass only under explicit authorization and the same verified gates.
+   Require the exact landed SHA's Main Post-Merge Smoke and its distinct dev receipt,
+   then synchronize the preserved infrastructure branch.
+4. **UAT:** separate authorization; rehearse legacy/new/BYOC/pending cohorts, billing
    return, Files integrity, update interruption, connector revocation and account
    erasure. Prove retained information recovery and cloud-resource reconciliation.
-4. **Production:** separate approval after UAT, capacity, migration/release-channel
+5. **Production:** separate approval after UAT, capacity, migration/release-channel
    graduation, provenance, recovery, erasure and rollback-boundary evidence pass.
 
-Current gaps remain explicit: the approved GCP bridge still needs the affected
-owner journey; Azure's customer host adapter and both clouds' installed composition
-remain open; retained synthetic erasure and
-current-image journeys still need live receipts. Do not manufacture a pass, default
-owners to Shared, weaken isolation or publish a stable offer to remove a blocker.
+Current gaps remain explicit in the readiness memo. Do not manufacture a pass,
+default unknown owners to Shared, silently change capacity or cloud, or publish a
+stable offer to bypass a gate. The accepted shared-owner boundary must not be
+misrepresented as Browser-to-One process isolation.

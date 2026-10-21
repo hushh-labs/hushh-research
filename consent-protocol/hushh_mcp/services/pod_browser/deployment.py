@@ -39,6 +39,13 @@ def installed_browser_host() -> tuple[str, str]:
     if workload_platform() == "gcp" and os.getenv("K_SERVICE") and os.getenv("K_REVISION"):
         # Rendered with the exact verified owner-registry image, not a mutable tag.
         return "gcp_cloud_run", os.getenv("HUSSH_POD_INSTALLED_IMAGE_DIGEST", "")
+    if (
+        workload_platform() == "azure"
+        and os.getenv("CONTAINER_APP_NAME")
+        and os.getenv("CONTAINER_APP_REVISION")
+        and os.getenv("CONTAINER_APP_REPLICA_NAME")
+    ):
+        return "azure_container_apps", os.getenv("HUSSH_POD_INSTALLED_IMAGE_DIGEST", "")
     raise BrowserRefused("BROWSER_HOST_UNQUALIFIED")
 
 
@@ -51,7 +58,7 @@ class BrowserDeployment(StrictContract):
     pod_key_id: str = Field(min_length=1, max_length=256)
     incarnation: str = Field(min_length=1, max_length=256)
     image_tag: str = Field(min_length=1, max_length=128)
-    host_kind: Literal["gcp_cloud_run", "azure_vm"]
+    host_kind: Literal["gcp_cloud_run", "azure_vm", "azure_container_apps"]
     evidence_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     readiness: BrowserReadiness
     public_policy: PublicResearchPolicy

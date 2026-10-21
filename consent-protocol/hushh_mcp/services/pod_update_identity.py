@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 from hushh_mcp.services.pod_release import image_digest
 
 if TYPE_CHECKING:
-    from hushh_mcp.services.azure_vm_host_binding import AzureVmHostBinding
+    from hushh_mcp.services.compute_backend import PodSpec
 
 
 def verified_image_changed(
@@ -39,12 +39,22 @@ def verified_upgrade_approval(approval: object) -> dict[str, Any] | None:
     }
 
 
-def merged_upgrade_metadata(previous: dict, handle: dict, *, vm: AzureVmHostBinding | None) -> dict:
+def merged_upgrade_metadata(previous: dict, handle: dict, *, spec: PodSpec) -> dict:
     """Keep publication atomic; the owning SQL guard verifies VM retirement."""
     merged = {**previous, **handle}
-    if vm is not None:
+    if spec.azure_vm_host is not None:
         merged.pop("vmPower", None)
     return merged
+
+
+def retained_upgrade_idle_evidence(receipt: dict, *, operation_id: str, spec: PodSpec) -> dict:
+    """Keep host-specific recovery requirements out of fleet orchestration."""
+    from hushh_mcp.services.pod_upgrade_handoff import retained_idle_evidence
+
+    evidence: dict = retained_idle_evidence(
+        receipt, operation_id=operation_id, require_cursor=spec.azure_vm_host is not None
+    )
+    return evidence
 
 
 def release_identity(
@@ -98,6 +108,7 @@ def approved_files_plan(approval: dict):
 
 def approved_browser_plan(approval: dict):
     """Decode only the separately approved Browser configuration envelope."""
+    from hushh_mcp.services.pod_browser.azure_capability import AzureBrowserCapabilityPlan
     from hushh_mcp.services.pod_browser.capability_update import GcpBrowserCapabilityPlan
 
     encoded, digest = approval.get("browserPlan"), approval.get("browserPlanDigest")
@@ -110,7 +121,12 @@ def approved_browser_plan(approval: dict):
         or approval.get("capabilityPlanDigest") is not None
     ):
         raise ValueError("Browser requires an independent capability approval")
-    plan = GcpBrowserCapabilityPlan.model_validate_json(json.dumps(encoded))
+    kind = (
+        AzureBrowserCapabilityPlan
+        if isinstance(encoded, dict) and encoded.get("hostKind") == "azure_container_apps"
+        else GcpBrowserCapabilityPlan
+    )
+    plan = kind.model_validate_json(json.dumps(encoded))
     if (
         digest != plan.digest
         or approval.get("ownerId") != plan.ownerId

@@ -193,6 +193,14 @@ class ConnectedBrowserTransport:
         try:
             async with asyncio.timeout(5):
                 await asyncio.gather(*tasks, return_exceptions=True)
-                await self._writer.wait_closed()
+                try:
+                    await self._writer.wait_closed()
+                except (ConnectionResetError, BrokenPipeError):
+                    # A supervised peer can exit before the socket flushes.
+                    # All local handlers have joined and close() has fenced
+                    # delivery. Peer reset cannot authorize replay, and is not
+                    # evidence of a surviving Browser process; its supervisor
+                    # independently confirms process-tree termination.
+                    pass
         except (TimeoutError, OSError):
             raise BrowserRefused("BROWSER_BRIDGE_CLOSE_UNCONFIRMED") from None

@@ -18,6 +18,7 @@ from .contracts import (
     StrictContract,
 )
 from .control import BrowserControl
+from .downloads import BrowserDownloadOffer
 from .information import BrowserModelProcessing, InformationField
 from .origin import public_origin
 from .review_contracts import BrowserHubReview
@@ -77,6 +78,9 @@ class BrowserTaskSnapshot(StrictContract):
     review: BrowserReviewOffer | None = Field(default=None, repr=False)
     approved_origins: tuple[str, ...] = Field(default=(), max_length=20, repr=False)
     viewport: BrowserViewport | None = None
+    input_pending: bool = False
+    downloads: tuple[BrowserDownloadOffer, ...] = Field(default=(), max_length=1, repr=False)
+    goal_completed: bool = False
 
 
 class BrowserTaskReceipt(StrictContract):

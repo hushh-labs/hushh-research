@@ -50,6 +50,60 @@ async def test_resume_restart_exact_bytes_ciphertext_and_idempotent_commit(libra
         assert b"private report.txt" not in path.read_bytes()
 
 
+async def test_browser_attachment_save_reuses_files_integrity_and_current_grants(
+    library, monkeypatch
+):
+    from contextlib import asynccontextmanager
+
+    from hushh_mcp.services.pod_browser.contracts import BrowserRefused, BrowserResponse
+    from hushh_mcp.services.pod_browser.downloads import BrowserDownloads
+    from hushh_mcp.services.pod_files import runtime
+
+    @asynccontextmanager
+    async def operation(**_):
+        await runtime.require_files_access(manage=True)
+        yield library
+
+    monkeypatch.setattr(runtime, "operation", operation)
+    downloads = BrowserDownloads()
+    body = b"synthetic private download\x00\xff"
+    acknowledged = downloads.capture(
+        BrowserResponse(
+            status=200,
+            headers=(
+                ("Content-Disposition", 'attachment; filename="report.bin"'),
+                ("Set-Cookie", "synthetic-a=1; Secure; HttpOnly"),
+                ("Set-Cookie", "synthetic-b=2; Secure; HttpOnly"),
+            ),
+            body=body,
+        )
+    )
+    assert acknowledged.status == 204 and not acknowledged.body and acknowledged.download_id
+    assert acknowledged.headers == (
+        ("Set-Cookie", "synthetic-a=1; Secure; HttpOnly"),
+        ("Set-Cookie", "synthetic-b=2; Secure; HttpOnly"),
+    )
+    offer = downloads.offers[0]
+    receipt = await downloads.save(offer.download_id, name=offer.name, parent="root", check=allowed)
+    assert await library.read_chunk(receipt["file_id"], 0) == body and receipt["verified"]
+    assert (
+        await downloads.save(offer.download_id, name=offer.name, parent="root", check=allowed)
+        == receipt
+    )
+    assert len((await library.list_folder())["entries"]) == 1
+    with pytest.raises(BrowserRefused, match="DESTINATION_CHANGED"):
+        await downloads.save(offer.download_id, name="changed.bin", parent="root", check=allowed)
+
+    async def revoked():
+        raise FilesRefused("FILES_REVOKED")
+
+    with pytest.raises(FilesRefused, match="REVOKED"):
+        await downloads.save(offer.download_id, name=offer.name, parent="root", check=revoked)
+    downloads.clear()
+    with pytest.raises(BrowserRefused, match="UNAVAILABLE"):
+        await downloads.save(offer.download_id, name=offer.name, parent="root", check=allowed)
+
+
 @pytest.mark.asyncio
 async def test_wrong_owner_and_tampered_object_fail_closed(library, tmp_path):
     entry = await library.create(name="file", parent="root", size=3, request_id="request-one")

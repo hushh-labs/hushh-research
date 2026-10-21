@@ -17,6 +17,7 @@ from .connected_transport import ConnectedBrowserTransport
 from .contracts import (
     BrowserAction,
     BrowserBinding,
+    BrowserExecutionScope,
     BrowserFrame,
     BrowserRefused,
     BrowserRequest,
@@ -73,6 +74,14 @@ class ConnectedBrowserExecutor:
         self._watcher: asyncio.Task
         self._shutdown: asyncio.Task | None = None
         self._requests = 0
+        self._scope: BrowserExecutionScope | None = None
+
+    def bind_scope_validator(self, check: Callable[[BrowserExecutionScope], None]) -> None:
+        self._broker.bind_scope_validator(check)
+
+    @property
+    def downloads(self):
+        return self._broker.downloads
 
     @classmethod
     async def connect(
@@ -102,12 +111,16 @@ class ConnectedBrowserExecutor:
             if self._shutdown is not None or self._requests > 512:
                 raise BrowserRefused("BROWSER_STOPPED")
             request = BrowserRequest.model_validate_json(json.dumps(payload["request"]))
+            if request.scope != self._scope:
+                raise BrowserRefused("BROWSER_ACTION_SCOPE_REFUSED")
+            if request.scope is not None:
+                request.scope.remaining()
             response = await self._broker.fetch(request)
             return dict(response.model_dump(mode="json"))
         except Exception as exc:
             return _error(exc, "BROWSER_NETWORK_REFUSED")
 
-    async def _call(self, operation: str, **values: object) -> dict:
+    async def _call(self, operation: str, *, timeout: float = 25, **values: object) -> dict:
         if self._shutdown is not None:
             raise BrowserRefused("BROWSER_STOPPED")
         await self._broker.check_observation()
@@ -118,7 +131,8 @@ class ConnectedBrowserExecutor:
                         "binding": self._binding.model_dump(mode="json"),
                         "operation": operation,
                         **values,
-                    }
+                    },
+                    timeout=timeout,
                 )
             except Exception:
                 # Even observation can overlap an autosave network request.
@@ -140,10 +154,21 @@ class ConnectedBrowserExecutor:
             await self.close()
             raise BrowserRefused("BROWSER_BRIDGE_INVALID")
 
-    async def execute(self, action: BrowserAction) -> BrowserFrame:
-        result = await self._call(
-            "execute", action=action.model_dump(mode="json", exclude_unset=True)
-        )
+    async def execute(
+        self, action: BrowserAction, *, scope: BrowserExecutionScope | None = None
+    ) -> BrowserFrame:
+        if scope is not None:
+            scope.require_action(action, self._binding)
+        self._scope = scope
+        try:
+            result = await self._call(
+                "execute",
+                action=action.model_dump(mode="json", exclude_unset=True),
+                scope=scope.model_dump(mode="json") if scope is not None else None,
+                timeout=scope.remaining() if scope is not None else 25,
+            )
+        finally:
+            self._scope = None
         try:
             frame = BrowserFrame.model_validate_json(json.dumps(result))
             if frame.sequence != action.sequence:
@@ -224,7 +249,7 @@ class ConnectedBrowserWorker:
             raise BrowserRefused("BROWSER_NETWORK_REFUSED")
         self._network_requests += 1
         try:
-            async with asyncio.timeout(20):
+            async with asyncio.timeout(request.scope.remaining() if request.scope else 20):
                 await self._network_gate.acquire()
         except TimeoutError:
             # This request was never sent; unlike reply loss, it is not uncertain.
@@ -243,7 +268,7 @@ class ConnectedBrowserWorker:
                     "binding": self._binding.model_dump(mode="json"),
                     "request": request.model_dump(mode="json"),
                 },
-                timeout=20,
+                timeout=request.scope.remaining() if request.scope else 20,
             )
             if result == {"error": "BROWSER_NETWORK_REFUSED"}:
                 raise BrowserRefused("BROWSER_NETWORK_REFUSED")
@@ -259,6 +284,8 @@ class ConnectedBrowserWorker:
             try:
                 session = payload.get("operation") in {"session_export", "session_import"}
                 fields = {"operation", "origins", "state"} if session else {"operation", "action"}
+                if payload.get("operation") == "execute":
+                    fields.add("scope")
                 _bound(payload, self._binding, fields)
                 return await self._dispatch(executor, payload)
             except Exception as exc:
@@ -285,7 +312,14 @@ class ConnectedBrowserWorker:
                 return {"initialized": True}
             case "execute":
                 action = BrowserAction.model_validate_json(json.dumps(payload["action"]))
-                return dict((await executor.execute(action)).model_dump(mode="json"))
+                scope = (
+                    BrowserExecutionScope.model_validate(payload["scope"])
+                    if payload["scope"] is not None
+                    else None
+                )
+                if scope is not None:
+                    scope.require_action(action, BrowserBinding.model_validate(payload["binding"]))
+                return dict((await executor.execute(action, scope=scope)).model_dump(mode="json"))
             case "session_export" if payload["state"] is None:
                 origins = _origins(payload["origins"])
                 state = (await executor.export_session(origins)).for_origins(origins)

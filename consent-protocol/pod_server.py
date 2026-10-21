@@ -593,7 +593,14 @@ async def _pod_startup() -> None:
         except Exception:
             logger.warning("pod.files_queue_unavailable")
         else:
-            app.state.files_queue_consumer = asyncio.create_task(consume_forever())
+            from hushh_mcp.services.pod_browser.composition import hold_browser_delivery
+
+            async def browser_work(payload, valid):
+                return await hold_browser_delivery(app, payload, check=valid)
+
+            app.state.files_queue_consumer = asyncio.create_task(
+                consume_forever(browser_work=browser_work)
+            )
     # Memory Bank, off the boot path. Creating the engine is a slow LRO in the
     # person's project; until it resolves, turns recall from the sealed log.
     asyncio.get_running_loop().create_task(_ensure_memory_bank_task())

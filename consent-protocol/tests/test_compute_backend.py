@@ -7,7 +7,7 @@ to a real host until a backend is both implemented and explicitly named.
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
@@ -266,6 +266,7 @@ def _vm_spec_and_metadata():
         "serviceUid": host["generation"],
         "runtime_principal_id": principal,
         "runtime_client_id": host["client_id"],
+        "setupNonce": "0123456789abcdef",
     }
     spec = _azure_spec(
         user_cloud_resource_group="owner",
@@ -423,3 +424,69 @@ async def test_vm_status_cancellation_joins_and_closes_its_real_reader(monkeypat
     finally:
         release.set()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.parametrize("fault", [None, "nonce", "replacement", "confirmation"])
+async def test_vm_cleanup_checkpoints_exact_reserved_host_without_arm_effects(fault):
+    from hushh_mcp.services.azure_arm_client import ArmClient
+    from hushh_mcp.services.azure_owner_cleanup import _checkpoint_backend
+    from hushh_mcp.services.azure_setup_plan import PlanInputs, tags
+    from hushh_mcp.services.azure_vm_power import AzureVmPowerRefused
+    from hushh_mcp.services.compute_backend import OwnerAccessCheckpointBackend
+    from tests.test_azure_vm_power import Provider
+
+    spec, metadata = _vm_spec_and_metadata()
+    inputs = PlanInputs(
+        spec.hushh_id,
+        spec.user_cloud_tenant_id,
+        spec.user_cloud_subscription_id,
+        spec.user_cloud_region,
+        spec.user_cloud_resource_group,
+        spec.expected_setup_nonce,
+    )
+    provider = Provider(spec.azure_vm_host.target())
+    provider.vm["tags"].update(tags(inputs))
+    arm = ArmClient("synthetic", session=provider)
+    snapshot = {
+        "hushh_id": spec.hushh_id,
+        "deployment_target": "user_azure",
+        "user_cloud_tenant_id": inputs.tenant_id,
+        "user_cloud_subscription_id": inputs.subscription_id,
+        "user_cloud_resource_group": inputs.resource_group,
+        "user_cloud_region": inputs.location,
+        "backend_metadata": metadata,
+    }
+    backend = _checkpoint_backend(snapshot, inputs, arm)
+    assert isinstance(backend, OwnerAccessCheckpointBackend)
+    expected = {
+        "service": spec.azure_vm_host.installation.resource_id,
+        "serviceUid": spec.expected_service_uid,
+        "revision": spec.expected_service_uid,
+        "podUrl": metadata["url"],
+    }
+    assert await backend.observe_erasure_target(spec) == expected
+    if fault == "nonce":
+        provider.vm["tags"].update(tags(replace(inputs, nonce="f" * 16)))
+    elif fault == "replacement":
+        provider.vm["properties"]["vmId"] = "99999999-9999-9999-9999-999999999999"
+    called = []
+
+    async def crypto_erase(resume):
+        called.append(resume)
+        return {
+            "erased": fault != "confirmation",
+            "hushhId": spec.hushh_id,
+            "serviceUid": spec.expected_service_uid,
+        }
+
+    if fault:
+        with pytest.raises((RuntimeError, AzureVmPowerRefused)):
+            await backend.checkpoint_owner_access(spec, crypto_erase=crypto_erase)
+    else:
+        await backend.checkpoint_owner_access(spec, crypto_erase=crypto_erase)
+        assert called == [{"setupNonce": inputs.nonce}]
+    if fault in {"nonce", "replacement"}:
+        assert called == []
+    assert provider.posts == [] and not provider.closed
+    with pytest.raises(RuntimeError, match="retained owner cleanup"):
+        await backend.erase_owner_access(spec, crypto_erase=crypto_erase)

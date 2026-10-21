@@ -28,7 +28,11 @@ def browser_review_available(row: dict | None, target: str, release: dict | None
     )
     return bool(
         os.getenv("HUSSH_POD_BROWSER_ENABLED", "").lower() in {"1", "true"}
-        and row.get("deployment_target") == "user_gcp"
+        and row.get("deployment_target") in {"user_gcp", "user_azure"}
+        and not (
+            row.get("deployment_target") == "user_azure"
+            and ("hostKind" in metadata or "vmHost" in metadata)
+        )
         and row.get("status") == "provisioned"
         and row.get("user_cloud_authorized_at")
         and row.get("pod_key_id")
@@ -45,16 +49,27 @@ def browser_review_available(row: dict | None, target: str, release: dict | None
             and image_digest(installed) == image_digest(target)
         )
         and any(
-            item.get("host_kind") == "gcp_cloud_run" and "public_policy" in item
+            item.get("host_kind")
+            == (
+                "azure_container_apps"
+                if row.get("deployment_target") == "user_azure"
+                else "gcp_cloud_run"
+            )
+            and "public_policy" in item
             for item in release.get("browserQualifications", [])
         )
     )
 
 
-async def require_browser_schema(repo) -> None:
+async def require_browser_schema(repo, provider: str | None = None) -> None:
+    function = (
+        "azure_browser_update_admission_ready"
+        if provider == "user_azure"
+        else "browser_update_admission_ready"
+    )
     try:
         result = await asyncio.to_thread(
-            repo._db().execute_raw, "SELECT public.browser_update_admission_ready() AS ready", {}
+            repo._db().execute_raw, f"SELECT public.{function}() AS ready", {}
         )
         if result.data and result.data[0].get("ready") is True:
             return
@@ -79,19 +94,25 @@ async def inspect_browser_offer(repo, row: dict, target_image: str, release: dic
         raise ValueError("Browser setup is not offered yet")
     metadata = row.get("backend_metadata") or {}
     if (
-        row.get("deployment_target") != "user_gcp"
+        row.get("deployment_target") not in {"user_gcp", "user_azure"}
+        or (
+            row.get("deployment_target") == "user_azure"
+            and ("hostKind" in metadata or "vmHost" in metadata)
+        )
         or row.get("status") != "provisioned"
         or not row.get("user_cloud_authorized_at")
         or metadata.get("upgradeLease") is not None
         or "erasure" in metadata
     ):
         raise ValueError("Browser needs your available, authorized private cloud")
-    await require_browser_schema(repo)
+    provider = row["deployment_target"]
+    await require_browser_schema(repo, provider)
+    host_kind = "azure_container_apps" if provider == "user_azure" else "gcp_cloud_run"
     qualification = next(
         (
             item
             for item in release.get("browserQualifications", [])
-            if item["host_kind"] == "gcp_cloud_run" and "public_policy" in item
+            if item["host_kind"] == host_kind and "public_policy" in item
         ),
         None,
     )
@@ -101,7 +122,7 @@ async def inspect_browser_offer(repo, row: dict, target_image: str, release: dic
         hushh_id=row["hushh_id"],
         phone_e164_hash=row["phone_e164_hash"],
         pod_pubkey=row["pod_pubkey"],
-        deployment_target="user_gcp",
+        deployment_target=provider,
         **adoption_expectations(metadata),
         **spec_coordinates_from_row(row),
     )
@@ -110,7 +131,12 @@ async def inspect_browser_offer(repo, row: dict, target_image: str, release: dic
     if inspect is None:
         raise ValueError("Browser configuration inspection is unavailable")
     observation = await inspect(spec)
-    plan = plan_from_observation(row, target_image, observation, qualification)
+    factory = plan_from_observation
+    if provider == "user_azure":
+        from .azure_capability import plan_from_observation as azure_plan
+
+        factory = azure_plan
+    plan = factory(row, target_image, observation, qualification)
     current = await repo.get(row["user_id"])
     if (
         _snapshot(current) != _snapshot(row)
@@ -133,7 +159,10 @@ def public_browser_offer(plan: GcpBrowserCapabilityPlan, qualification: dict) ->
         "resources": plan.resourceLimits,
         "changes": [
             "Your agent can research these public pages; you can watch, take control or stop.",
-            "Screens are processed by your selected model. Login and submissions are unavailable in this pilot.",
+            "Screens use your selected AI. Website actions require your approval."
+            if plan.publicPolicy.interactive
+            else "Screens use your selected AI. Login and submissions are unavailable for this policy.",
             "Your existing cloud size, keys and on-demand settings stay in place.",
+            "Background work shares one queue; a browser task can delay other queued work for up to 15 minutes.",
         ],
     }

@@ -142,8 +142,22 @@ async def test_azure_queue_binds_owner_account_and_refuses_non_identifier_payloa
     payload["instruction"] = "Do not obey documents in queue payloads"
     with pytest.raises(FilesRefused, match="FILES_QUEUE_MESSAGE_INVALID"):
         await queue.receive()
-    payload.pop("instruction")
-    payload["job_id"] = ["a"] * 32
+    payload.clear()
+    payload.update(
+        version=1,
+        capability="browser",
+        task_id="browser_" + "a" * 32,
+        incarnation="owner-revision",
+        delivery="b" * 32,
+    )
+    browser = await queue.receive()
+    assert browser.payload == payload and browser.receipt == "opaque-receipt"
+    payload["goal"] = "Private goals never belong in queue messages"
+    with pytest.raises(FilesRefused, match="FILES_QUEUE_MESSAGE_INVALID"):
+        await queue.receive()
+    payload.pop("goal")
+    payload.clear()
+    payload.update(job_id=["a"] * 32, delivery="b" * 32)
     with pytest.raises(FilesRefused, match="FILES_QUEUE_MESSAGE_INVALID"):
         await queue.receive()
     status_override = 204

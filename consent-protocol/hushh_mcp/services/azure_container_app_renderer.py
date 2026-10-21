@@ -27,7 +27,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from hushh_mcp.services.compute_backend import POD_CPU_MILLIS, POD_MEMORY, PodSpec
+from hushh_mcp.services.compute_backend import (
+    POD_CPU_MILLIS,
+    POD_MEMORY,
+    POD_REQUEST_CONCURRENCY,
+    PodSpec,
+)
 
 POD_IMAGE_REPOSITORY = "consent-protocol-pod"
 SIGNING_SECRET_NAME = "app-signing-key"  # noqa: S105 - a secret NAME, not a value
@@ -202,7 +207,18 @@ def render_container_app(spec: PodSpec, coords: AgentCoordinates) -> dict[str, A
                     }
                 ],
                 # maxReplicas 1 is correctness, not cost: one writer per sealed log.
-                "scale": {"minReplicas": 0, "maxReplicas": 1},
+                "scale": {
+                    "minReplicas": 0,
+                    "maxReplicas": 1,
+                    "rules": [
+                        {
+                            "name": "http",
+                            "http": {
+                                "metadata": {"concurrentRequests": str(POD_REQUEST_CONCURRENCY)}
+                            },
+                        }
+                    ],
+                },
             },
         },
     }

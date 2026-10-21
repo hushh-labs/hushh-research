@@ -39,6 +39,14 @@ class BrowserTaskState:
     worker: asyncio.Task | None = field(default=None, repr=False)
     monitor: asyncio.Task | None = field(default=None, repr=False)
     closing: asyncio.Task | None = field(default=None, repr=False)
+    starting: asyncio.Task | None = field(default=None, repr=False)
+    input_worker: asyncio.Task | None = field(default=None, repr=False)
+    save_worker: asyncio.Task | None = field(default=None, repr=False)
+    input_commitment: str | None = field(default=None, repr=False)
+    delivery_id: str | None = None
+    delivery_attached: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
+    publication_finished: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
+    finished: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     phase: Phase = "running"
     revision: int = 1
     code: str | None = None
@@ -47,13 +55,17 @@ class BrowserTaskState:
     closed: bool = False
     processing_approved: bool = False
     stop_refusal: str | None = None
+    model_completed: bool = False
+    saved_downloads: dict[str, dict] = field(default_factory=dict, repr=False)
     operation: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    review_operation: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     review_ready: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
-    review_waiting: bool = False
+    review_waiting: str | None = None
 
     def detach_terminal(self, snapshot: BrowserTaskSnapshot) -> None:
         """Joined browser is gone; retain no bearer closure, goal or private port."""
         self.terminal, self.revision, self.summary = snapshot, snapshot.revision, snapshot.summary
         self.request = self.access = self.processing = self.consent = None
         self.sessions = self.authority = self.control = None
-        self.worker = self.monitor = None
+        self.worker = self.monitor = self.input_worker = self.starting = self.save_worker = None
+        self.input_commitment = None

@@ -3,7 +3,7 @@ id: agent_computer_use
 name: Computer Use Agent
 version: 1.0.0
 status: experimental
-description: Perform bounded browser tasks for One through the owner's isolated, authorized browser.
+description: Perform bounded browser tasks for One inside the owner's authorized private-agent container.
 one_exposure:
   service_id: computer_use
   discovery_status: withheld
@@ -60,8 +60,9 @@ system_instruction: |
   When a submission response is lost, report outcome_uncertain. Never repeat
   the submission to discover whether it succeeded. Cancellation prevents new
   actions but does not reverse delivered effects; state that limitation plainly.
-  Files transfer is allowed only through the declared scoped Files tool. Never
-  execute a download, expand arbitrary archives, or follow downloaded links.
+  Ordinary bounded attachments are captured privately for the owner to Save to
+  Files through the scoped Files port. Do not claim a save until its verified
+  receipt. Never execute a download, expand archives, or follow downloaded links.
   Return the BrowserTaskResultV1 contract with the actual outcome and a concise
   summary. Do not claim completion, delivery, or recovery without tool receipts.
 authorities:

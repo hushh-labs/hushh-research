@@ -56,8 +56,8 @@ function OwnerBrowserTasks({
   const active = tasks.rows.filter((task) =>
     ["running", "needs_owner", "outcome_uncertain"].includes(task.phase),
   );
-  const completed = tasks.rows.findLast(task => task.current && task.phase === "completed");
-  const visible = active.length ? active : completed ? [completed] : [];
+  const terminal = tasks.rows.findLast(task => task.current && ["completed", "unavailable"].includes(task.phase));
+  const visible = active.length ? active : terminal ? [terminal] : [];
   // An unavailable pilot stays quiet on ordinary chat entry. Once a task was
   // requested or observed, failed discovery must be recoverable, not disappear.
   const showFailure = failed && (refreshKey > 0 || visible.length > 0);

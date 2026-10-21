@@ -15,7 +15,7 @@ from .contracts import (
     BrowserResponse,
 )
 from .mailbox import BrowserMailbox
-from .playwright_executor import SandboxedPlaywrightExecutor
+from .playwright_executor import PlaywrightExecutor
 from .scratch import require_tmpfs
 from .session_state import RememberedState
 from .worker_identity import prepare_worker_identity
@@ -86,7 +86,7 @@ async def _serve(directory: Path) -> None:
         network.mailbox.require_memory()
         # This entrypoint is started only by the native sandbox launcher. There is
         # no production direct-process mode or unsandboxed retry in the launcher.
-        executor = SandboxedPlaywrightExecutor(network=network, sandbox_verified=True)
+        executor = PlaywrightExecutor(network=network, chromium_sandbox=True)
         previous = None
         async with asyncio.timeout(20 * 60):
             while True:

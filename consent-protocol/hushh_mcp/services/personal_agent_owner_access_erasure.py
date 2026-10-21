@@ -41,7 +41,7 @@ RECEIPT_FIELD = "ownerAccessErasure"
 CHECKPOINT_FIELD = "agentCryptoErase"
 
 
-def _snapshot_spec(row: dict[str, Any]) -> PodSpec:
+def owner_access_spec(row: dict[str, Any]) -> PodSpec:
     metadata = row.get("backend_metadata") if isinstance(row.get("backend_metadata"), dict) else {}
     return PodSpec(
         hushh_id=str(row.get("hushh_id") or ""),
@@ -65,7 +65,7 @@ def owner_access_backend(
     """
     if not isinstance(row, dict) or not is_owner_cloud_target(row.get("deployment_target")):
         return None
-    spec = _snapshot_spec(row)
+    spec = owner_access_spec(row)
     try:
         backend = service._backend_for(spec)
     except Exception:  # noqa: BLE001 - see docstring: the existing chain refuses it
@@ -308,7 +308,7 @@ async def checkpoint_reserved_owner_access(
         or not isinstance(backend, OwnerAccessCheckpointBackend)
     ):
         raise RuntimeError("owner-access checkpoint capability unavailable")
-    spec = _snapshot_spec(row)
+    spec = owner_access_spec(row)
     _require_reserved(reservation, user_id=user_id, row=row, backend=backend)
     if reservation.get(CHECKPOINT_FIELD) is not None:
         return reservation  # SQL worker admission revalidates exact historical coverage.
@@ -348,4 +348,5 @@ __all__ = [
     "erase_reserved_owner_access",
     "prepare_reserved_owner_access",
     "owner_access_backend",
+    "owner_access_spec",
 ]

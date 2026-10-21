@@ -81,9 +81,16 @@ class BrowserTaskLifecycle:
             result = BrowserTaskResultV1.model_validate(result)
             await task.control.require_model_observation()
             task.phase, task.summary = result.outcome, result.summary
+            if (
+                task.phase == "completed"
+                and task.control.downloads
+                and task.control.downloads.offers
+            ):
+                task.model_completed = True
+                task.phase, task.code = "needs_owner", "BROWSER_DOWNLOAD_READY"
             # A completed task is terminal in the owner interface. Release its
             # browser now, rather than retaining invisible compute until idle.
-            close = result.outcome in {"completed", "unavailable", "outcome_uncertain", "cancelled"}
+            close = task.phase in {"completed", "unavailable", "outcome_uncertain", "cancelled"}
             if not close:
                 await self._checkpoint(task)
         except asyncio.CancelledError:
@@ -96,7 +103,15 @@ class BrowserTaskLifecycle:
         except Exception as exc:
             if task.closing is not None:
                 return
-            code = exc.code if isinstance(exc, BrowserRefused) else "BROWSER_TASK_UNAVAILABLE"
+            from hushh_mcp.runtime_providers.dependency_health import is_resource_exhausted
+
+            code = (
+                exc.code
+                if isinstance(exc, BrowserRefused)
+                else "BROWSER_MODEL_RATE_LIMITED"
+                if is_resource_exhausted(exc)
+                else "BROWSER_TASK_UNAVAILABLE"
+            )
             if code in {"BROWSER_MODEL_STOP_UNCONFIRMED", "BROWSER_LAUNCH_STOP_UNCONFIRMED"}:
                 task.stop_refusal = code
             task.code = code
@@ -197,14 +212,48 @@ class BrowserTaskLifecycle:
         task.detach_terminal(self._snapshot(task))
         task.close_payload = None
         await task.permit.release()
+        task.finished.set()
 
     async def _quiesce(self, task: BrowserTaskState, initiator: asyncio.Task | None) -> None:
-        if task.control:
-            async with asyncio.timeout(35):
-                await task.control.stop()
-        # Initiating worker/monitor awaits this close and cannot checkpoint again.
-        await self.cancel_worker(task, except_task=initiator)
+        stop = asyncio.create_task(task.control.stop()) if task.control else None
+        try:
+            # Begin the epoch fence first, then cancel calls that may hold the
+            # control lock while awaiting owner approval. Waiting for stop's
+            # lock before cancelling those calls deadlocks the approval path.
+            await asyncio.sleep(0)
+            starting = task.starting
+            if starting is not None and starting is not initiator and not starting.done():
+                starting.cancel()
+                await asyncio.gather(starting, return_exceptions=True)
+            input_worker = task.input_worker
+            if (
+                input_worker is not None
+                and input_worker is not initiator
+                and not input_worker.done()
+            ):
+                input_worker.cancel()
+                await asyncio.gather(input_worker, return_exceptions=True)
+            await self.cancel_worker(task, except_task=initiator)
+        finally:
+            if stop is not None:
+                async with asyncio.timeout(35):
+                    await asyncio.shield(stop)
         monitor = task.monitor
+        saving = task.save_worker
+        if saving is not None and saving is not initiator and not saving.done():
+            # Stop has already terminated Browser. Join the owner's admitted
+            # Files write before dropping custody/update permits; don't cancel
+            # a provider write whose durable outcome must be reconciled.
+            try:
+                async with asyncio.timeout(60):
+                    await asyncio.shield(saving)
+            except TimeoutError:
+                raise BrowserRefused("BROWSER_DOWNLOAD_SAVE_UNCONFIRMED") from None
+            except asyncio.CancelledError:
+                if not saving.cancelled():
+                    raise
+            except Exception:
+                pass  # exact created-file identity survives for read-only reconciliation
         if monitor and monitor is not initiator:
             monitor.cancel()
             try:
@@ -215,4 +264,7 @@ class BrowserTaskLifecycle:
             raise BrowserRefused(task.stop_refusal)
         if task.control and task.control.outcome_uncertain:
             task.phase, task.code = "outcome_uncertain", "BROWSER_OUTCOME_UNCERTAIN"
+        release_model = getattr(self._model, "release_task", None)
+        if release_model is not None:
+            await release_model(task.binding)
         await self._reviews.release(task.binding)

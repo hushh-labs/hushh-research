@@ -26,7 +26,7 @@ function reviewTerms(value: unknown): ComputerUseReview | undefined {
     || !["model_process", "disclose", "session_remember", "session_restore", "provider_safety"].includes(String(review.purpose))) {
     throw new Error("BROWSER_REVIEW_REFUSED");
   }
-  const origins = terms.origins ?? [];
+  const origins = terms.origins ?? terms.destination_origins ?? [];
   if (!Array.isArray(origins) || origins.length > 20
     || origins.some((origin) => typeof origin !== "string" || !origin || origin.length > 4096)) {
     throw new Error("BROWSER_REVIEW_REFUSED");
@@ -37,6 +37,25 @@ function reviewTerms(value: unknown): ComputerUseReview | undefined {
     throw new Error("BROWSER_REVIEW_REFUSED");
   }
   const details: ComputerUseReview["details"] = [];
+  if (purpose === "disclose" && terms.action !== undefined) {
+    const action = record(terms.action);
+    if (!["type", "keys"].includes(String(action.operation))) throw new Error("BROWSER_REVIEW_REFUSED");
+    if (action.operation === "type") {
+      if (typeof action.text !== "string" || action.text.length > 4096) throw new Error("BROWSER_REVIEW_REFUSED");
+      details.push({ label: "Enter text", value: action.text });
+    } else {
+      if (!Array.isArray(action.keys) || action.keys.length > 4
+        || action.keys.some((key) => typeof key !== "string" || key.length > 32)) throw new Error("BROWSER_REVIEW_REFUSED");
+      details.push({ label: "Keyboard action", value: action.keys.join(" + ") });
+    }
+  }
+  if (purpose === "disclose" && terms.method !== undefined) {
+    const actions: Record<string, string> = { POST: "Send information", PUT: "Replace information", PATCH: "Update information", DELETE: "Delete information", GET: "Open this address", HEAD: "Check this address", OPTIONS: "Check website access" };
+    if (typeof terms.method !== "string" || !Object.hasOwn(actions, terms.method)) throw new Error("BROWSER_REVIEW_REFUSED");
+    const label = actions[terms.method];
+    if (label === undefined) throw new Error("BROWSER_REVIEW_REFUSED");
+    details.push({ label: "Website action", value: label });
+  }
   if (purpose === "model_process" && terms.result_storage !== undefined && terms.result_storage !== "owner_encrypted_log") {
     throw new Error("BROWSER_REVIEW_REFUSED");
   }
@@ -114,6 +133,13 @@ export function parseComputerUseSnapshot(value: unknown, expected: ComputerUseBi
     || !["agent", "owner", "stopped", "uncertain"].includes(String(wire.control_owner))) {
     throw new Error("BROWSER_RESPONSE_REFUSED");
   }
+  if (wire.code != null && (typeof wire.code !== "string" || !/^BROWSER_[A-Z0-9_]{1,100}$/.test(wire.code))) {
+    throw new Error("BROWSER_RESPONSE_REFUSED");
+  }
+  if (wire.input_pending !== undefined && typeof wire.input_pending !== "boolean") {
+    throw new Error("BROWSER_RESPONSE_REFUSED");
+  }
+  if (wire.goal_completed !== undefined && typeof wire.goal_completed !== "boolean") throw new Error("BROWSER_RESPONSE_REFUSED");
   const available = record(wire.capability).available;
   if (typeof available !== "boolean") throw new Error("BROWSER_RESPONSE_REFUSED");
   if (wire.summary != null && (typeof wire.summary !== "string" || Array.from(wire.summary).length > 2000)) {
@@ -132,9 +158,23 @@ export function parseComputerUseSnapshot(value: unknown, expected: ComputerUseBi
   if (viewport && (integer(viewport.width, 320) > 1920 || integer(viewport.height, 240) > 1080)) {
     throw new Error("BROWSER_RESPONSE_REFUSED");
   }
+  const downloads = wire.downloads === undefined ? undefined : wire.downloads;
+  if (downloads !== undefined && (!Array.isArray(downloads) || downloads.length > 1)) throw new Error("BROWSER_DOWNLOAD_REFUSED");
+  const offers = (downloads as unknown[] | undefined)?.map(value => {
+    const item = record(value);
+    if (typeof item.download_id !== "string" || !/^[a-f0-9]{32}$/.test(item.download_id)
+      || typeof item.name !== "string" || !item.name || item.name.length > 255
+      || typeof item.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(item.sha256)
+      || integer(item.size, 0) > 4 * 1024 * 1024) throw new Error("BROWSER_DOWNLOAD_REFUSED");
+    return { id: item.download_id, name: item.name, size: item.size as number, sha256: item.sha256 };
+  });
   return {
+    ...(offers ? { downloads: offers } : {}),
     ...(viewport ? { viewport: { width: viewport.width as number, height: viewport.height as number } } : {}),
     binding, phase: wire.phase as ComputerUsePhase,
+    ...(typeof wire.code === "string" ? { code: wire.code } : {}),
+    ...(wire.input_pending !== undefined ? { inputPending: wire.input_pending as boolean } : {}),
+    ...(wire.goal_completed !== undefined ? { goalCompleted: wire.goal_completed as boolean } : {}),
     ...(wire.phase === "completed" && typeof wire.summary === "string" ? { summary: wire.summary } : {}),
     capability: available ? "ready" : "unavailable",
     controlOwner: wire.control_owner as ComputerUseSnapshot["controlOwner"],
@@ -203,6 +243,18 @@ export function createDirectComputerUseTransport(
     return parseComputerUseSnapshot(await readComputerUseJson(response), binding);
   };
   return {
+    saveDownload: async (binding, id, name, parent, signal) => {
+      const response = await request(`${path(binding)}/downloads/${encodeURIComponent(id)}`, {
+        method: "POST", signal, cache: "no-store",
+        headers: { "Content-Type": "application/json", "X-Browser-Pod-Incarnation": binding.incarnation },
+        body: JSON.stringify({ name, parent, confirmed: true }),
+      });
+      const body = record(await readComputerUseJson(response));
+      if (body.verified !== true || typeof body.file_id !== "string" || !/^[a-f0-9]{32}$/.test(body.file_id)
+        || typeof body.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(body.sha256)
+        || integer(body.bytes, 0) > 4 * 1024 * 1024) throw new Error("BROWSER_DOWNLOAD_REFUSED");
+      return { fileId: body.file_id, bytes: body.bytes as number, sha256: body.sha256 };
+    },
     read: (binding, signal) => snapshot(binding, "", { signal }),
     control: (binding, operation, control_epoch, signal) => snapshot(binding, "/control", {
       method: "POST", signal, headers: { "Content-Type": "application/json" },
@@ -245,10 +297,20 @@ export function createDirectComputerUseTransport(
       throw new Error("BROWSER_SESSION_RESPONSE_REFUSED");
     },
     watchFrames: async (binding, signal, receive) => {
+      let waitingSince: number | undefined;
       while (!signal.aborted) {
         const response = await request(`${path(binding)}/frame`, { signal, cache: "no-store",
           headers: { "X-Browser-Pod-Incarnation": binding.incarnation } });
         if (signal.aborted || response.status === 410) return;
+        if (response.status === 409) {
+          const body = record(await readComputerUseJson(response, true));
+          if (record(body.detail).code === "BROWSER_FRAME_NOT_READY") {
+            waitingSince ??= Date.now();
+            if (Date.now() - waitingSince > 120_000) throw new Error("BROWSER_FRAME_UNAVAILABLE");
+            await delay(signal);
+            continue;
+          }
+        }
         if (response.headers.get("Content-Type")?.split(";")[0] !== "image/png") {
           throw new Error("BROWSER_FRAME_REFUSED");
         }
@@ -269,6 +331,7 @@ export function createDirectComputerUseTransport(
         const height = header("X-Browser-Height", 240);
         if (width > 1920 || height > 1080) throw new Error("BROWSER_FRAME_REFUSED");
         if (!signal.aborted) receive({ binding, controlEpoch, sequence, width, height, png });
+        waitingSince = undefined;
         await delay(signal);
       }
     },

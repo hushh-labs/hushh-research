@@ -56,7 +56,11 @@ def test_single_revision_scales_zero_to_one_writer_at_the_canonical_size():
     body = render_container_app(_spec(), _coords())
     props = body["properties"]
     assert props["configuration"]["activeRevisionsMode"] == "Single"
-    assert props["template"]["scale"] == {"minReplicas": 0, "maxReplicas": 1}
+    assert props["template"]["scale"] == {
+        "minReplicas": 0,
+        "maxReplicas": 1,
+        "rules": [{"name": "http", "http": {"metadata": {"concurrentRequests": "8"}}}],
+    }
     resources = props["template"]["containers"][0]["resources"]
     assert resources == {"cpu": 1, "memory": POD_MEMORY}
     assert props["workloadProfileName"] == "Consumption"

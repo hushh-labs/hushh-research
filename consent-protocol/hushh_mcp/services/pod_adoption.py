@@ -12,6 +12,7 @@ class PodAdoptionExpectations(TypedDict):
     expected_service_uid: str | None
     expected_runtime_principal: str | None
     expected_image_digest: str | None
+    expected_setup_nonce: str | None
     azure_vm_host: AzureVmHostBinding | None
 
 
@@ -27,5 +28,6 @@ def adoption_expectations(metadata: object) -> PodAdoptionExpectations:
         "expected_service_uid": str(recorded.get("serviceUid") or "") or None,
         "expected_runtime_principal": str(recorded.get("runtime_principal_id") or "") or None,
         "expected_image_digest": str(recorded.get("image_digest") or "") or None,
+        "expected_setup_nonce": str(recorded.get("setupNonce") or "") or None,
         "azure_vm_host": vm,
     }

@@ -33,6 +33,7 @@ async def checkpoint_browser_task(
             "summary": task.summary if completed else None,
             "review": None,
             "approved_origins": (),
+            "downloads": (),
         }
     )
     payload = {"request_id": task.request_id, "snapshot": value.model_dump(mode="json")}
@@ -61,6 +62,7 @@ def _checkpoint(record: dict, owner_id: str, pod_id: str) -> tuple[str, BrowserT
             or not 8 <= len(request_id) <= 128
             or snapshot.review is not None
             or snapshot.approved_origins
+            or snapshot.downloads
             or (snapshot.summary is not None and (not closed or snapshot.phase != "completed"))
             or (closed and (snapshot.phase not in _TERMINAL or snapshot.control_owner != "stopped"))
         ):

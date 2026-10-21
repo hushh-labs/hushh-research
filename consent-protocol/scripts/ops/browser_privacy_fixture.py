@@ -32,9 +32,9 @@ BrowserAction, BrowserRefused, BrowserResponse = (
     contracts.BrowserResponse,
 )
 public_origin = importlib.import_module("hushh_mcp.services.pod_browser.origin").public_origin
-SandboxedPlaywrightExecutor = importlib.import_module(
+PlaywrightExecutor = importlib.import_module(
     "hushh_mcp.services.pod_browser.playwright_executor"
-).SandboxedPlaywrightExecutor
+).PlaywrightExecutor
 
 ORIGINS = frozenset({"https://example.com", "https://login.example.com"})
 
@@ -78,7 +78,7 @@ class FixtureBroker:
 
 async def run():
     broker = FixtureBroker()
-    executor = SandboxedPlaywrightExecutor(network=broker, sandbox_verified=True)
+    executor = PlaywrightExecutor(network=broker, chromium_sandbox=True)
     try:
         await executor.initialize()
         await executor.execute(

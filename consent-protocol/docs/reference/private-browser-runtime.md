@@ -2,31 +2,59 @@
 
 ## Status and evidence
 
-**2026-10-21 UTC — disabled pilot; not a usable owner browser capability.**
-The committed information/session foundation is `f407f849b`. The resumed working
-candidate composes authenticated owner task routes, exact reviews, ephemeral
-preview, takeover and remembered-session controls with an isolated native ADK
-runner. One exposes only a metadata-returning task hand from a qualified runtime;
-its transcript never receives screenshots, selected values or website sessions.
-Neither cloud has an installed, qualified owner Browser runtime. GCP's real
-in-pod launcher and broker pass synthetic public browsing. Source now connects
-startup, owner-model selection, the existing approval ledger, sealed dispatch
-journal and update admission for a controlled public-research pilot. It remains
-disabled by default. The release assembler verifies reviewed receipt bytes and
-their exact image/source/host/model/public-policy commitment. Qualification is
-separate from owner activation; startup binds recovered identity afterward.
-No reviewed qualification pins or Browser activation offer are installed.
-Owner-admitted task
-rediscovery returns bounded metadata only. A current
-owner can inspect or stop an old task, but cannot renew its expired processing
-grant by reconnecting. Original authorization still gates frames, input and resume.
-Preview/review Back closes the feature layer before leaving chat; it never stops
-the task implicitly. Sealed recovery keeps uncertain effects uncertain rather than
-replaying them. No owner pod or serving image changed in this implementation slice.
+**2026-10-21 UTC — implementation and qualification; owner enablement remains off.**
+One and Browser now share one owner container, non-root UID and lifecycle. GCP
+uses Cloud Run with Chromium's internal sandbox enabled; Azure uses Container
+Apps with it explicitly disabled. The whole owner pod is the compromise boundary.
+The broker and consent checks constrain normal operations, not compromised code.
+No VM migration, separate Browser service or artificial keepalive is part of this release.
+
+The same immutable qualification image
+`sha256:b48f66b6db71f845a23882c2ff6a8480a8057a4af9e4d518507098b32fbf24a4`
+produced two real documentation/search frames on both services at 1 vCPU / 2 GiB.
+Both documents returned HTTP 200. Joined Stop and supervisor exit zero passed;
+disposable services/resource groups and temporary GCP repository grants were
+removed and read back. Browser initialization was 7.145 seconds on GCP and 1.555
+seconds on Azure. These individual component samples exclude cloud startup and
+model execution; they are not capacity or installed-owner acceptance.
+
+The preceding image `sha256:073b36655e49c369119ab7bfa33a5706437008dd8c574d380478eb10b8570ad4`
+rendered successfully but failed bridge-close confirmation on both hosts. Its
+original failure remains evidence. The repaired transport accepts only peer reset
+or broken pipe after local handlers join; process-tree termination is independently
+confirmed. Receipt version 2 records this shared boundary and exact sandbox mode.
+Version 1 receipts retain their historical isolation meaning.
+
+Startup, native ADK task execution, exact reviews, dispatch journaling, owner
+control and encrypted remembered-session storage have source implementations.
+The selected-information loader now retrieves only existing V2 exports for the
+current pod recipient. Exact owner/app/grant, source revisions, expiry and
+revocation are checked; decryption remains inside the pod. Missing grants refuse.
+It does not create a grant or turn the replica into unrestricted context.
+
+Browser work reuses the installed Files Cloud Tasks/Storage Queue transport and
+its existing erasure inventory, under explicit `owner_files_queue_v1` approval.
+One serial background consumer holds admitted work; queued Browser/Files work can
+wait behind a fifteen-minute task. Publication is joined and identifier-only;
+duplicates attach once, and replacement processes report interruption without
+reconstructing a goal. Azure activation has its own typed configuration plan and
+dev-only migration 970. GCP checks the live queue, worker incarnation and exact IAM
+before drain and replacement. Existing timeout is preserved or an explicitly
+approved request timeout supports the bounded Browser delivery.
+
+The broker captures one ordinary HTTP attachment up to 4 MiB in pod memory.
+**Save to Files** needs current Browser control and Files read/manage authority;
+immutable bytes and destination are idempotent and decrypted readback verifies
+SHA-256. Stop joins an admitted save; unsaved bytes and offers do not survive
+restart. Blob/data downloads, large streams and multiple attachments are not
+qualified. Session, interactive-policy, information and transfer joins still
+need installed acceptance. No receipt or environment flag alone enables them.
+Reconnect discovers existing work and uncertain outcomes; it never resubmits a
+goal. Stop retains update admission until joined shutdown and sealed settlement.
 
 The [agent-development procedure](./agent-development.md) owns registration;
 the [readiness memo](../../../docs/reference/quality/adk-orchestration-docs-audit.md)
-owns acceptance. Source checks are not cloud isolation or deployment evidence.
+owns acceptance. Source checks are not installed-owner or deployment evidence.
 
 The [Browser completion plan](../../../docs/future/personal-agent/browser-completion-plan.md)
 specifies the remaining native Gemini/Azure and headless/takeover acceptance.
@@ -41,7 +69,7 @@ owns this exception and its installed-access checks.
 
 ## Visual Map
 
-Target topology; all dashed paths remain gated and unavailable.
+Owner-container topology; dashed paths remain gated until composed owner acceptance.
 
 ```mermaid
 flowchart TD
@@ -63,12 +91,12 @@ flowchart TD
     Activation -. "owner policy and enabled state" .-> Cloud
     UI -. "owner task" .-> One
     UI -. "exclusive manual takeover; task-bound input" .-> Control
-    One -. "qualified task hand; isolated ADK runner" .-> Agent
+    One -. "qualified task hand; private ADK task" .-> Agent
     Agent -. "screen processing requires provider disclosure" .-> Model
     Model -. "unverified native action assessment" .-> Agent
     Agent -. "typed actions" .-> Control
     Control -. "task-only ephemeral bridge" .-> Cloud
-    Cloud -. "no direct egress; bounded request bridge" .-> Broker
+    Cloud -. "normal requests through bounded broker" .-> Broker
     Broker -. "DNS-pinned authorized requests" .-> Web
     Control -. "exact action approval" .-> Ledger
     Information -. "exact model-processing / disclosure approval" .-> Ledger
@@ -93,8 +121,8 @@ the capability into general Computer Use.
 Files transfers, selected PKM information, scheduled invocation, recovery and
 updates connect through their existing authorities. Browser ownership grants
 neither unrestricted access to the pod nor permission to bypass another tool's
-confirmation. Task state and lifecycle belong to the private agent even when
-execution uses a separate isolation boundary.
+confirmation. Task state and lifecycle belong to the private agent. Browser is not a separate
+customer service or process-security boundary.
 
 ### Qualification and owner activation
 
@@ -111,10 +139,10 @@ execute a probe or prove owner access.
 | --- | --- |
 | Qualification | Immutable image, source, build tag, exact host, native model transport and public-policy digest; no future incarnation |
 | Owner configuration | Separate `POD_COMPUTER_USE_ENABLED` and `HUSSH_BROWSER_POLICY_JSON`; exact approved pod/key and full page/static policy |
-| Startup | Bind recovered key/current incarnation; compare actual installed digest and approved policy. Azure requires the verified VM installation, never ACA identity alone |
+| Startup | Bind recovered key/current incarnation; compare actual installed digest and approved policy. Cloud Run/Container Apps identity, exact image and separately approved policy are required |
 | GCP image-only update | Carry evidence from the captured approval; preserve owner enablement/policy, including their absence. Qualification cannot activate Browser |
 | GCP Browser setup | Separate typed plan and approval v2 through the existing update operation; freeze owner, key, placement, service UID/generation, template, target, policy and qualification; configured only after serving readback |
-| Azure VM | Initial host configuration accepts qualification. Image-only replacement refreshes evidence from the captured approval and removes stale evidence when absent, preserving owner activation/policy. Customer host admission and Browser setup remain unavailable |
+| Azure Container Apps | Version 2 qualification recognizes the ordinary host and explicit sandbox-off mode. Exact owner activation/update composition is still required; image publication never grants activation |
 
 GCP Browser setup now has its own typed plan through the existing approval,
 lease and readback authority. `browserPlanDigest` and the `browser.v1` release
@@ -149,39 +177,30 @@ reuse the canonical private-telemetry refusal; ephemeral sessions are deleted.
 
 ### Execution boundary
 
-Packaging Chromium in the pod's release is compatible with this product
-boundary. Packaging it in the key-holding process or container is not evidence
-of isolation. The owner approved qualification inside the existing pod service
-and image on 2026-10-19, replacing the requirement to use provider-managed sandbox
-products. One remains the agent authority; the owner can fence it with Take
-control or Stop. This product decision does not weaken secret, workload-identity,
-network or process separation.
+`Dockerfile.pod` packages One, pinned Playwright and Chromium together.
+The fixed root bootstrap drops to UID 10001 before One starts. The agent launches
+a supervised Browser child under that same UID on demand. No privileged helper,
+UID 10002 or namespace launcher participates in the active version 2 path.
 
-On 2026-10-20 the owner also authorized qualification of a different Azure host
-for the whole One deployment. Container Apps' namespace refusal remains valid;
-it is not an instruction to disable Chromium's sandbox. The disposable VM probe
-uses a `Standard_B2als_v2` host (2 vCPU / 4 GiB), with the application limited to
-1 vCPU / 2 GiB. It preserves a single agent worker and starts Browser on demand.
-Existing owner pods stay on Container Apps. A qualified frame must be followed by
-encrypted recovery, authenticated external wake, deallocation, update and deletion
-proof before a concrete hosting offer can be approved.
+Only trusted qualification/deployment metadata selects Chromium's mode. It is
+enabled on GCP and explicitly disabled on Azure; no model flags or fallback retry
+are accepted. The supervisor owns scratch and descendants, confirms joined stop,
+and handles control-channel EOF and deadlines. Cached model clients and task
+sessions have their own teardown; a frame alone cannot prove cleanup.
 
-The first built-in slice adds an irreversible, separate-UID Linux process guard
-and synthetic probe. Before receiving private information, the worker must close
-unrelated descriptors, scrub its environment, require verified tmpfs, deny direct
-network sockets and process inspection, and restrict filesystem access to browser
-binaries/libraries and task scratch. Only the inherited connected Unix channel
-reaches the existing broker. Chromium's own sandbox remains enabled. Kernel
-support, a real frame, broker traffic and teardown must pass on each actual
-image/configuration; neither the guard's presence nor an environment flag issues
-a positive readiness receipt. The source composition and packaged image still
-require installed-runtime acceptance.
+The broker validates public destinations, DNS/IP, protocols, redirects and
+subresources during normal execution. It does not prevent a compromised Browser
+from exercising the owner pod's privileges. Qualify the deployed pod identity's
+least privilege against other owners, platform secrets and bootstrap authority.
 
-The provider-managed probes below remain historical evidence of their specific
-failures. They do not establish the behavior of ordinary Cloud Run or Container
-Apps with this built-in process boundary.
+Keep legacy isolation receipts below as historical evidence, not requirements or
+claims about the new shared-container path. The earlier VM proposal is superseded
+for this release; existing owners remain on their chosen services and resources.
 
 ### Built-in process qualification — 2026-10-20 UTC
+
+**Historical version 1 isolation and VM probes.** These observations retain their
+original boundaries; they do not qualify the current version 2 owner container.
 
 | Target | Observed result | Qualification boundary |
 | --- | --- | --- |
@@ -523,6 +542,10 @@ to relabel the prior evidence.
 
 ### Fixed in-pod launcher
 
+**Historical version 1 launcher.** The active version 2 path is
+`container_worker.py` with `owner_entrypoint.py`; the separate identity and
+namespace mechanism described below is retained qualification history only.
+
 `Dockerfile.inpod` extends an immutable pod image with pinned Playwright and
 Chromium headless-shell. Its fixed bootstrap forks a clean helper before
 application imports, drops all capability sets, and executes One as UID 10001
@@ -649,21 +672,69 @@ Historical provider contracts: [GCP sandbox CLI](https://docs.cloud.google.com/r
 [Azure sandbox API](https://raw.githubusercontent.com/Azure/azure-rest-api-specs/main/specification/app/data-plane/ContainerApps/preview/2026-09-01-preview/containerappssandbox.json),
 [Azure network controls](https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-egress-policies).
 
+## One agent, bounded browser process
+
+Browser is a tool capability of One, in the owner's pod image and service. One
+delegates through the authored ADK specialist; this is not a second autonomous
+agent, separate customer deployment or always-on browser service. Headless work
+and interactive preview use the same page. Taking control does not start a second
+browser.
+
+One and Browser run under the same unprivileged owner identity. The whole
+container is the compromise boundary. The Browser dependency virtualenv is
+packaging, not isolation. Ordinary website requests use the broker; consent checks
+cannot contain a compromised process. GCP keeps Chromium's internal sandbox on;
+Azure Container Apps uses its explicitly reviewed sandbox-off mode.
+
+Both clouds share image, task/control contracts, owner custody and update
+lifecycle. Provider adapters retain genuine differences: Cloud Run concurrency is
+a request limit, while Container Apps' HTTP setting is a scaling threshold.
+Neither label proves identical throughput. Keep minimum zero, maximum one and
+one agent worker; preserve selected owner configurations until exact approval.
+
+### Capacity and future workspace contract
+
+Compare 1 vCPU / 2 GiB and 2 vCPU / 4 GiB on the same completed candidate.
+Only try 4 vCPU / 8 GiB after a smaller profile fails and host support is verified.
+Select the smallest common passing profile with at least 25% observed memory
+headroom during bounded overlapping Browser/chat/Puppy/Files work. Awake fixture
+Stop/status must settle within two seconds. Only the selected profile receives
+the ten-minute soak. These are pilot measurements, not arbitrary-workload promises.
+
+Capacity is independent of sleeping policy. Larger CPU/RAM does not authorize an
+always-on floor. Workspace/cache bytes also need their own budget: Cloud Run's
+default writable filesystem consumes RAM; Azure scratch is ephemeral. Neither is
+durable repository storage. Historical namespace scratch limits do not constrain
+the active shared-container path; its scratch budget still needs qualification.
+
+Future coding uses task-owned bounded scratch, encrypted periodic checkpoints,
+revision references and existing owner recovery/erasure authority. Cancellation
+must join workers and dispose scratch. Restart restores only authorized durable
+state; shutdown hooks alone cannot guarantee persistence. Reserve bounded queued
+admission for heavy work before enabling it. This release includes no cloning,
+shell execution, dependency installation or autonomous coding, and adds no unused
+toolchains to the image.
+
+Compare total operating costs: useful awake work, relay/idle grace, retained
+storage/custody, queues, images, networking and model calls. Browser adds awake
+time, any approved size change, screen/action model usage and preview bandwidth.
+Do not charge the same container twice or describe an unmeasured bundle as free.
+
 ## Implemented foundation
 
 | Owner | Current contract |
 | --- | --- |
 | `hushh_mcp/agents/computer_use/agent.yaml` | Manifest-owned task instructions; development only, discovery withheld, rollout off. Invocation, observation and control are distinct declarations, not issued grants. |
-| `one_adk/computer_use_agent.py` | Requires the gate, exact native Gemini transport and task-bound processing terms. ADK observations pause during owner control; only approved-origin frames and origin-only URLs reach the model. No function-only fallback. |
+| `one_adk/computer_use_agent.py` | Requires the gate, the selected native Gemini or Azure Browser ADK transport and task-bound processing terms. ADK observations pause during owner control; only approved-origin frames and origin-only URLs reach the model. No function-only or cross-provider fallback. |
 | `services/pod_browser/control.py` | Owner/incarnation/expiry checks, sequence fencing, exclusive takeover and explicit handback, dispatch-before-execution, uncertain-outcome stop. Sixty agent calls or fifteen active minutes require continuation; unattended observation cannot extend the ten-minute idle grace. |
 | `services/pod_browser/network.py` | Exact-origin HTTPS policy, public DNS/IP enforcement through the existing transport, bounded request/response sizes, no ambient proxy or automatic retry. Redirects and subresources need their own admission. Transmission commitments cover destination, method, headers and body. |
-| `services/pod_browser/mailbox_executor.py` | Task-bound strict envelopes and an out-of-band termination port. Host-side receipt checks reject unresolved network effects even if the sandbox returns a valid screenshot. |
-| `services/pod_browser/playwright_executor.py` | One page, Chromium sandbox enabled, service workers/WebSockets blocked, downloads disabled. Chromium Fetch interception brokers each redirect hop and preserves response-header multiplicity. Frames/workers/objects are restricted; multi-target authentication is unqualified. No direct or unsandboxed fallback. |
-| `services/pod_browser/worker_identity.py` | Before worker IPC or Chromium, require the fixed non-root identity, zero permitted/effective/ambient capabilities and `no_new_privs`. Refuse unavailable privilege dropping; never run the browser as root. |
-| `browser_runtime/Dockerfile` | Browser-only probe definition, pinned Playwright, explicit source copies and fixed UID/GID. No core pod, recovery, provider SDK or credentials. The earlier probe image was built; the revised identity guard is not image-qualified. |
+| `services/pod_browser/inpod_launcher.py`, `connected_executor.py`, `connected_transport.py` | Production launch and private bridge in the pod image. Task-bound envelopes and host-side receipt checks reject unresolved network effects even if the worker returns a valid screenshot. `container_worker.py` supervises the same-UID Browser subtree; the broker is normal application policy. |
+| `services/pod_browser/playwright_executor.py` | One page, trusted per-cloud Chromium mode, service workers/WebSockets blocked, ordinary bounded HTTP attachments captured in host memory for owner-approved Save to Files; Chromium downloads remain disabled. Chromium Fetch interception brokers each redirect hop and preserves response-header multiplicity. Frames/workers/objects are restricted; multi-target authentication is unqualified. No silent mode or provider fallback. |
+| `Dockerfile.pod` | Current integrated pod image contains pinned Playwright/Chromium. The browser starts on demand under the owner identity; cloud qualification remains bound to the exact image and configuration. |
+| `services/pod_browser/mailbox_executor.py`, `worker_identity.py`, `browser_runtime/Dockerfile` | Historical provider-managed sandbox probes and their tests. They are not the production launcher. Preserve them as qualification provenance while their probe callers remain; their older failures do not describe the current in-pod executor. |
 | `services/pod_browser/information.py`, `consent.py` | Typed selected-field exports and exact private commitments over the existing ledger. Export revision, PKM content revision and PKM manifest revision are distinct. Authenticated runtime routes require injected authoritative export/review ports; cloud startup remains gated. |
 | `services/pod_browser/session_state.py`, `sessions.py` | Bounded encrypted persistent sign-in objects, current-admission reuse, metadata-only recovery, CAS publication and generation-fenced Forget. Owner-only retention routes and controls remain cloud gated. |
-| `services/pod_browser/scratch.py`, `mailbox.py` | Require Linux tmpfs on the actual open descriptor, private task scratch, and command/network cleanup on close. macOS fixtures do not qualify native cloud scratch. |
+| `services/pod_browser/scratch.py`, `mailbox.py` | Historical isolated-worker scratch/bridge contract. The active same-UID supervisor owns TemporaryDirectory cleanup; portable storage budgets still need qualification. |
 
 The broker's authority ports must be backed by the **existing** approval/action
 ledger. Synthetic test adapters are not runtime authority. A typed `completed`
@@ -795,8 +866,8 @@ cloud preview latency or isolation.
 
 ## Remaining release gates
 
-1. Prove each cloud's isolation, ephemeral bridge, immutable image, bounded
-   teardown and resource use. Readiness is trusted-side evidence; it must never
+1. Prove each cloud's explicit execution mode, ephemeral bridge, immutable image,
+   bounded teardown and resource use. Readiness is trusted-side evidence; it must never
    be supplied by a browser, model or client-selected cloud.
 2. Qualify the composed signed admission, browser permissions, exact reviews,
    update draining, recovery and cancellation against the installed cloud image.
@@ -824,5 +895,5 @@ Current qualification limits the application to 1 vCPU / 2 GiB; Azure's VM host
 is 2 vCPU / 4 GiB and billed at host capacity. A different hosting configuration
 requires an owner-visible offer; these are not proven production minimums.
 The controlled-fixture p95 input-to-frame target is 250 ms, not a result.
-Warnings do not shut down service. No main/UAT/production or stable release is
-authorized by this implementation record.
+Warnings do not shut down service. Main integration is authorized only after the installed dev gates pass. UAT,
+production and stable publication remain outside this release authorization.

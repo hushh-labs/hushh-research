@@ -5,7 +5,14 @@ import asyncio
 import pytest
 
 from hushh_mcp.services.pod_browser.contracts import BrowserRefused
-from tests.helpers.pod_browser import Authority, Executor, _BrowserConsent, control, readiness
+from tests.helpers.pod_browser import (
+    Authority,
+    Executor,
+    _BrowserConsent,
+    approve_browser_processing,
+    control,
+    readiness,
+)
 
 
 @pytest.mark.parametrize(
@@ -49,9 +56,9 @@ async def test_native_adk_task_keeps_authored_instruction_png_and_finish_output(
     delivered = []
     execute = driver.execute
 
-    async def record(action):
+    async def record(action, *, scope=None):
         delivered.append(action)
-        return await execute(action)
+        return await execute(action, scope=scope)
 
     monkeypatch.setattr(driver, "execute", record)
     model_name = "gemini-3.7-flash" if first_tool == "open_web_browser" else "gemini-3.8-flash"
@@ -67,7 +74,7 @@ async def test_native_adk_task_keeps_authored_instruction_png_and_finish_output(
         ("https://example.com",),
         "Review the requested public page.",
     )
-    _approve_processing(consent, process)
+    approve_browser_processing(consent, process)
     requests = []
 
     async def generate(**request):
@@ -341,7 +348,7 @@ async def test_azure_native_adk_round_trip_uses_pixels_exact_call_ids_and_privat
         ("https://example.com",),
         "Synthetic Azure task.",
     )
-    _approve_processing(consent, process)
+    approve_browser_processing(consent, process)
     manifest = ManifestLoader.load(
         str(Path(__file__).resolve().parents[1] / "hushh_mcp/agents/computer_use/agent.yaml")
     )
@@ -451,19 +458,3 @@ async def _assert_closed_and_private(monkeypatch, manifest, model, runtime, proc
             control=runtime, processing=process, goal=process.task_goal
         )
     assert len(requests) == completed_request_count + 1
-
-
-def _approve_processing(consent, process):
-    consent.approve(
-        "model_process",
-        {
-            "fields": [],
-            "values": {},
-            "model": process.model_name,
-            "transport": process.transport,
-            "origins": list(process.allowed_origins),
-            "screen_processing": True,
-            "task_goal": process.task_goal,
-            "result_storage": "owner_encrypted_log",
-        },
-    )

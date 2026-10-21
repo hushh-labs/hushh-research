@@ -213,10 +213,12 @@ class AzureFilesCapabilityPlan(BaseModel):
             raise ValueError("Files installed custody or model binding changed")
 
 
-def plan_from_observation(row: dict, target_image: str, app: dict) -> AzureFilesCapabilityPlan:
+def plan_from_observation(
+    row: dict, target_image: str, app: dict, *, installed: bool = False
+) -> AzureFilesCapabilityPlan:
     props, tags = app.get("properties") or {}, app.get("tags") or {}
     env = literal_environment(app)
-    if any(key.startswith("POD_FILES_") for key in env):
+    if not installed and any(key.startswith("POD_FILES_") for key in env):
         raise ValueError("Existing Files configuration requires reconciliation")
     identity = f"/subscriptions/{row['user_cloud_subscription_id']}/resourceGroups/{row['user_cloud_resource_group']}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-hussh-one-pod"
     principal, client = assigned_identity(app, identity)
@@ -254,6 +256,8 @@ def plan_from_observation(row: dict, target_image: str, app: dict) -> AzureFiles
     )
     plan.require_owner(row, target_image)
     plan.require_observation(app)
+    if installed:
+        plan.require_installed(app)
     if (
         env.get("HUSSH_ID") != plan.hushhId
         or env.get("POD_STORAGE_BACKEND") != "commit_log"

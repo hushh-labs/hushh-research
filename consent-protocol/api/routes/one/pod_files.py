@@ -128,52 +128,11 @@ async def download_chunk(owner: Owner, file_id: str, index: int):
 
 @router.post("/complete")
 async def complete_file(body: EntryRequest, owner: Owner):
-    from hushh_mcp.services.pod_files.jobs import deliver, prepare_delivery
+    from hushh_mcp.services.pod_files.completion import complete_upload
 
     try:
         async with operation() as library:
-            prepared = None
-            async with operation(mutation=True):
-                result = await library.complete(body.file_id)
-                settings = await library.settings()
-                if settings["automatic"]:
-                    try:
-                        prepared = await prepare_delivery(
-                            library, file_id=body.file_id, automatic=True
-                        )
-                    except FilesRefused as exc:
-                        if exc.code not in {
-                            "FILES_EXCLUDED",
-                            "FILES_BACKGROUND_NOT_CONFIGURED",
-                            "FILES_WORKER_DESTINATION_UNAVAILABLE",
-                        }:
-                            raise
-                        # The upload is already committed. Report organization
-                        # separately; a later setup refusal is not a failed upload.
-                        result["organization"] = {
-                            "state": "not_requested"
-                            if exc.code == "FILES_EXCLUDED"
-                            else "unconfirmed",
-                            "code": exc.code,
-                        }
-            if prepared is not None:
-                try:
-                    result["organization"] = await deliver(library, prepared)
-                except FilesRefused as exc:
-                    if exc.code not in {
-                        "FILES_BACKGROUND_NOT_CONFIGURED",
-                        "FILES_WORKER_DESTINATION_UNAVAILABLE",
-                        "FILES_QUEUE_UNAVAILABLE",
-                        "FILES_JOB_DELIVERY_UNCONFIRMED",
-                        "FILES_JOB_DELIVERY_FAILED",
-                    }:
-                        raise
-                    result["organization"] = {
-                        "state": "pending_delivery",
-                        "code": "FILES_JOB_DELIVERY_UNCONFIRMED",
-                    }
-            await library.check()
-            return result
+            return await complete_upload(library, body.file_id, mutation=operation(mutation=True))
     except FilesRefused as exc:
         raise refusal(exc) from exc
 

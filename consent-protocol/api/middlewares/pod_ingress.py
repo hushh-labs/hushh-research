@@ -105,6 +105,7 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/actions/gmail/proposals",
         "/api/one/pod/browser/capability",
         "/api/one/pod/browser/tasks",
+        "/api/one/pod/browser/worker",
         "/api/one/puppy/relay",
         # The owner's memory doors (api/routes/one/pod_memory.py). Each is named
         # here one at a time rather than by a `/memory/` prefix, so a later memory

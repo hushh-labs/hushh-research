@@ -11,7 +11,14 @@ import pytest
 
 from hushh_mcp.services.pod_browser import launch_protocol as protocol
 from hushh_mcp.services.pod_browser.contracts import BrowserAction, BrowserRefused
-from tests.helpers.pod_browser import Authority, Executor, binding, readiness, task_runtime_fixture
+from tests.helpers.pod_browser import (
+    Authority,
+    Executor,
+    binding,
+    readiness,
+    shared_readiness,
+    task_runtime_fixture,
+)
 
 
 @pytest.mark.parametrize("fault", ["extra_fd", "file_fd", "unconnected", "unknown", "truncated"])
@@ -71,10 +78,14 @@ async def _fixture_worker(child, current, fault, entered):
         if fault == "cancel":
             assert await asyncio.get_running_loop().sock_recv(child, 1) == b""
             return
-        ack = b"changed" if fault in {"wrong_ack", "stop_unconfirmed"} else b"guarded"
-        await asyncio.get_running_loop().sock_sendall(
-            child, b'\x00\x00\x00\x10{"' + ack + b'":true}'
-        )
+        if fault in {"shared_gcp", "shared_azure", "wrong_mode"}:
+            from hushh_mcp.services.pod_browser.container_worker import execution_ack
+
+            acknowledgement = execution_ack(fault != "shared_azure")
+        else:
+            ack = b"changed" if fault in {"wrong_ack", "stop_unconfirmed"} else b"guarded"
+            acknowledgement = b'\x00\x00\x00\x10{"' + ack + b'":true}'
+        await asyncio.get_running_loop().sock_sendall(child, acknowledgement)
         await ConnectedBrowserWorker(current).serve(child, Executor())
     finally:
         child.close()
@@ -106,7 +117,17 @@ async def _fixture_helper(right, current, fault, entered, launches, stops, worke
 
 
 @pytest.mark.parametrize(
-    "fault", ["none", "unqualified", "wrong_ack", "cancel", "stop_unconfirmed"]
+    "fault",
+    [
+        "none",
+        "unqualified",
+        "wrong_ack",
+        "cancel",
+        "stop_unconfirmed",
+        "shared_gcp",
+        "shared_azure",
+        "wrong_mode",
+    ],
 )
 async def test_inpod_launcher_binds_worker_and_stops_outside_action_queue(monkeypatch, fault):
     from hushh_mcp.services.pod_browser import inpod_launcher
@@ -126,7 +147,11 @@ async def test_inpod_launcher_binds_worker_and_stops_outside_action_queue(monkey
     authority = Authority(approved=True)
     launcher = inpod_launcher.InPodBrowserLauncher(
         connection=left,
-        readiness=readiness(isolated=fault != "unqualified"),
+        readiness=(
+            shared_readiness(cloud="gcp" if fault == "shared_gcp" else "azure")
+            if fault in {"shared_gcp", "shared_azure", "wrong_mode"}
+            else readiness(isolated=fault != "unqualified")
+        ),
         network_authority=lambda *_: authority,
     )
 
@@ -149,7 +174,7 @@ async def test_inpod_launcher_binds_worker_and_stops_outside_action_queue(monkey
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
-        elif fault == "wrong_ack":
+        elif fault in {"wrong_ack", "wrong_mode"}:
             with pytest.raises(BrowserRefused, match="LAUNCH_REFUSED"):
                 await task
         elif fault == "stop_unconfirmed":

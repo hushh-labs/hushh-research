@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ComputerUseTaskCard } from "@/components/computer-use/computer-use-task-card";
 import { type ComputerUseBinding, type ComputerUseSnapshot, type ComputerUseTransport } from "@/lib/computer-use/contracts";
 import { ComputerUseTaskController } from "@/lib/computer-use/task-controller";
-import { parseComputerUseSnapshot } from "@/lib/computer-use/direct-transport";
+import { createDirectComputerUseTransport, parseComputerUseSnapshot } from "@/lib/computer-use/direct-transport";
 import { computerUsePoint, createComputerUseCanvas, fitComputerUseViewport } from "@/lib/computer-use/preview-canvas";
 import { ComputerUsePreview } from "@/components/computer-use/computer-use-preview";
 import { ComputerUseClient } from "@/lib/services/computer-use-client";
@@ -41,6 +41,57 @@ function transport(): ComputerUseTransport {
     })),
   };
 }
+
+it("keeps an accepted input's exact review reachable without repeating the input", async () => {
+  const api = transport();
+  const controller = new ComputerUseTaskController(binding, api);
+  const owner = snapshot({ controlOwner: "owner", controlEpoch: 2 });
+  const review = { id: "disclosure", purpose: "disclose" as const, origins: [], destination: "https://example.com/sign-in", details: [] };
+  vi.mocked(api.read).mockResolvedValue(owner);
+  await controller.refresh();
+  vi.mocked(api.input).mockResolvedValue({ ...owner, inputPending: true, revision: 2 });
+  vi.mocked(api.read).mockResolvedValue({ ...owner, inputPending: true, revision: 3, review });
+  const input = controller.input({ operation: "type", x: 1, y: 1, text: "synthetic-private-input", clear_before_typing: false });
+  const queued = controller.input({ operation: "click", x: 30, y: 40, button: "left" });
+  const rejected = expect(queued).rejects.toThrow("BROWSER_REVIEW_PENDING");
+  await waitFor(() => expect(controller.getSnapshot().snapshot?.review?.id).toBe("disclosure"));
+  await rejected;
+  await expect(controller.input({ operation: "click", x: 30, y: 40, button: "left" })).rejects.toThrow("BROWSER_OWNER_CONTROL_REQUIRED");
+  expect(controller.getSnapshot().pending).toBe(false);
+  vi.mocked(api.review).mockResolvedValue({ ...owner, inputPending: true, revision: 4 });
+  await controller.review("disclosure");
+  vi.mocked(api.read).mockResolvedValue({ ...owner, inputPending: false, nextSequence: 2, revision: 5 });
+  await input;
+  expect(api.input).toHaveBeenCalledOnce();
+  expect(api.review).toHaveBeenCalledWith(binding, "disclosure", expect.any(AbortSignal));
+  expect(controller.getSnapshot().snapshot?.nextSequence).toBe(2);
+  controller.dispose();
+});
+
+it("reconciles Stop once when a pending resize advanced the control epoch", async () => {
+  const api = transport();
+  const controller = new ComputerUseTaskController(binding, api);
+  vi.mocked(api.read).mockResolvedValueOnce(snapshot({ controlOwner: "owner", controlEpoch: 2, revision: 2 }));
+  await controller.refresh();
+  vi.mocked(api.control).mockRejectedValueOnce(new Error("BROWSER_CONTROL_CHANGED"))
+    .mockResolvedValueOnce(snapshot({ phase: "cancelled", controlOwner: "stopped", controlEpoch: 4, revision: 4 }));
+  vi.mocked(api.read).mockResolvedValueOnce(snapshot({ controlOwner: "owner", controlEpoch: 3, revision: 3 }));
+  await controller.control("cancel");
+  expect(vi.mocked(api.control).mock.calls.map(call => call[2])).toEqual([2, 3]);
+  expect(controller.getSnapshot().snapshot?.phase).toBe("cancelled");
+  controller.dispose();
+});
+
+it("keeps Stop reachable on a collapsed active Browser card", async () => {
+  const api = transport();
+  vi.mocked(api.control).mockResolvedValue(snapshot({ phase: "cancelled", controlOwner: "stopped", controlEpoch: 2, revision: 2 }));
+  const view = render(<ComputerUseTaskCard binding={binding} transport={api} />);
+  const stop = await screen.findByRole("button", { name: "Stop" });
+  expect(screen.getByRole("button", { name: "View browser" })).toBeEnabled();
+  fireEvent.click(stop);
+  await waitFor(() => expect(api.control).toHaveBeenCalledWith(binding, "cancel", 1, expect.any(AbortSignal)));
+  view.unmount();
+});
 const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 beforeEach(() => {
   publishValidatedAuthSessionOwner("owner");
@@ -139,14 +190,14 @@ describe("private browser control", () => {
     await waitFor(() => expect(discover).toHaveBeenCalledOnce());
     expect(view.container).toBeEmptyDOMElement();
   });
-  it("shows the latest completed owner result without restarting or uploading the task", async () => {
-    vi.spyOn(ComputerUseClient.prototype, "tasks").mockResolvedValue([{ binding, phase: "completed", current: true }]);
+  it.each(["completed", "unavailable"] as const)("rediscovers a %s owner outcome without restarting or uploading the task", async (phase) => {
+    vi.spyOn(ComputerUseClient.prototype, "tasks").mockResolvedValue([{ binding, phase, current: true }]);
     const direct = transport();
-    vi.mocked(direct.read).mockResolvedValue(snapshot({ phase: "completed", controlOwner: "stopped", summary: "Found the requested public result. <script>example</script>" }));
+    vi.mocked(direct.read).mockResolvedValue(snapshot({ phase, controlOwner: "stopped", code: phase === "unavailable" ? "BROWSER_MODEL_RATE_LIMITED" : undefined, summary: "Found the requested public result. <script>example</script>" }));
     vi.spyOn(ComputerUseClient.prototype, "transport").mockReturnValue(direct);
     const start = vi.spyOn(ComputerUseClient.prototype, "start");
     const view = render(<ComputerUseActiveTasks ownerId="owner" refreshKey={1} route="/one" />);
-    expect(await screen.findByText("Found the requested public result. <script>example</script>")).toBeVisible();
+    expect(await screen.findByText(phase === "completed" ? "Found the requested public result. <script>example</script>" : "Your AI is busy. Try this task again later.")).toBeVisible();
     expect(view.container.querySelector("script")).toBeNull();
     expect(screen.getByRole("button", { name: "View browser" })).toBeDisabled();
     expect(start).not.toHaveBeenCalled();
@@ -231,8 +282,9 @@ describe("private browser control", () => {
       operation: "click", x: 10, y: 20, sequence: 1, control_epoch: 2,
     }, expect.any(AbortSignal));
     vi.mocked(api.read).mockResolvedValue(snapshot());
-    await expect(controller.refresh()).rejects.toThrow("BROWSER_TASK_UNAVAILABLE");
-    expect(controller.acceptsFrame({ binding, controlEpoch: 2, sequence: 1, width: 1280, height: 720, png })).toBe(false);
+    await controller.refresh();
+    expect(controller.getSnapshot().snapshot).toMatchObject({ controlEpoch: 2, nextSequence: 2, revision: 3 });
+    expect(controller.acceptsFrame({ binding, controlEpoch: 2, sequence: 1, width: 1280, height: 720, png })).toBe(true);
     controller.dispose();
   });
 
@@ -509,6 +561,32 @@ describe("private browser control", () => {
     expect(api.ownerPodRequest).not.toHaveBeenCalled();
   });
 
+  it("keeps the exact entered page in reviewed instructions and retry identity", async () => {
+    vi.spyOn(ComputerUseClient.prototype, "capability").mockResolvedValue({ available: true, code: "ready" });
+    const start = vi.spyOn(ComputerUseClient.prototype, "start")
+      .mockRejectedValueOnce(new Error("temporary"))
+      .mockRejectedValueOnce(new Error("temporary"))
+      .mockResolvedValueOnce(snapshot());
+    render(<ComputerUseOwnerBridge ownerId="owner" />);
+    fireEvent.click(screen.getByRole("button", { name: "Browser" }));
+    const site = await screen.findByLabelText("Website");
+    fireEvent.change(site, { target: { value: "https://example.com/first?q=synthetic" } });
+    fireEvent.change(screen.getByLabelText("What should One do?"), { target: { value: "Summarize this page" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start browser task" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start browser task" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Start browser task" }));
+    await waitFor(() => expect(start).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start browser task" })).toBeEnabled());
+    fireEvent.change(site, { target: { value: "https://example.com/second" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start browser task" }));
+    await waitFor(() => expect(start).toHaveBeenCalledTimes(3));
+    expect(start.mock.calls[0][0].goal).toBe("Summarize this page\n\nStart at: https://example.com/first?q=synthetic");
+    expect(start.mock.calls[1][0].requestId).toBe(start.mock.calls[0][0].requestId);
+    expect(start.mock.calls[2][0].goal).toBe("Summarize this page\n\nStart at: https://example.com/second");
+    expect(start.mock.calls[0][0].allowedOrigins).toEqual(["https://example.com"]);
+    expect(start.mock.calls[2][0].requestId).not.toBe(start.mock.calls[0][0].requestId);
+  });
+
   it("requires a real dev capability and keeps a changed owner off the admitted pod", async () => {
     const client = new ComputerUseClient("owner");
     api.getComputerUseAdmission.mockResolvedValue({ ownerId: "owner", podId: "pod", environment: "dev" });
@@ -519,4 +597,22 @@ describe("private browser control", () => {
     await expect(client.capability(new AbortController().signal)).rejects.toThrow("BROWSER_OWNER_UNAVAILABLE");
     expect(api.ownerPodRequest).toHaveBeenCalledOnce();
   });
+});
+
+
+it("waits for an early first frame but refuses other preview errors", async () => {
+  const stop = new AbortController();
+  const request = vi.fn().mockResolvedValueOnce(Response.json({ detail: { code: "BROWSER_FRAME_NOT_READY" } }, { status: 409 }))
+    .mockResolvedValueOnce(new Response(new Uint8Array([137,80,78,71,13,10,26,10]), { headers: {
+      "Content-Type": "image/png", "X-Browser-Pod-Incarnation": binding.incarnation,
+      "X-Browser-Task-Id": binding.taskId, "X-Browser-Pod-Id": binding.podId,
+      "X-Browser-Control-Epoch": "1", "X-Browser-Sequence": "0", "X-Browser-Revision": "1",
+      "X-Browser-Width": "1280", "X-Browser-Height": "720",
+    }}));
+  const receive = vi.fn(() => stop.abort());
+  await createDirectComputerUseTransport(request).watchFrames(binding, stop.signal, receive);
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(receive).toHaveBeenCalledOnce();
+  await expect(createDirectComputerUseTransport(async () => Response.json({ detail: { code: "BROWSER_OWNER_REFUSED" } }, {status: 409}))
+    .watchFrames(binding, new AbortController().signal, vi.fn())).rejects.toThrow("FRAME_REFUSED");
 });

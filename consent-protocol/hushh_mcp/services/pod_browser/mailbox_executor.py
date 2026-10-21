@@ -48,7 +48,7 @@ class MailboxExecutor:
         if response != {"initialized": True}:
             raise BrowserRefused("BROWSER_BRIDGE_INVALID")
 
-    async def execute(self, action: BrowserAction) -> BrowserFrame:
+    async def execute(self, action: BrowserAction, *, scope=None) -> BrowserFrame:
         await self._broker.check_observation()
         response = await self._call("execute", action)
         await self._broker.check_observation()

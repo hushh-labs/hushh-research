@@ -38,12 +38,15 @@ scope; neither hide the gap nor turn a documentation correction into an unbounde
 the existing admitted direct/relay routes. The hub coordinates identity, consent and
 updates; a healthy hub or diagnostic bridge does not prove a working owner pod.
 GCP recorded voice retains its authorized native model path; Azure voice is disabled.
-Private Live must not borrow the shared service's model key. Browser belongs in the
-owner pod's image and service, under a separate unprivileged process identity with
-Chromium's sandbox enabled. Qualify secret/process/filesystem separation, inherited
-network restrictions and the private broker bridge on each cloud before enabling
-it. Separate provider-managed sandbox products are no longer required. Missing
-isolation keeps that cloud unavailable; never disable Chromium's sandbox to pass.
+Private Live must not borrow the shared service's model key. One and Browser share
+the owner's container and unprivileged runtime identity. The whole owner pod is
+the compromise boundary; application consent checks do not contain a compromised
+Browser process. Qualify exact images with Chromium's internal sandbox enabled on
+GCP Cloud Run and explicitly disabled on Azure Container Apps. Select that mode
+only through reviewed deployment configuration, never a task or silent fallback.
+Verify owner-scoped workload authority, normal broker policy, supervised cleanup,
+recovery and native model execution before enabling each cloud. No separate
+Browser service, VM migration or provider sandbox is required.
 Report measurable journey outcomes in the existing readiness memo. Reuse valid,
 unchanged evidence, finish the bounded implementation before freezing a candidate,
 and preserve the required verification and release gates below. Do not expand the

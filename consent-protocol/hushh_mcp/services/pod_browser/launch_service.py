@@ -1,8 +1,8 @@
-"""Unprivileged launcher, created before the agent loads private information.
+"""Bounded process supervisor over a fixed private control channel.
 
-Only the bootstrap's inherited channel can request one fixed browser worker.
-Channel loss, task timeout or malformed input tears down the namespace. This
-process holds no application imports, credentials, storage or readiness authority.
+The active owner-container caller supplies the fixed worker composition.
+Channel loss, task timeout or malformed input settles its process tree. The old
+namespace command remains available only to historical qualification tooling.
 """
 
 from __future__ import annotations
@@ -16,14 +16,16 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 
 from .launch_protocol import CONTROL_FD, WORKER_ID, LaunchRefused, connected_socket, receive, send
-from .namespace_command import ENVIRONMENT, command
-from .process_guard import _syscalls
 
 
 def guard_launcher() -> None:
+    from .process_guard import _syscalls
+
     if (
         sys.platform != "linux"
         or os.getresuid() != (WORKER_ID,) * 3
@@ -44,10 +46,10 @@ def guard_launcher() -> None:
     _syscalls(namespace_launcher=True)
 
 
-def terminate(process: subprocess.Popen) -> None:
+def terminate(process: subprocess.Popen, *, settle: Callable[[], None] | None = None) -> None:
     # Kill before reaping, so a recycled PID cannot become the signal target.
-    # The bwrap process is the only external owner of the private PID namespace;
-    # die-with-parent and namespace-init death also kill detached descendants.
+    # The child has its own process group. Retain the unreaped group leader
+    # until descendants are fenced, including after the worker exits first.
     for sig, wait in ((signal.SIGTERM, 2), (signal.SIGKILL, 3)):
         try:
             os.killpg(process.pid, sig)
@@ -67,6 +69,8 @@ def terminate(process: subprocess.Popen) -> None:
     except ProcessLookupError:
         pass
     process.wait(timeout=1)
+    if settle is not None:
+        settle()
     try:
         os.killpg(process.pid, 0)
     except ProcessLookupError:
@@ -74,29 +78,55 @@ def terminate(process: subprocess.Popen) -> None:
     raise LaunchRefused()
 
 
-def serve(connection: socket.socket) -> None:
+def serve(
+    connection: socket.socket,
+    *,
+    worker: Callable[[int], AbstractContextManager[tuple[list[str], dict[str, str], str]]]
+    | None = None,
+    settle: Callable[[], None] | None = None,
+) -> None:
     connected_socket(connection, socket.SOCK_SEQPACKET)
     connection.settimeout(1)  # a stalled peer cannot block teardown/deadline checks
     process: subprocess.Popen | None = None
     active: str | None = None
     deadline = 0.0
+    resources = None
+
+    def stop() -> None:
+        nonlocal process, active, resources
+        if process is not None:
+            terminate(process, settle=settle)
+            process, active = None, None
+        if resources is not None:
+            resources.__exit__(None, None, None)
+            resources = None
+
     try:
         while True:
             if process is not None and (
                 time.monotonic() >= deadline
                 or os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
             ):
-                terminate(process)
-                process, active = None, None
+                stop()
             if not select.select([connection], [], [], 1)[0]:
                 continue
+            if not connection.recv(1, socket.MSG_PEEK):
+                return  # Ordinary owner-worker shutdown; finally settles descendants.
             operation, request_id, child = receive(connection)
             try:
                 if operation == "launch" and process is None and child is not None:
+                    if worker is None:
+                        # Historical namespace probes retain their original mode.
+                        from .namespace_command import ENVIRONMENT, command
+
+                        resources = nullcontext((command(child.fileno()), ENVIRONMENT, "/"))
+                    else:
+                        resources = worker(child.fileno())
+                    arguments, environment, directory = resources.__enter__()
                     process = subprocess.Popen(  # noqa: S603 - fixed image command, no caller argv
-                        command(child.fileno()),
-                        env=ENVIRONMENT,
-                        cwd="/",
+                        arguments,
+                        env=environment,
+                        cwd=directory,
                         stdin=subprocess.DEVNULL,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
@@ -107,8 +137,7 @@ def serve(connection: socket.socket) -> None:
                     active, deadline = request_id, time.monotonic() + 20 * 60
                     send(connection, "started", request_id)
                 elif operation == "stop" and request_id == active and process is not None:
-                    terminate(process)
-                    process, active = None, None
+                    stop()
                     send(connection, "stopped", request_id)
                 elif operation == "stop" and process is None:
                     # Idempotent stop, including a task already expired locally.
@@ -120,8 +149,7 @@ def serve(connection: socket.socket) -> None:
                     child.close()
     finally:
         try:
-            if process is not None:
-                terminate(process)
+            stop()
         finally:
             connection.close()
 

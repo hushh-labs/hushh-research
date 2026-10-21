@@ -48,6 +48,19 @@ class GeminiBrowserToolset(ComputerUseToolset):
         self._port = computer
         self._native: dict[str, ComputerUseTool] | None = None
 
+    async def prepare_continuation(self) -> None:
+        self._tools = None
+        self._native = None
+        await self._port.screen_size()
+
+    async def get_tools(self, readonly_context=None):
+        # The pinned SDK discovers BaseComputer.initialize as a callable, but
+        # it is lifecycle, not a native model action. Its search method also
+        # lacks a task-authorized destination. Filter local discovery without
+        # sending unsupported exclusion names to the provider API.
+        tools = await super().get_tools(readonly_context)
+        return [tool for tool in tools if tool.name not in {"initialize", "search"}]
+
     async def process_llm_request(
         self, *, tool_context: ToolContext, llm_request: LlmRequest
     ) -> None:

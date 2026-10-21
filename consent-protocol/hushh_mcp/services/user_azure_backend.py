@@ -42,6 +42,7 @@ from hushh_mcp.services.azure_agent_observation import (
     AzureJitAuthorizationRequired,
     adoption_refusal,
     approved_image_digests,
+    joined_observation,
     observe_agent,
 )
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
@@ -245,7 +246,7 @@ class UserAzureBackend(RegistryPruneHook):
         )
 
     async def observe(self) -> AzureAgentObservation:
-        return await asyncio.to_thread(self.observe_sync)
+        return await joined_observation(self.observe_sync)
 
     def verified_handle(self, hushh_id: str, observation: AzureAgentObservation) -> BackendHandle:
         """A handle for an agent that reads back as THIS person's, or a refusal."""
@@ -347,6 +348,9 @@ class UserAzureBackend(RegistryPruneHook):
 
         return await inspect_files_capability(self, spec)
 
+    async def inspect_pod_configuration(self, spec: PodSpec) -> dict:
+        return await self.inspect_files_capability(spec)
+
     async def discover_files_upgrade_ack(self, spec: PodSpec) -> dict | None:
         from hushh_mcp.services.pod_files.azure_provisioning import discover_files_upgrade_ack
 
@@ -367,7 +371,7 @@ class UserAzureBackend(RegistryPruneHook):
 
     async def observe_erasure_target(self, spec: PodSpec) -> dict[str, str]:
         """The serving incarnation an erasure order must match (``azure_agent_erasure``)."""
-        return await asyncio.to_thread(azure_agent_erasure.erasure_target, self, spec)
+        return await azure_agent_erasure.joined_erasure_target(self, spec)
 
     async def erase_owner_access(
         self, spec: PodSpec, *, crypto_erase: Callable[[dict[str, str]], Awaitable[dict]]

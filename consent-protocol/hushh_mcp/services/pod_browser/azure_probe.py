@@ -113,7 +113,7 @@ class UnqualifiedAzureBrowserExecutor:
     async def initialize(self) -> None:
         raise BrowserRefused("AZURE_BROWSER_BRIDGE_UNSUPPORTED")
 
-    async def execute(self, action: BrowserAction) -> BrowserFrame:
+    async def execute(self, action: BrowserAction, *, scope=None) -> BrowserFrame:
         raise BrowserRefused("AZURE_BROWSER_BRIDGE_UNSUPPORTED")
 
     async def close(self) -> None:

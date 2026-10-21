@@ -50,8 +50,11 @@ export function ComputerUseOwnerBridge({ ownerId, getVaultOwnerToken }: { ownerI
       morphyToast.error("Enter a secure website address.");
       return;
     }
-    const instruction = goal.trim();
-    if (!instruction || instruction.length > 4096) return;
+    const instruction = `${goal.trim()}\n\nStart at: ${site.href}`;
+    if (!goal.trim() || instruction.length > 4096) {
+      morphyToast.error("Shorten the task or website address.");
+      return;
+    }
     const previous = attempt.current;
     const terms = previous?.goal === instruction && previous.origin === site.origin ? previous
       : { requestId: crypto.randomUUID(), goal: instruction, origin: site.origin };

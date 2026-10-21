@@ -47,6 +47,15 @@ def test_deploy_config_targets_user_project_and_is_user_owned(monkeypatch):
     assert identity == [{"name": "POD_DURABLE_IDENTITY_ENABLED", "value": "true"}]
 
 
+def test_owner_pod_does_not_inherit_managed_fleet_multiple_writers(monkeypatch):
+    monkeypatch.setenv("HUSSH_POD_MAX_INSTANCES", "5")
+    cfg = _backend().render_deploy_config(_spec())
+    assert (
+        cfg["spec"]["template"]["metadata"]["annotations"]["autoscaling.knative.dev/maxScale"]
+        == "1"
+    )
+
+
 def test_bootstrap_plan_is_least_privilege_and_keyless():
     plan = _backend().render_bootstrap_plan(_spec())
     assert plan["tenancy"] == "user-owned"

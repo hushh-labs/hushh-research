@@ -29,6 +29,7 @@ class InformationField(StrictContract):
     export_revision: int = Field(ge=1)
     source_content_revision: int = Field(ge=1)
     source_manifest_revision: int = Field(ge=1)
+    grant_ref: str | None = Field(default=None, min_length=1, max_length=128, repr=False)
 
     @property
     def scope(self) -> str:

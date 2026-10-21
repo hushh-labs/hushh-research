@@ -29,7 +29,7 @@ from .contracts import (
 from .namespace_bridge_probe import _stop_worker
 from .namespace_probe import PREFIX, _command, verify_isolation
 from .network import BrowserNetworkBroker
-from .playwright_executor import SandboxedPlaywrightExecutor
+from .playwright_executor import PlaywrightExecutor
 
 _ORIGIN = "https://docs.python.org"
 _PAGES = (_ORIGIN + "/3/", _ORIGIN + "/3/search.html?q=browser")
@@ -110,7 +110,7 @@ async def _worker() -> None:
     if guards.get("code") != "BROWSER_NAMESPACE_GUARDS_VERIFIED":
         raise BrowserRefused("BROWSER_ISOLATION_NOT_READY")
     worker = ConnectedBrowserWorker(_BINDING)
-    executor = SandboxedPlaywrightExecutor(network=worker, sandbox_verified=True)
+    executor = PlaywrightExecutor(network=worker, chromium_sandbox=True)
     await worker.serve(socket.socket(fileno=int(sys.argv[3])), executor)
 
 
@@ -264,6 +264,87 @@ async def run_inpod_probe() -> dict:
         or broker.documents != {1: 200, 2: 200}
     ):
         result["code"] = "BROWSER_INPOD_PROBE_REFUSED"
+    return result
+
+
+async def run_container_probe(cloud: str) -> dict:
+    """Synthetic shared-owner launch/stop proof; never issues release readiness."""
+    from . import inpod_launcher
+    from .contracts import BrowserReadiness
+
+    if cloud not in {"gcp", "azure"} or os.geteuid() == 0:
+        raise BrowserRefused("BROWSER_PROBE_IDENTITY_REFUSED")
+    authority = _PublicFixtureAuthority()
+    broker = _ReceiptBroker(authority)
+    # Fixture instrumentation, not owner consent or an enablement receipt.
+    original = inpod_launcher.BrowserNetworkBroker
+    inpod_launcher.BrowserNetworkBroker = lambda **_kwargs: broker  # type: ignore[misc,assignment]
+    ready = BrowserReadiness(
+        version=2,
+        cloud=cloud,
+        component_digest="sha256:" + "0" * 64,
+        boundary="shared_owner_container",
+        chromium_sandbox=cloud == "gcp",
+        browser_start_verified=True,
+        runtime_uid_verified=True,
+        lifecycle_verified=True,
+        broker_bridge_verified=True,
+        ephemeral_bridge_verified=True,
+        model_transport_verified=True,
+        model_name="synthetic-no-model",
+        model_transport="qualification-only",
+    )
+    launcher = None
+    host = None
+    result = {
+        "code": "BROWSER_CONTAINER_PROBE_REFUSED",
+        "runtime_uid": os.geteuid(),
+        "cloud": cloud,
+        "chromium_sandbox": ready.chromium_sandbox,
+        "boundary": ready.boundary,
+        "model_executed": False,
+    }
+    try:
+        launcher = inpod_launcher.InPodBrowserLauncher.from_container(
+            readiness=ready, network_authority=lambda *_: authority
+        )
+        host = await launcher.launch(
+            _BINDING, allowed_origins=(_ORIGIN,), consent=authority, authority=authority
+        )
+        result.update(await _visit(host))
+        await host.close()
+        result["stop_confirmed"] = True
+    except Exception as exc:
+        result["failure_type"] = type(exc).__name__
+        result["failure"] = exc.code if isinstance(exc, BrowserRefused) else "BROWSER_PROBE_FAILED"
+        cause = exc.__context__
+        if cause is not None:
+            result["cause_type"] = type(cause).__name__
+    finally:
+        try:
+            try:
+                if host is not None:
+                    await host.close()
+            finally:
+                if launcher is not None:
+                    await launcher.close()
+                    result["supervisor_exit"] = launcher._supervisor.returncode
+        except Exception:
+            result["cleanup_unconfirmed"] = True
+        finally:
+            await broker.close()
+            inpod_launcher.BrowserNetworkBroker = original
+        result["document_statuses"] = broker.documents
+        result["broker_requests"] = authority.requests
+    if (
+        result.get("stop_confirmed")
+        and not result.get("cleanup_unconfirmed")
+        and result.get("supervisor_exit") == 0
+        and broker.documents == {1: 200, 2: 200}
+    ):
+        result["code"] = "BROWSER_CONTAINER_EXECUTION_VERIFIED"
+    else:
+        result["code"] = "BROWSER_CONTAINER_PROBE_REFUSED"
     return result
 
 

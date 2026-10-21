@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
+from typing import Literal
 
 
 class WorkerBindingRefused(RuntimeError):
@@ -21,7 +22,7 @@ class GcpWorkerBinding:
     service_account: str
 
 
-def gcp_worker_binding() -> GcpWorkerBinding:
+def gcp_worker_binding(*, capability: Literal["files", "browser"] = "files") -> GcpWorkerBinding:
     from hushh_mcp.services.pod_files.provisioning import coordinates
 
     key = re.fullmatch(
@@ -38,9 +39,15 @@ def gcp_worker_binding() -> GcpWorkerBinding:
         raise WorkerBindingRefused("POD_WORKER_IDENTITY_UNAVAILABLE")
     project, region = key.groups()
     names = coordinates(owner, project, region)
+    queue = names["queue"]
+    if capability == "browser" and (
+        os.getenv("POD_BROWSER_DELIVERY_MODE") != "owner_files_queue_v1"
+        or os.getenv("POD_FILES_ENABLED", "").lower() not in {"1", "true"}
+    ):
+        raise WorkerBindingRefused("POD_WORKER_DELIVERY_NOT_CONFIGURED")
     if (
-        os.getenv("POD_FILES_TASK_QUEUE") != names["queue"]
+        os.getenv("POD_FILES_TASK_QUEUE") != queue
         or os.getenv("POD_FILES_WORKER_SERVICE_ACCOUNT") != names["worker"]
     ):
         raise WorkerBindingRefused("POD_WORKER_DELIVERY_NOT_CONFIGURED")
-    return GcpWorkerBinding(project, region, names["queue"], names["worker"])
+    return GcpWorkerBinding(project, region, queue, names["worker"])

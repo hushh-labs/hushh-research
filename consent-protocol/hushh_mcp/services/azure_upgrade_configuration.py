@@ -122,6 +122,18 @@ def verified_files(
 ) -> BackendHandle:
     if connector_environment is not None:
         require_connector_configuration(app, connector_environment)
+    if spec.browser_upgrade_plan is not None:
+        import json
+
+        from hushh_mcp.services.pod_browser.azure_capability import AzureBrowserCapabilityPlan
+
+        browser = AzureBrowserCapabilityPlan.model_validate_json(
+            json.dumps(spec.browser_upgrade_plan)
+        )
+        browser.require_installed(app)
+        handle = with_metadata(
+            handle, browserCapability={"planDigest": browser.digest, "status": "configured"}
+        )
     if spec.files_upgrade_plan is None:
         return handle
     from hushh_mcp.services.pod_files.azure_capability import AzureFilesCapabilityPlan

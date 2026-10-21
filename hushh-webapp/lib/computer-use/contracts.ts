@@ -19,6 +19,9 @@ export type ComputerUseSnapshot = Readonly<{
   controlEpoch: number;
   nextSequence: number;
   revision: number;
+  code?: string;
+  inputPending?: boolean;
+  goalCompleted?: boolean;
   /** Owner-only task result; never insert into One's transcript or telemetry. */
   summary?: string;
   review?: ComputerUseReview;
@@ -26,6 +29,7 @@ export type ComputerUseSnapshot = Readonly<{
   rememberedSessionsAvailable?: boolean;
   publicResearchOnly?: boolean;
   viewport?: Readonly<{ width: number; height: number }>;
+  downloads?: readonly Readonly<{ id: string; name: string; size: number; sha256: string }>[];
 }>;
 
 export type ComputerUseReview = Readonly<{
@@ -63,6 +67,8 @@ export type ComputerUseSessionReceipt =
 
 /** The adapter uses existing signed direct admission. This port never chooses an endpoint. */
 export interface ComputerUseTransport {
+  saveDownload?(binding: ComputerUseBinding, id: string, name: string, parent: string,
+    signal: AbortSignal): Promise<{ fileId: string; bytes: number; sha256: string }>;
   read(binding: ComputerUseBinding, signal: AbortSignal): Promise<ComputerUseSnapshot>;
   control(
     binding: ComputerUseBinding,
@@ -97,5 +103,5 @@ export function isComputerUseTerminal(phase: ComputerUsePhase): boolean {
 
 export function manualBrowserInputAllowed(snapshot: ComputerUseSnapshot | null): boolean {
   return Boolean(snapshot?.capability === "ready" && snapshot.controlOwner === "owner"
-    && !isComputerUseTerminal(snapshot.phase));
+    && !snapshot.review && !isComputerUseTerminal(snapshot.phase));
 }

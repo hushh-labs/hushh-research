@@ -291,7 +291,7 @@ async def test_provider_observes_only_approved_origin_without_login_url_credenti
     from hushh_mcp.services.pod_browser.adk_computer import PodComputer
 
     class CallbackExecutor(Executor):
-        async def execute(self, action):
+        async def execute(self, action, *, scope=None):
             return (await super().execute(action)).model_copy(update={"url": url})
 
     async def processing():
@@ -357,3 +357,123 @@ async def test_selected_export_pins_export_and_pkm_source_revisions_independentl
         package = replace(package, **changes)
         with pytest.raises(BrowserRefused, match="GRANT_REFUSED"):
             await reader.read(binding(), field)
+
+
+def test_pod_export_returns_only_exact_owner_recipient_revision_ciphertext():
+    import base64
+
+    from cryptography.hazmat.primitives import serialization
+
+    from hushh_mcp.services.pod_browser.information_export import (
+        BrowserExportSelection,
+        selected_export,
+    )
+    from tests.helpers.pod_browser import browser_export_package
+
+    package, field = browser_export_package(app_id="agent_one")
+    public = base64.b64encode(
+        package.connector_private_key.public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        )
+    ).decode()
+    selection = BrowserExportSelection(
+        owner_id=package.binding.owner_id,
+        pod_id=package.binding.pod_id,
+        pod_key_id="fixture",
+        field=field,
+    )
+    envelope = package.envelope
+    row = {
+        "user_id": selection.owner_id,
+        "app_id": "agent_one",
+        "grant_id": field.grant_ref,
+        "scope": field.scope,
+        "connector_key_id": "fixture",
+        "envelope_version": 2,
+        "export_revision": field.export_revision,
+        "source_content_revision": field.source_content_revision,
+        "source_manifest_revision": field.source_manifest_revision,
+        "recipient_key_fingerprint": envelope.aad.recipient_key_fingerprint,
+        "is_strict_zero_knowledge": True,
+        "export_id": envelope.export_id,
+        "envelope_aad": envelope.aad.model_dump(),
+        "envelope_aad_sha256": envelope.aad_sha256,
+        "ciphertext_sha256": envelope.ciphertext_sha256,
+        "ciphertext_bytes": envelope.ciphertext_bytes,
+        "scope_handle": envelope.aad.scope_handle,
+        "encrypted_data": base64.b64encode(package.ciphertext).decode(),
+        "wrapped_key_bundle": package.wrapped_key_bundle,
+        "iv": package.iv_b64,
+        "tag": package.tag_b64,
+        "consent_token": "never-return-this-token",
+    }
+    result = selected_export(row, selection, public)
+    assert result["ciphertext"] == row["encrypted_data"]
+    assert '"favorite_color": "blue"' not in __import__("json").dumps(result)
+    assert "never-return-this-token" not in str(result)
+    for change in (
+        {"user_id": "other"},
+        {"connector_key_id": "old"},
+        {"source_content_revision": 12},
+        {"source_manifest_revision": 8},
+        {"export_revision": 1},
+        {"recipient_key_fingerprint": "sha256:" + "0" * 64},
+        {"app_id": "other"},
+        {"is_strict_zero_knowledge": False},
+    ):
+        with pytest.raises(BrowserRefused, match="GRANT_REFUSED"):
+            selected_export({**row, **change}, selection, public)
+    with pytest.raises(BrowserRefused, match="INFORMATION_UNAVAILABLE"):
+        selected_export(None, selection, public)  # revoked or expired export
+
+
+async def test_browser_export_requires_exact_signed_token_and_recorded_grant(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.consent import token as tokens
+    from hushh_mcp.services.pod_browser.information_export import (
+        BrowserExportSelection,
+        require_export_grant,
+    )
+    from tests.helpers.pod_browser import browser_export_package
+
+    package, field = browser_export_package(app_id="agent_one")
+    selection = BrowserExportSelection(
+        owner_id="owner", pod_id="pod", pod_key_id="fixture", field=field
+    )
+    lineage = {
+        "user_id": "owner",
+        "agent_id": "agent_one",
+        "scope": field.scope,
+        "request_id": field.grant_ref,
+    }
+
+    class Query:
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: self
+
+        def execute(self):
+            return SimpleNamespace(data=[lineage])
+
+    service = SimpleNamespace(_get_db=lambda: Query())
+    claims = SimpleNamespace(user_id="owner", agent_id="agent_one", scope_str=field.scope)
+    validate = AsyncMock(return_value=(True, None, claims))
+    monkeypatch.setattr(tokens, "validate_token_with_db", validate)
+    await require_export_grant(service, {"consent_token": "synthetic-signed-token"}, selection)
+    validate.assert_awaited_with("synthetic-signed-token", expected_scope=field.scope)
+    for key, value in (
+        ("agent_id", "other"),
+        ("scope_str", "attr.preferences.*"),
+        ("user_id", "other"),
+    ):
+        old = getattr(claims, key)
+        setattr(claims, key, value)
+        with pytest.raises(BrowserRefused, match="GRANT_REFUSED"):
+            await require_export_grant(
+                service, {"consent_token": "synthetic-signed-token"}, selection
+            )
+        setattr(claims, key, old)
+    lineage["request_id"] = "another-grant"
+    with pytest.raises(BrowserRefused, match="GRANT_REFUSED"):
+        await require_export_grant(service, {"consent_token": "synthetic-signed-token"}, selection)

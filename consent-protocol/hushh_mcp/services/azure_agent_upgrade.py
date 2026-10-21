@@ -144,11 +144,14 @@ def upgrade_agent(
     from hushh_mcp.services.pod_files.azure_bootstrap import approved_bootstrap
 
     files = approved_bootstrap(spec, app, arm, backend.app_id)
+    from hushh_mcp.services.pod_browser.azure_capability import approved_upgrade_plan
+
+    browser = approved_upgrade_plan(spec, app, arm)
     names = resource_names(backend.plan_inputs(spec.hushh_id, nonce))
     scopes = Scopes(backend.plan_inputs(spec.hushh_id, nonce), names)
     target = image_reference(f"{names.registry}.azurecr.io", digest)
     previous = _image(app)
-    if previous == target and files is None and configuration_current:
+    if previous == target and files is None and browser is None and configuration_current:
         observation = backend.observe_sync()
         _fence(observation.app, spec, expected)
         require_connector_configuration(observation.app, connector_environment)
@@ -214,6 +217,11 @@ def _replace(
     body = replacement_body(
         current, image=target, suffix=suffix, connector_environment=connector_environment
     )
+    if spec.browser_upgrade_plan is not None:
+        from hushh_mcp.services.pod_browser.azure_capability import approved_upgrade_plan
+
+        browser = approved_upgrade_plan(spec, current, arm)
+        browser.apply_configuration(current, body, spec.browser_qualification)
     if spec.files_upgrade_plan is not None:
         from hushh_mcp.services.pod_files.azure_capability import AzureFilesCapabilityPlan
 

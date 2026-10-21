@@ -18,7 +18,7 @@ from pathlib import Path
 from .connected_transport import ConnectedBrowserTransport
 from .contracts import BrowserAction, BrowserFrame, BrowserRefused, BrowserRequest, BrowserResponse
 from .namespace_probe import PREFIX, _command, verify_isolation
-from .playwright_executor import SandboxedPlaywrightExecutor
+from .playwright_executor import PlaywrightExecutor
 
 _PAGE = b"""<!doctype html><title>Private browser fixture</title>
 <style>body{background:white}button,input{position:absolute;left:10px;width:200px;
@@ -40,7 +40,7 @@ class _FixtureNetwork:
 
 async def _worker(guards: dict) -> None:
     network = _FixtureNetwork()
-    executor = SandboxedPlaywrightExecutor(network=network, sandbox_verified=True)
+    executor = PlaywrightExecutor(network=network, chromium_sandbox=True)
 
     async def command(payload: dict) -> dict:
         if payload == {"operation": "initialize"}:

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -43,9 +45,38 @@ class BrowserBinding(StrictContract):
     expires_at: int = Field(gt=0)
 
 
+class BrowserExecutionScope(StrictContract):
+    """Host-created input identity; never part of a model/owner action payload."""
+
+    sequence: int = Field(ge=1)
+    control_epoch: int = Field(ge=1)
+    actor: Literal["agent", "owner"]
+    deadline_at: float = Field(gt=0, allow_inf_nan=False)
+
+    def remaining(self, clock: Callable[[], float] = time.time) -> float:
+        remaining = self.deadline_at - clock()
+        if remaining <= 0:
+            raise BrowserRefused("BROWSER_ACTION_DEADLINE_EXPIRED")
+        return min(330.0, remaining)
+
+    def require_action(self, action: BrowserAction, binding: BrowserBinding) -> None:
+        if (
+            self.sequence != action.sequence
+            or self.control_epoch != action.control_epoch
+            or self.deadline_at > binding.expires_at
+        ):
+            raise BrowserRefused("BROWSER_ACTION_SCOPE_REFUSED")
+
+
 class BrowserReadiness(StrictContract):
+    version: Literal[1, 2] = 1
     cloud: Literal["gcp", "azure"]
     component_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    boundary: Literal["isolated_browser", "shared_owner_container"] = "isolated_browser"
+    chromium_sandbox: bool = True
+    browser_start_verified: bool = False
+    runtime_uid_verified: bool = False
+    lifecycle_verified: bool = False
     isolated: bool = False
     direct_egress_denied: bool = False
     broker_bridge_verified: bool = False
@@ -56,6 +87,28 @@ class BrowserReadiness(StrictContract):
     model_transport: str = Field(default="", max_length=256)
 
     def require_ready(self) -> None:
+        if self.version == 2:
+            if (
+                self.boundary != "shared_owner_container"
+                or self.chromium_sandbox != (self.cloud == "gcp")
+                or self.isolated
+                or self.direct_egress_denied
+                or self.private_access_denied
+                or not all(
+                    (
+                        self.browser_start_verified,
+                        self.runtime_uid_verified,
+                        self.lifecycle_verified,
+                        self.broker_bridge_verified,
+                        self.ephemeral_bridge_verified,
+                        self.model_transport_verified,
+                        bool(self.model_name),
+                        bool(self.model_transport),
+                    )
+                )
+            ):
+                raise BrowserRefused("BROWSER_EXECUTION_NOT_READY")
+            return
         if not all(
             (
                 self.isolated,
@@ -167,7 +220,9 @@ class BrowserFrame(StrictContract):
 class BrowserExecutionPort(Protocol):
     async def initialize(self) -> None: ...
 
-    async def execute(self, action: BrowserAction) -> BrowserFrame: ...
+    async def execute(
+        self, action: BrowserAction, *, scope: BrowserExecutionScope | None = None
+    ) -> BrowserFrame: ...
 
     async def close(self) -> None: ...
 
@@ -181,6 +236,7 @@ class BrowserSessionExecutionPort(BrowserExecutionPort, Protocol):
 
 
 class BrowserRequest(StrictContract):
+    scope: BrowserExecutionScope | None = Field(default=None, repr=False)
     url: str = Field(max_length=4096, repr=False)
     method: str = Field(max_length=16)
     headers: tuple[tuple[str, str], ...] = Field(default=(), repr=False)
@@ -192,6 +248,8 @@ class BrowserRequest(StrictContract):
             separators=(",", ":"),
             ensure_ascii=True,
         )
+        if self.scope is not None:
+            terms += self.scope.model_dump_json()
         return hashlib.sha256(terms.encode()).hexdigest()
 
 
@@ -199,6 +257,7 @@ class BrowserResponse(StrictContract):
     status: int = Field(ge=100, le=599)
     headers: tuple[tuple[str, str], ...] = Field(repr=False)
     body: bytes = Field(max_length=4 * 1024 * 1024, repr=False)
+    download_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
 
 
 class BrowserNetworkPermit(StrictContract):
@@ -217,7 +276,13 @@ class BrowserAuthorityPort(Protocol):
 
     async def check_binding(self, binding: BrowserBinding) -> None: ...
 
-    async def authorize_action(self, binding: BrowserBinding, action: BrowserAction) -> None: ...
+    async def authorize_action(
+        self,
+        binding: BrowserBinding,
+        action: BrowserAction,
+        *,
+        scope: BrowserExecutionScope | None = None,
+    ) -> None: ...
 
     async def journal_dispatch(self, binding: BrowserBinding, action: BrowserAction) -> None: ...
 

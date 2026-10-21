@@ -50,6 +50,24 @@ def readiness(**changes):
     )
 
 
+def shared_readiness(**changes):
+    cloud = changes.get("cloud", "gcp")
+    return readiness(
+        **{
+            "version": 2,
+            "boundary": "shared_owner_container",
+            "chromium_sandbox": cloud == "gcp",
+            "isolated": False,
+            "direct_egress_denied": False,
+            "private_access_denied": False,
+            "browser_start_verified": True,
+            "runtime_uid_verified": True,
+            "lifecycle_verified": True,
+            **changes,
+        }
+    )
+
+
 @dataclass
 class Authority:
     revoked: bool = False
@@ -63,7 +81,7 @@ class Authority:
     async def check_no_pending_dispatch(self, value):
         await self.check_binding(value)
 
-    async def authorize_action(self, value, action):
+    async def authorize_action(self, value, action, *, scope=None):
         await self.check_binding(value)
         if action.operation == "type" and not self.approved:
             raise BrowserRefused("BROWSER_APPROVAL_REQUIRED")
@@ -92,7 +110,7 @@ class Executor:
     async def initialize(self):
         self.calls.append("initialize")
 
-    async def execute(self, action):
+    async def execute(self, action, *, scope=None):
         self.calls.append(action.operation)
         self.entered.set()
         if self.release:
@@ -220,7 +238,7 @@ async def _session_fixture(tmp_path, store=None):
     return sessions, auth, store, log, site, state, origins, closed
 
 
-def browser_export_package():
+def browser_export_package(*, app_id="browser-task"):
     import base64
     import time
 
@@ -245,9 +263,10 @@ def browser_export_package():
         export_revision=2,
         source_content_revision=11,
         source_manifest_revision=7,
+        grant_ref="synthetic-grant",
     )
     aad = ConsentExportAadV2(
-        app_id="browser-task",
+        app_id=app_id,
         grant_id="synthetic-grant",
         export_id="123e4567-e89b-12d3-a456-426614174000",
         revision=2,
@@ -461,3 +480,19 @@ async def approved_task(fixture):
     )
     await asyncio.wait_for(fixture.model.entered.wait(), 2)
     return await fixture.runtime.read(fixture.owner, snapshot.binding.task_id)
+
+
+def approve_browser_processing(consent, process):
+    consent.approve(
+        "model_process",
+        {
+            "fields": [],
+            "values": {},
+            "model": process.model_name,
+            "transport": process.transport,
+            "origins": list(process.allowed_origins),
+            "screen_processing": True,
+            "task_goal": process.task_goal,
+            "result_storage": "owner_encrypted_log",
+        },
+    )

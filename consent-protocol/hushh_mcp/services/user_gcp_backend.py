@@ -317,6 +317,7 @@ class UserGcpBackend:
             region=self._user_region,
             image=self._image,
             min_instances=min_instances,
+            max_instances=1,
             live=False,
         )
 
@@ -342,6 +343,13 @@ class UserGcpBackend:
         recovery, Memory Bank and storage retain the owner's project.
         """
         cfg: dict[str, Any] = self._inner.render_deploy_config(spec)
+        if (
+            cfg["spec"]["template"]["metadata"]["annotations"].get(
+                "autoscaling.knative.dev/maxScale"
+            )
+            != "1"
+        ):
+            raise ValueError("An owner pod requires one instance; review its hosting configuration")
         # Mark tenancy so the artifact is unambiguously user-owned.
         cfg["metadata"]["labels"]["hussh-tenancy"] = "user-owned"
 
@@ -1853,6 +1861,10 @@ class UserGcpBackend:
         browser_capability = approved_upgrade_browser_plan(
             spec, existing, project=self._user_project, bootstrap_sa=self._bootstrap_sa
         )
+        if browser_capability is not None:
+            from hushh_mcp.services.pod_browser.delivery import require_gcp_delivery
+
+            await asyncio.to_thread(require_gcp_delivery, client, browser_capability)
         observed_runtime = (
             existing.get("spec", {}).get("template", {}).get("spec", {}).get("serviceAccountName")
         )
@@ -1931,6 +1943,7 @@ class UserGcpBackend:
                 existing, config, connector_environment=connector_environment
             )
             if browser_capability is not None:
+                await asyncio.to_thread(require_gcp_delivery, client, browser_capability)
                 browser_capability.apply_configuration(existing, config, spec.browser_qualification)
             if files_capability is not None:
                 from hushh_mcp.services.pod_files.capability_bootstrap import (

@@ -4,8 +4,10 @@
 
 **Continue dev qualification; hold application promotion.** Existing Azure owner
 chat, Files, Puppy and an approved update have live receipts. The current Browser
-candidate is locally verified but uninstalled. Installed Browser, Azure host
-lifecycle, general scheduling and retained Shared erasure remain release blockers.
+candidate has local contract and cloud component evidence, but is uninstalled.
+Installed Browser, measured capacity, remaining core lifecycle and retained Shared
+erasure remain release blockers. VM migration and general schedule expansion are
+outside the current gate.
 
 The [public-research MVP](../../future/personal-agent/browser-completion-plan.md#immediate-mvp--critical-path-first)
 is P0: ask One, review, browse, take control, resume, reconnect and stop. Login,
@@ -17,7 +19,7 @@ The 30-second cold target is an optimization goal. Economy hosting stays selecte
 Start with the [Founder/CTO diagram guide](../architecture/README.md#founder-and-cto-diagram-guide)
 and [private-agent north star](../architecture/private-agent-north-star.md).
 The [Browser reference](../../../consent-protocol/docs/reference/private-browser-runtime.md)
-owns exact execution, qualification and isolation evidence. Operating procedures
+owns exact execution mode, qualification and lifecycle evidence. Operating procedures
 stay in the [pod runbook](../operations/dev-pod-first-light-runbook.md),
 [Files runbook](../operations/private-files-library.md),
 [deletion runbook](../operations/account-deletion-rollout.md) and
@@ -36,11 +38,11 @@ retains its disclosed boundary.
 | Files | Dedicated specialist/explorer; personal and fresh Shared Move, exact download and Undo; earlier interrupted 4,195,328-byte transfer and selected analysis passed | Current-image organization, fresh setup and retained Shared erasure |
 | Updates | Personal Azure Dev 25: one Settings-approved operation, encrypted recovery, installed digest and one Feed completion | Fresh-image exact-predecessor recovery, active-work interruption and separately approved installation |
 | Puppy | Existing Hermes identity, signed binding, sealed WSS and streamed Gemma 12B; prior Stop, withdrawal/refusal and re-enable passed | Repeat affected paths only. Phone testing waived; independent-network acceptance is unclaimed |
-| Browser | Protected Chromium/native ADK public-research components passed on GCP and disposable Azure VM; responsive mechanics tested after task completion | Disabled on owner runtimes. Dev 966 task approval, 969 GCP configuration approval, immutable qualification and active-task owner takeover/reconnect/stop are still required |
-| Scheduled tasks / connectors | Local One occurrence/review/checkpoint continuity and authenticated HTTP have controlled proof; active worker registration remains Files-only | All-family adapters, owner controls, Azure due-time delivery, current-image connector refresh/review and installed continuation |
+| Browser | Same-image real frames and joined shutdown pass on Cloud Run (sandbox on) and Container Apps (sandbox off). Native Luna and Gemini research completed on their configured cloud paths; original 429s remain recorded | Disabled on owner runtimes. Dev 966 task approval, 969/970 cloud configuration approval, immutable qualification and active-task owner takeover/reconnect/stop are still required |
+| Scheduled tasks / connectors | Local One occurrence/review/checkpoint continuity and authenticated HTTP have controlled proof; active worker registration remains Files-only | Preserve existing schedules; all-family expansion is deferred. Current-image connector refresh/review and supported continuation still need acceptance |
 | Voice | App selects GCP recorded commands; Azure capture disabled. Stronger private-pod guards are source-qualified | Fresh image and owner approval; GCP recorded audio remains live-unverified. Live needs compatible native transport, never a shared key |
 | Erasure / transitions | Earlier Shared erasure verified object/Firebase absence; retained fixture gets safe 409 on deployed source | Reconcile the uncertain write through the product path before erasure; cloud/external-grant cleanup and hosting transfers need their own receipts |
-| Security / economy | Authority negative controls, inherited Browser isolation and selected minimum-zero configuration have scoped evidence | Installed lifecycle and idle acceptance; dependency alerts, including companion alerts, remain independent clearance requirements |
+| Security / economy | Authority negatives, explicit shared-owner compromise boundary and minimum-zero configuration have scoped evidence | Installed lifecycle and idle acceptance; dependency alerts, including companion alerts, remain independent clearance requirements |
 
 ### Retained Shared deletion
 
@@ -62,35 +64,45 @@ from this local implementation pass. No new deployment or owner install occurred
 | Personal Azure pod | `2026.10-dev.25+991a06ccbc01.4a3b29a7`; digest `sha256:4a3b29a74641d7eac470da43d18f01c5039f4c0327ed84811ce2f0bfa939ac9a`; revision `ca-hussh-one-pod--u36234007817f` | `op_b9a279571aaf47bcaffdbc4689c80d6c` verified 03:19:39 UTC; exact predecessor `250aea9e…fc69f1`; same identity and 1 vCPU / 2 GiB, min 0 / max 1 |
 | Schema / rollback | 65 rows, 964 applied, no required-contract/checksum mismatch; history cleanup deferred | Captured hub rollback `00185-f9z` / `e9482e4319ad`; web `00153-7ck` / `991a06ccbc01`. Application rollback cannot restore deleted history |
 | Local integration | Main `f47a4832dbc` + frozen ADK `42bb9823005` through `b14bc29901`; later source remains on the infrastructure branch | Historical core passed: 21,737 parallel, 1,215 serial, 396 additional PostgreSQL checks. Those receipts do not validate the current working candidate. Active ADK and peer edits are preserved |
-| Browser component qualification | GCP Gemini bridge research 47.644 s; Azure VM Luna 13.744 s, with encrypted identity/restart continuity | Excludes cloud startup. Model-directed navigation/screenshots passed; manual controls were exercised after completion. No active-task owner HTTP acceptance or customer VM availability implied |
+| Browser component qualification | Image `sha256:b48f66b6…b32fbf24a4`: ordinary GCP frames/start 7.145 s, Azure frames/start 1.555 s; both confirmed Stop. Native ACA Luna research 19.460 s, five model round trips at capacity 50 | Synthetic grants, excludes owner HTTP acceptance and full-pod capacity. Capacity 1 returned 429; original failure retained. GCP native Gemini 3.8 research subsequently completed in 96.713 s through the approved bridge: three model round trips, two native actions and two screenshot continuations. This is one component sample, not a latency target pass. Disposable resources and temporary model/RBAC verified removed |
 
 ### Current local implementation
 
-Implementation checkpoint: `dc15a2fec2` (local only).
+Committed checkpoint: `bd1e2a0ce1`; continuation remains uncommitted and uninstalled.
+Browser joins now include durable identifier-only delivery through the existing
+Files queue, asynchronous input review, native ADK handback, encrypted remembered
+sessions and exact owner-approved configuration on Cloud Run and Container Apps.
+No additional queue or worker identity is created; one background consumer is
+serial, and a Browser task may delay queued Files work for up to fifteen minutes.
+GCP replacement reads back the existing queue, worker identity and scoped IAM
+before drain and again before replacement. Dev migration 970 adds Azure Browser
+admission only; isolated SQL tests are not a live migration receipt.
 
-GCP Browser now has a distinct typed policy plan and approval v2 under the existing
-update operation. Registry CAS binds owner, key and placement. Authenticated drain,
-exact template/image/policy and 100% serving traffic precede configured status.
-Lost-response discovery retains the original operation and qualification even when
-the hub target advances; it never dispatches another replacement. Settings reviews
-public destinations and model screen processing before approval. The offer flag
-stays off until qualification and parked dev migration 969 are present.
+Selected PKM loading now accepts only existing owner-approved V2 exports encrypted
+to the current pod key, with exact grant and source revisions; unavailable exports
+do not fall back to replica reads. Ordinary HTTP attachments up to 4 MiB stay in
+pod memory until explicit **Save to Files**, with decrypted byte verification.
+Stop joins an admitted save; Files completion reuses its consented organization
+outbox and reports queue failure separately from saved bytes. Reconnect never
+refetches a lost attachment or reruns a completed goal. These new joins still need installed owner acceptance.
 
-Azure VM image updates refresh only captured target evidence and preserve owner
-policy. Old root updater/helper bundles refuse; host maintenance and customer
-activation remain separate. No qualification pins are installed. The
-[VM lifecycle proposal](../../future/personal-agent/browser-completion-plan.md#azure-vm-hosting-proposal--qualification-only)
-owns outstanding customer-host admission, external wake, idle/deallocation,
-repairable uncertainty and erasure. Dev 965–969 remain subject to governed ledger
-verification; isolated schemas are not live migration receipts.
+Current focused receipts: **343 Browser/Files/route checks**, followed by **91**
+modular authority cases and **38** native/launcher cases after the final repairs;
+**33 frontend checks** and affected typechecks pass. Counts overlap. Takeover
+refuses old-epoch frames; restoring the old cancellation order fails its regression.
+The architecture ratchet passes with exact independently reviewed ceilings.
 
-Verification: **262 focused backend checks**, **30 frontend checks**, 15 changed
-helper modules typechecked, and three broken-code negative controls for key
-rotation, serving traffic and temporary-database cleanup. Generated Back behavior
-passed 484 checks; UI contracts and web typecheck pass. Documentation integrity,
-links, brand and all 209 diagrams pass. These are local receipts, not installed
-acceptance. Original failures and corrected harness results remain preserved.
-The final combined candidate still requires its one core mirror and exact-SHA CI.
+Component image `sha256:2bfbf9da…dad8db81` now renders both public pages and confirms
+supervisor exit on Cloud Run (startup 6.951 s) and Container Apps (1.719 s).
+Source archive, disposable services/groups and scoped grants were removed with
+readback. Earlier scratch/import failures are retained; build-time restricted-
+module imports now catch the packaging defect. These are component receipts,
+not installed owner acceptance or full-runtime capacity. The combined candidate
+still needs final intake, core mirror and exact-SHA CI.
+
+VM hosting is superseded by the agreed Container Apps configuration. Historical
+VM receipts do not authorize a customer hosting transition. No owner resources,
+placements or selected capacities were changed by this local continuation.
 The private Wiki correction now reads back after transport errors. Write
 acknowledgement and durable backup remain unconfirmed.
 
@@ -123,16 +135,17 @@ paid work; spending thresholds warn without stopping service.
    Use three cold and three warm samples only for relevant startup changes;
    historical percentiles remain historical. No model sweep or artificial keepalive.
 3. **Release owner:** freeze dependency-relevant main/ADK intake once; run the core
-   mirror and exact-SHA hosted CI; govern one dev rollout and separately approved
-   pod installs. Decide readiness from journey receipts, not source or health flags.
+   mirror and exact-SHA hosted CI; govern the image-build and qualified-metadata
+   publication runs, then separately approved pod installs. Decide readiness from journey receipts, not source or health flags.
 
 Reuse unchanged Puppy evidence: 320 Chromium/WebKit responsive cases, shared
 760 px ribbon/composer, 0 px edge discrepancy, 44 px controls and no overflow.
 Do not rerun it for backend/doc-only changes.
 
 [Application PR #7555](https://github.com/hushh-labs/hushh-research/pull/7555) remains
-draft. Main merge, UAT/production rollout, stable publication and automatic owner
-upgrades remain unauthorized. Managed Hussh provisioning and unqualified hosting
+draft. Main merge is authorized only after installed Browser/core acceptance and
+Admin SOP gates; the landed SHA needs its own smoke and dev receipt. UAT/production
+rollout, stable publication and automatic owner upgrades remain unauthorized. Managed Hussh provisioning and unqualified hosting
 moves remain unavailable. Production additionally needs migration/channel
 qualification, IAM, erasure/recovery, hub capacity and independent UAT acceptance.
 

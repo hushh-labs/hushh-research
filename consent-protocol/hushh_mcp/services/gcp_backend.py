@@ -38,6 +38,7 @@ from hushh_mcp.services.compute_backend import (
     BACKEND_GCP,
     POD_CPU,
     POD_MEMORY,
+    POD_REQUEST_CONCURRENCY,
     RESOURCE_TIER_ECONOMY,
     RESOURCE_TIER_WARM,
     TIER_DEDICATED,
@@ -518,7 +519,9 @@ class GcpBackend:
         inner_spec: dict[str, Any] = {
             "containers": [container],
             "containerConcurrency": (
-                1 if _cpu_millis(container["resources"]["limits"]["cpu"]) < 1000 else 8
+                1
+                if _cpu_millis(container["resources"]["limits"]["cpu"]) < 1000
+                else POD_REQUEST_CONCURRENCY
             ),
         }
         # Only pin a runtime service account when one is configured; an empty value

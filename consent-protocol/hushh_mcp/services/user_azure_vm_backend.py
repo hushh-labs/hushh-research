@@ -1,19 +1,19 @@
 """Attach to a recorded VM without applying Container Apps lifecycle operations.
 
-Reads do not wake or mutate the VM. Customer hosting offers, updates and erasure
-retain their existing owner-operation authorities and remain unavailable until
-their VM-specific composition is qualified.
+Reads do not wake or mutate the VM. Explicit image updates retain owner-JIT
+authority; the key-erasure checkpoint uses the existing reserved operation.
+Customer hosting and full cloud teardown remain unavailable until their complete
+VM lifecycle and inventory are qualified.
 """
 
 from __future__ import annotations
 
 import asyncio
-import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
+from hushh_mcp.services.azure_arm_client import ArmClient
 from hushh_mcp.services.azure_vm_host_binding import AzureVmHostBinding
 from hushh_mcp.services.compute_backend import (
     BACKEND_USER_AZURE,
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 class UserAzureVmBackend:
     backend_id = BACKEND_USER_AZURE
-    live = False  # No mutation can claim an upgrade lease through this read-only adapter.
+    live = False  # Customer activation stays gated; explicit JIT operations retain their own admission.
 
     def __init__(self, spec: PodSpec, *, observer: Callable[[], ArmClient] | None = None) -> None:
         host = spec.azure_vm_host
@@ -54,54 +54,9 @@ class UserAzureVmBackend:
         )
 
     def _observe(self, *, guard: Callable[[], None]) -> str:
-        # Cooperative ARM dispatch budget. Federation token acquisition retains
-        # its own bounded HTTP/retry contract; this is not a total latency claim.
-        deadline = time.monotonic() + 45
+        from hushh_mcp.services.azure_vm_observation import observe_power
 
-        def remaining() -> float:
-            guard()
-            value = deadline - time.monotonic()
-            if value <= 0:
-                raise TimeoutError("Azure VM ARM read budget exceeded")
-            return min(30.0, value)
-
-        guard()
-        source = self._observer()
-        arm = source.with_request_budget(remaining)
-        try:
-            api = API_VERSIONS["virtual_machines"]
-            resource = arm.get_or_none(self.app_id, api_version=api, op="vm_observe")
-            if resource is None:
-                return "gone"  # Only exact-resource GET404 establishes absence.
-            target = self._host.target()
-            target.require_current(resource)
-            body = arm.get(self.app_id + "/instanceView", api_version=api, op="vm_observe")
-            statuses = body.get("statuses")
-            if not isinstance(statuses, list):
-                raise ValueError("Azure VM power observation is unavailable")
-            states: list[str] = [
-                entry["code"].removeprefix("PowerState/")
-                for entry in statuses
-                if isinstance(entry, dict)
-                and isinstance(entry.get("code"), str)
-                and entry["code"].startswith("PowerState/")
-            ]
-            if len(states) != 1 or states[0] not in {
-                "starting",
-                "running",
-                "stopping",
-                "stopped",
-                "deallocating",
-                "deallocated",
-                "unknown",
-            }:
-                raise ValueError("Azure VM power observation is unavailable")
-            # Fence a provider replacement between the separate reads.
-            target.require_current(arm.get(self.app_id, api_version=api, op="vm_observe"))
-            return states[0]
-        finally:
-            arm.close()
-            source.close()
+        return observe_power(self._host, observer=self._observer, guard=guard)
 
     async def get(self, external_agent_id: str) -> BackendStatus:
         if external_agent_id.casefold() != self.app_id.casefold():
@@ -263,6 +218,28 @@ class UserAzureVmBackend:
     def render_deploy_config(self, spec: PodSpec) -> dict:
         self._host.require_spec(spec)
         raise RuntimeError("Azure VM hosting requires its exact owner-approved host offer")
+
+    async def observe_erasure_target(self, spec: PodSpec) -> dict[str, str]:
+        from hushh_mcp.services.azure_vm_erasure import observe
+
+        return await observe(self, spec)
+
+    async def checkpoint_owner_access(
+        self, spec: PodSpec, *, crypto_erase: Callable[[dict[str, str]], Awaitable[dict]]
+    ) -> None:
+        from hushh_mcp.services.azure_vm_erasure import checkpoint
+
+        await checkpoint(self, spec, crypto_erase=crypto_erase)
+
+    async def erase_owner_access(
+        self, spec: PodSpec, *, crypto_erase: Callable[[dict[str, str]], Awaitable[dict]]
+    ) -> dict:
+        raise RuntimeError("VM erasure requires the retained owner cleanup operation")
+
+    async def resume_owner_access_revocation(
+        self, spec: PodSpec, *, agent_erased: dict, resume: dict[str, str]
+    ) -> dict:
+        raise RuntimeError("VM revocation requires the retained owner cleanup operation")
 
     async def deprovision(self, external_agent_id: str) -> None:
         raise RuntimeError("Azure VM cleanup requires the retained owner erasure operation")

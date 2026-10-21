@@ -6,7 +6,7 @@ import type { ComputerUseReview as Review } from "@/lib/computer-use/contracts";
 
 const COPY = {
   model_process: { title: "Allow screen processing?", action: "Allow for this task" },
-  disclose: { title: "Share these details?", action: "Share these details" },
+  disclose: { title: "Allow this website action?", action: "Allow once" },
   session_remember: { title: "Remember this sign-in?", action: "Remember this site" },
   session_restore: { title: "Use stored sign-in?", action: "Use for this task" },
   provider_safety: { title: "Review this browser action", action: "Allow this action" },
@@ -24,7 +24,7 @@ export function ComputerUseReview({ review, pending, open, onClose, onConfirm }:
   const description = review.purpose === "model_process"
     ? `Allow ${review.model} to process browser screens${review.details.length ? " and these selected details" : ""} for this task.`
     : review.purpose === "disclose"
-      ? "The website can receive these details as soon as they are entered."
+      ? "Review the destination and action. Sign-in secrets stay out of this review."
       : review.purpose === "provider_safety"
         ? "The model flagged a concern. Review the action and warning before continuing."
       : review.purpose === "session_remember"

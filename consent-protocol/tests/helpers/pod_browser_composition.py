@@ -19,6 +19,19 @@ from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission
 from tests.helpers.pod_browser import Executor, readiness
 
 
+class SyntheticDelivery:
+    """Fake cloud request attachment; focused tests do not prove provider wake."""
+
+    def __init__(self, composition):
+        self.composition = composition
+
+    def require_ready(self):
+        return None
+
+    async def publish(self, binding, delivery):
+        self.composition._runtime._tasks[binding.task_id].delivery_attached.set()
+
+
 class Model:
     def __init__(self, calls):
         self.calls = calls
@@ -48,6 +61,9 @@ def composed_browser_fixture(monkeypatch, tmp_path, post):
         require_held=AsyncMock(),
     )
     log = PodCommitLog(LocalObjectStore(str(tmp_path)), b"L" * 32, owner_id="u")
+    monkeypatch.setattr(
+        composition, "resolve_pod_object_store", lambda: LocalObjectStore(str(tmp_path))
+    )
     admission = PodUpgradeAdmission(log_resolver=lambda: log)
     monkeypatch.setattr(composition, "ADMISSION", admission)
     monkeypatch.setattr(composition, "active_session_authority", lambda: identity)
@@ -71,7 +87,12 @@ def composed_browser_fixture(monkeypatch, tmp_path, post):
     launcher = SimpleNamespace(
         readiness=ready, launch=AsyncMock(return_value=executor), close=AsyncMock()
     )
-    monkeypatch.setattr(composition.InPodBrowserLauncher, "from_bootstrap", lambda **_: launcher)
+    monkeypatch.setattr(composition.InPodBrowserLauncher, "from_container", lambda **_: launcher)
+    monkeypatch.setattr(
+        composition.PodBrowserComposition,
+        "_make_delivery",
+        lambda self: SyntheticDelivery(self),
+    )
     model_calls = []
 
     monkeypatch.setattr(
@@ -124,6 +145,11 @@ async def wait_phase(runtime, owner, task_id, expected):
 
 
 def qualified_browser_installation_fixture(monkeypatch, tmp_path, host_kind):
+    monkeypatch.setattr(
+        composition.PodBrowserComposition,
+        "_make_delivery",
+        lambda self: SyntheticDelivery(self),
+    )
     from hushh_mcp.services.pod_browser import deployment as install
 
     startup = composition
@@ -148,6 +174,9 @@ def qualified_browser_installation_fixture(monkeypatch, tmp_path, host_kind):
     monkeypatch.delenv("K_SERVICE", raising=False)
     monkeypatch.delenv("K_REVISION", raising=False)
     log = PodCommitLog(LocalObjectStore(str(tmp_path)), b"L" * 32, owner_id="owner")
+    monkeypatch.setattr(
+        composition, "resolve_pod_object_store", lambda: LocalObjectStore(str(tmp_path))
+    )
     qualified = {
         "version": 1,
         "host_kind": host_kind,
@@ -185,7 +214,12 @@ def install_test_browser_host(monkeypatch, cloud):
 
 def browser_startup_ports(monkeypatch, deployment):
     launcher = SimpleNamespace(readiness=deployment.readiness, close=AsyncMock())
-    monkeypatch.setattr(composition.InPodBrowserLauncher, "from_bootstrap", lambda **_: launcher)
+    monkeypatch.setattr(composition.InPodBrowserLauncher, "from_container", lambda **_: launcher)
+    monkeypatch.setattr(
+        composition.PodBrowserComposition,
+        "_make_delivery",
+        lambda self: SyntheticDelivery(self),
+    )
     selected = OwnerBrowserModel(Gemini(model=deployment.readiness.model_name), AsyncMock())
     monkeypatch.setattr(composition, "resolve_owner_browser_model", lambda _: selected)
     owner = BrowserOwnerAccess("owner", "pod", "epoch", 2**31 - 1, AsyncMock())

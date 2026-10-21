@@ -339,16 +339,19 @@ current pod incarnation. Publishing an image offers it; publication alone does
 not install it. Legacy maintenance follows the separately authorized
 [first-light runbook](./dev-pod-first-light-runbook.md#one-time-legacy-bootstrap-exception).
 
-- **Backend** (`UserGcpBackend.upgrade`, `GcpBackend.upgrade`): copies the approved
+- **GCP backend** (`UserGcpBackend.upgrade`, `GcpBackend.upgrade`): copies the approved
   immutable image into the person's own registry, replaces the Cloud Run service in
   place (PUT, never delete and create, so the URL survives), waits for Ready, and
   raises rather than records when the new revision does not come up. Cloud Run keeps
   serving the previous revision in that case.
 - **Service** (`PersonalAgentProvisioningService.upgrade_pod`): reads everything from
-  the registry row, re-derives nothing, and writes back only the image facts
-  (`record_image_upgrade`). Status, `provisioned_at`, the identity key columns and
-  the substrate receipt are preserved by the update contract. Verify encrypted
-  recovery, identity and the installed digest before recording completion.
+  the registry row and uses the retained exact approval. `record_image_upgrade`
+  conditionally publishes verified image facts and any explicitly reviewed
+  capability or VM configuration metadata through `merged_upgrade_metadata`.
+  A terminal VM power receipt may be retired; an unresolved one stays fenced.
+  Status, `provisioned_at`, identity keys and unrelated substrate facts are
+  preserved. An image-only approval cannot select a VM host or enable Browser.
+  Verify encrypted recovery, identity and the installed digest before completion.
 - **Sweep**: the reconcile worker processes a bounded batch per pass once
   `PERSONAL_AGENT_UPGRADE_SWEEP_ENABLED=true` (`PERSONAL_AGENT_UPGRADE_BATCH`,
   default 3). Keep `PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED=true`: only an

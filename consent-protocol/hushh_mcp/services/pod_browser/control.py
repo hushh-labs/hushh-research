@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Literal
 
 from .contracts import (
@@ -12,11 +12,13 @@ from .contracts import (
     BrowserAuthorityPort,
     BrowserBinding,
     BrowserExecutionPort,
+    BrowserExecutionScope,
     BrowserFrame,
     BrowserReadiness,
     BrowserRefused,
     BrowserViewport,
 )
+from .downloads import BrowserDownloads
 from .geometry import require_frame_geometry, viewport_for_action
 from .network import public_origin
 from .session_state import RememberedState
@@ -44,6 +46,7 @@ class BrowserControl:
         self._epoch = 1
         self._sequence = 0
         self._actions = 0
+        self._native_calls: set[str] = set()
         self._active_seconds = 0.0
         self._agent_started = clock()
         self._last_activity = clock()
@@ -52,10 +55,30 @@ class BrowserControl:
         self._revision = 1
         self._outcome_uncertain = False
         self._viewport = BrowserViewport()
+        bind_scope = getattr(executor, "bind_scope_validator", None)
+        if bind_scope is not None:
+            bind_scope(self.require_execution_scope)
+
+    def require_execution_scope(self, scope: BrowserExecutionScope) -> None:
+        scope.remaining(self._wall_clock)
+        if scope.control_epoch != self._epoch or scope.actor != self._mode:
+            raise BrowserRefused("BROWSER_CONTROL_CHANGED")
+
+    def admit_native_call(self, call_id: str) -> None:
+        if not isinstance(call_id, str) or not 1 <= len(call_id) <= 256:
+            raise BrowserRefused("BROWSER_NATIVE_CALL_INVALID")
+        if call_id in self._native_calls or len(self._native_calls) >= 128:
+            raise BrowserRefused("BROWSER_ACTION_REPLAY")
+        self._native_calls.add(call_id)
 
     @property
     def viewport(self) -> BrowserViewport:
         return self._viewport
+
+    @property
+    def downloads(self) -> BrowserDownloads | None:
+        value = getattr(self._executor, "downloads", None)
+        return value if isinstance(value, BrowserDownloads) else None
 
     @property
     def outcome_uncertain(self) -> bool:
@@ -136,28 +159,48 @@ class BrowserControl:
                 raise BrowserRefused("BROWSER_CONTINUATION_REQUIRED")
             # Admission and exact approval apply even when the model omits its
             # native safety_decision. Typing may transmit before any submit.
-            await self._authority.authorize_action(self.binding, action)
+            scope = BrowserExecutionScope(
+                sequence=action.sequence,
+                control_epoch=action.control_epoch,
+                actor=actor,
+                deadline_at=min(float(self.binding.expires_at), self._wall_clock() + 330),
+            )
+            async with asyncio.timeout(scope.remaining(self._wall_clock)):
+                await self._authority.authorize_action(self.binding, action, scope=scope)
             await self._check()
+            if actor != self._mode or action.control_epoch != self._epoch:
+                raise BrowserRefused("BROWSER_CONTROL_CHANGED")
             effect = action.operation not in {"observe", "hover", "scroll"}
             if effect:
                 await self._authority.journal_dispatch(self.binding, action)
                 await self._check()
+                if actor != self._mode or action.control_epoch != self._epoch:
+                    await self._authority.settle_dispatch(self.binding, action, uncertain=False)
+                    raise BrowserRefused("BROWSER_CONTROL_CHANGED")
+            dispatch_action = action
             if action.operation == "resize":
                 # Fence old coordinates and decoded frames before any layout effect.
                 self._epoch += 1
                 self._frame = None
                 self._revision += 1
+                # The reviewed owner command used the previous viewport epoch.
+                # Its private execution/network scope must use the newly fenced
+                # epoch. The ledger still settles the original exact command.
+                scope = scope.model_copy(update={"control_epoch": self._epoch})
+                dispatch_action = action.model_copy(update={"control_epoch": self._epoch})
             # Consume sequence BEFORE dispatch. A lost result cannot be replayed.
             self._sequence = action.sequence
             if actor == "agent":
                 self._actions += 1
             try:
-                async with asyncio.timeout(30):
-                    frame = await self._executor.execute(action)
+                async with asyncio.timeout(scope.remaining(self._wall_clock)):
+                    frame = await self._executor.execute(dispatch_action, scope=scope)
                 require_frame_geometry(frame, action, expected)
                 await self._check()
+                self.require_execution_scope(scope)
                 if effect:
                     await self._authority.settle_dispatch(self.binding, action, uncertain=False)
+                    self.require_execution_scope(scope)
                 self._viewport = expected
                 self._frame = frame
                 self._revision += 1
@@ -190,14 +233,20 @@ class BrowserControl:
                 if action.operation != "observe" or actor == "agent":
                     self._last_activity = self._clock()
 
-    async def take_control(self) -> int:
+    async def take_control(self, *, interrupt: Callable[[], Awaitable[None]] | None = None) -> int:
+        await self._check()
+        if self._mode == "agent":
+            self._active_seconds += max(0.0, self._clock() - self._agent_started)
+        # Publish the observation/input fence before joining an active action.
+        self._mode = "owner"
+        self._epoch += 1
+        self._revision += 1
+        # Join the model only after the epoch fence, but before waiting for its
+        # action lock. A blocked network/review action must be interruptible.
+        if interrupt is not None:
+            await interrupt()
         async with self._lock:
             await self._check()
-            if self._mode == "agent":
-                self._active_seconds += max(0.0, self._clock() - self._agent_started)
-            self._mode = "owner"
-            self._epoch += 1
-            self._revision += 1
             self._last_activity = self._clock()
             return self._epoch
 
@@ -249,9 +298,15 @@ class BrowserControl:
             action = BrowserAction(
                 operation="observe", sequence=self.next_sequence, control_epoch=self._epoch
             )
-            await self._authority.authorize_action(self.binding, action)
-            async with asyncio.timeout(30):
-                frame = await self._executor.execute(action)
+            scope = BrowserExecutionScope(
+                sequence=action.sequence,
+                control_epoch=action.control_epoch,
+                actor="owner",
+                deadline_at=min(float(self.binding.expires_at), self._wall_clock() + 30),
+            )
+            await self._authority.authorize_action(self.binding, action, scope=scope)
+            async with asyncio.timeout(scope.remaining(self._wall_clock)):
+                frame = await self._executor.execute(action, scope=scope)
             require_frame_geometry(frame, action, self.viewport)
             await self._check()
             self._sequence = action.sequence

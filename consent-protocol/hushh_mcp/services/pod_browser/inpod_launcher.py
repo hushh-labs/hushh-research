@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import socket
+import subprocess
 import sys
 import time
 from collections.abc import Callable
@@ -94,6 +96,60 @@ class InPodBrowserLauncher:
         self._lock = asyncio.Lock()
         self._active: str | None = None
         self._closed = False
+        self._supervisor: subprocess.Popen | None = None
+
+    @classmethod
+    def from_container(
+        cls, *, readiness: BrowserReadiness, network_authority: NetworkAuthorityFactory
+    ) -> InPodBrowserLauncher:
+        """Start one ordinary supervisor under One's UID, with no listener.
+
+        The clean environment avoids accidental diagnostic disclosure; it is
+        not a Browser-to-One security boundary in this deployment mode.
+        """
+        from .container_worker import ENTRYPOINT, ENVIRONMENT, PYTHON
+
+        readiness.require_ready()
+        if readiness.version != 2 or sys.platform != "linux" or os.geteuid() == 0:
+            raise BrowserRefused("BROWSER_EXECUTION_NOT_READY")
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        supervisor = None
+        try:
+            supervisor = subprocess.Popen(  # noqa: S603 - fixed image command and qualified mode
+                [
+                    PYTHON,
+                    "-I",
+                    ENTRYPOINT,
+                    "--supervise",
+                    str(child.fileno()),
+                    "enabled" if readiness.chromium_sandbox else "disabled",
+                ],
+                env=ENVIRONMENT,
+                cwd="/",
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                pass_fds=(child.fileno(),),
+                start_new_session=True,
+            )
+            instance = cls(
+                connection=parent, readiness=readiness, network_authority=network_authority
+            )
+            instance._supervisor = supervisor
+            return instance
+        except BaseException:
+            parent.close()
+            if supervisor is not None:
+                try:
+                    supervisor.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    # No launch request was sent, so no Browser worker exists.
+                    supervisor.kill()
+                    supervisor.wait(timeout=3)
+            raise
+        finally:
+            child.close()
 
     @classmethod
     def from_bootstrap(
@@ -218,7 +274,21 @@ class InPodBrowserLauncher:
         async with asyncio.timeout(15):
             raw = binding.model_dump_json().encode()
             await asyncio.get_running_loop().sock_sendall(parent, len(raw).to_bytes(4, "big") + raw)
-            if await _exact(parent, 20) != b'\x00\x00\x00\x10{"guarded":true}':
+            if self.readiness.version == 2:
+                size = int.from_bytes(await _exact(parent, 4), "big")
+                if not 0 < size <= 256:
+                    raise BrowserRefused("BROWSER_LAUNCH_REFUSED")
+                expected = {
+                    "version": 2,
+                    "boundary": "shared_owner_container",
+                    "chromium_sandbox": self.readiness.chromium_sandbox,
+                }
+                # Compare canonical bytes as well as JSON types: bool is an int
+                # subclass, so ordinary dict equality alone accepts 1 as True.
+                raw_ack = await _exact(parent, size)
+                if raw_ack != json.dumps(expected, separators=(",", ":")).encode():
+                    raise BrowserRefused("BROWSER_LAUNCH_REFUSED")
+            elif await _exact(parent, 20) != b'\x00\x00\x00\x10{"guarded":true}':
                 raise BrowserRefused("BROWSER_LAUNCH_REFUSED")
         await authority.check_binding(binding)
         return await ConnectedBrowserExecutor.connect(
@@ -231,3 +301,9 @@ class InPodBrowserLauncher:
                 await self._stop(self._active)
         finally:
             self._fence()
+            if self._supervisor is not None:
+                try:
+                    await asyncio.to_thread(self._supervisor.wait, timeout=8)
+                except subprocess.TimeoutExpired:
+                    # Do not claim worker-tree settlement from a dead channel.
+                    raise BrowserRefused("BROWSER_LAUNCH_STOP_UNCONFIRMED") from None

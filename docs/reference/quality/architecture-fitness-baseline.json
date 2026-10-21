@@ -5650,7 +5650,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_browser/control.py",
       "symbol": "BrowserControl",
-      "value": 264
+      "value": 317
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5659,7 +5659,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_browser/task_runtime.py",
       "symbol": "BrowserTaskRuntime",
-      "value": 539
+      "value": 551
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -12787,7 +12787,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pod_browser/control.py",
       "symbol": "execute",
-      "value": 90
+      "value": 110
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -13705,7 +13705,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": "render_deploy_config",
-      "value": 137
+      "value": 140
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -14002,7 +14002,7 @@
       "limit": 80,
       "path": "consent-protocol/pod_server.py",
       "symbol": "_pod_startup",
-      "value": 107
+      "value": 110
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -19942,7 +19942,7 @@
       "limit": 500,
       "path": "consent-protocol/pod_server.py",
       "symbol": null,
-      "value": 770
+      "value": 777
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21940,7 +21940,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_browser_boundary.py",
       "symbol": null,
-      "value": 1049
+      "value": 1170
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21985,7 +21985,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_files_jobs.py",
       "symbol": null,
-      "value": 736
+      "value": 750
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22345,7 +22345,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_user_gcp_backend.py",
       "symbol": null,
-      "value": 637
+      "value": 646
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28597,7 +28597,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/azure_agent_upgrade.py",
       "symbol": "_replace",
-      "value": 87
+      "value": 92
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -28624,7 +28624,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/azure_agent_upgrade.py",
       "symbol": null,
-      "value": 516
+      "value": 524
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30938,7 +30938,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_image_build_contract.py",
       "symbol": null,
-      "value": 520
+      "value": 521
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30947,7 +30947,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/computer-use-task-card.test.tsx",
       "symbol": null,
-      "value": 522
+      "value": 618
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30957,6 +30957,159 @@
       "path": "consent-protocol/tests/test_pod_upgrade_lease_against_postgres.py",
       "symbol": null,
       "value": 538
+    },
+    {
+      "kind": "class_size",
+      "path": "consent-protocol/hushh_mcp/services/pod_browser/playwright_executor.py",
+      "symbol": "PlaywrightExecutor",
+      "detail": "class exceeds the advisory operon budget",
+      "value": 310,
+      "limit": 250,
+      "key": "class_size|consent-protocol/hushh_mcp/services/pod_browser/playwright_executor.py|PlaywrightExecutor|class exceeds the advisory operon budget"
+    },
+    {
+      "kind": "class_size",
+      "path": "consent-protocol/hushh_mcp/services/user_azure_backend.py",
+      "symbol": "UserAzureBackend",
+      "detail": "class exceeds the advisory operon budget",
+      "value": 253,
+      "limit": 250,
+      "key": "class_size|consent-protocol/hushh_mcp/services/user_azure_backend.py|UserAzureBackend|class exceeds the advisory operon budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/test_pod_browser_downloads.py",
+      "symbol": "test_completed_download_parks_without_replay_and_save_is_joined",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 137,
+      "limit": 80,
+      "key": "function_size|consent-protocol/tests/test_pod_browser_downloads.py|test_completed_download_parks_without_replay_and_save_is_joined|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/test_pod_browser_adk_continuation.py",
+      "symbol": "test_native_handback_retains_session_without_repeating_goal_or_pending_call",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 134,
+      "limit": 80,
+      "key": "function_size|consent-protocol/tests/test_pod_browser_adk_continuation.py|test_native_handback_retains_session_without_repeating_goal_or_pending_call|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/test_pod_browser_capability.py",
+      "symbol": "test_azure_browser_approval_reuses_files_queue_and_preserves_host_authority",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 109,
+      "limit": 80,
+      "key": "function_size|consent-protocol/tests/test_pod_browser_capability.py|test_azure_browser_approval_reuses_files_queue_and_preserves_host_authority|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/test_pod_browser_interactive_review.py",
+      "symbol": "test_interactive_request_review_keeps_exact_scope_outside_http_deadline",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 106,
+      "limit": 80,
+      "key": "function_size|consent-protocol/tests/test_pod_browser_interactive_review.py|test_interactive_request_review_keeps_exact_scope_outside_http_deadline|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/test_pod_browser_interactive_review.py",
+      "symbol": "test_owner_disclosure_review_resumes_exact_input_without_restarting_goal",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 98,
+      "limit": 80,
+      "key": "function_size|consent-protocol/tests/test_pod_browser_interactive_review.py|test_owner_disclosure_review_resumes_exact_input_without_restarting_goal|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/test_pod_browser_delivery.py",
+      "symbol": "test_browser_delivery_owns_existing_task_without_replaying_goal",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 97,
+      "limit": 80,
+      "key": "function_size|consent-protocol/tests/test_pod_browser_delivery.py|test_browser_delivery_owns_existing_task_without_replaying_goal|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/pod_browser/composition.py",
+      "symbol": "bind",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 96,
+      "limit": 80,
+      "key": "function_size|consent-protocol/hushh_mcp/services/pod_browser/composition.py|bind|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/pod_browser/delivery.py",
+      "symbol": "require_gcp_delivery",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 96,
+      "limit": 80,
+      "key": "function_size|consent-protocol/hushh_mcp/services/pod_browser/delivery.py|require_gcp_delivery|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/pod_browser/adk_task.py",
+      "symbol": "run",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 95,
+      "limit": 80,
+      "key": "function_size|consent-protocol/hushh_mcp/services/pod_browser/adk_task.py|run|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/pod_browser/task_lifecycle.py",
+      "symbol": "run",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 91,
+      "limit": 80,
+      "key": "function_size|consent-protocol/hushh_mcp/services/pod_browser/task_lifecycle.py|run|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/test_pod_browser_capability.py",
+      "symbol": "test_browser_same_image_approval_drains_replaces_once_and_verifies_policy",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 89,
+      "limit": 80,
+      "key": "function_size|consent-protocol/tests/test_pod_browser_capability.py|test_browser_same_image_approval_drains_replaces_once_and_verifies_policy|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/browser_runtime/qualification.py",
+      "symbol": "validate_qualification",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 85,
+      "limit": 80,
+      "key": "function_size|consent-protocol/browser_runtime/qualification.py|validate_qualification|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/pod_browser/playwright_executor.py",
+      "symbol": "execute",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 85,
+      "limit": 80,
+      "key": "function_size|consent-protocol/hushh_mcp/services/pod_browser/playwright_executor.py|execute|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/test_pod_browser_inpod_launcher.py",
+      "symbol": "test_inpod_launcher_binds_worker_and_stops_outside_action_queue",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 82,
+      "limit": 80,
+      "key": "function_size|consent-protocol/tests/test_pod_browser_inpod_launcher.py|test_inpod_launcher_binds_worker_and_stops_outside_action_queue|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/helpers/pod_browser_composition.py",
+      "symbol": "composed_browser_fixture",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 81,
+      "limit": 80,
+      "key": "function_size|consent-protocol/tests/helpers/pod_browser_composition.py|composed_browser_fixture|function exceeds the advisory gene budget"
     }
   ],
   "inspected_files": 6625,
@@ -75925,5 +76078,225 @@
     "rationale": "Optional complete-body commitment plumbing remains in request/put/post; canonicalization/freezing is in the existing mutation leaf. Nearest PostgreSQL publication suite extends its existing race parameterization with exact VM identity, placement and independently changed signing fields. Global500/250/80 budgets and historical provenance remain unchanged. VM execution remains disabled under installed SQL961; no live readiness claim.",
     "reviewer": "browser_p0_plan_review, independent read-only security/architecture review",
     "source_parent": "b46f76a734"
+  },
+  "browser_owner_container_composition_review_20261021": {
+    "candidate_parent": "bd1e2a0ce1ac610a3fec1cd8f263a275083e0cef",
+    "reviewers": [
+      "adk_backend_conflicts (independent read-only)",
+      "adk_frontend_conflicts (independent read-only)"
+    ],
+    "boundaries": "Exact source ceilings only; 500/250/80 budgets, historical entries and all unrelated ceilings preserved. No deployed acceptance implied.",
+    "findings": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/pod_browser/task_runtime.py|BrowserTaskRuntime|class exceeds the advisory operon budget",
+        "before": 539,
+        "after": 551,
+        "source_sha256": "97a1b471bf5b599e8eacbd6c2cbdcda40e7d3483b577c15a62535ccf12a51350",
+        "review": "Existing task/lock coordinator retains one owner; delivery, input, recovery and download leaves remain separate. Exact 551-line class, versus previously reviewed539; no second authority."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/pod_browser/control.py|BrowserControl|class exceeds the advisory operon budget",
+        "before": 264,
+        "after": 317,
+        "source_sha256": "14c38decf34a9866b738e2f955f52668982770521d6319d1cc14a57772018d47",
+        "review": "One sequence/epoch/effect state machine; takeover interrupt plus post-await scope fences are intrinsic. Late effects remain uncertain, old frames refused; focused race and old-order negative controls."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/pod_browser/playwright_executor.py|PlaywrightExecutor|class exceeds the advisory operon budget",
+        "before": 0,
+        "after": 310,
+        "source_sha256": "7925d3478a7b4cbb5bdd8352df354920d1904ee571f51746b702b63743543a66",
+        "review": "Renamed existing driver with CDP request interception, locale and attachment acknowledgement. Navigation-download helper extracted; scope clears on every exit. Same owner runtime, no containment claim."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/user_azure_backend.py|UserAzureBackend|class exceeds the advisory operon budget",
+        "before": 0,
+        "after": 253,
+        "source_sha256": "b277ed428bcfc17743fe49ddd262ef46aaf94cffc569ab868096fa0580595ccf",
+        "review": "Small existing provider adapter increase preserves normal approved update path; no new hosting resource."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/user_gcp_backend.py|render_deploy_config|function exceeds the advisory gene budget",
+        "before": 137,
+        "after": 140,
+        "source_sha256": "5e40b2e38ad2ca358da42815731079a62a749be75bc06bb07e4c9eaaeed6ec5d",
+        "review": "Existing renderer preserves capacity and identity while installing exact qualified configuration and reusable delivery environment; no parallel provisioning authority."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_downloads.py|test_completed_download_parks_without_replay_and_save_is_joined|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 137,
+        "source_sha256": "2939bb0910bee85b4af0a5df078704ee03a21a56bbaf349926e0af5e073d84cb",
+        "review": "Existing focused authority/lifecycle fixture or intact moved interleaving case. Preserves positive/negative branches and all original assertions; no duplicate verification job or implementation mirror."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_adk_continuation.py|test_native_handback_retains_session_without_repeating_goal_or_pending_call|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 134,
+        "source_sha256": "751ba8f43656fce0ffba4cc3d9dc20d9e4a69b6a5b75cefa9ee740e458e1b228",
+        "review": "Existing focused authority/lifecycle fixture or intact moved interleaving case. Preserves positive/negative branches and all original assertions; no duplicate verification job or implementation mirror."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pod_browser/control.py|execute|function exceeds the advisory gene budget",
+        "before": 90,
+        "after": 110,
+        "source_sha256": "14c38decf34a9866b738e2f955f52668982770521d6319d1cc14a57772018d47",
+        "review": "One sequence/epoch/effect state machine; takeover interrupt plus post-await scope fences are intrinsic. Late effects remain uncertain, old frames refused; focused race and old-order negative controls."
+      },
+      {
+        "key": "function_size|consent-protocol/pod_server.py|_pod_startup|function exceeds the advisory gene budget",
+        "before": 107,
+        "after": 110,
+        "source_sha256": "463816a4e6670bd090bc512670284a39df7cea86828ae6db8bf54c01a372be1e",
+        "review": "Trusted startup wires the existing Browser and shared owner queue after recovery; existing shutdown/update owners retained. No additional service or worker."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_capability.py|test_azure_browser_approval_reuses_files_queue_and_preserves_host_authority|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 109,
+        "source_sha256": "6baccc92f0bc77168836913b6e491508acb81479ca12947c41cf87fc3a59ec14",
+        "review": "Existing focused authority/lifecycle fixture or intact moved interleaving case. Preserves positive/negative branches and all original assertions; no duplicate verification job or implementation mirror."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_interactive_review.py|test_interactive_request_review_keeps_exact_scope_outside_http_deadline|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 106,
+        "source_sha256": "805a1fe88ef7125e305f83b27e05d19725fb9fb9e5988c6e741e65b649bfd9ce",
+        "review": "Existing focused authority/lifecycle fixture or intact moved interleaving case. Preserves positive/negative branches and all original assertions; no duplicate verification job or implementation mirror."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_interactive_review.py|test_owner_disclosure_review_resumes_exact_input_without_restarting_goal|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 98,
+        "source_sha256": "805a1fe88ef7125e305f83b27e05d19725fb9fb9e5988c6e741e65b649bfd9ce",
+        "review": "Existing focused authority/lifecycle fixture or intact moved interleaving case. Preserves positive/negative branches and all original assertions; no duplicate verification job or implementation mirror."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_delivery.py|test_browser_delivery_owns_existing_task_without_replaying_goal|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 97,
+        "source_sha256": "becb7fb21ebeee9e9f6e93cb4a1a6e99e4bf620b714ca0765e9cf2072a762ea4",
+        "review": "Existing focused authority/lifecycle fixture or intact moved interleaving case. Preserves positive/negative branches and all original assertions; no duplicate verification job or implementation mirror."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pod_browser/composition.py|bind|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 96,
+        "source_sha256": "05b51742c1124a3143247768e5364a006e654f4c33ba36a111eb3dec563c6914",
+        "review": "One recovered owner composition binds native model, signed reviews, encrypted storage and existing queue; missing prerequisites refuse before advertisement."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pod_browser/delivery.py|require_gcp_delivery|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 96,
+        "source_sha256": "c0f0d00856800f6a285d2287ffd6f2381bf8fb7d674e0842c05b5f643fd928b9",
+        "review": "Read-only exact existing queue, identity and scoped-role verification before update; no authority expansion or resource creation."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pod_browser/adk_task.py|run|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 95,
+        "source_sha256": "460f7680478d398d4156643b5a56d54b62f0906283e9a928727cc364b1b5b927",
+        "review": "Native invocation retains bounded same-task history and fresh handback. Completed-call/fresh-frame preparation extracted; provider/session cleanup stays joined."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/azure_agent_upgrade.py|_replace|function exceeds the advisory gene budget",
+        "before": 87,
+        "after": 92,
+        "source_sha256": "e3f13352ad934ab6ba801bc37b9fc4d2adb078209deac3017bf0f73feeefce4c",
+        "review": "Existing serialized replacement adds reviewed Browser configuration and exact live queue/identity readbacks before write; one existing operation and recovery owner."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pod_browser/task_lifecycle.py|run|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 91,
+        "source_sha256": "8caed503860c83676bc63b0abb2835ac57d257ffb6a0e1e25a21e5484bc0aed3",
+        "review": "Single joined shutdown/admission owner preserves pending download and confirms cleanup before terminal outcome."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_capability.py|test_browser_same_image_approval_drains_replaces_once_and_verifies_policy|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 89,
+        "source_sha256": "6baccc92f0bc77168836913b6e491508acb81479ca12947c41cf87fc3a59ec14",
+        "review": "Existing focused authority/lifecycle fixture or intact moved interleaving case. Preserves positive/negative branches and all original assertions; no duplicate verification job or implementation mirror."
+      },
+      {
+        "key": "function_size|consent-protocol/browser_runtime/qualification.py|validate_qualification|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 85,
+        "source_sha256": "2930a7f77ccf7e1340842ecc91314913e845dcad20e255cb15af6dda704ddb62",
+        "review": "Versioned explicit shared-owner boundary and sandbox mode distinguish historical isolation receipts; exact image/source remains required."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pod_browser/playwright_executor.py|execute|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 85,
+        "source_sha256": "7925d3478a7b4cbb5bdd8352df354920d1904ee571f51746b702b63743543a66",
+        "review": "Renamed existing driver with CDP request interception, locale and attachment acknowledgement. Navigation-download helper extracted; scope clears on every exit. Same owner runtime, no containment claim."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_inpod_launcher.py|test_inpod_launcher_binds_worker_and_stops_outside_action_queue|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 82,
+        "source_sha256": "df9a8529f691037e5630c2c4d1b0d1ff267ea00c4c50d02ff82b65f01fe5c0dc",
+        "review": "Existing focused authority/lifecycle fixture or intact moved interleaving case. Preserves positive/negative branches and all original assertions; no duplicate verification job or implementation mirror."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/helpers/pod_browser_composition.py|composed_browser_fixture|function exceeds the advisory gene budget",
+        "before": 0,
+        "after": 81,
+        "source_sha256": "2a18648a5f33bf8832feac46c28865f20b6a2fa3286a2e09a4aff4d7d0f407b5",
+        "review": "Existing focused authority/lifecycle fixture or intact moved interleaving case. Preserves positive/negative branches and all original assertions; no duplicate verification job or implementation mirror."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_browser_boundary.py||module exceeds the advisory operon budget",
+        "before": 1049,
+        "after": 1170,
+        "source_sha256": "53557f41c86b995c9ee956fd6640a4a264ba40a912214a54e399de84e3d91e51",
+        "review": "Independent review approved1170 after moving six owner interaction cases and delivery/download cases intact to registered focused suites; residual qualification, header, resize and final-check races remain nearest boundary tests."
+      },
+      {
+        "key": "module_size|consent-protocol/pod_server.py||module exceeds the advisory operon budget",
+        "before": 770,
+        "after": 777,
+        "source_sha256": "463816a4e6670bd090bc512670284a39df7cea86828ae6db8bf54c01a372be1e",
+        "review": "Trusted startup wires the existing Browser and shared owner queue after recovery; existing shutdown/update owners retained. No additional service or worker."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_files_jobs.py||module exceeds the advisory operon budget",
+        "before": 736,
+        "after": 750,
+        "source_sha256": "71e855ae31a11ad9429a75e40eb9aef7e091e016ab1e757439ab69e6d3facfe8",
+        "review": "Existing focused authority/lifecycle fixture or intact moved interleaving case. Preserves positive/negative branches and all original assertions; no duplicate verification job or implementation mirror."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_user_gcp_backend.py||module exceeds the advisory operon budget",
+        "before": 637,
+        "after": 646,
+        "source_sha256": "68ce1bd0e97b9ee42fa53622c069a6dd1ae224f542ec795259439d76a3dc9d04",
+        "review": "Existing focused authority/lifecycle fixture or intact moved interleaving case. Preserves positive/negative branches and all original assertions; no duplicate verification job or implementation mirror."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/computer-use-task-card.test.tsx||module exceeds the advisory operon budget",
+        "before": 522,
+        "after": 618,
+        "source_sha256": "3d79b32d866aea1ec2246657dddeba8e60ac21e84b1985c9c50a69896bd09080",
+        "review": "Nearest existing Browser UI/controller suite; distinct review, Stop/resize, exact URL, same-request retry and first-frame contracts. No snapshots or duplicate suite. Independent review613 plus five lines proving unchanged retry identity."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/azure_agent_upgrade.py||module exceeds the advisory operon budget",
+        "before": 516,
+        "after": 524,
+        "source_sha256": "e3f13352ad934ab6ba801bc37b9fc4d2adb078209deac3017bf0f73feeefce4c",
+        "review": "Existing serialized replacement adds reviewed Browser configuration and exact live queue/identity readbacks before write; one existing operation and recovery owner."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_image_build_contract.py||module exceeds the advisory operon budget",
+        "before": 520,
+        "after": 521,
+        "source_sha256": "1d56ae7e13f872832151cc9731ac222ea85722f1bc22c3fe279091cf38212b1e",
+        "review": "Existing focused authority/lifecycle fixture or intact moved interleaving case. Preserves positive/negative branches and all original assertions; no duplicate verification job or implementation mirror."
+      }
+    ]
   }
 }

@@ -14,6 +14,22 @@ if TYPE_CHECKING:
     from hushh_mcp.services.pod_files.capability_update import FilesCapabilityPlan
 
 
+def approved_update_browser_qualification(row: dict, *, approved: bool) -> dict | None:
+    """Only the supported host path consumes its saved image qualification."""
+    from hushh_mcp.services.pod_release import approved_browser_qualification
+
+    approval = (row.get("backend_metadata") or {}).get("upgradeApproval")
+    target = row.get("deployment_target")
+    if not approved or target not in {"user_gcp", "user_azure"} or not isinstance(approval, dict):
+        return None
+    qualification: dict | None = approved_browser_qualification(
+        approval,
+        str(approval.get("targetImage") or ""),
+        host_kind="azure_container_apps" if target == "user_azure" else "gcp_cloud_run",
+    )
+    return qualification
+
+
 async def admit_capabilities(
     registry: Any, row: dict, *, approval_matches: bool, recoverable_operation: bool
 ) -> tuple[FilesCapabilityPlan | AzureFilesCapabilityPlan | None, GcpBrowserCapabilityPlan | None]:
@@ -46,7 +62,7 @@ async def admit_capabilities(
     if browser_capability is not None:
         from hushh_mcp.services.pod_browser.update_offer import require_browser_schema
 
-        await require_browser_schema(registry)
+        await require_browser_schema(registry, row.get("deployment_target"))
     return files_capability, browser_capability
 
 

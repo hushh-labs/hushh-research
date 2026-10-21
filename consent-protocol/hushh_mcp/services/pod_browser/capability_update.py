@@ -59,10 +59,12 @@ class GcpBrowserCapabilityPlan(BaseModel):
     qualificationDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     publicPolicy: PublicResearchPolicy = Field(repr=False)
     resourceLimits: dict[str, str]
+    requestTimeoutSeconds: int = Field(default=1000, ge=1000, le=3600)
+    deliveryConfiguration: dict[str, str] | None = Field(default=None)
 
     @property
     def digest(self) -> str:
-        return commitment(self.model_dump(mode="json"))
+        return commitment(self.model_dump(mode="json", exclude_none=True))
 
     @property
     def environment(self) -> dict[str, str]:
@@ -75,6 +77,11 @@ class GcpBrowserCapabilityPlan(BaseModel):
         return {
             "POD_COMPUTER_USE_ENABLED": "true",
             "HUSSH_BROWSER_POLICY_JSON": policy.model_dump_json(),
+            **(
+                {"POD_BROWSER_DELIVERY_MODE": "owner_files_queue_v1"}
+                if self.deliveryConfiguration
+                else {}
+            ),
         }
 
     def require_owner(self, row: dict, target_image: str) -> None:
@@ -102,6 +109,11 @@ class GcpBrowserCapabilityPlan(BaseModel):
             or any(getattr(self, key) != value for key, value in expected.items())
         ):
             raise ValueError("Browser owner or pod configuration changed")
+        if self.deliveryConfiguration is not None:
+            from .delivery import gcp_delivery_configuration
+
+            if self.deliveryConfiguration != gcp_delivery_configuration(row):
+                raise ValueError("Browser owner background delivery changed")
 
     def require_observation(self, service: dict) -> None:
         metadata = service.get("metadata") or {}
@@ -112,6 +124,14 @@ class GcpBrowserCapabilityPlan(BaseModel):
             or commitment(service["spec"]["template"]) != self.templateDigest
         ):
             raise ValueError("Browser pod configuration changed")
+        if self.deliveryConfiguration is not None:
+            env = literal_environment(service)
+            if any(
+                env.get(name) != value
+                for name, value in self.deliveryConfiguration.items()
+                if name.startswith("POD_")
+            ):
+                raise ValueError("Browser needs the verified owner background queue")
 
     def require_qualification(self, qualification: dict | None) -> None:
         if (
@@ -129,6 +149,7 @@ class GcpBrowserCapabilityPlan(BaseModel):
     ) -> None:
         self.require_observation(existing)
         self.require_qualification(qualification)
+        desired["spec"]["template"]["spec"]["timeoutSeconds"] = self.requestTimeoutSeconds
         container = desired["spec"]["template"]["spec"]["containers"][0]
         container["env"] = [
             entry for entry in container["env"] if entry["name"] not in self.environment
@@ -154,10 +175,17 @@ class GcpBrowserCapabilityPlan(BaseModel):
             or spec.get("serviceAccountName") != self.runtimeAccount
             or image_digest(spec["containers"][0].get("image")) != image_digest(self.targetImage)
             or spec["containers"][0].get("resources", {}).get("limits") != self.resourceLimits
+            or spec.get("timeoutSeconds", 300) != self.requestTimeoutSeconds
             or any(env.get(key) != value for key, value in self.environment.items())
         ):
             raise ValueError("Browser installed configuration is not verified")
         self.require_qualification(json.loads(env.get("HUSSH_BROWSER_QUALIFICATION_JSON", "null")))
+        if self.deliveryConfiguration is not None and any(
+            env.get(name) != value
+            for name, value in self.deliveryConfiguration.items()
+            if name.startswith("POD_")
+        ):
+            raise ValueError("Browser installed background delivery changed")
 
 
 def plan_from_observation(
@@ -167,6 +195,8 @@ def plan_from_observation(
         json.dumps(qualification.get("public_policy"))
     )
     metadata, spec = service["metadata"], service["spec"]["template"]["spec"]
+    from .delivery import gcp_delivery_configuration
+
     plan = GcpBrowserCapabilityPlan(
         ownerId=row["user_id"],
         hushhId=row["hushh_id"],
@@ -184,8 +214,11 @@ def plan_from_observation(
         qualificationDigest=commitment(qualification),
         publicPolicy=policy,
         resourceLimits=deepcopy(spec["containers"][0]["resources"]["limits"]),
+        deliveryConfiguration=gcp_delivery_configuration(row),
+        requestTimeoutSeconds=max(1000, spec.get("timeoutSeconds", 300)),
     )
     plan.require_owner(row, target_image)
+    plan.require_observation(service)
     plan.require_qualification(qualification)
     env = literal_environment(service)
     if env.get("HUSSH_ID") != plan.hushhId:
@@ -214,6 +247,7 @@ def approved_upgrade_browser_plan(
         or plan.project != project
         or plan.targetImage != spec.upgrade_target_image
         or plan.bootstrapAccount != bootstrap_sa
+        or plan.deliveryConfiguration is None
     ):
         raise ValueError("Browser configuration requires its exact approved operation")
     plan.require_observation(existing)

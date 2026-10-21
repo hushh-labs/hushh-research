@@ -176,6 +176,10 @@ POST /api/pkm/agent-lab/structure
 POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 [AUTHORITY]
+POST /api/one/pod/browser-approval/issue
+POST /api/one/pod/browser-approval/consume
+POST /api/one/pod/browser-approval/validate
+POST /api/one/pod/browser-approval/confirm
 GET,PUT /api/one/models/private-text-approval
 GET,PUT /api/one/world-model/preferences
 POST /api/one/world-model/invitations/reject
@@ -223,6 +227,7 @@ POST /api/one/world-model/invitation-preview
 POST /api/one/calendar/rescheduling/options
 GET /api/one/source-snapshots/document-request-payments
 [CIPHERTEXT]
+POST /api/one/pod/browser-approval/export
 GET,PUT /api/one/hosted-memory/pilot/envelope
 GET /api/one/files/storage
 GET /api/one/files/objects/{namespace}
@@ -327,6 +332,7 @@ GET /api/one/personal-agent/status
 POST /api/one/personal-agent/update/approve
 POST /api/one/personal-agent/update/defer
 POST /api/one/personal-agent/update/failure-report
+POST /api/one/personal-agent/update/browser-plan
 POST /api/one/personal-agent/update/files-plan
 POST /api/one/pod/heartbeat
 GET /api/one/pod/lifecycle

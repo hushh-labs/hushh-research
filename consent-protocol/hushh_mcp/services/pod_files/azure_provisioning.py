@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 from hushh_mcp.services.azure_setup_plan import NONCE_TAG, Scopes, group_id, resource_names
-from hushh_mcp.services.compute_backend import BackendHandle, PodSpec
+from hushh_mcp.services.compute_backend import POD_REQUEST_CONCURRENCY, BackendHandle, PodSpec
 
 if TYPE_CHECKING:
     from hushh_mcp.services.azure_agent_observation import AzureAgentObservation
@@ -236,7 +236,10 @@ def configure_files(body: dict[str, Any], coords: AgentCoordinates) -> None:
         },
     ]
     body["properties"]["template"]["scale"]["rules"] = [
-        {"name": "http", "http": {"metadata": {"concurrentRequests": "8"}}},
+        {
+            "name": "http",
+            "http": {"metadata": {"concurrentRequests": str(POD_REQUEST_CONCURRENCY)}},
+        },
         {
             "name": "files",
             "custom": {

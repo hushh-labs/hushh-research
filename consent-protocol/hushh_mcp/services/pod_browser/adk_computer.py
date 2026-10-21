@@ -49,6 +49,7 @@ class PodComputer(BaseComputer):
 
     async def screen_size(self) -> tuple[int, int]:
         await self._control.initialize()
+        self._size = (self._control.viewport.width, self._control.viewport.height)
         return self._size
 
     async def environment(self) -> ComputerEnvironment:

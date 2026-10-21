@@ -144,7 +144,7 @@ replaces the offer with its recorded artifacts. Preview and other environments
 never inherit a dev offer. Preservation keeps discovery available; it does not
 approve or install an owner update.
 
-When recovery has qualified an already published dev image, the optional JSON
+When exact-image Browser qualification has passed for an already published dev image, the optional JSON
 pin accepted by [the reuse verifier](../../../scripts/deploy/reuse-pod-release.py)
 records its image, original source revision, original workflow run and
 archived-release SHA-256. Create that reviewed pin only for the qualification
@@ -155,7 +155,7 @@ without rebuilding the pod. `sourceRevision` retains the image's original source
 build provenance separately records the descriptor commit and new publisher run.
 A reused publication is archived under that image source and the new publisher
 run, so a later reviewed pin can resolve it without changing image provenance.
-A mismatch aborts publication. Remove the reuse pin before the next application
+A mismatch aborts publication. Remove the reuse pin before the next pod
 image build. This path neither proves compatibility nor approves installation.
 
 An empty `supportedUpgradeDigests` list offers no installation path for existing
@@ -564,15 +564,20 @@ removal. Each subscription has its own qualified erasure receipt. A receipt for
 one subscription cannot release a sibling, the topic or the encryption key.
 Rollback must refuse retained obligations it cannot represent.
 
-The disposable Azure native sandbox retry on 2026-10-06 reached the provider,
+**Historical provider-managed sandbox probes:** the disposable Azure native
+sandbox retry on 2026-10-06 reached the provider,
 created the sandbox and then returned `AZURE_PROBE_EGRESS_REFUSED`. Sandbox and
-outer resource-group deletion were confirmed. Browser readiness, owner-information
-execution and a private bridge remain unproved; that retry does not admit them.
+outer resource-group deletion were confirmed. That retry did not qualify Browser,
+owner-information execution or a private bridge.
 On October 7, the `2026-09-01-preview` API returned Deny/Full/Enforced policy in a
 bounded control. A later sandbox read returned 403 after creation; worker identity,
 Chromium and broker execution still lacked qualification. Exact sandbox, role and
-resource-group cleanup was confirmed. Retain those gates rather than substituting
-an older API's schema refusal for the current failure.
+resource-group cleanup was confirmed. Later protected in-pod Chromium and ADK
+component probes passed on GCP and a disposable Azure VM; those receipts do not
+qualify an installed owner journey. Use the current
+[Browser runtime evidence](../../../consent-protocol/docs/reference/private-browser-runtime.md)
+for execution and hosting gates rather than treating these historical failures
+as the current implementation.
 
 ### Model project ownership
 

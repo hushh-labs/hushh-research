@@ -2,11 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
+
+from .information import BrowserInformation, BrowserModelProcessing
+from .task_contracts import BrowserTaskRequest
+
+if TYPE_CHECKING:
+    from .task_runtime import BrowserTaskRuntime
+    from .task_state import BrowserTaskState
 
 from .consent import BrowserConsentPort, Purpose
-from .contracts import BrowserAction, BrowserAuthorityPort, BrowserBinding, BrowserRefused
+from .contracts import (
+    BrowserAction,
+    BrowserAuthorityPort,
+    BrowserBinding,
+    BrowserExecutionScope,
+    BrowserRefused,
+)
 from .task_contracts import BrowserOwnerAccess, BrowserReviewAuthorityPort, BrowserReviewOffer
 
 
@@ -42,7 +57,7 @@ class TaskConsent(BrowserConsentPort):
         pending: Callable[[BrowserReviewOffer], None],
         clock: Callable[[], float] = time.time,
         check_runtime: Callable[[], Awaitable[None]] | None = None,
-        wait_for_review: Callable[[], Awaitable[None]] | None = None,
+        wait_for_review: Callable[[BrowserReviewOffer], Awaitable[None]] | None = None,
     ) -> None:
         self._binding, self._access, self._reviews, self._pending = (
             binding,
@@ -76,12 +91,12 @@ class TaskConsent(BrowserConsentPort):
             if offer.purpose != purpose:
                 raise BrowserRefused("BROWSER_REVIEW_INVALID")
             self._pending(owner_review(offer))
-            if purpose != "provider_safety" or self._wait_for_review is None:
+            if purpose not in {"provider_safety", "disclose"} or self._wait_for_review is None:
                 raise
             # Keep the exact native invocation paused in this bounded task.
             # A confirmation wakes this stack, not a new interpretation of the
             # goal. Takeover, stop, expiry and drain cancel the waiting worker.
-            await self._wait_for_review()
+            await self._wait_for_review(offer)
             await self.check_binding(binding)
             await self._reviews.require(binding, purpose, private_terms)
         await self.check_binding(binding)
@@ -99,9 +114,15 @@ class TaskAuthority(BrowserAuthorityPort):
         await self._consent.check_binding(binding)
         await self._authority.check_binding(binding)
 
-    async def authorize_action(self, binding: BrowserBinding, action: BrowserAction) -> None:
+    async def authorize_action(
+        self,
+        binding: BrowserBinding,
+        action: BrowserAction,
+        *,
+        scope: BrowserExecutionScope | None = None,
+    ) -> None:
         await self.check_binding(binding)
-        await self._authority.authorize_action(binding, action)
+        await self._authority.authorize_action(binding, action, scope=scope)
         await self.check_binding(binding)
 
     async def journal_dispatch(self, binding: BrowserBinding, action: BrowserAction) -> None:
@@ -115,3 +136,71 @@ class TaskAuthority(BrowserAuthorityPort):
         # Settlement preserves the initial intent even if admission was revoked
         # during dispatch. The ledger adapter owns its exact bound write check.
         await self._authority.settle_dispatch(binding, action, uncertain=uncertain)
+
+
+async def prepare_task(
+    runtime: BrowserTaskRuntime,
+    task: BrowserTaskState,
+    access: BrowserOwnerAccess,
+    request: BrowserTaskRequest,
+) -> None:
+    binding = task.binding
+
+    def pending(offer: BrowserReviewOffer) -> None:
+        if task.review_waiting is not None and task.review_waiting != offer.review_id:
+            raise BrowserRefused("BROWSER_REVIEW_PENDING")
+        task.review_ready.clear()
+        task.review, task.phase, task.code = (
+            offer,
+            "needs_owner",
+            "BROWSER_OWNER_APPROVAL_REQUIRED",
+        )
+        task.revision += 1
+
+    async def wait_for_review(offer: BrowserReviewOffer) -> None:
+        if task.review is None or task.review.review_id != offer.review_id:
+            raise BrowserRefused("BROWSER_REVIEW_CHANGED")
+        task.review_waiting = offer.review_id
+        try:
+            remaining = min(300, binding.expires_at - runtime._clock())
+            if remaining <= 0:
+                raise BrowserRefused("BROWSER_AUTHORIZATION_EXPIRED")
+            async with asyncio.timeout(remaining):
+                await task.review_ready.wait()
+        finally:
+            task.review_waiting = None
+
+    async def check_runtime() -> None:
+        if task.closed or task.closing is not None:
+            raise BrowserRefused("BROWSER_STOPPED")
+        current = runtime.capability()
+        if not current.available:
+            raise BrowserRefused(current.code)
+
+    task.consent = TaskConsent(
+        binding, access, runtime._reviews, pending, runtime._clock, check_runtime, wait_for_review
+    )
+    authority = runtime._authority_factory(binding, task.consent)
+    pending_check = getattr(authority, "check_no_pending_dispatch", None)
+    try:
+        if not callable(pending_check):
+            raise BrowserRefused("BROWSER_DISPATCH_RECOVERY_UNAVAILABLE")
+        await task.consent.check_binding(binding)
+        await pending_check(binding)
+        task.authority = TaskAuthority(binding, task.consent, authority)
+        task.processing = BrowserModelProcessing(
+            information=BrowserInformation(runtime._source, task.consent),
+            binding=binding,
+            fields=request.fields,
+            model_name=runtime._model.model_name,
+            transport=runtime._model.transport,
+            allowed_origins=request.allowed_origins,
+            task_goal=request.goal,
+        )
+        if runtime._sessions_factory:
+            task.sessions = runtime._sessions_factory(task.consent)
+        await runtime._checkpoint(task)
+    except BaseException:
+        await runtime._reviews.release(binding)
+        await task.permit.release()
+        raise

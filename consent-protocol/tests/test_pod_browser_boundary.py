@@ -23,8 +23,79 @@ from tests.helpers.pod_browser import (
     binding,
     control,
     readiness,
+    shared_readiness,
     task_runtime_fixture,
 )
+
+
+@pytest.mark.parametrize("cloud", ["gcp", "azure"])
+@pytest.mark.parametrize(
+    "fault", [None, "wrong_mode", "false_containment", "unconfirmed_stop", "wrong_host"]
+)
+async def test_shared_owner_execution_qualifies_explicit_mode_without_old_isolation(cloud, fault):
+    from browser_runtime.qualification import validate_qualification
+
+    changes = {"cloud": cloud}
+    if fault == "wrong_mode":
+        changes["chromium_sandbox"] = cloud != "gcp"
+    elif fault == "false_containment":
+        changes["private_access_denied"] = True
+    elif fault == "unconfirmed_stop":
+        changes["lifecycle_verified"] = False
+    ready = shared_readiness(**changes)
+    statement = {
+        "version": 2,
+        "host_kind": "gcp_cloud_run" if cloud == "gcp" else "azure_container_apps",
+        "source_revision": "a" * 40,
+        "image_tag": "synthetic-source",
+        "evidence_sha256": "b" * 64,
+        "public_policy_sha256": "c" * 64,
+        "readiness": ready.model_dump(),
+    }
+    if fault == "wrong_host":
+        statement["host_kind"] = "azure_vm"
+    arguments = {"image_digest": ready.component_digest, "source_revision": "a" * 40}
+    if fault is None:
+        driver = Executor()
+        await control(ready=ready, driver=driver).initialize()
+        assert driver.calls == ["initialize"]
+        assert validate_qualification(statement, **arguments) == statement
+    else:
+        with pytest.raises(ValueError):
+            validate_qualification(statement, **arguments)
+        if fault != "wrong_host":
+            driver = Executor()
+            with pytest.raises(BrowserRefused, match="EXECUTION_NOT_READY"):
+                await control(ready=ready, driver=driver).initialize()
+            assert driver.calls == []
+
+
+@pytest.mark.parametrize("sandbox", [True, False])
+async def test_chromium_uses_only_the_qualified_mode_and_never_retries_without_sandbox(
+    monkeypatch, sandbox
+):
+    import sys
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.pod_browser.playwright_executor import PlaywrightExecutor
+
+    launch = AsyncMock(side_effect=RuntimeError("synthetic startup failure"))
+    stop = AsyncMock()
+    playwright = SimpleNamespace(chromium=SimpleNamespace(launch=launch), stop=stop)
+    monkeypatch.setitem(
+        sys.modules,
+        "playwright.async_api",
+        SimpleNamespace(
+            async_playwright=lambda: SimpleNamespace(start=AsyncMock(return_value=playwright))
+        ),
+    )
+    executor = PlaywrightExecutor(network=Authority(), chromium_sandbox=sandbox)
+    with pytest.raises(BrowserRefused, match="STARTUP_FAILED"):
+        await executor.initialize()
+    assert launch.await_count == 1
+    assert launch.call_args.kwargs["chromium_sandbox"] is sandbox
+    stop.assert_awaited_once()
 
 
 @pytest.mark.parametrize(
@@ -149,6 +220,10 @@ async def test_composed_public_authority_fences_unknown_requests_and_recovery(tm
     for refused in (
         request.model_copy(update={"url": "https://example.com/logout"}),
         request.model_copy(update={"headers": (("Cookie", "synthetic"),)}),
+        request.model_copy(update={"headers": (("Accept", "synthetic-private"),)}),
+        request.model_copy(update={"headers": (("Accept-Language", "synthetic-private"),)}),
+        request.model_copy(update={"headers": (("Referer", "https://example.com/private"),)}),
+        request.model_copy(update={"headers": (("X-Private", "synthetic"),)}),
         request.model_copy(update={"method": "POST"}),
         request.model_copy(update={"url": "https://example.com/static/../delete"}),
         request.model_copy(update={"url": "https://example.com/static/file?secret=synthetic"}),
@@ -383,7 +458,8 @@ async def test_browser_cancel_and_update_join_shutdown_before_releasing_admissio
             await entered.wait()
             drain = asyncio.create_task(fixture.runtime.drain())
             fixture.model.release.set()
-            await task.worker  # model completion must not overwrite cancellation
+            await asyncio.gather(task.worker, return_exceptions=True)
+            # The cancelled native worker is joined; completion cannot overwrite Stop.
             assert fixture.admission._states["epoch"].active == 1
             assert not released
             finish.set()
@@ -515,6 +591,15 @@ async def test_owner_resize_fences_old_coordinates_and_enforces_new_geometry(mon
     taken = await fixture.runtime.control(
         fixture.owner, task_id, "takeover", snapshot.control_epoch
     )
+    original_execute = fixture.driver.execute
+
+    async def checked_scope(action, *, scope=None):
+        control = fixture.runtime._tasks[task_id].control
+        control.require_execution_scope(scope)
+        assert scope.control_epoch == action.control_epoch == control.control_epoch
+        return await original_execute(action, scope=scope)
+
+    monkeypatch.setattr(fixture.driver, "execute", checked_scope)
     resized = await fixture.runtime.input(
         fixture.owner,
         task_id,
@@ -679,9 +764,30 @@ async def test_typing_requires_approval_even_without_enter_and_never_replays_unc
     assert authority.journal == [(1, "dispatch"), (1, "uncertain")]
 
 
-async def test_takeover_waits_for_current_dispatch_and_fences_old_actions_and_observations():
-    driver = Executor(release=asyncio.Event())
-    runtime = control(driver=driver)
+@pytest.mark.parametrize("operation", ["observe", "click"])
+async def test_takeover_waits_for_current_dispatch_and_fences_old_actions_and_observations(
+    monkeypatch, operation
+):
+    driver, auth = Executor(), Authority(approved=True)
+    runtime = control(driver=driver, auth=auth)
+    finished, checking, release = False, asyncio.Event(), asyncio.Event()
+    original_execute, original_check = driver.execute, auth.check_binding
+    active = None
+
+    async def execute(*args, **kwargs):
+        nonlocal finished
+        frame = await original_execute(*args, **kwargs)
+        finished = True
+        return frame
+
+    async def check(value):
+        await original_check(value)
+        if finished and asyncio.current_task() is active:
+            checking.set()
+            await release.wait()
+
+    monkeypatch.setattr(driver, "execute", execute)
+    monkeypatch.setattr(auth, "check_binding", check)
     await runtime.initialize()
     with pytest.raises(BrowserRefused, match="OWNER_INPUT_REQUIRED"):
         await runtime.execute(
@@ -689,14 +795,29 @@ async def test_takeover_waits_for_current_dispatch_and_fences_old_actions_and_ob
         )
     assert driver.calls == ["initialize"]
     active = asyncio.create_task(
-        runtime.execute(BrowserAction(operation="observe", sequence=1, control_epoch=1))
+        runtime.execute(
+            BrowserAction(
+                operation=operation,
+                sequence=1,
+                control_epoch=1,
+                **({"x": 1, "y": 1} if operation == "click" else {}),
+            )
+        )
     )
-    await driver.entered.wait()
+    await asyncio.wait_for(checking.wait(), 1)
     takeover = asyncio.create_task(runtime.take_control())
     await asyncio.sleep(0)
     assert not takeover.done()
-    driver.release.set()
-    await active
+    release.set()
+    with pytest.raises(BrowserRefused, match="CONTROL_CHANGED"):
+        await active
+    assert runtime.latest_frame is None
+    if operation == "click":
+        with pytest.raises(BrowserRefused, match="UNCERTAIN"):
+            await takeover
+        assert runtime.outcome_uncertain and auth.journal[-1] == (1, "uncertain")
+        await runtime.stop()
+        return
     assert await takeover == 2
     with pytest.raises(BrowserRefused, match="CONTROL_CHANGED"):
         await runtime.execute(BrowserAction(operation="observe", sequence=2, control_epoch=1))
@@ -815,7 +936,7 @@ async def test_navigation_rejects_non_network_protocols_before_driver(url):
 @pytest.mark.parametrize("resize", [False, True])
 async def test_worker_frame_mismatch_never_settles_effect_as_success(resize):
     class WrongFrame(Executor):
-        async def execute(self, action):
+        async def execute(self, action, *, scope=None):
             return (await super().execute(action)).model_copy(
                 update={"width": 1280} if resize else {"sequence": 99}
             )
@@ -875,7 +996,7 @@ async def test_mailbox_roundtrip_and_stale_response_not_accepted(tmp_path):
 
 
 async def test_lost_http_effect_is_sticky_uncertain_and_cannot_be_hidden_by_a_screenshot():
-    from hushh_mcp.services.pod_browser.playwright_executor import SandboxedPlaywrightExecutor
+    from hushh_mcp.services.pod_browser.playwright_executor import PlaywrightExecutor
 
     class NetworkAuthority(Authority):
         async def authorize_request(self, value, request, commitment):
@@ -911,7 +1032,7 @@ async def test_lost_http_effect_is_sticky_uncertain_and_cannot_be_hidden_by_a_sc
                 await broker.fetch(request)
         assert pool.calls == 1
         assert auth.journal == ["dispatch", "uncertain"]
-        driver = SandboxedPlaywrightExecutor(network=broker, sandbox_verified=True)
+        driver = PlaywrightExecutor(network=broker, chromium_sandbox=True)
 
         class Cdp:
             aborted = False

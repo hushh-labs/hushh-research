@@ -214,7 +214,7 @@ async def test_browser_routes_default_closed_and_input_validation_never_echoes_s
                 "keys": ["Tab"],
             },
         )
-        assert manual.status_code == 200  # JSON arrays become the strict tuple execution contract
+        assert manual.status_code == 202  # JSON arrays become the strict tuple execution contract
         await fixture.runtime.drain()
 
 
@@ -335,7 +335,10 @@ async def test_browser_recovery_never_promotes_unclosed_or_malformed_completion(
     fixture.log.records = [
         record for record in fixture.log.records if record["kind"] != CLOSED_KIND
     ]
-    source = initial.model_copy(update={"revision": initial.revision + 10, "phase": "completed"})
+    # Historical checkpoints never carried a private pending review.
+    source = initial.model_copy(
+        update={"revision": initial.revision + 10, "phase": "completed", "review": None}
+    )
     record = {
         "kind": KIND,
         "payload": {"request_id": "request_1", "snapshot": source.model_dump(mode="json")},

@@ -2,19 +2,26 @@
 
 ## Status
 
-**Implementation in progress — updated 2026-10-20; integration baseline `468c0206c0`.**
+**Implementation in progress — updated 2026-10-21; infrastructure branch preserved.**
 Browser is the P0 capability. Both adapters remain disabled until
 their own acceptance passes. Preserve the infrastructure branch, owner resources,
 selected configuration and concurrent work. Broader release-plan changes follow
 actual Browser implementation evidence, not this proposed design.
 
-The approved execution order is Azure whole-deployment qualification, Browser production composition
-and owner control, all-family One scheduling, lifecycle corrections, then one
-combined dev candidate. Scheduled actions retain their existing confirmation
-requirements. Preserve economy scale-to-zero: no always-on wake service or artificial
-keepalive. Cold response under thirty seconds is an optimization goal, not a release
-gate. Reuse prior timings; after relevant changes, measure three cold and three warm
-turns per cloud without claiming a new percentile.
+The approved execution order is shared-owner Browser implementation on ordinary
+Cloud Run and Container Apps, measured common capacity, core lifecycle acceptance,
+fresh main/ADK intake, normal CI, governed dev acceptance and Admin SOP main
+integration with landed-SHA validation. General scheduling expansion and coding
+activation are outside this gate. Preserve existing schedules and economy
+scale-to-zero; no VM migration, separate Browser service or artificial keepalive.
+The thirty-second cold target is an optimization goal. Measure three cold and
+three warm samples per cloud after relevant changes without a percentile claim.
+
+**Current execution decision supersedes the older isolation/VM proposals below.**
+One and Browser share one owner container and non-root UID. GCP enables Chromium's
+internal sandbox; Azure explicitly disables it. The whole pod is the compromise
+boundary. The canonical [Browser reference](../../../consent-protocol/docs/reference/private-browser-runtime.md)
+owns current source and exact image evidence; older receipts are historical.
 
 ## Immediate MVP — critical path first
 
@@ -25,7 +32,7 @@ through the existing runtime before expanding capabilities.
 
 | Order | Deliverable | Acceptance |
 | --- | --- | --- |
-| 1 | Protected browser in the existing pod image | Sandboxed Chromium loads one approved synthetic public page and produces a frame. Browser cannot read pod secrets, inspect One, obtain workload tokens or bypass the broker. Teardown is verified. |
+| 1 | Protected browser in the existing pod image | Sandboxed Chromium loads one approved synthetic public page and produces a frame. One and Browser share the owner boundary; normal requests follow the broker and deployed identity is owner scoped. Teardown is verified. |
 | 2 | One delegates a public research task | Existing ADK specialist observes, navigates, clicks and scrolls within approved origins; it returns a bounded outcome through the approved result boundary. No cloud/model fallback. |
 | 3 | Owner can watch and intervene | View browser, Take control, Resume agent and Stop share the same task. Mouse, touch, scroll and keyboard map to the displayed frame. Takeover fences autonomous actions and model observations; handback requires a fresh observation. |
 | 4 | Reconnect and failure are truthful | Refresh discovers the same live task without resubmitting the goal. Interrupted execution is reported explicitly. Stop terminates owned browser work; idle teardown releases resources. |
@@ -74,11 +81,10 @@ exports, and scheduled browser work to the existing occurrence and review
 authorities. Each capability keeps its own grants and exact confirmations.
 
 The owner approved Browser inside the existing pod service and image, replacing
-the earlier requirement to use provider-managed sandbox products. Use a separate
-unprivileged browser identity, Chromium's sandbox, verified filesystem/syscall
-restrictions and the existing private broker. The owner has final control over
-One and the browser. This packaging choice does not establish isolation or permit
-access to the agent's keys, workload identity or private endpoints.
+the earlier requirement to use provider-managed sandbox products. Use the same unprivileged owner identity, supervised teardown, trusted per-cloud
+Chromium mode and the existing private broker during normal execution. The owner has final control over
+One and the browser. The whole pod is the compromise boundary. Application consent does not contain
+a compromised Browser process; no process-isolation claim is made.
 
 ## Visual Context
 
@@ -234,13 +240,15 @@ The image-update preparation now retains exact request-body commitments, install
 configuration/updater hashes, placement and key identities. It does not export the
 VM environment. Import targets `pod`; the final tag action uses Azure's
 [resource-scoped Merge](https://learn.microsoft.com/en-us/rest/api/resources/tags/update-at-scope?view=rest-resources-2021-04-01).
-Current SQL961 intentionally refuses this new intent. Add forward admission and
-read-only reconciliation in the same setup journal before wiring execution.
-Persist the authenticated idle cursor and epoch through the existing upgrade CAS.
-After target recovery, publish the image/configuration/installation together and
-retire a terminal old power cycle without relabeling its historical receipts.
-Pending power cycles remain fenced. Dev ledger readback on 20 October confirms
-961 applied, with 967 and 968 unused; no migration was applied during this review.
+Parked dev migration 968 extends the existing setup journal for exact VM image
+updates. `UserAzureVmBackend.upgrade` composes owner-JIT admission, the retained
+idle cursor, body-bound requests and read-only lost-response reconciliation.
+Verified publication updates image/configuration/installation together and retires
+a terminal old power cycle without relabeling its historical receipts. Pending
+power cycles remain fenced. This source does not authorize initial VM installation
+or an ACA-to-VM move. The last recorded dev ledger readback on 20 October had 961
+applied and 967/968 unused; live migration and installed customer acceptance are
+still unverified.
 
 The source VM wake coordinator now adopts a dedicated registry power operation,
 verifies current session authority, and reconciles the original provider dispatch

@@ -90,7 +90,7 @@ def main(bridge_fd: int, parent_network: str, parent_pid: str) -> None:
 
         from .connected_executor import ConnectedBrowserWorker
         from .contracts import BrowserBinding
-        from .playwright_executor import SandboxedPlaywrightExecutor
+        from .playwright_executor import PlaywrightExecutor
 
         binding = BrowserBinding.model_validate_json(raw)
         import time
@@ -98,7 +98,7 @@ def main(bridge_fd: int, parent_network: str, parent_pid: str) -> None:
         if binding.expires_at <= time.time():
             raise LaunchRefused()
         worker = ConnectedBrowserWorker(binding)
-        executor = SandboxedPlaywrightExecutor(network=worker, sandbox_verified=True)
+        executor = PlaywrightExecutor(network=worker, chromium_sandbox=True)
         # This acknowledgement proves local guards only, never cloud readiness.
         connection.sendall(b"\x00\x00\x00\x10" + b'{"guarded":true}')
         connection.settimeout(None)

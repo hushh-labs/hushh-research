@@ -68,6 +68,9 @@ export function ComputerUseTaskCard({ binding, transport, route = "/" }: {
   const usable = state.verified && snapshot?.capability === "ready" && !isComputerUseTerminal(snapshot.phase);
   const canPreview = usable && snapshot?.review?.purpose !== "model_process";
   const message = !state.verified && !state.pending ? "Couldn’t reach the browser. Check again to reconnect."
+    : snapshot?.code === "BROWSER_MODEL_RATE_LIMITED" ? "Your AI is busy. Try this task again later."
+    : snapshot?.code === "BROWSER_WAITING_FOR_WORKER" ? "Waiting for current background work to finish…"
+    : snapshot?.code === "BROWSER_DOWNLOAD_READY" ? "Download ready to save."
     : snapshot?.controlOwner === "owner" ? "You’re in control. Agent paused."
     : snapshot ? PHASE_COPY[snapshot.phase] : "Checking browser availability…";
 
@@ -97,18 +100,18 @@ export function ComputerUseTaskCard({ binding, transport, route = "/" }: {
   const controls = (
     <div className="flex flex-wrap items-center gap-2" aria-busy={state.pending}>
       {snapshot?.controlOwner === "owner" ? (
-        <ShellActionSurface variant="pill" className="min-h-11" disabled={!usable || state.pending || Boolean(snapshot?.review)} onClick={() => control("resume")}>
-          Resume agent
+        <ShellActionSurface variant="pill" className="min-h-11" disabled={!usable || state.pending || Boolean(snapshot?.review) || snapshot.goalCompleted} onClick={() => control("resume")}>
+          {snapshot.goalCompleted ? "Task finished" : "Resume agent"}
         </ShellActionSurface>
       ) : (
         <ShellActionSurface variant="pill" className="min-h-11" disabled={!canPreview || state.pending} onClick={() => control("takeover")}>
           Take control
         </ShellActionSurface>
       )}
-      <ShellActionSurface variant="pill" className="min-h-11" disabled={!usable || state.controlling} onClick={() => control("cancel")}>
+      <ShellActionSurface variant="pill" className="min-h-11" disabled={!usable} onClick={() => control("cancel")}>
         Stop
       </ShellActionSurface>
-      {usable && snapshot?.controlOwner === "owner" && snapshot.rememberedSessionsAvailable
+      {usable && snapshot?.controlOwner === "owner" && !snapshot.publicResearchOnly && snapshot.rememberedSessionsAvailable
         && snapshot.approvedOrigins?.length ? (
           <ComputerUseSessions key={snapshot.controlEpoch} controller={controller} snapshot={snapshot} pending={state.pending} />
         ) : null}
@@ -122,6 +125,12 @@ export function ComputerUseTaskCard({ binding, transport, route = "/" }: {
           <h3 className="text-sm font-semibold">Browser</h3>
           <p className="text-sm text-muted-foreground" role="status">{message}</p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+        {usable && !open ? (
+          <ShellActionSurface variant="pill" className="min-h-11" onClick={() => control("cancel")}>
+            Stop
+          </ShellActionSurface>
+        ) : null}
         {!state.verified ? (
           <ShellActionSurface variant="pill" className="min-h-11" disabled={state.pending}
             onClick={() => { void controller.refresh().catch(() => morphyToast.error("Browser is unavailable. Try again in a moment.")); }}>
@@ -133,16 +142,25 @@ export function ComputerUseTaskCard({ binding, transport, route = "/" }: {
             View browser
           </ShellActionSurface>
         )}
+        </div>
       </div>
       {state.verified && snapshot?.phase === "completed" && snapshot.summary ? (
         <p className="whitespace-pre-wrap break-words text-sm">{snapshot.summary}</p>
       ) : null}
+      {usable && snapshot?.downloads?.map(download => (
+        <div key={download.id} className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="min-w-0 flex-1 break-words text-sm">{download.name}</span>
+          <ShellActionSurface variant="pill" className="min-h-11" disabled={state.pending}
+            onClick={() => { void controller.saveDownload(download.id).then(
+              () => morphyToast.info("Saved to Files."),
+              () => morphyToast.error("Couldn’t verify the save. Check Files before trying again."),
+            ); }}>Save to Files</ShellActionSurface>
+        </div>
+      ))}
       {usable && snapshot?.review ? (
         <div className="flex flex-wrap items-center gap-2">
           <ShellActionSurface variant="pill" className="min-h-11" disabled={state.pending}
             onClick={() => setReviewId(snapshot.review?.id ?? null)}>Review request</ShellActionSurface>
-          {!open ? <ShellActionSurface variant="pill" className="min-h-11" disabled={state.controlling}
-            onClick={() => control("cancel")}>Stop</ShellActionSurface> : null}
           <ComputerUseReview review={snapshot.review} pending={state.pending}
             open={reviewId === snapshot.review.id} onClose={() => setReviewId(null)} onConfirm={confirmReview} />
         </div>

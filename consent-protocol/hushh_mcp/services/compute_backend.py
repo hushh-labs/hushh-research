@@ -96,6 +96,7 @@ def owner_cloud_bind() -> dict[str, list[str]]:
 POD_CPU_MILLIS = 1000
 POD_MEMORY = "2Gi"
 POD_CPU = f"{POD_CPU_MILLIS}m"
+POD_REQUEST_CONCURRENCY = 8
 
 
 @dataclass(frozen=True)
@@ -125,6 +126,7 @@ class PodSpec:
     # registry for adoption; a backend that can read both refuses a pod that differs.
     expected_runtime_principal: Optional[str] = None
     expected_image_digest: Optional[str] = None
+    expected_setup_nonce: Optional[str] = None
     # Frozen registry binding for an explicitly installed Azure VM. Absence keeps
     # existing Container Apps; no host is inferred from a name or deployment flag.
     azure_vm_host: AzureVmHostBinding | None = None

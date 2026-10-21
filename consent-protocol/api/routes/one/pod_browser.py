@@ -11,6 +11,7 @@ from pydantic import Field
 
 from api.routes.one.pod_session import verified_session
 from hushh_mcp.services.pod_browser.contracts import BrowserAction, BrowserRefused, StrictContract
+from hushh_mcp.services.pod_browser.delivery import BrowserDelivery
 from hushh_mcp.services.pod_browser.information import InformationField
 from hushh_mcp.services.pod_browser.task_contracts import (
     BrowserCapability,
@@ -195,6 +196,12 @@ class SessionRequest(StrictContract):
     account_id: str = Field(min_length=1, max_length=256, repr=False)
 
 
+class SaveDownload(StrictContract):
+    name: str = Field(min_length=1, max_length=255, repr=False)
+    parent: str = Field(default="root", pattern=r"^(?:root|[a-f0-9]{32})$")
+    confirmed: Literal[True]
+
+
 @router.get("/capability", response_model=BrowserCapability)
 async def browser_capability(request: Request, owner: ObserveOwner):
     installed = getattr(request.app.state, "browser_task_runtime", None)
@@ -223,6 +230,39 @@ async def create_task(request: Request, body: CreateTask, owner: InvokeOwner):
         raise refusal(exc) from None
     except PodUpgradeAdmissionRefused:
         raise refusal(BrowserRefused("BROWSER_DRAINING")) from None
+
+
+@router.post("/worker")
+async def browser_worker(
+    request: Request, body: BrowserDelivery, authorization: str | None = Header(default=None)
+):
+    import asyncio
+
+    from hushh_mcp.services.pod_files.jobs import worker_origin
+    from hushh_mcp.services.pod_role import require_serving_role
+    from hushh_mcp.services.pod_worker_binding import WorkerBindingRefused, gcp_worker_binding
+    from hushh_mcp.services.scheduler_identity import (
+        SchedulerIdentityError,
+        verify_scheduler_request,
+    )
+
+    try:
+        worker = gcp_worker_binding(capability="browser")
+        await asyncio.to_thread(
+            verify_scheduler_request,
+            authorization_header=authorization,
+            audience=worker_origin(),
+            allowed_emails=(worker.service_account,),
+        )
+        from hushh_mcp.services.pod_browser.composition import hold_browser_delivery
+
+        return await hold_browser_delivery(
+            request.app, body.model_dump(mode="json"), check=require_serving_role
+        )
+    except (SchedulerIdentityError, WorkerBindingRefused):
+        raise HTTPException(403, detail={"code": "BROWSER_TASK_DELIVERY_REFUSED"}) from None
+    except BrowserRefused as exc:
+        raise refusal(exc) from None
 
 
 @router.get("/tasks", response_model=list[BrowserTaskReceipt])
@@ -275,10 +315,10 @@ async def task_control(request: Request, task_id: str, body: ControlRequest, own
         raise refusal(exc) from None
 
 
-@router.post("/tasks/{task_id}/input", response_model=BrowserTaskSnapshot)
+@router.post("/tasks/{task_id}/input", response_model=BrowserTaskSnapshot, status_code=202)
 async def task_input(request: Request, task_id: str, body: InputRequest, owner: ControlOwner):
     try:
-        return await runtime(request).input(owner, task_id, body.action())
+        return await runtime(request).submit_input(owner, task_id, body.action())
     except BrowserRefused as exc:
         raise refusal(exc) from None
 
@@ -299,3 +339,39 @@ async def task_session(request: Request, task_id: str, body: SessionRequest, own
         )
     except BrowserRefused as exc:
         raise refusal(exc) from None
+
+
+@router.post("/tasks/{task_id}/downloads/{download_id}")
+async def save_browser_download(
+    request: Request,
+    task_id: str,
+    download_id: str,
+    body: SaveDownload,
+    owner: ControlOwner,
+    authorization: str | None = Header(default=None),
+):
+    from hushh_mcp.services.pod_browser.task_downloads import save_download
+    from hushh_mcp.services.pod_files.contracts import FilesRefused
+
+    async def check():
+        await owner.check()
+        for scope in ("files.read", "files.manage"):
+            authority, claims = verified_session(authorization, role=ROLE_APP, scope=scope)
+            if (str(claims["user_id"]), str(claims["hushh_id"])) != (owner.owner_id, owner.pod_id):
+                raise BrowserRefused("BROWSER_OWNER_REFUSED")
+            await authority.require_held()
+
+    try:
+        return await save_download(
+            runtime(request),
+            owner,
+            task_id,
+            download_id,
+            name=body.name,
+            parent=body.parent,
+            check=check,
+        )
+    except BrowserRefused as exc:
+        raise refusal(exc) from None
+    except FilesRefused as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None

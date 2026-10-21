@@ -5,33 +5,24 @@ import pytest
 from hushh_mcp.services.pod_browser.contracts import BrowserRefused
 
 
-def test_bootstrap_channel_survives_exec_when_socketpair_allocates_fd_three():
-    import subprocess
-    import sys
+def test_browser_worker_death_restarts_owner_generation_without_inherited_fd(monkeypatch):
+    import runpy
     from pathlib import Path
+    from types import SimpleNamespace
 
-    path = Path(__file__).parents[1] / "browser_runtime/pod_entrypoint.py"
-    script = """
-import os, runpy, socket, sys
-bootstrap = runpy.run_path(sys.argv[1], run_name="bootstrap_test")
-parent, child = socket.socketpair()
-assert parent.fileno() == 3
-child.sendall(b"bounded-channel")
-child.close()
-if sys.argv[2] == "broken":
-    os.set_inheritable = lambda *_: None
-bootstrap["inherit_channel"](parent.detach())
-os.execv(sys.executable, [sys.executable, "-c",
-    "import socket; s=socket.socket(fileno=3); assert s.recv(15)==b'bounded-channel'; s.close()"])
-"""
-    for mutation in ("current", "broken"):
-        result = subprocess.run(  # noqa: S603 - fixed synthetic exec and local bootstrap
-            [sys.executable, "-c", script, str(path), mutation],
-            capture_output=True,
-            timeout=5,
-            check=False,
-        )
-        assert (result.returncode == 0) == (mutation == "current")
+    lifecycle = runpy.run_path(
+        str(Path(__file__).parents[1] / "browser_runtime/gunicorn_lifecycle.py")
+    )
+    halted = []
+    server = SimpleNamespace(alive=True, halt=lambda **result: halted.append(result))
+    monkeypatch.setenv("POD_COMPUTER_USE_ENABLED", "true")
+    monkeypatch.delenv("HUSSH_BROWSER_LAUNCH_FD", raising=False)
+    lifecycle["child_exit"](server, None)
+    assert halted == [{"reason": "Private browser worker generation ended", "exit_status": 1}]
+    halted.clear()
+    monkeypatch.setenv("POD_COMPUTER_USE_ENABLED", "false")
+    lifecycle["child_exit"](server, None)
+    assert halted == []
 
 
 def test_worker_privilege_drop_refuses_retained_authority_before_private_scratch(monkeypatch):
@@ -198,35 +189,3 @@ def test_syscall_guard_preserves_chromium_connected_ipc_without_external_datagra
         assert socket.SOCK_DGRAM in denied_kinds(name)
         assert socket.SOCK_STREAM not in denied_kinds(name)
         assert (numbers[name], 0, 1, socket.AF_UNIX, 0) in calls
-
-
-def test_browser_worker_exit_fences_the_master_before_gunicorn_can_replace_it(monkeypatch):
-    import importlib.util
-    from pathlib import Path
-    from types import SimpleNamespace
-
-    path = Path(__file__).parents[1] / "browser_runtime/gunicorn_lifecycle.py"
-    spec = importlib.util.spec_from_file_location("browser_lifecycle", path)
-    hook = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(hook)
-    calls = []
-
-    class Channel:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            calls.append("close")
-
-        def shutdown(self, _how):
-            calls.append("fence")
-
-    monkeypatch.setenv("HUSSH_BROWSER_LAUNCH_FD", "3")
-    monkeypatch.setattr(hook.socket, "socket", lambda **_kwargs: Channel())
-    server = SimpleNamespace(alive=True, halt=lambda **_kwargs: calls.append("halt"))
-    hook.child_exit(server, object())
-    assert calls == ["fence", "close", "halt"]
-    calls.clear()
-    monkeypatch.delenv("HUSSH_BROWSER_LAUNCH_FD")
-    hook.child_exit(server, object())
-    assert not calls  # ordinary non-Browser worker restart stays unchanged

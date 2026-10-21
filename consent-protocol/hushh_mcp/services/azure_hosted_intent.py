@@ -129,6 +129,11 @@ def _upgrade(row: dict, spec: PodSpec, inputs: PlanInputs, registry: str, reposi
         _request("PUT", scopes.app, "container_apps", "deploying_agent"),
     ]
     capability = approved_files_plan(approval)
+    from hushh_mcp.services.pod_update_identity import approved_browser_plan
+
+    browser = approved_browser_plan(approval)
+    if browser is not None and spec.browser_upgrade_plan != browser.model_dump(mode="json"):
+        raise AzureSetupRefused("Browser approval changed.", code="SETUP_FENCED")
     if capability is not None:
         if spec.files_upgrade_plan != capability.model_dump():
             raise AzureSetupRefused("Files approval changed.", code="SETUP_FENCED")
