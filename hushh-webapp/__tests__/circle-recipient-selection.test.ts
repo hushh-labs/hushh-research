@@ -150,7 +150,7 @@ describe("countSelectedCircleRecipients", () => {
 });
 
 describe("resolveCircleRecipientSelection", () => {
-  it("returns a current ready snapshot and preserves exact Circle provenance", () => {
+  it("includes phone-less ready members and preserves exact Circle provenance", () => {
     const result = resolveCircleRecipientSelection({
       circle: circle(),
       currentUserId: "owner",
@@ -167,21 +167,6 @@ describe("resolveCircleRecipientSelection", () => {
       "self",
       "location_setup_needed",
     ]);
-  });
-
-  it("excludes unverified phone members only for SMS contact selection", () => {
-    const result = resolveCircleRecipientSelection({
-      circle: circle(),
-      currentUserId: "owner",
-      requirePhoneVerified: true,
-    });
-
-    expect(result.ready.map((target) => target.recipient.userId)).toEqual([
-      "ready",
-    ]);
-    expect(result.excluded.map((item) => item.reason)).toContain(
-      "phone_verification_needed",
-    );
   });
 
   it("deduplicates malformed duplicate roster entries", () => {

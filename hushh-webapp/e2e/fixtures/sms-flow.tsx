@@ -7,9 +7,18 @@ const recipients: OneLocationRecipient[] = Array.from({ length: 8 }, (_, i) => (
   keyId: `key-${i}`, publicKeyJwk: { kty: "EC" }, keyAlgorithm: "ECDH-P256-AES256-GCM", canReceiveLocation: true,
 }));
 function Fixture() {
+  const mixedReadiness = document.body.dataset.readiness === "mixed";
+  const shownRecipients = mixedReadiness ? recipients.slice(0, 7).map((recipient, index) => ({
+    ...recipient,
+    phoneVerified: index > 2,
+    displayName: index === 5 ? "Roopmann Varadharaj with a long contact name" : recipient.displayName,
+    canReceiveLocation: index < 5,
+    keyId: index < 5 ? recipient.keyId : null,
+    publicKeyJwk: index < 5 ? recipient.publicKeyJwk : null,
+  })) : recipients;
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
-  return <SosPanel recipients={recipients} active={active} busy={busy}
+  return <SosPanel recipients={shownRecipients} contactCount={8} active={active} busy={busy}
     onTrigger={async (note) => {
       setBusy(true);
       document.body.dataset.sentCount = String(Number(document.body.dataset.sentCount ?? 0) + 1);
