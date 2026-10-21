@@ -333,7 +333,8 @@ def write(out: Path, name: str, payload: dict, *, compact: bool) -> None:
         if compact
         else json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False)
     )
-    (DATA_DIR / name).write_text(text + "\n", encoding="utf-8")
+    # Bytes, so the file is the same on every platform and so is its hash.
+    (out / name).write_bytes((text + "\n").encode("utf-8"))
 
 
 def main() -> None:
@@ -405,7 +406,9 @@ def main() -> None:
             "provenance": {
                 "fitted_on": "train split of "
                 + ("the synthetic fixtures" if out == DATA_DIR else "a private labelled file"),
-                "fixtures_sha256": hashlib.sha256(args.fixtures.read_bytes()).hexdigest()[:16],
+                "fixtures_sha256": hashlib.sha256(
+                    args.fixtures.read_bytes().replace(b"\r\n", b"\n")
+                ).hexdigest()[:16],
                 "rows": len(rows),
                 "folds": f"{folds} folds that hold out whole template families",
                 "out_of_fold": {

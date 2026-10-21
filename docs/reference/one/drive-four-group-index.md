@@ -40,7 +40,7 @@ The working group definitions, kept in `groups.json` and taken from the Drive la
 
 The fit uses 276 invented files from template families. Folds hold out whole families, so the confidence it learns is not flattered by near-copies. The held-out `eval` split has 146 invented files from families the fit never saw (50 of them fit no group, including coursework with a lab and enrollment number, a statement of purpose, a bank-holiday circular, accounting lecture notes and an insurance comparison).
 
-| Held-out result, version `a4514c5dbdce` | Value |
+| Held-out result, version `629b0b04a049` | Value |
 | --- | --- |
 | Placed / correct | 57 / 55 (precision 0.965) |
 | Group files placed correctly (recall) | 55 of 96 (0.573); 41 kept |

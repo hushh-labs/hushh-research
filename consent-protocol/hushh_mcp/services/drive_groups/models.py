@@ -71,7 +71,8 @@ class ModelBundle:
 def version_of(raw: Mapping[str, bytes]) -> str:
     digest = hashlib.sha256()
     for name in DATA_FILES:
-        digest.update(name.encode() + b"\0" + raw[name] + b"\0")
+        # Line endings differ by checkout; the version must not.
+        digest.update(name.encode() + b"\0" + raw[name].replace(b"\r\n", b"\n") + b"\0")
     return digest.hexdigest()[:12]
 
 

@@ -608,9 +608,8 @@ def build() -> list[dict]:
 def main() -> None:
     rows = build()
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(
-        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n", encoding="utf-8"
-    )
+    lines = "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n"
+    OUT.write_bytes(lines.encode("utf-8"))  # bytes: identical on every platform
     by = {}
     for row in rows:
         by.setdefault((row["split"], row["label"]), 0)

@@ -10,7 +10,7 @@
     "embedding_model": "intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3",
     "fitted_at": "2026-10-21",
     "fitted_on": "train split of the synthetic fixtures",
-    "fixtures_sha256": "fc005ccc808d58f4",
+    "fixtures_sha256": "84a6955451b7175b",
     "folds": "4 folds that hold out whole template families",
     "note": "Synthetic data: a regression gate, not accuracy on a real Drive.",
     "out_of_fold": {

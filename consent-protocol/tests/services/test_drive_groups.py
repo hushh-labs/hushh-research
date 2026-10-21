@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -25,6 +26,7 @@ from hushh_mcp.services.drive_groups import (
     capture_head,
     index_files,
     load_bundle,
+    models,
     place,
 )
 from hushh_mcp.services.drive_groups.adapters import IsolatedHeadEmbedder, TransportHeadSource
@@ -33,6 +35,7 @@ from hushh_mcp.services.drive_groups.embedding_model import EmbeddingModel
 from hushh_mcp.services.drive_groups.features import metadata_features, text_features
 from hushh_mcp.services.drive_groups.fusion import FusionPolicy
 from hushh_mcp.services.drive_groups.linear_model import LinearModel
+from hushh_mcp.services.drive_groups.models import DATA_FILES, version_of
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -269,6 +272,17 @@ def test_model_data_rejects_malformed_numbers_and_shapes():
                     **fusion,
                 }
             )
+
+
+def test_data_version_is_the_same_on_every_platform_checkout():
+    """A placement records the data version; Windows and Linux checkouts must agree on it."""
+    raw = {name: f'{{"kind":"{name}"}}\n'.encode() for name in DATA_FILES}
+    crlf = {name: data.replace(b"\n", b"\r\n") for name, data in raw.items()}
+    assert version_of(raw) == version_of(crlf) and len(version_of(raw)) == 12
+    assert version_of(raw) != version_of({**raw, "fusion.json": b"{}\n"})
+    assert load_bundle().version == version_of(
+        {name: (Path(models.__file__).parent / "data" / name).read_bytes() for name in DATA_FILES}
+    )
 
 
 def test_text_start_is_clean_bounded_and_absent_when_a_scan_has_no_text():
