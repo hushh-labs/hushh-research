@@ -98,6 +98,20 @@ class PendingUatStateTests(unittest.TestCase):
                 bridge["status"] = "verified"
                 receipt.write_text(json.dumps({"capacity_bridge": bridge, "pass_status": "complete"}))
                 maintenance.assert_no_pending_mutations("org/repo", directory, "production")
+                predecessor = {**bridge, "status": "intent"}
+                successor = {**bridge, "profile": "serving_backend_clone_v2", "revision": "consent-protocol-cap-" + "d" * 16,
+                    "displacedLatestRevision": bridge["revision"], "predecessor": predecessor,
+                    "predecessorObservation": "provider_observed_unhealthy", "status": "intent"}
+                receipt.write_text(json.dumps({"capacity_bridge": successor, "pass_status": "complete"}))
+                with self.assertRaisesRegex(maintenance.retention.UnsafeState, "bridge provider outcome"):
+                    maintenance.assert_no_pending_mutations("org/repo", directory, "production")
+                successor["status"] = "verified"
+                receipt.write_text(json.dumps({"capacity_bridge": successor, "pass_status": "complete"}))
+                maintenance.assert_no_pending_mutations("org/repo", directory, "production")
+                successor["predecessorObservation"] = "healthy"
+                receipt.write_text(json.dumps({"capacity_bridge": successor, "pass_status": "complete"}))
+                with self.assertRaisesRegex(maintenance.retention.UnsafeState, "predecessor evidence"):
+                    maintenance.assert_no_pending_mutations("org/repo", directory, "production")
 
     def test_three_realistic_overlapping_passes_restore_original_deadline(self) -> None:
         base_run, base_artifact, base_jobs = fixture()
