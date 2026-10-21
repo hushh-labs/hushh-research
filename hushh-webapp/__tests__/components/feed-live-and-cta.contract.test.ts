@@ -66,7 +66,7 @@ describe("Feed stays live", () => {
   it("keys the whole Feed session to the authenticated account", () => {
     const feedPage = read("components/feed/feed-page.tsx");
 
-    expect(feedPage).toContain('key={user?.uid ?? "signed-out"}');
+    expect(feedPage).toContain('key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`}');
   });
 
   it("reports real Feed readiness through the native route beacon", () => {
@@ -74,7 +74,7 @@ describe("Feed stays live", () => {
     const feedPage = read("components/feed/feed-page.tsx");
 
     expect(route).not.toContain('dataState="loaded"');
-    expect(feedPage).toContain("const beaconDataState = contentLoading");
+    expect(feedPage).toContain('const beaconDataState = hasUsableContent ? "loaded" : contentLoading');
     expect(feedPage).toContain(
       'errorCode={showColdError ? "FEED_LOAD_FAILED" : null}',
     );
