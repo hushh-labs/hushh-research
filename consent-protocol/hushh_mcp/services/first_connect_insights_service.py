@@ -115,9 +115,13 @@ WITH connected AS (
   SELECT 'drive'::TEXT, connected_at
   FROM user_external_connector_connections
   WHERE user_id = $1 AND connector_id = 'google_drive' AND status = 'connected'
+), first_connected AS (
+  SELECT source, MIN(first_connected_at) AS first_connected_at
+  FROM connected
+  GROUP BY source
 )
 SELECT c.source
-FROM connected AS c
+FROM first_connected AS c
 WHERE c.first_connected_at > NOW() - INTERVAL '7 days'
   AND NOT EXISTS (
     SELECT 1 FROM one_attention_ledger AS l

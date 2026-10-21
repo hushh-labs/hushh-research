@@ -46,6 +46,11 @@ _STAND_INS = {
         "CREATE TABLE google_service_grants (user_id TEXT, provider TEXT, service TEXT,"
         " status TEXT, created_at TIMESTAMPTZ DEFAULT now())"
     ),
+    "google_calendar_additional_accounts": (
+        "CREATE TABLE google_calendar_additional_accounts"
+        " (user_id TEXT, account_id TEXT, provider_subject TEXT, provider_email TEXT,"
+        " status TEXT, access_level TEXT, connected_at TIMESTAMPTZ)"
+    ),
     "user_external_connector_connections": (
         "CREATE TABLE user_external_connector_connections (user_id TEXT, connector_id TEXT,"
         " status TEXT, connected_at TIMESTAMPTZ)"
@@ -97,10 +102,24 @@ def test_attention_ledger_on_postgres(monkeypatch) -> None:
                 " VALUES ($1, 'google_drive', 'connected', NOW() - INTERVAL '30 days')",
                 OWNER,
             )
+            await pool.execute(
+                "INSERT INTO google_calendar_additional_accounts"
+                " (user_id, account_id, provider_subject, provider_email, status,"
+                " access_level, connected_at) VALUES"
+                " ($1, 'attn-old', 'sub-attn-old', 'attn-old@example.invalid',"
+                " 'connected', 'read', NOW() - INTERVAL '30 days'),"
+                " ($1, 'attn-new', 'sub-attn-new', 'attn-new@example.invalid',"
+                " 'connected', 'read', NOW() - INTERVAL '1 day'),"
+                " ($2, 'attn-other', 'sub-attn-other', 'attn-other@example.invalid',"
+                " 'connected', 'read', NOW() - INTERVAL '1 day')",
+                OWNER,
+                OTHER,
+            )
 
             # --- The card: once per source, first week only ---------------------
             ledger = insights.PostgresFirstConnectLedger()
             assert await ledger.eligible_sources(OWNER) == ["gmail"]
+            assert await ledger.eligible_sources(OTHER) == ["calendar"]
             assert await ledger.claim(OWNER, "gmail") is True
             assert await ledger.claim(OWNER, "gmail") is False  # in flight elsewhere
             assert await ledger.eligible_sources(OWNER) == []
@@ -209,10 +228,17 @@ def test_attention_ledger_on_postgres(monkeypatch) -> None:
             assert await pool.fetchval("SELECT to_regclass('public.one_attention_ledger')") is None
         finally:
             await pool.execute("DROP TABLE IF EXISTS one_attention_ledger")
+            if "google_calendar_additional_accounts" not in created:
+                await pool.execute(
+                    "DELETE FROM google_calendar_additional_accounts"
+                    " WHERE user_id = ANY($1::TEXT[])",
+                    [OWNER, OTHER],
+                )
             for table in (
                 "feed_events",
                 "kai_gmail_connections",
                 "google_service_grants",
+                "google_calendar_additional_accounts",
                 "user_external_connector_connections",
             ):
                 if table not in created:
