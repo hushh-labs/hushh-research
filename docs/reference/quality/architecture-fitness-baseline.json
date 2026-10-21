@@ -22543,7 +22543,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/direct-messages-page.test.tsx",
       "symbol": null,
-      "value": 1495
+      "value": 1674
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23776,7 +23776,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/direct-messages/direct-messages-page.tsx",
       "symbol": null,
-      "value": 2383
+      "value": 2553
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26035,7 +26035,7 @@
       "limit": 500,
       "path": "scripts/deploy/backend-deploy.sh",
       "symbol": null,
-      "value": 1050
+      "value": 1052
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26774,7 +26774,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/direct-chat.layout.spec.ts",
       "symbol": null,
-      "value": 1101
+      "value": 1171
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -82402,5 +82402,55 @@
     ],
     "evidence": "Exact hosted e7346fa717 failures retained; focused repairs, no global budget or non-size exception changes.",
     "reviewer": "adk_frontend_conflicts; independent browser_p0_plan_review diagnoses"
+  },
+  "browser_main_messages_deploy_review_20261021": {
+    "entries": [
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/direct-messages-page.test.tsx||module exceeds the advisory operon budget",
+        "before": 1495,
+        "after": 1674,
+        "source_sha256": "151129947ccc69e71220d92f2023b06d47d8283e5f6d1a0bd5171aba44b43d2f",
+        "review": "Retain both main media/contact/voice and branch owner-fencing regressions; extend two nearest cases to reproduce deleted drafts and stale send-lease races before repair.",
+        "reviewers": [
+          "root",
+          "adk_frontend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/components/direct-messages/direct-messages-page.tsx||module exceeds the advisory operon budget",
+        "before": 2383,
+        "after": 2553,
+        "source_sha256": "b401200e72f05edb34564f9bf1701901dc9d03a5de1ddb39df52c5939597070c",
+        "review": "Preserve main media, contact, touch and voice behavior with owner-bound admission, exact destination handoff, original attachment authority, lease CAS and stale-result fencing.",
+        "reviewers": [
+          "root",
+          "adk_frontend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|scripts/deploy/backend-deploy.sh||module exceeds the advisory operon budget",
+        "before": 1050,
+        "after": 1052,
+        "source_sha256": "4089c3959e648e74e733ffe8c844e97d6d714ee1645b6f32b18e1f82215d9655",
+        "review": "Two-line binding of dev Browser review eligibility derived from validated immutable release metadata; no owner installation or non-dev activation.",
+        "reviewers": [
+          "root",
+          "adk_frontend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/direct-chat.layout.spec.ts||module exceeds the advisory operon budget",
+        "before": 1101,
+        "after": 1171,
+        "source_sha256": "ce9f1f8747510f1fed7219c64dcc82ef29c534de1c6e3c4f3fc57f492f509026",
+        "review": "Retain incoming main responsive photo/contact/reaction probes and branch shared-dock boundaries; 12 focused Chromium/WebKit cases passed.",
+        "reviewers": [
+          "root",
+          "adk_frontend_conflicts"
+        ]
+      }
+    ],
+    "budgets_changed": false,
+    "non_size_findings_changed": false
   }
 }

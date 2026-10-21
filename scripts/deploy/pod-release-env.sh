@@ -6,6 +6,9 @@ read_dev_pod_release() {
   else
     read_existing_dev_pod_release "${3:?project required}" "${4:?region required}" "${5:?service required}"
   fi
+  pod_browser_review_enabled="$(printf '%s' "$pod_release_b64" | \
+    python3 "$(dirname "${BASH_SOURCE[0]}")/preserve-pod-release.py" \
+    --browser-review-image "$pod_image")" || return 1
 }
 
 read_pod_release_artifacts() {

@@ -509,12 +509,14 @@ source deploy/sso/bind_workos.sh
 # recorded value; it never offers a mutable tag for owner approval.
 pod_image=""
 pod_release_b64=""
+pod_browser_review_enabled=""
 if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   source "$(dirname "${BASH_SOURCE[0]}")/pod-release-env.sh"
   read_dev_pod_release "${_BUILD_POD_IMAGE}" "${HUSSH_BUILD_WORKSPACE:-/workspace}" "$PROJECT_ID" "${_REGION}" "${_BACKEND_SERVICE}"
 fi
 append_optional_env "HUSSH_ONE_POD_IMAGE" "${pod_image}"
 append_optional_env "HUSSH_ONE_POD_RELEASE_B64" "${pod_release_b64}"
+append_optional_env "HUSSH_POD_BROWSER_ENABLED" "${pod_browser_review_enabled}"
 # The pod's own runtime identity. Created in hushh-pda-dev holding NO project
 # roles: without it Cloud Run would run each pod as the default compute account,
 # which carries project Editor. Empty outside dev, so append_optional_env skips it.

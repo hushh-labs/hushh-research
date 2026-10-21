@@ -2,8 +2,8 @@
 
 **Status:** authorized execution, refreshed 2026-10-21 UTC. Continue on the
 infrastructure branch; preserve concurrent work and the active ADK tree. Prior
-main/ADK integration remains preserved. Main through `f0eca1f983` and frozen ADK `914e7c044c` are integrated through
-`e25cd5f0eb`. Main's new Azure managed-provider selection is preserved alongside
+main/ADK integration remains preserved. Main through `c3f27e1f7f` and frozen ADK `914e7c044c` are integrated through
+`1953ce27fe`. Main's messaging and Azure managed-provider selection is preserved alongside
 private-pod admission, Browser phase history and release publication. Nine peer
 edits and the active ADK worktree remain unchanged.
 
@@ -18,8 +18,8 @@ approval/takeover/login/reconnect, delivery, capacity and installed acceptance
 remain separate gates. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
 owns current source and serving evidence; qualification does not enable a pod.
 
-Fresh main/ADK source intake is complete. Remaining execution order: final core
-mirror and exact-SHA hosted CI → governed image build → measured common capacity
+Fresh main/ADK source intake is complete. The local core mirror is complete; targeted repairs preserve its original failures.
+Remaining execution order: corrected exact-SHA hosted CI → governed image build → measured common capacity
 and agreed core lifecycle → exact-image qualification → governed metadata publication → exact owner installations → combined acceptance → **Admin SOP main merge and
 landed-SHA validation/dev receipt**. Main integration is now explicitly authorized
 after those gates. UAT/production, stable publication and automatic owner upgrades
@@ -58,13 +58,15 @@ resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 
-- Main through `f0eca1f983` is integrated by `e25cd5f0eb`, preserving its
+- Main through `c3f27e1f7f` is integrated by `1953ce27fe`, preserving its
   Profile/mobile, consent, deletion, PLG, Calendar and migrations 365–369 alongside
   pod authority. New content routes retain Shared-only admission; signed PLG
   operational exports retain their separate bounds and disabled defaults. The
   managed Azure provider update keeps its required admission aggregate. One Vertex
   probe records its actual result before cleanup; UAT evaluates both providers,
-  while other environments retain predeployment Vertex refusal.
+  while other environments retain predeployment Vertex refusal. Messaging keeps
+  main's photo, contact, voice and touch behavior alongside owner-bound drafts,
+  pinned attachment authority and late-result fencing.
 - Frozen ADK `914e7c044c` is integrated by `47bc0245d7`. Its native Profile
   preparation and visit fencing retain lazy plugin registration, current public-
   profile forms, pod AI selection and owner controls. Regenerate projections

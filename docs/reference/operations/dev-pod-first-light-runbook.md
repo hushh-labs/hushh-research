@@ -153,6 +153,12 @@ main-owned workflow with `build_pod_image=true`; the candidate-owned build recip
 validates the archive and executable manifest, then publishes the new descriptor
 without rebuilding the pod. `sourceRevision` retains the image's original source;
 build provenance separately records the descriptor commit and new publisher run.
+The governed dev deploy derives the Browser **review** flag from the validated
+immutable release. Without qualified receipts it is false; a qualified metadata
+publication exposes the exact owner review. This flag never installs an image or
+activates Browser. The plan still checks live host configuration, schema, owner
+approval and installed readback. UAT/production do not inherit this dev flag.
+
 A reused publication is archived under that image source and the new publisher
 run, so a later reviewed pin can resolve it without changing image provenance.
 A mismatch aborts publication. Remove the reuse pin before the next pod

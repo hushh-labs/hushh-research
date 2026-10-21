@@ -120,10 +120,9 @@ def _run(tmp_path: Path, **overrides: str) -> list[str]:
     stub.write_text(_GCLOUD_STUB, encoding="utf-8")
     stub.chmod(0o755)
 
-    (run_dir / "pod-image-reference").write_text(
-        "us-central1-docker.pkg.dev/synthetic/pods/one@sha256:" + "a" * 64
-    )
-    (run_dir / "pod-release.b64").write_text("synthetic-release-metadata")
+    image, encoded = _existing_release_environment()
+    (run_dir / "pod-image-reference").write_text(image)
+    (run_dir / "pod-release.b64").write_text(encoded)
     argv_file = run_dir / "argv.txt"
     env = {
         "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
@@ -243,6 +242,7 @@ def prod(tmp_path):
         # itself, which still requires an owner-scoped grant at request time.
         ("HUSSH_TRUSTED_DEVICE_ENABLED", "true"),
         ("HUSSH_POD_FILES_ENABLED", "true"),
+        ("HUSSH_POD_BROWSER_ENABLED", "false"),
     ],
 )
 def test_dev_carries_the_personal_agent_block(dev, name, value):
@@ -289,6 +289,7 @@ def test_the_invoker_member_is_never_a_bare_prefix(tmp_path):
         "HUSSH_POD_TURN_ENABLED",
         "HUSSH_TRUSTED_DEVICE_ENABLED",
         "HUSSH_POD_FILES_ENABLED",
+        "HUSSH_POD_BROWSER_ENABLED",
     ],
 )
 def test_production_carries_none_of_it(prod, name):
@@ -403,8 +404,17 @@ def _existing_release_environment():
     return image, encoded
 
 
-def test_application_only_deploy_preserves_serving_pod_offer_without_reissuing_it(tmp_path):
+@pytest.mark.parametrize("qualified", [False, True])
+def test_application_only_deploy_preserves_serving_pod_offer_without_reissuing_it(
+    tmp_path, qualified, monkeypatch
+):
     image, encoded = _existing_release_environment()
+    if qualified:
+        from tests.helpers.pod_browser_capability import browser_capability_fixture
+
+        monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://dev.one.hussh.ai")
+        _, image, _, _, release = browser_capability_fixture()
+        encoded = base64.b64encode(json.dumps(release).encode()).decode()
     containers = json.dumps(
         {
             "spec": {
@@ -430,6 +440,7 @@ def test_application_only_deploy_preserves_serving_pod_offer_without_reissuing_i
     )
     assert actual["HUSSH_ONE_POD_IMAGE"] == image
     assert actual["HUSSH_ONE_POD_RELEASE_B64"] == encoded
+    assert actual["HUSSH_POD_BROWSER_ENABLED"] == str(qualified).lower()
     assert "PRIVATE_UNRELATED_VALUE" not in actual
 
 
@@ -485,6 +496,6 @@ def test_new_build_and_other_environments_do_not_inherit_dev_offer(tmp_path, env
         )
     )
     if environment == "dev":
-        assert values["HUSSH_ONE_POD_RELEASE_B64"] == "synthetic-release-metadata"
+        assert values["HUSSH_ONE_POD_RELEASE_B64"] == _existing_release_environment()[1]
     else:
         assert "HUSSH_ONE_POD_RELEASE_B64" not in values
