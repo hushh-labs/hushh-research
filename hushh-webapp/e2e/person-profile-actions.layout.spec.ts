@@ -6,6 +6,7 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
 
 let css: string;
 let script: string;
+let requestScript: string;
 let outDir: string;
 
 /** Real profile presentation, optimized app CSS and shipped font.
@@ -51,6 +52,20 @@ test.beforeAll(async () => {
   };
   await build(configuration);
   script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+  const ports = path.join(root, "e2e/fixtures/person-profile-request-ports.tsx");
+  const boundaries = ["hooks/use-auth", "lib/vault/vault-context", "lib/services/auth-service", "lib/services/api-service", "lib/cache/cache-sync-service", "lib/one-location/key-bootstrap", "components/vault/vault-flow"];
+  await build({ configFile: false, publicDir: false, logLevel: "error",
+    plugins: [{ name: "request-fixture-css-candidates", transform(source, id) {
+      if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id)) {
+        for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
+      }
+    } }],
+    oxc: { jsx: { runtime: "automatic", development: false } },
+    define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
+    resolve: { alias: [...boundaries.map(name => ({ find: `@/${name}`, replacement: ports })), { find: "@", replacement: root }] },
+    build: { outDir, emptyOutDir: false, lib: { entry: path.join(root, "e2e/fixtures/person-profile-requests.tsx"), name: "RequestFixture", formats: ["iife"], fileName: () => "request-fixture.js" } },
+  });
+  requestScript = fs.readFileSync(path.join(outDir, "request-fixture.js"), "utf8");
   const { compile } = await import("tailwindcss");
   const compiler = await compile(
     fs.readFileSync(path.join(root, "app/globals.css"), "utf8").replace(/^@source\s+[^;]+;\s*$/gm, ""),
@@ -186,4 +201,164 @@ test("long mixed-direction details, sparse actions and focus remain usable at 32
   });
   rect = await boxes(page);
   expect(rect.share.width).toBeCloseTo(await page.locator('[data-id="share"]').evaluate(el => el.parentElement!.getBoundingClientRect().width), 0);
+});
+
+
+async function openRequests(page: Page, width: number, height: number, theme = "light", probe = false) {
+  await page.setViewportSize({ width, height });
+  await page.route("https://profile-fixture.test/onboarding/intro-v2/*-poster.png", route => route.fulfill({
+    contentType: "image/png", body: fs.readFileSync(path.join(process.cwd(), "public/onboarding/intro-v2", path.basename(route.request().url()))),
+  }));
+  await page.route("https://profile-fixture.test/?*", route => route.fulfill({ contentType: "text/html",
+    body: `<html class="${theme}"><head><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+  }));
+  await page.goto(`https://profile-fixture.test/?perf=${probe ? "1" : "0"}`);
+  await page.addScriptTag({ content: requestScript });
+  await expect(page.getByRole("button", { name: "Request files", exact: true })).toBeVisible();
+  await awaitProductFont(page);
+}
+const requestIntents = [
+  { trigger: "Request files", title: "Request files", intent: "files" },
+  { trigger: "Ask about files", title: "Ask about files", intent: "drive" },
+  { trigger: "Request scope", title: "Ask a question", intent: "question" },
+  { trigger: "Request cards", title: "Request a card", intent: "card" },
+];
+for (const [width, height] of [[320, 568], [390, 844], [768, 1024], [1440, 900], [844, 390]]) {
+  for (const theme of ["light", "dark"]) {
+    test(`v18 real request dialogs fit ${width}x${height} in ${theme}`, async ({ page }, testInfo) => {
+      await openRequests(page, width, height, theme, width === 390 && theme === "light");
+      for (const { trigger, title, intent } of requestIntents) {
+        const opener = page.getByRole("button", { name: trigger, exact: true });
+        await opener.click();
+        const dialog = page.getByRole("dialog", { name: title, exact: true });
+        await expect(dialog).toBeVisible();
+        const cancel = dialog.getByRole("button", { name: "Cancel", exact: true });
+        await expect(cancel).toBeInViewport();
+        // Settle the shared enter animation before measuring production geometry.
+        await expect.poll(() => dialog.evaluate(el => getComputedStyle(el).opacity)).toBe("1");
+        const state = await dialog.evaluate(el => {
+          const r = el.getBoundingClientRect(), title = el.querySelector('[data-slot="dialog-title"]')!;
+          const t = getComputedStyle(title), overlay = getComputedStyle(document.querySelector('[data-slot="dialog-overlay"]')!);
+          return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width,
+            size: t.fontSize, line: t.lineHeight, weight: t.fontWeight,
+            blur: overlay.backdropFilter, surface: getComputedStyle(el).backgroundColor,
+            duplicateIds: [...el.querySelectorAll("[id]")].some(node => document.querySelectorAll(`[id="${CSS.escape(node.id)}"]`).length > 1),
+            overflow: el.scrollWidth - el.clientWidth,
+            controls: [...el.querySelectorAll<HTMLElement>("textarea,input,button,select")].filter(node => node.getClientRects().length && !node.hasAttribute("data-slot")).map(node => {
+              const box = node.getBoundingClientRect(); return { left: box.left, right: box.right, height: box.height };
+            }),
+          };
+        });
+        expect(state.left).toBeGreaterThanOrEqual(-1);
+        expect(state.right).toBeLessThanOrEqual(width + 1);
+        expect(state.top).toBeGreaterThanOrEqual(-1);
+        expect(state.bottom).toBeLessThanOrEqual(height + 1);
+        expect(state.width).toBeCloseTo(width < 768 ? width : 480, 0);
+        expect(state).toMatchObject({ size: width < 768 ? "22px" : "24px", line: width < 768 ? "30px" : "32px", weight: "600", duplicateIds: false });
+        expect(state.blur).toBe(width < 640 ? "blur(4px)" : "blur(12px)");
+        expect(state.surface).toMatch(/^rgb\(/);
+        expect(state.overflow).toBeLessThanOrEqual(1);
+        for (const control of state.controls) {
+          expect(control.left).toBeGreaterThanOrEqual(state.left - 1);
+          expect(control.right).toBeLessThanOrEqual(state.right + 1);
+          expect(control.height).toBeGreaterThanOrEqual(44);
+        }
+        if ([390, 1440].includes(width)) await page.screenshot({ path: testInfo.outputPath(`profile-v18-${intent}.png`) });
+        await cancel.click();
+        await expect(dialog).toBeHidden();
+        await expect(opener).toBeFocused();
+      }
+      if (width === 390 && theme === "light") {
+        const report = testInfo.outputPath("profile-v18-frame-probe.json");
+        fs.writeFileSync(report, await page.evaluate(() => window.__hushhPerf?.export() ?? "{}"));
+        await testInfo.attach("profile-v18-frame-probe", { path: report, contentType: "application/json" });
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+    });
+  }
+}
+
+test("v18 320px open date calendar retains 44px targets without clipping", async ({ page }, testInfo) => {
+  await openRequests(page, 320, 568);
+  await page.getByRole("button", { name: "Request files", exact: true }).click();
+  await page.getByRole("button", { name: "Start date: Choose date" }).click();
+  const days = page.locator("[data-calendar-days] button");
+  await expect(days.first()).toBeVisible();
+  const regions = await page.locator('[data-task-region="body"]').evaluate(el => ({
+    width: el.getBoundingClientRect().width, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth,
+    calendar: document.querySelector("#mobile-document-calendar")!.getBoundingClientRect().toJSON(),
+  }));
+  await testInfo.attach("calendar-geometry", { body: JSON.stringify(regions), contentType: "application/json" });
+  await page.screenshot({ path: testInfo.outputPath("profile-v18-calendar.png") });
+  expect(regions.scrollWidth).toBeLessThanOrEqual(regions.clientWidth);
+  const layout = await days.evaluateAll(nodes => nodes.map(node => {
+    const r = node.getBoundingClientRect(); return { left: r.left, right: r.right, width: r.width, height: r.height, top: r.top };
+  }));
+  for (let i = 1; i < layout.length; i++) {
+    if (layout[i].top === layout[i - 1].top) expect(layout[i - 1].right).toBeLessThanOrEqual(layout[i].left + 0.1);
+  }
+  for (const r of layout) {
+    expect(r.left).toBeGreaterThanOrEqual(0);
+    expect(r.right).toBeLessThanOrEqual(320);
+    expect(r.width).toBeGreaterThanOrEqual(44);
+    expect(r.height).toBeGreaterThanOrEqual(44);
+  }
+  await days.first().click();
+  await expect(page.getByRole("group", { name: "Choose end date" })).toBeVisible();
+  await days.last().click();
+  await expect(page.locator("#mobile-document-calendar")).toBeHidden();
+});
+
+test("v18 acknowledged results preserve follow-ups, busy dismissal and focus", async ({ page }) => {
+  await openRequests(page, 390, 844);
+  for (const item of requestIntents) {
+    await page.getByRole("button", { name: item.trigger, exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    if (item.intent === "files") {
+      await dialog.getByLabel("Which files do you need?").fill("Bank statements");
+      await dialog.getByRole("button", { name: "Start date: Choose date" }).click();
+      await page.locator("[data-calendar-days] button").first().click();
+      await page.locator("[data-calendar-days] button").last().click();
+    } else if (item.intent !== "card") await dialog.getByLabel("Your question").fill("Which details can you share?");
+    await page.evaluate(() => { window.profileRequests.hold = true; });
+    await dialog.getByRole("button", { name: "Send request", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => window.profileRequests.calls.at(-1))).toBe(item.intent);
+    await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: /sent/ })).toHaveCount(0);
+    await page.evaluate(() => window.profileRequests.accept());
+    if (item.intent === "card") {
+      await expect(dialog).toBeHidden();
+      await expect(page.getByRole("button", { name: "Card request sent" })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Share profile" })).toBeFocused();
+    } else {
+      await expect(dialog.getByRole("heading", { name: item.intent === "files" ? "Request sent" : "Question sent", exact: true })).toBeFocused();
+      await expect(dialog.getByRole("link", { name: item.intent === "drive" ? "View question" : "View request", exact: true })).toBeVisible();
+      await expect(dialog.getByRole("button", { name: item.intent === "files" ? "Request more files" : "Ask another question", exact: true })).toBeVisible();
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    }
+  }
+});
+
+test("v18 phone keyboard and acknowledged native overlay seats keep actions reachable", async ({ page }) => {
+  await openRequests(page, 390, 844);
+  await page.evaluate(() => {
+    document.documentElement.classList.add("kb-open");
+    document.documentElement.style.setProperty("--kb-height", "300px");
+  });
+  await page.getByRole("button", { name: "Request scope", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeInViewport();
+  await expect.poll(() => dialog.evaluate(el => Math.round(el.getBoundingClientRect().bottom))).toBe(544);
+  await dialog.getByLabel("Your question").fill("A question while the keyboard is up");
+  await page.evaluate(() => {
+    document.documentElement.classList.add("native-reserved-chrome");
+    document.documentElement.style.setProperty("--native-overlay-top", "60px");
+    document.documentElement.style.setProperty("--native-overlay-bottom", "100px");
+  });
+  const seat = await dialog.evaluate(el => ({ top: el.getBoundingClientRect().top, bottom: el.getBoundingClientRect().bottom }));
+  expect(seat.top).toBeGreaterThanOrEqual(60);
+  expect(seat.bottom).toBeLessThanOrEqual(544);
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeInViewport();
 });

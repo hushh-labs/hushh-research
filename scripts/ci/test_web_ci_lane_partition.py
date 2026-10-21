@@ -250,6 +250,14 @@ def test_profile_and_shortcut_inputs_schedule_connections_browser_pack() -> None
         "hushh-webapp/components/connections/person-profile-hero.tsx",
         "hushh-webapp/e2e/person-profile-actions.layout.spec.ts",
         "hushh-webapp/e2e/fixtures/person-profile.tsx",
+        "hushh-webapp/e2e/fixtures/person-profile-requests.tsx",
+        "hushh-webapp/e2e/fixtures/person-profile-request-ports.tsx",
+        "hushh-webapp/components/app-ui/illustrated-request-dialog.tsx",
+        "hushh-webapp/components/app-ui/illustrated-request-dialog.module.css",
+        "hushh-webapp/components/consent/document-file-request.tsx",
+        "hushh-webapp/components/consent/document-request-button.tsx",
+        "hushh-webapp/components/consent/request-scope-button.tsx",
+        "hushh-webapp/components/wallet/request-cards-button.tsx",
     ):
         code, calls, output = _run(
             TARGETED,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -18,12 +18,9 @@ import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-ac
 import { Button } from "@/lib/morphy-ux/button";
 import {
   Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { IllustratedRequestContent, IllustratedRequestBody, IllustratedRequestActions } from "@/components/app-ui/illustrated-request-dialog";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 
 export function RequestCardsButton({
@@ -31,11 +28,13 @@ export function RequestCardsButton({
   personName,
   className,
   renderTrigger,
+  returnFocusRef,
 }: {
   personRef: string;
   personName: string;
   className?: string;
   renderTrigger?: (label: string) => ReactNode;
+  returnFocusRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const { user } = useAuth();
   const { vaultOwnerToken, vaultKey, isVaultUnlocked } = useVault();
@@ -49,6 +48,7 @@ export function RequestCardsButton({
   const [busy, setBusy] = useState(false),
     [sent, setSent] = useState(false),
     [error, setError] = useState<string | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const current = useRef({
     user,
     token: vaultOwnerToken,
@@ -175,6 +175,7 @@ export function RequestCardsButton({
   return (
     <>
       <Button
+        ref={triggerRef}
         type="button"
         variant="none"
         effect="fade"
@@ -186,13 +187,24 @@ export function RequestCardsButton({
         {renderTrigger?.(sent ? "Card request sent" : "Request cards") ?? (sent ? "Card request sent" : "Request cards")}
       </Button>
       <Dialog
+        modal
         open={open && isVaultUnlocked}
         onOpenChange={(value) => {
           if (!busy) setOpen(value);
         }}
       >
-        <DialogContent
-          className="sm:max-w-md"
+        <IllustratedRequestContent
+          intent="card"
+          title="Request a card"
+          description={`Ask ${personName} to choose a card to share with you.`}
+          showCloseButton={!busy}
+          onCloseAutoFocus={(event) => {
+            const target = sent ? returnFocusRef?.current : triggerRef.current;
+            if (target) {
+              event.preventDefault();
+              target.focus();
+            }
+          }}
           onInteractOutside={(event) => {
             if (busy) event.preventDefault();
           }}
@@ -200,17 +212,14 @@ export function RequestCardsButton({
             if (busy) event.preventDefault();
           }}
         >
-          <DialogHeader>
-            <DialogTitle>Request a card</DialogTitle>
-            <DialogDescription>
-              Ask {personName} to choose a card to share with you.
-            </DialogDescription>
-          </DialogHeader>
+          <IllustratedRequestBody>
           {error ? (
             <p role="alert" className="text-sm text-destructive">
               {error}
             </p>
           ) : null}
+          </IllustratedRequestBody>
+          <IllustratedRequestActions>
           <FlowActionGroup
             primary={
               <Button
@@ -235,7 +244,8 @@ export function RequestCardsButton({
               </Button>
             }
           />
-        </DialogContent>
+          </IllustratedRequestActions>
+        </IllustratedRequestContent>
       </Dialog>
       {user && unlockOpen ? (
         <VaultUnlockDialog

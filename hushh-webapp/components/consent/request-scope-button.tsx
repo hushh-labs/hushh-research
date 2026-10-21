@@ -26,14 +26,12 @@ import {
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { Button } from "@/lib/morphy-ux/button";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { IllustratedRequestContent, IllustratedRequestForm, IllustratedRequestBody, IllustratedRequestActions } from "@/components/app-ui/illustrated-request-dialog";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
 
@@ -178,10 +176,13 @@ export function RequestScopeButton({
           {renderTrigger?.("Request scope") ?? "Request scope"}
         </Button>
       </DialogTrigger> : null}
-      <DialogContent
+      <IllustratedRequestContent
+        intent="question"
+        title={created ? "Question sent" : "Ask a question"}
+        description={`To ${personName}`}
+        success={Boolean(created)}
         data-request-scope-dialog
-        className="max-h-[85dvh] overflow-y-auto sm:max-w-md"
-        showCloseButton={Boolean(created) || gate.kind !== "ready"}
+        showCloseButton={!busy}
         srDescription={`Ask ${personName} a question.`}
         onCloseAutoFocus={(event) => {
           if (!canRequest && returnFocusRef?.current) {
@@ -190,14 +191,8 @@ export function RequestScopeButton({
           }
         }}
       >
-        <DialogHeader className="text-left">
-          <DialogTitle>Request scope</DialogTitle>
-          <HelperText as="p" className="break-words">
-            To {personName}
-          </HelperText>
-        </DialogHeader>
         {created ? (
-          <div className="min-w-0 space-y-4">
+          <IllustratedRequestBody>
             <BodyText role="status">
               Request sent. {personName} reviews the question and the exact
               information it would use, then sets a price.
@@ -224,14 +219,14 @@ export function RequestScopeButton({
             >
               Ask another question
             </Button>
-          </div>
+          </IllustratedRequestBody>
         ) : gate.kind === "checking" ? (
-          <BodyText role="status">Checking whether this can be sent…</BodyText>
+          <IllustratedRequestBody><BodyText role="status">Checking whether this can be sent…</BodyText></IllustratedRequestBody>
         ) : gate.kind === "disabled" ? (
           // A reason and a next step, not a dead control. Deliberately does
           // not name an env flag: the person reading it cannot set one. No
           // retry, because retrying cannot change a deployment setting.
-          <div className="min-w-0 space-y-4">
+          <IllustratedRequestBody>
             <BodyText role="status">
               Requests are not switched on here yet, so this question cannot
               be sent. Nothing has been sent to {personName}.
@@ -239,11 +234,11 @@ export function RequestScopeButton({
             <Button type="button" size="standard" variant="none" onClick={close}>
               Close
             </Button>
-          </div>
+          </IllustratedRequestBody>
         ) : gate.kind === "blocked" ? (
           // Signed out or unreachable: a different cause from a disabled
           // lane, so it gets its own words and a retry that can succeed.
-          <div className="min-w-0 space-y-4">
+          <IllustratedRequestBody>
             <BodyText role="status">
               {gate.message} Nothing has been sent to {personName}.
             </BodyText>
@@ -257,17 +252,17 @@ export function RequestScopeButton({
             <Button type="button" size="standard" variant="none" onClick={close}>
               Close
             </Button>
-          </div>
+          </IllustratedRequestBody>
         ) : (
-          <form
-            className="min-w-0 space-y-[var(--app-form-section-gap)]"
+          <IllustratedRequestForm
             onSubmit={(event) => {
               event.preventDefault();
               void submit();
             }}
           >
+            <IllustratedRequestBody>
             <div className="space-y-[var(--app-form-field-gap)]">
-              <Label htmlFor="answer-request-question">Question</Label>
+              <Label htmlFor="answer-request-question">Your question</Label>
               <Textarea
                 id="answer-request-question"
                 value={question}
@@ -275,7 +270,7 @@ export function RequestScopeButton({
                 maxLength={2000}
                 required
                 disabled={busy}
-                placeholder="E.g. What is your age?"
+                placeholder="What is the best way to contact you?"
               />
             </div>
             <HelperText as="p">{ANSWER_REQUEST_HELPER}</HelperText>
@@ -284,6 +279,8 @@ export function RequestScopeButton({
                 {error}
               </HelperText>
             ) : null}
+            </IllustratedRequestBody>
+            <IllustratedRequestActions>
             <FlowActionGroup
               primary={
                 <Button
@@ -306,9 +303,10 @@ export function RequestScopeButton({
                 </Button>
               }
             />
-          </form>
+            </IllustratedRequestActions>
+          </IllustratedRequestForm>
         )}
-      </DialogContent>
+      </IllustratedRequestContent>
     </Dialog>
   );
 }
