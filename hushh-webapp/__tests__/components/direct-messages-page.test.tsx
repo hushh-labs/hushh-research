@@ -13,6 +13,7 @@ import type { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { DirectMessageVoiceRecorder } from "@/components/direct-messages/direct-message-voice-recorder";
 import { DirectMessageVoicePlayer } from "@/components/direct-messages/direct-message-voice-player";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 const mocks = vi.hoisted(() => {
@@ -45,6 +46,7 @@ const mocks = vi.hoisted(() => {
     getConversationWithPerson: vi.fn(),
     getConversationMessages: vi.fn(),
     getAttachment: vi.fn(),
+    getViewerProfile: vi.fn(),
     markConversationRead: vi.fn(),
     acknowledgeDelivery: vi.fn(),
     captureStart: vi.fn(), captureFinish: vi.fn(), captureCancel: vi.fn(),
@@ -158,6 +160,10 @@ vi.mock("@/lib/services/direct-messages-service", async (importOriginal) => ({
   },
 }));
 
+vi.mock("@/lib/services/person-profile-service", () => ({
+  PersonProfileService: { getViewer: (...args: unknown[]) => mocks.getViewerProfile(...args) },
+}));
+
 vi.mock("@/lib/services/connections-service", () => ({
   ConnectionsService: { listConnectionsPage: (...args: unknown[]) => mocks.listConnectionsPage(...args) },
 }));
@@ -232,6 +238,7 @@ describe("DirectMessagesPage", () => {
     mocks.router.replace.mockReset();
     mocks.liveMessageEvents = false;
     mocks.user.getIdToken.mockClear();
+    mocks.getViewerProfile.mockReset().mockResolvedValue({ personRef: "person-1", relationship: { status: "connected" }, contactEmail: null, contactPhoneNumber: null });
     mocks.listConversations.mockResolvedValue({
       items: [mocks.conversation],
       unreadCount: 0,
@@ -314,6 +321,13 @@ describe("DirectMessagesPage", () => {
   });
 
   function arrangePhoto() {
+    const decode = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("Image", class {
+      src = "";
+      naturalWidth = 400;
+      naturalHeight = 300;
+      decode = decode;
+    });
     const observers = new Map<Element, IntersectionObserverCallback>();
     vi.stubGlobal("IntersectionObserver", class {
       constructor(private callback: IntersectionObserverCallback) {}
@@ -324,13 +338,13 @@ describe("DirectMessagesPage", () => {
     const create = vi.fn(() => "blob:fixture-photo"), revoke = vi.fn();
     vi.stubGlobal("URL", class extends URL { static createObjectURL = create; static revokeObjectURL = revoke; });
     mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation,
-      items: [{ ...visibleMessage, attachment: { kind: "photo", name: "photo.png", mimeType: "image/png", size: 24 } }],
+      items: [{ ...visibleMessage, attachment: { kind: "photo", name: "Photo", mimeType: "image/png", size: 24 } }],
       canSend: true, disconnectedNotice: null, nextBefore: null });
     const enterViewport = () => {
-      const target = [...observers.keys()].find(node => node.textContent?.includes("photo.png"))!;
+      const target = [...observers.keys()].find(node => node.querySelector('button[aria-label="Load photo"]'))!;
       act(() => observers.get(target)!([{ target, isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
     };
-    return { create, revoke, enterViewport };
+    return { create, revoke, enterViewport, decode };
   }
 
   it("confirms whole-chat deletion and removes it only after acknowledgment", async () => {
@@ -458,7 +472,7 @@ describe("DirectMessagesPage", () => {
     renderConnectionThread();
     expect(await screen.findByText(visibleMessage.content)).toBeVisible();
     const profileLinks = () => screen.getAllByRole("link", { name: "View Ankit Kumar Singh's profile" });
-    expect(profileLinks()).toHaveLength(2);
+    expect(profileLinks()).toHaveLength(1);
     await fireEvent.click(screen.getByRole("button", { name: "Contact info", exact: true }));
     expect(within(screen.getByRole("dialog")).getByRole("link", { name: "View Ankit Kumar Singh's profile" }))
       .toHaveAttribute("href", "/people/person-1?from=%2Fone%2Fmessages");
@@ -521,29 +535,58 @@ describe("DirectMessagesPage", () => {
     const photo = arrangePhoto();
     mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
     const view = renderConnectionThread();
-    await screen.findByText("photo.png");
+    await screen.findByRole("button", { name: "Load photo" });
     expect(mocks.getAttachment).not.toHaveBeenCalled();
     photo.enterViewport();
-    expect(await screen.findByRole("img", { name: "photo.png" })).toHaveAttribute("src", "blob:fixture-photo");
+    expect(await screen.findByRole("img", { name: "Photo" })).toHaveAttribute("src", "blob:fixture-photo");
     expect(mocks.getAttachment).toHaveBeenCalledOnce();
+    expect(screen.queryByText("photo.png")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open photo", exact: true }));
+    expect(await screen.findByRole("img", { name: "Shared photo" })).toBeVisible();
+    act(() => { expect(unwindBackLayer("/one/messages")).toBe(true); });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Open photo", exact: true })).toBeVisible();
     view.unmount();
     expect(photo.revoke).toHaveBeenCalledWith("blob:fixture-photo");
   });
 
-  it("keeps Open available after an automatic photo failure and retries explicitly", async () => {
+  it.each(["download", "decode"])("keeps Open available after an automatic photo %s failure and retries explicitly", async (failure) => {
     const photo = arrangePhoto();
-    mocks.getAttachment.mockRejectedValueOnce(new Error("Temporary download failure"))
-      .mockResolvedValueOnce(new Blob(["synthetic-photo"], { type: "image/png" }));
+    mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
+    if (failure === "download") mocks.getAttachment.mockRejectedValueOnce(new Error("Temporary download failure"));
+    else photo.decode.mockRejectedValueOnce(new Error("Temporary decode failure"));
     const view = renderConnectionThread();
-    await screen.findByText("photo.png");
+    await screen.findByRole("button", { name: "Load photo" });
     photo.enterViewport();
-    const open = screen.getByRole("button", { name: "Open photo.png" });
+    const open = screen.getByRole("button", { name: /Loading photo|Load photo/ });
     await waitFor(() => expect(mocks.getAttachment).toHaveBeenCalledOnce());
     await waitFor(() => expect(open).toBeEnabled());
     fireEvent.click(open);
-    expect(await screen.findByRole("img", { name: "photo.png" })).toHaveAttribute("src", "blob:fixture-photo");
+    expect(await screen.findByRole("img", { name: "Photo" })).toHaveAttribute("src", "blob:fixture-photo");
     expect(mocks.getAttachment).toHaveBeenCalledTimes(2);
     view.unmount();
+  });
+
+  it.each(["automatic", "retry"])("releases a decoding photo immediately when its conversation unmounts (%s)", async (mode) => {
+    const photo = arrangePhoto();
+    let finish!: () => void;
+    photo.decode.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }));
+    mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
+    if (mode === "retry") mocks.getAttachment.mockRejectedValueOnce(new Error("Temporary download failure"));
+    const view = renderConnectionThread();
+    await screen.findByRole("button", { name: "Load photo" });
+    photo.enterViewport();
+    if (mode === "retry") {
+      const retry = await screen.findByRole("button", { name: "Load photo" });
+      await waitFor(() => expect(retry).toBeEnabled());
+      fireEvent.click(retry);
+    }
+    await waitFor(() => expect(photo.decode).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("img", { name: "Photo" })).not.toBeInTheDocument();
+    view.unmount();
+    expect(photo.revoke).toHaveBeenCalledWith("blob:fixture-photo");
+    await act(async () => finish());
+    expect(screen.queryByRole("img", { name: "Photo" })).not.toBeInTheDocument();
   });
 
   it("discards a pending inline photo when its conversation unmounts", async () => {
@@ -551,7 +594,7 @@ describe("DirectMessagesPage", () => {
     let finish!: (value: Blob) => void;
     mocks.getAttachment.mockImplementation(() => new Promise<Blob>(resolve => { finish = resolve; }));
     const view = renderConnectionThread();
-    await screen.findByText("photo.png");
+    await screen.findByRole("button", { name: "Load photo" });
     photo.enterViewport();
     await waitFor(() => expect(mocks.getAttachment).toHaveBeenCalledOnce());
     const input = mocks.getAttachment.mock.calls[0]![0];
@@ -559,6 +602,89 @@ describe("DirectMessagesPage", () => {
     expect(input.isEffectCurrent()).toBe(false);
     await act(async () => { finish(new Blob(["synthetic-photo"])); });
     expect(photo.create).not.toHaveBeenCalled();
+  });
+
+  it("previews selected photos instead of filenames and releases their local URLs", async () => {
+    const create = vi.fn().mockReturnValueOnce("blob:first").mockReturnValueOnce("blob:second"), revoke = vi.fn();
+    vi.stubGlobal("URL", class extends URL { static createObjectURL = create; static revokeObjectURL = revoke; });
+    const view = renderConnectionThread();
+    await screen.findByRole("textbox", { name: "Message Ankit Kumar Singh" });
+    const input = document.querySelector('input[accept="image/jpeg,image/png,image/webp"]')!;
+    fireEvent.change(input, { target: { files: [new File(["photo"], "private-photo.png", { type: "image/png" })] } });
+    expect(await screen.findByRole("img", { name: "Photo ready to send" })).toHaveAttribute("src", "blob:first");
+    expect(screen.queryByText(/private-photo.png/)).not.toBeInTheDocument();
+    fireEvent.change(input, { target: { files: [new File(["second"], "second.png", { type: "image/png" })] } });
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith("blob:first"));
+    expect(screen.getByRole("img", { name: "Photo ready to send" })).toHaveAttribute("src", "blob:second");
+    fireEvent.click(screen.getByRole("button", { name: "Remove attachment" }));
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith("blob:second"));
+    expect(screen.queryByRole("img", { name: "Photo ready to send" })).not.toBeInTheDocument();
+    view.unmount();
+  });
+
+  it("sends a finished voice note immediately and freezes an uncertain empty-content retry", async () => {
+    mocks.captureFinish.mockResolvedValue({ audioBase64: btoa(String.fromCharCode(...validVoiceWav())), mimeType: "audio/wav" });
+    mocks.sendMessage.mockRejectedValueOnce(new Error("Response lost"));
+    renderConnectionThread();
+    fireEvent.click(await screen.findByRole("button", { name: "Record voice message" }));
+    const send = await screen.findByRole("button", { name: "Send voice message" });
+    await waitFor(() => expect(send).toBeEnabled());
+    fireEvent.click(send);
+    await waitFor(() => expect(mocks.sendMessage).toHaveBeenCalledOnce());
+    const original = mocks.sendMessage.mock.calls[0]![0];
+    expect(original.content).toBe("");
+    expect(original.attachment).toMatchObject({ type: "audio/wav", size: 32044 });
+    const retry = await screen.findByRole("button", { name: "Retry", exact: true });
+    await waitFor(() => expect(retry).toBeEnabled());
+    expect(screen.getByRole("button", { name: "Remove attachment" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add attachment" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveAttribute("readonly");
+    fireEvent.click(retry);
+    await waitFor(() => expect(mocks.sendMessage).toHaveBeenCalledTimes(2));
+    expect(mocks.sendMessage.mock.calls[1]![0]).toEqual(original);
+    expect(mocks.sendMessage.mock.calls[1]![0].attachment).toBe(original.attachment);
+  });
+
+  it("opens authorized contact details from the name/photo and retires them on connection changes", async () => {
+    mocks.getViewerProfile.mockResolvedValue({ personRef: "person-1", relationship: { status: "connected" },
+      contactEmail: "ankit@example.com", contactPhoneNumber: "+15551234567" });
+    renderConnectionThread();
+    const identity = await screen.findByRole("button", { name: "Contact info", exact: true });
+    await waitFor(() => expect(identity).toBeEnabled());
+    expect(identity).toHaveTextContent("Ankit Kumar Singh");
+    fireEvent.click(identity);
+    expect(await screen.findByRole("link", { name: "ankit@example.com" })).toHaveAttribute("href", "mailto:ankit@example.com");
+    expect(screen.getByRole("link", { name: "+15551234567" })).toHaveAttribute("href", "tel:+15551234567");
+    expect(mocks.getViewerProfile).toHaveBeenCalledWith("person-1", "test-token");
+    mocks.getViewerProfile.mockResolvedValue({ personRef: "person-1", relationship: { status: "none" },
+      contactEmail: "must-not-project@example.com", contactPhoneNumber: "+15551234567" });
+    act(() => window.dispatchEvent(new CustomEvent("hushh:connection-graph-changed", { detail: { userId: "viewer-1", changedAt: Date.now() } })));
+    await waitFor(() => expect(mocks.getViewerProfile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(within(screen.getByRole("dialog")).queryByText(/Loading contact details/)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("link", { name: "ankit@example.com" })).not.toBeInTheDocument());
+    expect(screen.queryByRole("link", { name: "must-not-project@example.com" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "+15551234567" })).not.toBeInTheDocument();
+  });
+
+  it("does not request contact details for a read-only thread or project a late result after closing", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.getViewerProfile.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const view = renderConnectionThread();
+    const identity = await screen.findByRole("button", { name: "Contact info", exact: true });
+    await waitFor(() => expect(identity).toBeEnabled());
+    fireEvent.click(identity);
+    await waitFor(() => expect(mocks.getViewerProfile).toHaveBeenCalledOnce());
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await act(async () => finish({ personRef: "person-1", relationship: { status: "connected" }, contactEmail: "late@example.com" }));
+    expect(screen.queryByText("late@example.com")).not.toBeInTheDocument();
+    view.unmount();
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [visibleMessage], canSend: false, disconnectedNotice: "Blocked", nextBefore: null });
+    renderConnectionThread();
+    const readOnlyIdentity = await screen.findByRole("button", { name: "Contact info", exact: true });
+    await waitFor(() => expect(readOnlyIdentity).toBeEnabled());
+    fireEvent.click(readOnlyIdentity);
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Blocked");
+    expect(mocks.getViewerProfile).toHaveBeenCalledOnce();
   });
 
   it("acknowledges received inbox bodies, without treating sender messages or push hints as delivery", async () => {
@@ -575,11 +701,11 @@ describe("DirectMessagesPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Record voice message" }));
     await waitFor(() => expect(mocks.morphyToast.error).toHaveBeenCalledWith("Microphone enabled. Tap the mic again to record."));
     fireEvent.click(screen.getByRole("button", { name: "Record voice message" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Use voice recording" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send voice message" })).toBeEnabled());
     expect(mocks.captureInstances).toHaveLength(1);
     let finish!: (value: unknown) => void;
     mocks.captureFinish.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-    fireEvent.click(screen.getByRole("button", { name: "Use voice recording" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send voice message" }));
     act(() => appInteractionCoordinator.handleLifecycle("background"));
     await act(async () => { finish({ audioBase64: "invalid-stale-bytes" }); });
     expect(onRecorded).not.toHaveBeenCalled();
@@ -600,13 +726,13 @@ describe("DirectMessagesPage", () => {
     recording.release();
   });
 
-  it("stages a bounded WAV for explicit sending and releases the microphone", async () => {
+  it("validates a bounded WAV before handing it to the send owner and releases the microphone", async () => {
     mocks.captureFinish.mockResolvedValue({ audioBase64: btoa(String.fromCharCode(...validVoiceWav())), mimeType: "audio/wav" });
     const onRecorded = vi.fn(), onRecordingChange = vi.fn();
     render(<DirectMessageVoiceRecorder disabled={false} onRecorded={onRecorded} onRecordingChange={onRecordingChange} />);
     fireEvent.click(screen.getByRole("button", { name: "Record voice message" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Use voice recording" })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "Use voice recording" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send voice message" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Send voice message" }));
     await waitFor(() => expect(onRecorded).toHaveBeenCalledOnce());
     expect(onRecorded.mock.calls[0]![0]).toMatchObject({ name: "Voice message.wav", type: "audio/wav", size: 32044 });
     expect(mocks.sendMessage).not.toHaveBeenCalled();
@@ -1213,7 +1339,9 @@ describe("DirectMessagesPage", () => {
       pointer("pointerup");
     } finally { vi.useRealTimers(); }
     expect(within(screen.getByRole("menu")).queryByRole("group", { name: "Quick reactions" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: "React", exact: true }));
+    expect(screen.queryByRole("menuitem", { name: "React", exact: true })).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "React to message", exact: true }));
     fireEvent.change(await screen.findByPlaceholderText("Search emoji"), { target: { value: "heart" } });
     fireEvent.click(screen.getByRole("button", { name: "Use ❤️" }));
     await waitFor(() =>
@@ -1256,6 +1384,23 @@ describe("DirectMessagesPage", () => {
         replyToMessageId: "message-1",
       }),
     );
+  });
+
+  it.each(["edit", "delete"] as const)("reconciles the selected reply quote after a remote %s", async (change) => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    const history = { conversation: mocks.conversation, items: [visibleMessage], canSend: true, disconnectedNotice: null, nextBefore: null };
+    mocks.getConversationMessages.mockResolvedValue(history);
+    renderConnectionThread();
+    const content = await screen.findByText(visibleMessage.content);
+    fireEvent.click(content);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Reply", exact: true }));
+    expect(await screen.findByText("Replying to Ankit Kumar Singh")).toBeVisible();
+    mocks.getConversationMessages.mockResolvedValue({ ...history, items: [{ ...visibleMessage,
+      content: change === "edit" ? "Updated original" : "", deletedForEveryoneAt: change === "delete" ? "2026-10-06T10:02:00Z" : null }] });
+    act(() => window.dispatchEvent(new Event("focus")));
+    if (change === "delete") await waitFor(() => expect(screen.queryByText("Replying to Ankit Kumar Singh")).not.toBeInTheDocument());
+    else await waitFor(() => expect(document.querySelector('[class*="composerReplyPreview"]')).toHaveTextContent("Updated original"));
   });
 
   it("keeps a failed reply in the composer without a toast", async () => {

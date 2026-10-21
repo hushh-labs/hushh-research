@@ -783,3 +783,36 @@ Documentation-only changes require `./bin/hushh docs verify` from the repo root.
 Protected live rehearsal uses the existing reviewer workflow and same-session
 client navigation; fixture counts never establish the current person's circle
 memberships.
+
+## Direct Messages handoff
+
+The Messages subagent retains its existing theme and viewport-centered composer
+and dock. Its name/photo opens Contact info (see the
+[person profile contract](./person-profile.md)); there is no duplicate icon beside calling.
+The existing call capability remains gated.
+
+The message-options menu contains Reply, eligible Edit, and the existing delete
+choices. Reactions use the separate smiley picker, including after a touch hold;
+there is no duplicate React menu row. Reaction chips occupy their own row below
+the bubble and do not move the received-message avatar away from its bubble.
+Selected JPEG/PNG/WebP photos show a local image preview in the composer. Sent
+photos render as images, without document filename, size or MIME metadata; tap
+opens the shared dialog and Escape/overlay Back closes it. Document cards retain
+their filename/download behavior. Photo reads remain authenticated and lazy;
+failed loads can retry, retired visits cannot project bytes, and blob URLs are
+released on replacement, removal or unmount. A delayed photo retains an existing
+bottom pin when layout grows; a reader who has scrolled up keeps that position.
+Inline photos decode before display and reserve their bounded dimensions before
+paint, including in WebKit. Failed decoding remains retryable; retiring the
+conversation releases pending preview URLs immediately.
+
+Finishing a validated voice recording sends it through the existing send owner
+without a second attachment-approval step. Cancel/background/retired capture
+still discards it. While delivery is pending or uncertain, the draft, reply and
+attachment are frozen; Retry reuses the same file and client message ID, even
+when the text is empty. Remote edits update a selected reply quote; deletion
+clears that quote without inferring deletion merely from an unloaded history page.
+
+Source: [Messages](../../components/direct-messages/direct-messages-page.tsx),
+[voice recorder](../../components/direct-messages/direct-message-voice-recorder.tsx),
+[layout](../../components/direct-messages/direct-messages-page.module.css).
