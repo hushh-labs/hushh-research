@@ -71,22 +71,38 @@ class _Client:
 def _server(monkeypatch, *, last: int) -> TempPostgres:
     monkeypatch.setattr(postgres_harness, "MIGRATIONS", [])
     server = TempPostgres()
-    server.start()
-    schema = (ROOT / "db/legacy/init_legacy_schema.sql").read_text()
-    table = schema.split("CREATE TABLE IF NOT EXISTS consent_audit (", 1)[1].split(";", 1)[0]
-    server.execute("CREATE TABLE IF NOT EXISTS consent_audit (" + table)
-    server.execute("CREATE TABLE IF NOT EXISTS actor_profiles (user_id TEXT PRIMARY KEY)")
-    server.apply_file(ROOT / "db/migrations/201_account_deletion_tombstones.sql")
-    server.apply_file(PARKED / "915_personal_agent_renewal_authority.sql")
-    for name in FIRST:
-        server.apply_file(PARKED / name)
-    for path in sorted(PARKED.glob("*.sql")):
-        number = int(path.name.split("_", 1)[0])
-        # 944 (chat-history cutover) and 945 (MCP action authority) need chat and
-        # action tables this fixture omits; neither touches setup jobs or the registry.
-        if 918 <= number <= last and number not in (944, 945):
-            server.apply_file(path)
-    return server
+    try:
+        server.start()
+        schema = (ROOT / "db/legacy/init_legacy_schema.sql").read_text()
+        table = schema.split("CREATE TABLE IF NOT EXISTS consent_audit (", 1)[1].split(";", 1)[0]
+        server.execute("CREATE TABLE IF NOT EXISTS consent_audit (" + table)
+        server.execute("CREATE TABLE IF NOT EXISTS actor_profiles (user_id TEXT PRIMARY KEY)")
+        server.apply_file(ROOT / "db/migrations/201_account_deletion_tombstones.sql")
+        server.apply_file(PARKED / "915_personal_agent_renewal_authority.sql")
+        for name in FIRST:
+            server.apply_file(PARKED / name)
+        for path in sorted(PARKED.glob("*.sql")):
+            number = int(path.name.split("_", 1)[0])
+            # 944 (chat-history cutover) and 945 (MCP action authority) need chat and
+            # action tables this fixture omits; neither touches setup jobs or the registry.
+            if 918 <= number <= last and number not in (944, 945):
+                server.apply_file(path)
+        return server
+
+    except BaseException:
+        server.stop()
+        raise
+
+
+def test_failed_schema_setup_closes_its_temporary_database(monkeypatch):
+    from unittest.mock import Mock
+
+    failed = RuntimeError("synthetic schema setup failure")
+    server = SimpleNamespace(start=Mock(), execute=Mock(side_effect=failed), stop=Mock())
+    monkeypatch.setattr(f"{__name__}.TempPostgres", lambda: server)
+    with pytest.raises(RuntimeError, match="synthetic schema setup failure"):
+        _server(monkeypatch, last=951)
+    server.stop.assert_called_once_with()
 
 
 @pytest.fixture

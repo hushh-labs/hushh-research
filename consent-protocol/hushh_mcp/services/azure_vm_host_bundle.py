@@ -9,12 +9,14 @@ import io
 import json
 import re
 import tarfile
+from copy import deepcopy
 from pathlib import Path
 
 from browser_runtime.azure_host.config import APPARMOR_SHA256, SECCOMP_SHA256, validate
 from hushh_mcp.services.azure_setup_plan import ArmStep
 
 _SOURCE = Path(__file__).resolve().parents[2] / "browser_runtime/azure_host"
+_QUALIFICATION = _SOURCE.parent / "qualification.py"
 _MODULES = (
     "__init__.py",
     "config.py",
@@ -43,6 +45,7 @@ def installation_step(configuration: dict) -> tuple[ArmStep, str]:
     """
     value = validate(configuration)
     files = {"azure_host/" + name: (_SOURCE / name).read_bytes() for name in _MODULES}
+    files["browser_runtime/qualification.py"] = _QUALIFICATION.read_bytes()
     files.update({name: (_SOURCE / name).read_bytes() for name in _ASSETS})
     if (
         hashlib.sha256(files["seccomp.json"]).hexdigest() != SECCOMP_SHA256
@@ -96,7 +99,12 @@ def installation_step(configuration: dict) -> tuple[ArmStep, str]:
 
 
 def replacement_step(
-    configuration: dict, *, image: str, operation_id: str, idle_record: dict
+    configuration: dict,
+    *,
+    image: str,
+    operation_id: str,
+    idle_record: dict,
+    browser_qualification: dict | None = None,
 ) -> tuple[ArmStep, str]:
     """Fixed image-only action; caller retains exact release/JIT/idle authority.
 
@@ -105,7 +113,13 @@ def replacement_step(
     """
     from browser_runtime.azure_host.update import payload
 
-    value = payload(configuration, image=image, operation_id=operation_id, idle_record=idle_record)
+    value = payload(
+        configuration,
+        image=image,
+        operation_id=operation_id,
+        idle_record=idle_record,
+        browser_qualification=browser_qualification,
+    )
     return _replacement_action(value)
 
 
@@ -118,6 +132,7 @@ def replacement_from_binding(
     image: str,
     operation_id: str,
     idle_record: dict,
+    browser_qualification: dict | None = None,
 ) -> tuple[ArmStep, str]:
     """Prepare the same fixed action without exporting the host configuration.
 
@@ -148,14 +163,21 @@ def replacement_from_binding(
     expected_module = hashlib.sha256((_SOURCE / "update.py").read_bytes()).hexdigest()
     if update_module_sha256 != expected_module:
         raise ValueError("Installed VM updater is incompatible")
+    from browser_runtime.qualification import qualification_environment
+
+    # Validate before freezing the body, even though the root host checks again.
+    qualification_environment(
+        browser_qualification, image_digest=image.split("@", 1)[1], host_kind="azure_vm"
+    )
     return _replacement_action(
         {
-            "version": 1,
+            "version": 2,
             "operation_id": operation_id,
             "previous_configuration_sha256": configuration_sha256,
             "installation": identity.model_dump(),
             "image": image,
             "idle_record": dict(cursor),
+            "browser_qualification": deepcopy(browser_qualification),
         }
     )
 
@@ -167,12 +189,14 @@ def _replacement_action(value: dict) -> tuple[ArmStep, str]:
     if len(raw) > 131072:
         raise ValueError("VM image update exceeds its transport bound")
     module_digest = hashlib.sha256((_SOURCE / "update.py").read_bytes()).hexdigest()
+    qualification_digest = hashlib.sha256(_QUALIFICATION.read_bytes()).hexdigest()
     script = "\n".join(
         (
             "set -eu",
             "umask 077",
             "cd /opt/hussh-host",
             f'test "$(sha256sum azure_host/update.py | cut -d \' \' -f1)" = "{module_digest}"',
+            f'test "$(sha256sum browser_runtime/qualification.py | cut -d \' \' -f1)" = "{qualification_digest}"',
             "/usr/bin/python3 -E -s -m azure_host.update <<'HUSSH_IMAGE_UPDATE'",
             base64.b64encode(raw).decode(),
             "HUSSH_IMAGE_UPDATE",

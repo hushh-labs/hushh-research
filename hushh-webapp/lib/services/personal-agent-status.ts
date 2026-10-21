@@ -1,6 +1,8 @@
 /** Public status projection; lifecycle authority stays on the server. */
 export type PersonalAgentStatus = {
   filesActivationAvailable?: boolean;
+  /** A review may be requested; this is not installed Browser readiness. */
+  browserActivationAvailable?: boolean;
   aiSelection?: {
     version: number;
     providers: string[];

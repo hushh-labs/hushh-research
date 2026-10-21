@@ -187,3 +187,31 @@ def _update_offer(
                 update["operationId"] = str(approval["operationId"])
     out["update"] = update
     return out
+
+
+def capability_review_presentation(
+    row: dict | None, *, hosting_mode: str | None, state: str
+) -> dict:
+    """Cheap review discovery; actual capability offers still require live inspection."""
+    from hushh_mcp.services.pod_release import configured_release
+
+    metadata = (row or {}).get("backend_metadata") or {}
+    files_available = bool(
+        hosting_mode == "byoc"
+        and state == "active"
+        and (metadata or {}).get("upgradeLease") is None
+        and os.getenv("HUSSH_POD_FILES_ENABLED", "").lower() in {"1", "true"}
+        and ((metadata or {}).get("filesCapability") or {}).get("status") != "enabled"
+        and not ((metadata or {}).get("filesSetup") or {}).get("enabled")
+    )
+    from hushh_mcp.services.pod_browser.update_offer import browser_review_available
+
+    browser_target = str(os.getenv("HUSSH_ONE_POD_IMAGE") or "")
+    browser_available = browser_review_available(
+        row, browser_target, configured_release(browser_target)
+    )
+
+    return {
+        "filesActivationAvailable": files_available,
+        "browserActivationAvailable": browser_available,
+    }

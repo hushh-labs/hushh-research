@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { AgentUpdateActivity } from "@/components/profile/agent-update-activity";
+import { BrowserActivationPanel } from "@/components/computer-use/browser-activation-panel";
 import { AzureHostingNotice } from "@/components/profile/azure-hosting-notice";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
@@ -397,6 +398,10 @@ export function AgentSettingsPanel({
       {isPod ? <AgentUpdateActivity update={update} awaitingMicrosoft={awaitingMicrosoft} follow={azureUpdate}
         retryWithMicrosoft={ownerCloudProvider(status?.deploymentTarget) === "azure" && update.failed &&
           update.presentationState === "blocked" && Boolean(update.operationId)} /> : null}
+
+      {mode === "byoc" && status?.deploymentTarget === "user_gcp" && status.browserActivationAvailable ? (
+        <BrowserActivationPanel userId={userId} disabled={busy || working} onScheduled={refresh} />
+      ) : null}
 
       {release && update.available ? (
         <details className="text-sm">

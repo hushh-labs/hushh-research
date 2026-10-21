@@ -7,10 +7,13 @@ import argparse
 import base64
 import importlib.util
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# Load only the shared stdlib Browser contract, without importing the pod SDK.
+sys.path.insert(0, str(ROOT / "consent-protocol"))
 SPEC = importlib.util.spec_from_file_location(
     "pod_release_contract", ROOT / "consent-protocol/hushh_mcp/services/pod_release.py"
 )
@@ -40,7 +43,9 @@ def browser_qualifications(config: Path, *, image: str, source_sha: str) -> dict
         # Only reviewed source artifacts beside the pin; never arbitrary files,
         # URLs, parent traversal or following a link out of the artifact tree.
         if not receipt.is_relative_to(config.parent.resolve()) or not receipt.is_file():
-            raise ValueError("Browser qualification receipt is outside its reviewed tree")
+            raise ValueError(
+                "Browser qualification receipt is outside its reviewed tree"
+            )
         with receipt.open("rb") as stream:
             raw = stream.read(65537)
         qualifications.append(
@@ -70,7 +75,9 @@ def main() -> None:
     args = parser.parse_args()
     image = args.image_reference_file.read_text().strip()
     descriptor = contract.validate_descriptor(json.loads(args.descriptor.read_text()))
-    descriptor["version"] += "+" + args.source_sha[:12] + "." + image.rsplit(":", 1)[-1][:8]
+    descriptor["version"] += (
+        "+" + args.source_sha[:12] + "." + image.rsplit(":", 1)[-1][:8]
+    )
     release = contract.validate_release(
         {
             "schemaVersion": 1,
@@ -92,7 +99,9 @@ def main() -> None:
     )
     encoded = json.dumps(release, separators=(",", ":"), sort_keys=True).encode()
     args.output.write_bytes(encoded + b"\n")
-    args.output.with_suffix(".b64").write_text(base64.b64encode(encoded).decode() + "\n")
+    args.output.with_suffix(".b64").write_text(
+        base64.b64encode(encoded).decode() + "\n"
+    )
 
 
 if __name__ == "__main__":

@@ -47,6 +47,16 @@ afterEach(() => {
 });
 
 describe("ApiService.getPersonalAgentStatus", () => {
+  it("carries the exact Browser plan digest through authenticated approval", async () => {
+    const spy = mockFetchOnce({ operationId: "op_browser", status: "scheduled" });
+    const input = { releaseId: "rel_browser", browserPlanDigest: "b".repeat(64), idempotencyKey: "same-click" };
+    await ApiService.approvePersonalAgentUpdate(input);
+    const [path, init] = spy.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/one/personal-agent/update/approve");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer firebase-id-token");
+    expect(JSON.parse(init.body as string)).toEqual(input);
+  });
+
   it("sends an Authorization bearer", async () => {
     const spy = mockFetchOnce({ state: "active" });
     await ApiService.getPersonalAgentStatus();

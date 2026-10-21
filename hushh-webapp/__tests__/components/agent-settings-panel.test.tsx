@@ -1,8 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
 import { NO_UPDATE } from "@/lib/feed/use-agent-deployment-follow";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const mocks = vi.hoisted(() => ({
   follow: vi.fn(),
@@ -20,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   setupStatus: vi.fn(),
   assign: vi.fn(),
   azureHosting: vi.fn(),
+  browserPlan: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/lib/utils/browser-navigation", async (original) => ({
@@ -41,6 +44,7 @@ vi.mock("@/lib/services/api-service", () => ({
     beginAzureByocUpgrade: mocks.azureUpgrade,
     getByocSetupStatus: mocks.setupStatus,
     getAzureHosting: mocks.azureHosting,
+    getPersonalAgentBrowserPlan: mocks.browserPlan,
   },
 }));
 vi.mock("@/lib/morphy-ux/morphy", async (original) => ({
@@ -70,6 +74,49 @@ beforeEach(() => {
 });
 
 describe("owner hosting and software settings", () => {
+  it("reviews Browser separately, unwinds Back, and reuses one exact approval after a lost response", async () => {
+    status("byoc", { deploymentTarget: "user_gcp", browserActivationAvailable: true });
+    mocks.browserPlan.mockResolvedValue({
+      releaseId: "rel_browser", browserPlanDigest: "b".repeat(64), summary: "Public research only.",
+      changes: ["Screens are processed by your selected model."], model: "Owner model",
+      publicPolicy: { page_urls: ["https://example.com/research"], static_prefixes: [] }, resources: {},
+    });
+    mocks.approve.mockRejectedValueOnce(new Error("response lost")).mockResolvedValueOnce({ status: "scheduled" });
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+    fireEvent.click(screen.getByRole("button", { name: "Review Browser setup" }));
+    await screen.findByText("Public research only.");
+    expect(mocks.approve).not.toHaveBeenCalled();
+    expect(screen.getByText("https://example.com/research")).toBeTruthy();
+    await act(async () => {});
+    act(() => expect(unwindBackLayer(ROUTES.PROFILE_SOFTWARE_UPDATES)).toBe(true));
+    await waitFor(() => expect(screen.queryByText("Public research only.")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Review Browser setup" }));
+    const approve = await screen.findByRole("button", { name: "Approve Browser setup" });
+    fireEvent.click(approve);
+    fireEvent.click(approve);
+    await waitFor(() => expect((approve as HTMLButtonElement).disabled).toBe(false));
+    expect(mocks.approve).toHaveBeenCalledOnce();
+    const first = mocks.approve.mock.calls[0][0];
+    expect(first).toEqual({ releaseId: "rel_browser", browserPlanDigest: "b".repeat(64), idempotencyKey: expect.any(String) });
+    fireEvent.click(approve);
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+    expect(mocks.approve.mock.calls[1][0]).toEqual(first);
+  });
+
+  it("discards Browser review when the authenticated owner changes away and back", async () => {
+    status("byoc", { deploymentTarget: "user_gcp", browserActivationAvailable: true });
+    let resolve!: (value: object) => void;
+    mocks.browserPlan.mockReturnValue(new Promise(done => { resolve = done; }));
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+    fireEvent.click(screen.getByRole("button", { name: "Review Browser setup" }));
+    publishValidatedAuthSessionOwner("other-owner");
+    publishValidatedAuthSessionOwner("owner");
+    resolve({ releaseId: "stale", summary: "Stale Browser policy" });
+    await waitFor(() => expect((screen.getByRole("button", { name: "Review Browser setup" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByText("Stale Browser policy")).toBeNull();
+    expect(mocks.approve).not.toHaveBeenCalled();
+  });
+
   it("tells an Azure owner Microsoft removed the idle hosting space, with one rebuild", async () => {
     status("byoc", { state: "active", deploymentTarget: "user_azure" });
     mocks.azureHosting.mockResolvedValue({ state: "hosting_reclaimed", rebuildable: true, rebuild: null });

@@ -249,6 +249,8 @@ def build_vm_image_update(
     source = str(spec.upgrade_target_image or "")
     registry, repository, image_digest = import_source(source)
     destination = host.image.split("@", 1)[0] + "@" + image_digest
+    from hushh_mcp.services.pod_release import approved_browser_qualification
+
     replacement, payload_sha = replacement_from_binding(
         installation=host.installation.model_dump(),
         previous_image=host.image,
@@ -257,6 +259,9 @@ def build_vm_image_update(
         image=destination,
         operation_id=approval["operationId"],
         idle_record=idle_record,
+        browser_qualification=approved_browser_qualification(
+            approval, source, host_kind="azure_vm"
+        ),
     )
     steps = (
         ArmStep(

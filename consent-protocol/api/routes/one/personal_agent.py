@@ -11,13 +11,12 @@ from __future__ import annotations
 
 import logging
 import os
-import uuid
 from datetime import datetime, timedelta, timezone
 from hmac import compare_digest
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares.rate_limit import RateLimits, limiter
@@ -102,6 +101,16 @@ class UpgradeApprovalRequest(BaseModel):
     capability_plan_digest: str | None = Field(
         default=None, alias="capabilityPlanDigest", pattern=r"^[0-9a-f]{64}$"
     )
+
+    browser_plan_digest: str | None = Field(
+        default=None, alias="browserPlanDigest", pattern=r"^[0-9a-f]{64}$"
+    )
+
+    @model_validator(mode="after")
+    def separate_capabilities(self):
+        if self.capability_plan_digest is not None and self.browser_plan_digest is not None:
+            raise ValueError("Review Browser and Files as separate configuration changes")
+        return self
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -389,7 +398,10 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
     try:
         installed_release_id = (
             upgrade_release_id(
-                row, approved_target, capability_digest=(approval or {}).get("capabilityPlanDigest")
+                row,
+                approved_target,
+                capability_digest=(approval or {}).get("capabilityPlanDigest"),
+                browser_digest=(approval or {}).get("browserPlanDigest"),
             )
             if approved_target
             else None
@@ -461,7 +473,7 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
     release = upgrade_release_id(row, target_reference or target)
     if (
         isinstance(approval, dict)
-        and approval.get("capabilityPlanDigest")
+        and (approval.get("capabilityPlanDigest") or approval.get("browserPlanDigest"))
         and upgrade_approval_matches(row, target_reference or target)
     ):
         out["updateAvailable"] = True
@@ -619,13 +631,10 @@ async def resolve_personal_agent_status(
         result["hostReady"] = bool(metadata.get("ready"))
     result["aiSelection"] = observed_ai_selection(metadata)  # None: an older agent
     result.update(direct_ingress.direct_ingress_status(metadata))
-    result["filesActivationAvailable"] = bool(
-        result.get("hostingMode") == "byoc"
-        and state == "active"
-        and (metadata or {}).get("upgradeLease") is None
-        and os.getenv("HUSSH_POD_FILES_ENABLED", "").lower() in {"1", "true"}
-        and ((metadata or {}).get("filesCapability") or {}).get("status") != "enabled"
-        and not ((metadata or {}).get("filesSetup") or {}).get("enabled")
+    from hushh_mcp.services.pod_update_presentation import capability_review_presentation
+
+    result.update(
+        capability_review_presentation(row, hosting_mode=result.get("hostingMode"), state=state)
     )
 
     # Installed version ("an upgrade is a software update at login"), once a pod serves.
@@ -676,6 +685,14 @@ async def plan_personal_agent_files_update(user_id: str = Depends(require_fireba
     return offer
 
 
+@router.post("/update/browser-plan")
+async def plan_personal_agent_browser_update(user_id: str = Depends(require_firebase_auth)) -> dict:
+    _require_enabled()
+    from api.routes.one.personal_agent_browser_update import browser_offer
+
+    return await browser_offer(user_id=user_id)
+
+
 @router.post("/update/approve")
 async def approve_personal_agent_update(
     payload: UpgradeApprovalRequest = Body(...),
@@ -683,6 +700,10 @@ async def approve_personal_agent_update(
 ) -> dict:
     """Approve one exact release; reconciliation performs the later mutation."""
     _require_enabled()
+    if payload.browser_plan_digest is not None:
+        from api.routes.one.personal_agent_browser_update import approve_browser_update
+
+        return await approve_browser_update(payload, user_id=user_id)
     repo, row, target_reference, release_id, release_metadata = await _upgrade_offer(
         user_id, capability=payload.capability_plan_digest is not None
     )
@@ -724,70 +745,18 @@ async def approve_personal_agent_update(
         release_id = upgrade_release_id(row, target_reference, capability_digest=plan.digest)
     if not compare_digest(payload.release_id, release_id):
         raise HTTPException(status_code=409, detail="this software update is no longer current")
-    existing = (row.get("backend_metadata") or {}).get("upgradeApproval")
-    if isinstance(existing, dict) and existing.get("releaseId") == release_id:
-        operation_id = str(existing.get("operationId") or "").strip()
-        if operation_id:
-            if not compare_digest(
-                str(existing.get("idempotencyKey") or ""), payload.idempotency_key
-            ):
-                raise HTTPException(
-                    status_code=409,
-                    detail="this software update already has a different operation key",
-                )
-            return {
-                "operationId": operation_id,
-                "releaseId": release_id,
-                "status": str(existing.get("operationState") or "scheduled"),
-            }
-    operation_id = "op_" + uuid.uuid4().hex
-    now = datetime.now(timezone.utc).isoformat()
-    approval = {
-        "version": 1,
-        "status": "approved",
-        "releaseId": release_id,
-        "operationId": operation_id,
-        "idempotencyKey": payload.idempotency_key,
-        "ownerId": user_id,
-        "hushhId": row.get("hushh_id"),
-        "podIncarnation": str(
-            (row.get("backend_metadata") or {}).get("serviceUid")
-            or row.get("external_agent_id")
-            or (row.get("backend_metadata") or {}).get("service")
-            or "unknown"
-        ),
-        "targetImage": target_reference,
-        "releaseMetadata": release_metadata,
-        "approvedAt": now,
-        **(
-            {"capabilityPlan": plan.model_dump(), "capabilityPlanDigest": plan.digest}
-            if plan
-            else {}
-        ),
-    }
-    stored = await repo.record_upgrade_approval(user_id=user_id, approval=approval)
-    if not isinstance(stored, dict) or stored.get("releaseId") != release_id:
-        # Another device won the conditional write. Return its operation when it
-        # is the same release; a changed release is a stale client request.
-        latest = await repo.get(user_id)
-        winner = ((latest or {}).get("backend_metadata") or {}).get("upgradeApproval")
-        if isinstance(winner, dict) and winner.get("releaseId") == release_id:
-            if not compare_digest(str(winner.get("idempotencyKey") or ""), payload.idempotency_key):
-                raise HTTPException(
-                    status_code=409,
-                    detail="this software update already has a different operation key",
-                )
-            return {
-                "operationId": str(winner.get("operationId") or operation_id),
-                "releaseId": release_id,
-                "status": str(winner.get("operationState") or "scheduled"),
-            }
-        raise HTTPException(status_code=409, detail="software update approval was superseded")
-    return {
-        "operationId": str(stored.get("operationId") or operation_id),
-        "releaseId": release_id,
-        "status": str(stored.get("operationState") or "scheduled"),
-    }
+    from api.routes.one.personal_agent_update_approval import persist_update_approval
+
+    return await persist_update_approval(
+        repo=repo,
+        row=row,
+        user_id=user_id,
+        payload=payload,
+        target_image=target_reference,
+        release_id=release_id,
+        release_metadata=release_metadata,
+        files_plan=plan,
+    )
 
 
 @router.post("/update/defer")

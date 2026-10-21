@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import base64
+import gzip
 import hashlib
+import io
 import json
+import subprocess
+import sys
+import tarfile
 from copy import deepcopy
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -14,7 +20,7 @@ from browser_runtime.azure_host import update
 from hushh_mcp.services.azure_arm_client import API_VERSIONS
 from hushh_mcp.services.azure_arm_mutations import body_commitment
 from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
-from hushh_mcp.services.azure_vm_host_bundle import _SOURCE, replacement_step
+from hushh_mcp.services.azure_vm_host_bundle import _SOURCE, installation_step, replacement_step
 from hushh_mcp.services.azure_vm_upgrade_plan import build_vm_image_update
 from tests.test_azure_vm_host import installation
 from tests.test_compute_backend import _vm_spec_and_metadata
@@ -163,6 +169,71 @@ def test_vm_tag_patch_cannot_be_reinterpreted_as_an_ordinary_setup_post():
     assert refused.value.code == "PLAN_ACTION_UNSUPPORTED"
 
 
+@pytest.mark.parametrize("qualified", [False, True])
+def test_vm_refreshes_only_captured_image_evidence_and_keeps_owner_policy(monkeypatch, qualified):
+    from pathlib import Path
+
+    from hushh_mcp.services.pod_browser.deployment import BrowserOwnerPolicy
+    from hushh_mcp.services.pod_browser.execution_authority import PublicResearchPolicy
+    from tests.helpers.pod_browser import readiness
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("HUSSH_ONE_POD_RELEASE_B64", "unrelated-new-offer")
+    row, spec, previous, cursor = _approved()
+    policy = BrowserOwnerPolicy(
+        version=1,
+        pod_id=spec.hushh_id,
+        pod_key_id=row["pod_key_id"],
+        public_policy=PublicResearchPolicy(page_urls=("https://example.com/research",)),
+    )
+    previous["environment"].update(
+        POD_COMPUTER_USE_ENABLED="true",
+        HUSSH_BROWSER_POLICY_JSON=policy.model_dump_json(),
+        HUSSH_BROWSER_QUALIFICATION_JSON="old-image-evidence",
+    )
+    row["backend_metadata"]["vmConfigurationSha256"] = update.digest(previous)
+    release = json.loads((Path(__file__).parent / "fixtures/pod_release.v1.json").read_text())
+    release["image"] = spec.upgrade_target_image
+    qualification = {
+        "version": 1,
+        "host_kind": "azure_vm",
+        "source_revision": release["sourceRevision"],
+        "image_tag": "source",
+        "evidence_sha256": "f" * 64,
+        "public_policy_sha256": policy.public_policy.digest,
+        "readiness": readiness(cloud="azure", component_digest="sha256:" + "d" * 64).model_dump(),
+    }
+    if qualified:
+        release["browserQualifications"] = [qualification]
+    row["backend_metadata"]["upgradeApproval"]["releaseMetadata"] = release
+    # PodSpec cannot override the evidence captured by the approved release.
+    spec = replace(spec, browser_qualification={"untrusted": "selection"})
+    plan = build_vm_image_update(row, spec, idle_record=cursor)
+    script = plan.steps()[1].body["script"][0]
+    assert script.index("sha256sum browser_runtime/qualification.py") < script.index(
+        "/usr/bin/python3"
+    )
+    raw = script.split("HUSSH_IMAGE_UPDATE'\n", 1)[1].split("\n", 1)[0]
+    request = json.loads(base64.b64decode(raw))
+    assert request["browser_qualification"] == (qualification if qualified else None)
+    assert update.digest(request) == plan.host_request_sha256
+    replacement = update.target(previous, request)
+    expected = {
+        key: value
+        for key, value in previous["environment"].items()
+        if key != "HUSSH_BROWSER_QUALIFICATION_JSON"
+    }
+    expected["HUSSH_POD_INSTALLED_IMAGE_DIGEST"] = "sha256:" + "d" * 64
+    if qualified:
+        expected["HUSSH_BROWSER_QUALIFICATION_JSON"] = json.dumps(
+            qualification, sort_keys=True, separators=(",", ":")
+        )
+        request["browser_qualification"]["readiness"]["component_digest"] = "sha256:" + "0" * 64
+        with pytest.raises(update.HostRefused, match="HOST_BROWSER_QUALIFICATION_INVALID"):
+            update.target(previous, request)
+    assert replacement["environment"] == expected
+
+
 @pytest.mark.parametrize("changed", [False, True])
 def test_payload_bound_dispatch_commits_the_complete_script_and_freezes_caller_input(changed):
     from hushh_mcp.services.azure_arm_client import ArmClient, ArmError
@@ -193,3 +264,50 @@ def test_payload_bound_dispatch_commits_the_complete_script_and_freezes_caller_i
     assert "synthetic-private-value" not in repr(journal.events) and _BEARER not in repr(
         journal.events
     )
+
+
+def test_installer_is_deterministic_bounded_and_keeps_normal_image_entrypoint(tmp_path):
+    value = installation()
+    step, digest = installation_step(value)
+    assert installation_step(deepcopy(value)) == (step, digest)
+    script = step.body["script"][0]
+    packed = base64.b64decode(
+        script.split("HUSSH_HOST_BUNDLE' | tar --no-same-owner -xzf -\n", 1)[1].split("\n", 1)[0]
+    )
+    assert len(packed) <= 49152
+    with tarfile.open(fileobj=io.BytesIO(gzip.decompress(packed))) as archive:
+        names = archive.getnames()
+        assert all(not name.startswith("/") and ".." not in Path(name).parts for name in names)
+        stored = archive.extractfile("installation.json").read()
+        assert json.loads(stored) == value
+        assert archive.getmember("installation.json").mode == 0o600
+        assert set(name for name in names if name.endswith(".py")) == {
+            "browser_runtime/qualification.py"
+        } | {
+            "azure_host/" + name
+            for name in (
+                "__init__.py",
+                "config.py",
+                "credentials.py",
+                "engine.py",
+                "runner.py",
+                "tls.py",
+                "update.py",
+            )
+        }
+        archive.extractall(tmp_path, filter="data")
+    imported = subprocess.run(  # noqa: S603 -- fixed stdlib-only import; no external executable/input
+        [
+            sys.executable,
+            "-S",
+            "-c",
+            "import azure_host.update, sys; assert 'hushh_mcp' not in sys.modules",
+        ],
+        cwd=tmp_path,
+        env={},
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    assert imported.returncode == 0, imported.stderr.decode()
+    assert step.path.endswith("/virtualMachines/agent/runCommand")

@@ -155,6 +155,8 @@ from hushh_mcp.services.pod_request_identity_store import (
     signing_key_columns,
 )
 from hushh_mcp.services.pod_update_identity import (
+    approved_browser_plan,
+    configuration_approval_pending,
     merged_upgrade_metadata,
     verified_image_changed,
     verified_upgrade_approval,
@@ -217,7 +219,10 @@ def _approval_is_well_formed(
     """Validate the durable approval envelope without making a provider call."""
     if not isinstance(approval, dict) or (row or {}).get("user_id") is None:
         return False
-    if type(approval.get("version")) is not int or approval["version"] != UPGRADE_APPROVAL_VERSION:
+    if type(approval.get("version")) is not int or approval["version"] not in {
+        UPGRADE_APPROVAL_VERSION,
+        2,
+    }:
         return False
     target = str(approval.get("targetImage") or "").strip()
     incarnation = pod_incarnation(row)
@@ -242,6 +247,9 @@ def _approval_is_well_formed(
 
     try:
         capability = approved_files_plan(approval)
+        browser = approved_browser_plan(approval)
+        if browser is not None:
+            browser.require_owner(row, target)
         if capability is not None:
             capability.require_owner(row, target)
     except (ValueError, TypeError):
@@ -272,7 +280,11 @@ def upgrade_operation_is_recoverable(row: Optional[dict]) -> bool:
 
 
 def upgrade_release_id(
-    row: Optional[dict], target_image: str, *, capability_digest: str | None = None
+    row: Optional[dict],
+    target_image: str,
+    *,
+    capability_digest: str | None = None,
+    browser_digest: str | None = None,
 ) -> str:
     """Return an opaque release identifier bound to image and pod incarnation."""
     incarnation = pod_incarnation(row) or "unknown"
@@ -280,7 +292,11 @@ def upgrade_release_id(
     from hushh_mcp.services.pod_update_identity import release_identity
 
     return release_identity(
-        hushh_id, incarnation, str(target_image or "").strip(), capability_digest=capability_digest
+        hushh_id,
+        incarnation,
+        str(target_image or "").strip(),
+        capability_digest=capability_digest,
+        browser_digest=browser_digest,
     )
 
 
@@ -299,6 +315,9 @@ def upgrade_approval_matches(
 
     try:
         capability = approved_files_plan(approval)
+        browser = approved_browser_plan(approval)
+        if browser is not None:
+            browser.require_owner(row, target)
         if capability is not None:
             capability.require_owner(row, target)
     except (ValueError, TypeError):
@@ -309,7 +328,10 @@ def upgrade_approval_matches(
         and approval.get("targetImage") == target
         and approval.get("releaseId")
         == upgrade_release_id(
-            row, target, capability_digest=capability.digest if capability else None
+            row,
+            target,
+            capability_digest=capability.digest if capability else None,
+            browser_digest=browser.digest if browser else None,
         )
     )
 
@@ -1430,15 +1452,15 @@ class PersonalAgentProvisioningService:
                 # The owner-facing Feed action records the exact release approval.
                 continue
             if metadata.get("upgradeLease") is not None:
-                if isinstance(metadata.get("upgradeAcknowledgement"), dict) or isinstance(
-                    metadata.get("filesUpgradeCheckpoint"), dict
-                ):
+                from hushh_mcp.services.pod_update_capabilities import retained_update_observation
+
+                if retained_update_observation(row):
                     out.append(row)  # Observation only; upgrade_pod refuses new admission.
                 continue
             built_from = running_image(row)
-            capability_pending = upgrade_approval_matches(row, target) and bool(
-                (metadata.get("upgradeApproval") or {}).get("capabilityPlanDigest")
-            )
+            capability_pending = upgrade_approval_matches(
+                row, target
+            ) and configuration_approval_pending(metadata.get("upgradeApproval"))
             if (
                 personal_agent_upgrade_approval_required()
                 and not upgrade_is_supported(
@@ -1481,34 +1503,11 @@ class PersonalAgentProvisioningService:
     async def _reconcile_image_upgrade(
         self, *, user_id: str, row: dict, spec: PodSpec, backend: Any, lease: Any
     ) -> dict[str, Any]:
-        metadata = dict(row.get("backend_metadata") or {})
-        receipt = metadata.get("upgradeAcknowledgement")
-        if (
-            spec.files_upgrade_plan
-            and isinstance(lease, str)
-            and lease
-            and (
-                not isinstance(receipt, dict)
-                or receipt.get("attemptId") != hashlib.sha256(lease.encode()).hexdigest()
-            )
-        ):
-            from hushh_mcp.services.pod_files.update_recovery import discover_replacement
+        from hushh_mcp.services.pod_update_capabilities import recover_capability_ack
 
-            receipt = await discover_replacement(row=row, spec=spec, backend=backend, lease=lease)
-            if receipt is not None:
-                updated = {**metadata, "upgradeAcknowledgement": receipt}
-                published = await self._registry.record_image_upgrade(
-                    user_id=user_id,
-                    observed=row,
-                    expected_lease=lease,
-                    previous_metadata=metadata,
-                    backend_metadata=updated,
-                    retain_lease=True,
-                )
-                if published is not True:
-                    raise RuntimeError("Files replacement recovery lost authority")
-                metadata = updated
-                row = {**row, "backend_metadata": updated}
+        row, metadata, receipt = await recover_capability_ack(
+            self._registry, row=row, spec=spec, backend=backend, lease=lease
+        )
         unresolved = {
             "hushhId": spec.hushh_id,
             "status": "provisioned",
@@ -1692,8 +1691,9 @@ class PersonalAgentProvisioningService:
         if not isinstance(metadata, dict):
             raise ValueError("registry row metadata is invalid; refusing to upgrade")
         held = metadata.get("upgradeLease")
-        requires_approval = personal_agent_upgrade_approval_required() or bool(
-            (metadata.get("upgradeApproval") or {}).get("capabilityPlanDigest")
+        requires_approval = (
+            personal_agent_upgrade_approval_required()
+            or configuration_approval_pending(metadata.get("upgradeApproval"))
         )
         approval_matches = upgrade_approval_matches(row, current_image)
         recoverable_operation = upgrade_operation_is_recoverable(row)
@@ -1710,7 +1710,7 @@ class PersonalAgentProvisioningService:
                 release_metadata, metadata.get("image_digest") or running_image(row)
             ) and not (
                 release_metadata is not None
-                and (metadata.get("upgradeApproval") or {}).get("capabilityPlanDigest")
+                and configuration_approval_pending(metadata.get("upgradeApproval"))
                 and image_digest(metadata.get("image_digest") or running_image(row))
                 == image_digest(current_image)
             ):
@@ -1722,24 +1722,14 @@ class PersonalAgentProvisioningService:
         if cloud is not None and cloud.blocks_provisioning:
             raise PersonalAgentCloudNotAuthorizedError(cloud.refusal_reason)
         approval_metadata = metadata.get("upgradeApproval")
-        from hushh_mcp.services.pod_update_identity import approved_files_plan
+        from hushh_mcp.services.pod_update_capabilities import admit_capabilities
 
-        files_capability = (
-            approved_files_plan(approval_metadata) if isinstance(approval_metadata, dict) else None
+        files_capability, browser_capability = await admit_capabilities(
+            self._registry,
+            row,
+            approval_matches=approval_matches,
+            recoverable_operation=recoverable_operation,
         )
-        if files_capability is not None and not (
-            approval_matches or (held is not None and recoverable_operation)
-        ):
-            raise PersonalAgentUpgradeNotApprovedError(
-                "Files activation requires its exact owner approval"
-            )
-        if files_capability is not None and held is None:
-            from hushh_mcp.services.pod_files.capability_contract import admission_ready
-
-            if not await admission_ready(self._registry, files_capability):
-                raise PersonalAgentUpgradeUnsupportedError(
-                    "Files upgrade recovery schema is not ready"
-                )
         approval_is_valid = _approval_is_well_formed(row, approval_metadata) or (
             held is not None
             and _approval_is_well_formed(row, approval_metadata, allow_unresolved=True)
@@ -1763,6 +1753,9 @@ class PersonalAgentProvisioningService:
             files_library_enabled=bool(cloud and cloud.files_library_enabled),
             upgrade_operation_id=upgrade_operation_id,
             files_upgrade_plan=files_capability.model_dump() if files_capability else None,
+            browser_upgrade_plan=browser_capability.model_dump(mode="json")
+            if browser_capability
+            else None,
             files_upgrade_recovery_job=resume_files_job,
             upgrade_target_image=(
                 str(approval_metadata.get("targetImage") or "").strip() or None
@@ -1771,7 +1764,9 @@ class PersonalAgentProvisioningService:
             ),
             browser_qualification=(
                 approved_browser_qualification(
-                    approval_metadata, current_image, host_kind="gcp_cloud_run"
+                    approval_metadata,
+                    str(approval_metadata.get("targetImage") or ""),
+                    host_kind="gcp_cloud_run",
                 )
                 if approval_is_valid and row.get("deployment_target") == "user_gcp"
                 else None

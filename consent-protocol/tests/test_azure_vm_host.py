@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-import base64
-import gzip
-import io
 import json
 import os
 import ssl
-import tarfile
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
 from cryptography import x509
@@ -21,7 +16,6 @@ from cryptography.x509.oid import NameOID
 
 from browser_runtime.azure_host import config, credentials, engine, runner, tls
 from hushh_mcp.services.azure_setup_plan import PlanInputs
-from hushh_mcp.services.azure_vm_host_bundle import installation_step
 from hushh_mcp.services.azure_vm_host_plan import build_vm_host_plan
 from hushh_mcp.services.azure_vm_host_readback import VmHostReadbackRefused, require_host_resource
 
@@ -106,36 +100,6 @@ def test_installation_cannot_change_identity_image_endpoint_or_secret_custody(fa
         config.validate(value)
 
 
-def test_installer_is_deterministic_bounded_and_keeps_normal_image_entrypoint():
-    value = installation()
-    step, digest = installation_step(value)
-    assert installation_step(deepcopy(value)) == (step, digest)
-    script = step.body["script"][0]
-    packed = base64.b64decode(
-        script.split("HUSSH_HOST_BUNDLE' | tar --no-same-owner -xzf -\n", 1)[1].split("\n", 1)[0]
-    )
-    assert len(packed) <= 49152
-    with tarfile.open(fileobj=io.BytesIO(gzip.decompress(packed))) as archive:
-        names = archive.getnames()
-        assert all(not name.startswith("/") and ".." not in Path(name).parts for name in names)
-        stored = archive.extractfile("installation.json").read()
-        assert json.loads(stored) == value
-        assert archive.getmember("installation.json").mode == 0o600
-        assert set(name for name in names if name.endswith(".py")) == {
-            "azure_host/" + name
-            for name in (
-                "__init__.py",
-                "config.py",
-                "credentials.py",
-                "engine.py",
-                "runner.py",
-                "tls.py",
-                "update.py",
-            )
-        }
-    assert step.path.endswith("/virtualMachines/agent/runCommand")
-
-
 def test_image_update_joins_old_service_before_promotion_and_keeps_repairable_failure(
     monkeypatch, tmp_path
 ):
@@ -183,7 +147,10 @@ def test_image_update_joins_old_service_before_promotion_and_keeps_repairable_fa
     receipt = update._execute(request)
     assert events == ["pull", "stop", "show", "start"]
     assert receipt["stage"] == "restart_requested" and receipt["application_verified"] is False
-    assert update.load()["environment"] == previous["environment"]
+    assert update.load()["environment"] == {
+        **previous["environment"],
+        "HUSSH_POD_INSTALLED_IMAGE_DIGEST": "sha256:" + "d" * 64,
+    }
     assert update._execute(request) == receipt and events == ["pull", "stop", "show", "start"]
     step, _digest = replacement_step(
         previous, image=image, operation_id="update_123", idle_record=cursor

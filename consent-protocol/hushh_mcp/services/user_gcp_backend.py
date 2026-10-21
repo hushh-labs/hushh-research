@@ -1771,19 +1771,12 @@ class UserGcpBackend:
         return receipt
 
     async def inspect_files_capability(self, spec: PodSpec) -> dict:
-        """Observe the same service an update would mutate; no cloud writes."""
-        import asyncio
+        return await self.inspect_pod_configuration(spec)
 
-        from hushh_mcp.services.gcp_run_client import GcpRunClient
+    async def inspect_pod_configuration(self, spec: PodSpec) -> dict:
+        from hushh_mcp.services.gcp_upgrade_observation import inspect_user_configuration
 
-        if not self._live or not spec.expected_service_uid:
-            raise ValueError("Files requires a live, verified pod incarnation")
-        client = await asyncio.to_thread(self._client)
-        existing = await asyncio.to_thread(client.get_service, _service_name(spec.hushh_id))
-        if existing is None:
-            raise ValueError("The existing pod service is unavailable")
-        GcpRunClient.require_service_uid(existing, spec.expected_service_uid)
-        return existing
+        return await inspect_user_configuration(self, spec, name=_service_name(spec.hushh_id))
 
     async def upgrade(self, spec: PodSpec) -> BackendHandle:
         """Move THIS person's running pod onto the hub's current image, in place.
@@ -1853,6 +1846,11 @@ class UserGcpBackend:
         from hushh_mcp.services.pod_files.capability_update import approved_upgrade_plan
 
         files_capability = approved_upgrade_plan(
+            spec, existing, project=self._user_project, bootstrap_sa=self._bootstrap_sa
+        )
+        from hushh_mcp.services.pod_browser.capability_update import approved_upgrade_browser_plan
+
+        browser_capability = approved_upgrade_browser_plan(
             spec, existing, project=self._user_project, bootstrap_sa=self._bootstrap_sa
         )
         observed_runtime = (
@@ -1932,6 +1930,8 @@ class UserGcpBackend:
             preserve_image_upgrade_configuration(
                 existing, config, connector_environment=connector_environment
             )
+            if browser_capability is not None:
+                browser_capability.apply_configuration(existing, config, spec.browser_qualification)
             if files_capability is not None:
                 from hushh_mcp.services.pod_files.capability_bootstrap import (
                     apply_upgrade_configuration,
@@ -1950,6 +1950,7 @@ class UserGcpBackend:
             changed = (
                 image_digest != previous_digest
                 or files_capability is not None
+                or browser_capability is not None
                 or notification_changed
                 or connector_repair
             )
@@ -2064,8 +2065,9 @@ class UserGcpBackend:
         svc, gmail_metadata = await self._configure_gmail_delivery(
             client, spec, service=svc, expected_uid=expected_uid, allow_runtime_replace=False
         )
-        if files_capability is not None:
-            files_capability.require_installed(svc)
+        from hushh_mcp.services.gcp_upgrade_observation import verified_capabilities
+
+        capability_metadata = verified_capabilities(spec, svc)
         require_gcp_connector_configuration(svc, connector_environment)
         logger.info(
             "user_gcp_backend.upgraded service=%s changed=%s from=%s to=%s",
@@ -2097,16 +2099,7 @@ class UserGcpBackend:
                 "credential": "impersonated bootstrap SA, 15-minute token",
                 "runtime_service_account": self._pod_service_account(spec),
                 "livenessMode": _liveness_mode(_rendered_min_scale(config)),
-                **(
-                    {
-                        "filesCapability": {
-                            "planDigest": files_capability.digest,
-                            "status": "enabled",
-                        }
-                    }
-                    if files_capability is not None
-                    else {}
-                ),
+                **capability_metadata,
             },
         )
 

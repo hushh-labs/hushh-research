@@ -3795,6 +3795,7 @@ export class ApiService {
     releaseId: string;
     idempotencyKey: string;
     capabilityPlanDigest?: string;
+    browserPlanDigest?: string;
   }): Promise<{ operationId: string; releaseId: string; status: "scheduled" }> {
     return ApiService.postPersonalAgentUpdate("approve", input);
   }
@@ -3823,7 +3824,7 @@ export class ApiService {
 
   private static async postPersonalAgentUpdate(
     action: "approve" | "defer",
-    input: { releaseId: string; idempotencyKey?: string; capabilityPlanDigest?: string },
+    input: { releaseId: string; idempotencyKey?: string; capabilityPlanDigest?: string; browserPlanDigest?: string },
   ): Promise<any> {
     const token = await ApiService.getFirebaseToken();
     const response = await ApiService.apiFetch(`/api/one/personal-agent/update/${action}`, {
@@ -3836,6 +3837,7 @@ export class ApiService {
         releaseId: input.releaseId,
         ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
         ...(input.capabilityPlanDigest ? { capabilityPlanDigest: input.capabilityPlanDigest } : {}),
+        ...(input.browserPlanDigest ? { browserPlanDigest: input.browserPlanDigest } : {}),
       }),
     });
     if (!response.ok) throw new Error(`AGENT_UPDATE_${action.toUpperCase()}_FAILED:${response.status}`);
@@ -3851,6 +3853,19 @@ export class ApiService {
       method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!response.ok) throw new Error(`FILES_ACTIVATION_UNAVAILABLE:${response.status}`);
+    return response.json();
+  }
+
+  static async getPersonalAgentBrowserPlan(): Promise<{
+    releaseId: string; browserPlanDigest: string; summary: string; changes: string[];
+    publicPolicy: { page_urls: string[]; static_prefixes: string[] };
+    model: string; resources: Record<string, string>;
+  }> {
+    const token = await ApiService.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/personal-agent/update/browser-plan", {
+      method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error(`BROWSER_ACTIVATION_UNAVAILABLE:${response.status}`);
     return response.json();
   }
 

@@ -138,6 +138,7 @@ class PodSpec:
     # Reviewed image evidence captured by the exact upgrade approval. This does
     # not authorize Browser activation, destinations or resource changes.
     browser_qualification: Optional[dict[str, Any]] = dataclass_field(default=None, repr=False)
+    browser_upgrade_plan: Optional[dict[str, Any]] = dataclass_field(default=None, repr=False)
     provision_attempt_id: Optional[str] = None
     on_provision_ack: Optional[Callable[[dict[str, Any]], None]] = dataclass_field(
         default=None, repr=False, compare=False

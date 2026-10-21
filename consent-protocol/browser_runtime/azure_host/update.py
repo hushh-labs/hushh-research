@@ -19,6 +19,8 @@ import stat
 import sys
 from copy import deepcopy
 
+from browser_runtime.qualification import qualification_environment
+
 from .config import ROOT, RUNTIME, HostRefused, load, protected_read, validate
 from .credentials import pull, require_vm
 from .engine import command, observe_container
@@ -34,15 +36,23 @@ def digest(value: dict) -> str:
     return hashlib.sha256(canonical(value)).hexdigest()
 
 
-def payload(previous: dict, *, image: str, operation_id: str, idle_record: dict) -> dict:
+def payload(
+    previous: dict,
+    *,
+    image: str,
+    operation_id: str,
+    idle_record: dict,
+    browser_qualification: dict | None = None,
+) -> dict:
     previous = validate(deepcopy(previous))
     result = {
-        "version": 1,
+        "version": 2,
         "operation_id": operation_id,
         "previous_configuration_sha256": digest(previous),
         "installation": previous["installation"],
         "image": image,
         "idle_record": deepcopy(idle_record),
+        "browser_qualification": deepcopy(browser_qualification),
     }
     target(previous, result)
     return result
@@ -59,9 +69,10 @@ def target(previous: dict, value: dict) -> dict:
             "installation",
             "image",
             "idle_record",
+            "browser_qualification",
         }
         or type(value["version"]) is not int
-        or value["version"] != 1
+        or value["version"] != 2
         or not isinstance(value["operation_id"], str)
         or not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", value["operation_id"])
         or value["previous_configuration_sha256"] != digest(previous)
@@ -88,6 +99,19 @@ def target(previous: dict, value: dict) -> dict:
     result = deepcopy(previous)
     result["image"] = image
     result["installation"]["image_digest"] = image.split("@", 1)[-1]
+    try:
+        evidence = qualification_environment(
+            value["browser_qualification"],
+            image_digest=result["installation"]["image_digest"],
+            host_kind="azure_vm",
+        )
+    except (ValueError, TypeError):
+        raise HostRefused("HOST_BROWSER_QUALIFICATION_INVALID") from None
+    # Keep every owner setting byte-for-byte, including enablement and policy.
+    # Old-image evidence cannot survive replacement; absence refuses Browser
+    # readiness without inventing a configuration approval.
+    result["environment"].pop("HUSSH_BROWSER_QUALIFICATION_JSON", None)
+    result["environment"].update(evidence)
     return validate(result)
 
 

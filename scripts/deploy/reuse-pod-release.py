@@ -9,18 +9,21 @@ import argparse
 import hashlib
 import importlib.util
 import json
-from pathlib import Path
 import re
 import subprocess
 import sys
 import urllib.request
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# Load only the shared stdlib Browser contract, without importing the pod SDK.
+sys.path.insert(0, str(ROOT / "consent-protocol"))
 
 
 def load_module(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
+    if spec is None or spec.loader is None:
+        raise RuntimeError("pod release contract is unavailable")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -80,7 +83,7 @@ def validate_archive(pin: dict, raw: bytes, *, project: str) -> dict:
 
 
 def gcloud(*args: str) -> bytes:
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 -- fixed CLI; callers supply only validated operator arguments.
         ["gcloud", *args], capture_output=True, timeout=60, check=False
     )
     if result.returncode:

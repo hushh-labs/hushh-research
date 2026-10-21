@@ -461,8 +461,10 @@ async def test_upgrade_keeps_the_memory_bucket_identity_and_service_account(copy
         == born_with["spec"]["template"]["spec"]["serviceAccountName"]
     )
     assert upgraded["metadata"]["name"] == name
-    # Everything except the image is byte-identical between the two renders.
-    assert {k: v for k, v in after.items()} == {k: v for k, v in before.items()}
+    # Image identity advances; every owner-controlled setting remains identical.
+    assert before.pop("HUSSH_POD_INSTALLED_IMAGE_DIGEST") == OLD
+    assert after.pop("HUSSH_POD_INSTALLED_IMAGE_DIGEST") == NEW
+    assert after == before
     assert _image_of(born_with).endswith(f"@{OLD}") and _image_of(upgraded).endswith(f"@{NEW}")
 
 
