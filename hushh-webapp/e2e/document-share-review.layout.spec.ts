@@ -12,6 +12,7 @@ let script: string;
 let css: string;
 let outDir: string;
 test.beforeEach(async ({ page }) => {
+  page.on("pageerror", (error) => { throw error; });
   await page.route("**/onboarding/intro-v2/*-poster.png", route => route.fulfill({
     contentType: "image/png",
     body: fs.readFileSync(path.join(process.cwd(), "public/onboarding/intro-v2", path.basename(route.request().url()))),
@@ -84,6 +85,7 @@ test.beforeAll(async () => {
           "@/lib/services/api-service",
           "@/lib/services/auth-service",
           "@/lib/cache/cache-sync-service",
+          "@/components/vault/vault-flow",
           "next/link",
         ].map((find) => ({
           find,
@@ -1209,7 +1211,11 @@ for (const width of [320, 390, 1440]) {
     await send.click();
     await expect(dialog).toHaveAccessibleName("Question sent");
     await expect(dialog.getByText(/Request sent/)).toBeVisible();
-    expect(submissions).toEqual([{ personRef: "33333333-3333-4333-8333-333333333333", question: value }]);
+    expect(submissions).toEqual([{
+      personRef: "33333333-3333-4333-8333-333333333333",
+      question: value,
+      clientRequestId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
+    }]);
     await expect(dialog.getByRole("link", { name: "View request" })).toBeVisible();
     expect(errors).toEqual([]);
   });
