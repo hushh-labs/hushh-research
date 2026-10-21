@@ -46,7 +46,7 @@ describe("top shell breadcrumbs", () => {
     ]);
   });
 
-  it("returns a query-selected saved analysis to its Analysis workspace", () => {
+  it("returns a query-selected saved analysis to its Stocks workspace", () => {
     expect(
       resolveTopShellBreadcrumb(
         "/one/kai",
@@ -60,7 +60,7 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       items: [
         { label: "Finance", href: "/one/kai?tab=market" },
-        { label: "Analysis", href: "/one/kai?tab=analysis" },
+        { label: "Stocks", href: "/one/kai?tab=analysis" },
         { label: "NVDA analysis" },
       ],
     });
