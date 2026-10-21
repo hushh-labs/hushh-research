@@ -329,6 +329,7 @@ jobs:
           fi
 
       - name: Validate candidate build capabilities
+        id: candidate-capabilities
         shell: bash
         env:
           BUILD_POD_IMAGE: ${{ inputs.build_pod_image && 'true' || 'false' }}
@@ -346,11 +347,15 @@ jobs:
           required_files = []
           if os.environ.get("RUN_PKM_GATE") == "true":
               required_files.append("scripts/ci/run-release-pkm-gate.sh")
+          reviewer_script = None
           if os.environ.get("RUN_REVIEWER_BYOK") == "true":
-              required_files.extend((
-                  ".codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs",
-                  ".codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs",
-              ))
+              # Current candidates use .agents; older main candidates retain .codex.
+              # A partial canonical tree must refuse, never borrow legacy files.
+              canonical = Path(".agents/skills/reviewer-app-testing")
+              reviewer_root = (canonical if canonical.exists() else
+                               Path(".codex/skills/reviewer-app-testing")) / "scripts"
+              reviewer_script = reviewer_root / "verify-reviewer-byok-navigation.mjs"
+              required_files.extend((reviewer_script, reviewer_root / "reviewer-rehearsal-preflight.mjs"))
           if any(not Path(filename).is_file() for filename in required_files):
               raise SystemExit("Candidate lacks selected preservation or owner-verification support")
           interfaces = [
@@ -390,6 +395,9 @@ jobs:
               ids = {step.get("id") for step in config.get("steps", [])}
               if not {"build-pod-image", "resolve-pod-image-digest"} <= ids:
                   raise SystemExit("Candidate does not support explicit pod image publication")
+          if reviewer_script is not None:
+              with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+                  output.write(f"reviewer_byok_script={reviewer_script.as_posix()}\n")
           PYBUILD
 
       - name: Sync canonical hosted runtime secrets
@@ -1147,9 +1155,11 @@ jobs:
           REVIEWER_APP_ORIGIN: ${{ env.APP_FRONTEND_ORIGIN }}
           REVIEWER_APP_ROUTES: /,/one/kai?tab=portfolio,/one/pkm
           REVIEWER_SECRET_PROJECT: ${{ env.GCP_PROJECT_ID }}
+          REVIEWER_BYOK_SCRIPT: ${{ steps.candidate-capabilities.outputs.reviewer_byok_script }}
         run: |
           set -euo pipefail
-          node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
+          test -n "$REVIEWER_BYOK_SCRIPT"
+          node "$REVIEWER_BYOK_SCRIPT"
 
       - name: Classify dev release outcome
         if: always()
