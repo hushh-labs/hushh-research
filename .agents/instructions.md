@@ -280,7 +280,13 @@ Do not repeat routing merely because the conversation continues on the same surf
 Standing Delegation Default: read-only parallel evidence work is pre-authorized for
 non-trivial multi-lane tasks. Use bounded specialist lanes when they materially improve
 evidence and the parent can continue independent work. Reuse the routing decision above;
-children return evidence, while the parent retains final authority.
+children return evidence, while the parent retains final authority. Use independent,
+bounded lanes up to the verified effective host/repository budget when this
+shortens the critical path; reuse existing idle sessions and reserve synthesis
+capacity. Do not multiply overlapping investigations or heavy test runs. Every
+handoff must settle owned workers, descendants and temporary resources, then close
+the child through supported controls. When thread closure is unavailable, report
+that limitation; completion alone proves neither closure nor reclaimed memory.
 
 Keep work local when it is small, immediately dependent on the result, inseparable from
 branch/deploy/credential authority, duplicative, or explicitly requested to stay local.

@@ -107,7 +107,7 @@ Use `--phase mid` with the router and record whether the parent spawned a new re
 2. Keep `agents.max_depth = 1` unless a later review proves recursive delegation is worth the cost and predictability risk.
 3. Treat those values as the hard host cap, not as the normal spawn target. The effective-spawn budget is `max_threads - open_child_threads - 1`.
 4. Always reserve one thread for recovery, synthesis, or governor-style follow-up.
-5. Default to two read-only evidence lanes per wave. Use three or four only for critical cross-domain work after stale child threads are closed.
+5. The CLI fallback of two read-only evidence lanes is an estimate, not a target. For identified independent work, request the matching lane count with `--requested-lanes` and `--max-new-lanes`; run up to the verified effective host and repository budget when that shortens the critical path. Reuse idle child sessions and reserve recovery/synthesis capacity. Avoid duplicate investigations, overlapping file ownership and parallel heavy verification. After each handoff, verify owned workers, descendants and temporary resources are reconciled; close sessions through supported host controls. If closure is unavailable, report it and never claim a thread or its memory was released.
 6. close stale child threads sequentially; do not bulk-close or bulk-wait when the host is already near the cap.
 7. Ask children for compact handoffs. If a wait result is too large or truncated, ask that child for a bounded summary instead of waiting again.
 8. Apply the close freeze circuit breaker: if a `close_agent` call hangs, freezes, or is interrupted in the current turn, stop all further close/spawn attempts, treat open child state as saturated, continue locally, and report the host-management gap.
@@ -119,24 +119,15 @@ Use `--phase mid` with the router and record whether the parent spawned a new re
 
 All repo workflows are approved to spawn read-only evidence agents automatically when the suitability checkpoint passes. Workflow-specific `delegation_policy` entries may tighten lane names or opt a workflow into more explicit reporting, but absence of that field means the workflow inherits the repo-global router policy.
 
-Common high-signal lanes:
-
-1. `pr-governance-review`: reviewer plus the relevant specialist lanes for the changed runtime family.
-2. `autonomous-rca-governance`: RCA investigator plus repo operator, with backend/frontend/security lanes added only when the failure boundary requires them.
-3. `release-readiness` and `ci-watch-and-heal`: repo operator first, then RCA investigator on failures.
-4. `security-consent-audit`: security consent auditor first, with backend/frontend lanes when caller or route contracts are implicated.
-5. `one-voice-governance`: voice systems architect plus reviewer when generated contracts, planner/executor flow, or UI action parity changes.
-6. `pr-governance-review`: data model architect when migrations, schema contracts, UAT parity, cache coherence, or local-first/cloud projection authority is implicated.
-7. Product/docs/founder-language tasks: product docs architect when founder language, founder wiki north-star review, roadmap claims, One/Kai/Nav role clarity, durable docs placement, or community copy is implicated.
-8. Analytics/observability tasks: analytics observability architect when GA4, Firebase Analytics, BigQuery, event taxonomy, route ids, or dashboard contracts are implicated.
-9. Mobile/native tasks: mobile native architect when iOS, Android, Capacitor, native bridge, plugin registration, or device parity is implicated.
+Use the existing workflow's `delegation_policy` and shared router for lane selection.
+Existing PR/release, runtime, security, product and mobile owners supply the lanes;
+never maintain a second task-to-lane map.
 
 Automatic here means the parent may spawn the lane without asking the user again. It does not mean child agents can approve, merge, deploy, push, or mutate branches.
 
 PR governance has one narrow workflow-local writer-lane exception for pre-approved train execution. It is separate from repo-scoped custom agents: evidence lanes stay read-only, while the exception may only edit/post standardized maintainer records, request changes, close superseded PRs, acknowledge harvest, or enqueue exact-head queue candidates under the PR train SOP gates. Branch switching, code patches, commits, pushes, deploys, secrets, product-policy changes, and final merge policy stay with the parent/governor.
 
-The router is advisory, not authority. If it recommends a lane that the runtime does not expose in the current session, record that runtime availability gap and continue locally or with the closest available read-only agent.
-
+If a routed lane is unavailable, record the host gap and use the nearest read-only lane or continue locally.
 Founder wiki evidence lanes use the Founder Wiki North-Star Probe and are read-only by default. They may use product/architecture/non-negotiable pages for north-star alignment, but private wiki evidence must stay local-only and public GitHub comments must not cite private wiki pages. When repo truth and wiki canon disagree, classify the gap as `current_state_vs_north_star_drift`.
 
 ## Skill Activation Detection
@@ -204,7 +195,16 @@ Every delegated result should include:
 12. `voice_systems_architect`: One Voice and Kai compatibility runtime contract review.
 13. `local_model_judge`: grades on-device small-model output via the review-queue handoff. Wave-2 addition with its own lane on purpose: the Puppy One judging contract requires that the judge is never the answerer, so no agent that produces on-device output may also grade it, and no existing agent could absorb the role without collapsing that separation.
 
-Treat this as a curated baseline, not a signal to create a large specialist lattice. Keep the default range at 8-13 repo-scoped agents unless the fleet audit and a concrete postmortem justify changing it. The 12-to-13 expansion above is the intentional validator update this contract requires, made together with `MAX_AGENT_COUNT` in `scripts/agent_fleet_audit.py`.
+14. `ai_platform_engineer`: governed model, ADK and inference integration review.
+15. `chief_systems_architect`: cross-system architecture and invariant synthesis.
+16. `cloud_platform_engineer`: cloud capability, custody and resource lifecycle review.
+17. `documentation_architect`: documentation structure, ownership and freshness review.
+18. `site_reliability_engineer`: runtime reliability, recovery and operating evidence.
+19. `validation_simulation_engineer`: bounded qualification and failure simulation review.
+
+The verified 19-lane catalog is separate from execution capacity: keep 8–19
+definitions, six threads and depth one. Catalog changes require the fleet audit
+and a recurring need; its `MAX_AGENT_COUNT` enforces the definition bound.
 
 ## Two harnesses, one fleet
 

@@ -102,7 +102,7 @@ def compute_budget(
     guidance = [
         "Keep .agents/adapters/codex/config.toml at max_threads=6 and max_depth=1.",
         "Reserve one thread for recovery, synthesis, or governor-style follow-up.",
-        "Default to two read-only evidence lanes; use more only after closing stale children.",
+        "Request independent lanes up to the effective budget; two is only the CLI fallback.",
         "Close or summarize old child threads sequentially before spawning a new wave.",
         "If close_agent hangs once in a turn, stop close/spawn attempts and continue locally.",
         "If a child returns too much output, ask it for a compact handoff instead of re-waiting.",

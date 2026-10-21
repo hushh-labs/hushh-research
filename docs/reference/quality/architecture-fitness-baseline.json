@@ -4660,7 +4660,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
       "symbol": "AccountDeletionLifecycleService",
-      "value": 969
+      "value": 979
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -6082,7 +6082,7 @@
       "limit": 250,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": "MaintenanceAuthorityTest",
-      "value": 3131
+      "value": 3149
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -8656,7 +8656,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
       "symbol": "_delete_or_quarantine_firebase_identity",
-      "value": 87
+      "value": 92
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18709,7 +18709,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/runtime_settings.py",
       "symbol": null,
-      "value": 1430
+      "value": 1432
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18718,7 +18718,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
       "symbol": null,
-      "value": 1205
+      "value": 1219
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21157,7 +21157,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_account_routes.py",
       "symbol": null,
-      "value": 2104
+      "value": 2156
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21481,7 +21481,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_firebase_auth_split.py",
       "symbol": null,
-      "value": 797
+      "value": 799
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22417,7 +22417,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/app/profile/receipts/page.test.tsx",
       "symbol": null,
-      "value": 2624
+      "value": 2629
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22543,7 +22543,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/direct-messages-page.test.tsx",
       "symbol": null,
-      "value": 1674
+      "value": 1676
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22606,7 +22606,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/gmail-information-requests-section.test.ts",
       "symbol": null,
-      "value": 759
+      "value": 801
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23776,7 +23776,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/direct-messages/direct-messages-page.tsx",
       "symbol": null,
-      "value": 2553
+      "value": 2565
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23794,7 +23794,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/gmail/gmail-information-requests-section.tsx",
       "symbol": null,
-      "value": 1446
+      "value": 1472
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23812,7 +23812,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/gmail/gmail-recent-receipts.tsx",
       "symbol": null,
-      "value": 934
+      "value": 938
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24829,7 +24829,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/cache/cache-sync-service.ts",
       "symbol": null,
-      "value": 982
+      "value": 991
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26026,7 +26026,7 @@
       "limit": 500,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": null,
-      "value": 3557
+      "value": 3687
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26198,7 +26198,7 @@
       "limit": 500,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": null,
-      "value": 1981
+      "value": 2127
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26774,7 +26774,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/direct-chat.layout.spec.ts",
       "symbol": null,
-      "value": 1171
+      "value": 1187
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27134,7 +27134,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_native_ship_artifact_workflows.py",
       "symbol": null,
-      "value": 622
+      "value": 629
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -31547,7 +31547,7 @@
       "kind": "module_size",
       "path": "scripts/ci/release_cadence_github.py",
       "detail": "module exceeds the advisory operon budget",
-      "value": 560,
+      "value": 576,
       "limit": 500,
       "symbol": null,
       "key": "module_size|scripts/ci/release_cadence_github.py||module exceeds the advisory operon budget"
@@ -31565,7 +31565,7 @@
       "kind": "module_size",
       "path": "scripts/ci/test_release_cadence.py",
       "detail": "module exceeds the advisory operon budget",
-      "value": 736,
+      "value": 867,
       "limit": 500,
       "symbol": null,
       "key": "module_size|scripts/ci/test_release_cadence.py||module exceeds the advisory operon budget"
@@ -31583,7 +31583,7 @@
       "kind": "module_size",
       "path": "hushh-webapp/__tests__/services/use-stale-resource-lifecycle.test.tsx",
       "detail": "module exceeds the advisory operon budget",
-      "value": 510,
+      "value": 528,
       "limit": 500,
       "symbol": null,
       "key": "module_size|hushh-webapp/__tests__/services/use-stale-resource-lifecycle.test.tsx||module exceeds the advisory operon budget"
@@ -31601,7 +31601,7 @@
       "kind": "function_size",
       "path": "scripts/ci/release_cadence_monitor.py",
       "detail": "function exceeds the advisory gene budget",
-      "value": 112,
+      "value": 113,
       "limit": 80,
       "symbol": "observations",
       "key": "function_size|scripts/ci/release_cadence_monitor.py|observations|function exceeds the advisory gene budget"
@@ -82581,6 +82581,254 @@
         "reviewers": [
           "root",
           "adk_backend_conflicts"
+        ]
+      }
+    ],
+    "budgets_changed": false,
+    "non_size_findings_changed": false
+  },
+  "browser_main_authority_mail_release_review_20261021": {
+    "entries": [
+      {
+        "key": "class_size|scripts/ci/test_cloudrun_retention.py|MaintenanceAuthorityTest|class exceeds the advisory operon budget",
+        "before": 3131,
+        "after": 3149,
+        "source_sha256": "e804bb3739bec0810373aad913e2e935aadec1cf945087143f4fc5efeba6bb15",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "ci_delta_review"
+        ]
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py|AccountDeletionLifecycleService|class exceeds the advisory operon budget",
+        "before": 969,
+        "after": 979,
+        "source_sha256": "d2c148d60dcc12ebae7df339a5c57bd3b7f05609401a46135758f96788fe22aa",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "function_size|scripts/ci/release_cadence_monitor.py|observations|function exceeds the advisory gene budget",
+        "before": 112,
+        "after": 113,
+        "source_sha256": "ca518dc12a0369e54e9fb2fd16169b07a0ff824f648da9b3e7b8bed2bf1361c0",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "ci_delta_review"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py|_delete_or_quarantine_firebase_identity|function exceeds the advisory gene budget",
+        "before": 87,
+        "after": 92,
+        "source_sha256": "d2c148d60dcc12ebae7df339a5c57bd3b7f05609401a46135758f96788fe22aa",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|scripts/ci/test_cloudrun_retention.py||module exceeds the advisory operon budget",
+        "before": 3557,
+        "after": 3687,
+        "source_sha256": "e804bb3739bec0810373aad913e2e935aadec1cf945087143f4fc5efeba6bb15",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "ci_delta_review"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/app/profile/receipts/page.test.tsx||module exceeds the advisory operon budget",
+        "before": 2624,
+        "after": 2629,
+        "source_sha256": "a5e8d822c114c9bd5feb7c65adc85011186e8c006c058e102c1a44beb932209c",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_frontend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/components/direct-messages/direct-messages-page.tsx||module exceeds the advisory operon budget",
+        "before": 2553,
+        "after": 2565,
+        "source_sha256": "4315f1e26f74e52d70c49859f90242a3967d4d8d19cf5f41e6da989a55132faa",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_frontend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_account_routes.py||module exceeds the advisory operon budget",
+        "before": 2104,
+        "after": 2156,
+        "source_sha256": "7b629e1167e4c47102d99e221ee9b627a4efaeaaa17fa4796e27c840bbab3b22",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|scripts/ci/uat-retention-maintenance.py||module exceeds the advisory operon budget",
+        "before": 1981,
+        "after": 2127,
+        "source_sha256": "e234b43a0e89205757c781f99ec25c06e247bc241f5bfe5ed7a785605b18d6d9",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "ci_delta_review"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/direct-messages-page.test.tsx||module exceeds the advisory operon budget",
+        "before": 1674,
+        "after": 1676,
+        "source_sha256": "a48a8f3abd492c72184178efcc24a34fc7b556d53995727d4c9a9d7595fa65f3",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_frontend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/components/gmail/gmail-information-requests-section.tsx||module exceeds the advisory operon budget",
+        "before": 1446,
+        "after": 1472,
+        "source_sha256": "ee097c910c1aad53470d9986b003050b9a9ed7173f140d337b6a773aa170e32a",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_frontend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/runtime_settings.py||module exceeds the advisory operon budget",
+        "before": 1430,
+        "after": 1432,
+        "source_sha256": "c875147b13c06b7c85522b27c2c33b067eddc5d5991e1cb6217fdf46672b8d86",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py||module exceeds the advisory operon budget",
+        "before": 1205,
+        "after": 1219,
+        "source_sha256": "d2c148d60dcc12ebae7df339a5c57bd3b7f05609401a46135758f96788fe22aa",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/direct-chat.layout.spec.ts||module exceeds the advisory operon budget",
+        "before": 1171,
+        "after": 1187,
+        "source_sha256": "4960c2722da0698bfb2b45e648cb4a9a622ebc9ad24aabd72cdc2e2f07332c2a",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_frontend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/cache/cache-sync-service.ts||module exceeds the advisory operon budget",
+        "before": 982,
+        "after": 991,
+        "source_sha256": "6a7ef5b60f613ebe6b989a53ffa8650a3fbb25fd0a7fabe6254740a7bab7a4fd",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_frontend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/components/gmail/gmail-recent-receipts.tsx||module exceeds the advisory operon budget",
+        "before": 934,
+        "after": 938,
+        "source_sha256": "f15da44db33773b4f7b99002f32fba53c29a76a19ad9ed2181582a8fa2dd10eb",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_frontend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|scripts/ci/test_release_cadence.py||module exceeds the advisory operon budget",
+        "before": 736,
+        "after": 867,
+        "source_sha256": "c7aa1219633ca9b08addc3e0a0b7db1b6f83ba393867234a57872b3550088c11",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "ci_delta_review"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/gmail-information-requests-section.test.ts||module exceeds the advisory operon budget",
+        "before": 759,
+        "after": 801,
+        "source_sha256": "1bdb40b1ff80e8d3ea7c9c48ca23d17e18fe0b4081c612d313cd8b7e878a665e",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_frontend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_firebase_auth_split.py||module exceeds the advisory operon budget",
+        "before": 797,
+        "after": 799,
+        "source_sha256": "55eb40333aca736a29e9ad9a5a3a296a0a6d33186efba333644243d7de5eb4f4",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_native_ship_artifact_workflows.py||module exceeds the advisory operon budget",
+        "before": 622,
+        "after": 629,
+        "source_sha256": "bcd60554d95f3eb759a0cb42c053ef3f22833a89df28239b19a3292e58589cc1",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|scripts/ci/release_cadence_github.py||module exceeds the advisory operon budget",
+        "before": 560,
+        "after": 576,
+        "source_sha256": "959a6e82ac21e6798f67766b3db6638dc89a6e73894467c2ce97f802dae0540f",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "ci_delta_review"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/use-stale-resource-lifecycle.test.tsx||module exceeds the advisory operon budget",
+        "before": 510,
+        "after": 528,
+        "source_sha256": "c184988ee9225788ed3b35c4490cddd9069aa4d1bbd473593e066f71d3d58233",
+        "review": "Reviewed main044 semantic union preserves Firebase/account deletion authority, native environment guards, Mail/Message owner boundaries and exact-attempt release receipts. Nearest contract checks pass; existing operon budgets and non-size findings unchanged.",
+        "reviewers": [
+          "root",
+          "adk_frontend_conflicts"
         ]
       }
     ],

@@ -161,7 +161,7 @@ Codex supports project-scoped custom agents under `agents/`. In this repo, that 
    - `max_threads = 6`
    - `max_depth = 1`
 8. The effective-spawn budget is lower than the hard cap: count known open child threads, reserve one thread for recovery or synthesis, and spawn only the remaining safe lanes.
-9. Default to two read-only evidence lanes per wave. Use more only after stale child threads are closed and the task is genuinely cross-domain.
+9. The CLI estimate of two read-only evidence lanes is a fallback. Request independent lanes up to the effective host/repository budget, reserve synthesis capacity, reuse idle sessions and verify owned-process cleanup after each handoff. Close sessions through supported controls; report unavailable closure honestly.
 10. close stale child threads sequentially; do not bulk-close or bulk-wait when the host is already near the cap.
 11. Apply the close freeze circuit breaker: if `close_agent` hangs, freezes, or is interrupted in the current turn, stop all further close/spawn attempts, treat live child state as saturated, continue locally, and report the host-management gap.
 12. If a child result is truncated or too large, ask that child for a compact handoff instead of waiting again.

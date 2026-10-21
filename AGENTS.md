@@ -18,5 +18,10 @@ Create or evolve these through the existing governance workflow. Do not create
 another host-specific skill or subagent fleet. Native `.claude` and `.codex`
 entrypoints are checked compatibility links; they contain no authored policy.
 
+Run independent work in bounded parallel lanes under the canonical
+[delegation contract](.agents/skills/agent-orchestration-governance/references/delegation-contract.md).
+After handoff, verify owned-process and temporary-resource cleanup; close child
+sessions when the host supports it. Never claim disposal from completion alone.
+
 Start with [the development-system map](.agents/README.md), then the existing
 `./bin/hushh codex route-task <workflow-id>` command for the owning workflow.
