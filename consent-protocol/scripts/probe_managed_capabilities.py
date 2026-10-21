@@ -276,6 +276,8 @@ async def probe_managed_capabilities(provider: str) -> dict:
         from hushh_mcp.services.action_gateway import list_action_gateway_actions
 
         revision, catalog = compile_location_capabilities(list_action_gateway_actions())
+        if "location.open_map" not in catalog:
+            raise ValueError("The packaged Location map capability is missing")
         assessment = await LocationCommandBrain().assess(
             query="Open the Location map.", context={}, catalog=catalog
         )

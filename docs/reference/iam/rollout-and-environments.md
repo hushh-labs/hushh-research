@@ -27,8 +27,13 @@ Azure is preferred when both providers pass; Vertex is selected when only it pas
 Neither passing blocks release. The API and both worker revisions share that binding. Historical
 personal pilot receipts and model preferences do not select that processor.
 Their original acceptance/revocation timestamps remain unchanged; no receipt is
-created or marked accepted by this rollout. Production, BYOK, voice, native
-Google Search and separately opted-in public research keep their own contracts.
+created or marked accepted by this rollout. The separate `managed_runtime_uat`
+administrator policy extends selected-UAT processing to text/media, Search, exact
+public-source retrieval, Location transcription/semantics, narration, Live Voice
+and compatible embeddings. It grants no owner-information or action authority.
+Every declared capability must have an Azure replacement before this release
+can proceed; candidate admission accepts either complete provider bundle.
+Production and BYOK retain their existing processor contracts.
 
 `runtime_providers/managed_text.py` owns policy resolution, central Azure binding,
 per-call fallback and safe provider telemetry. It reuses the existing UAT PWM

@@ -1276,10 +1276,13 @@ managed UAT processor. Updated clients expose read-only processing information.
 
 All UAT users use the administrator managed-text policy for One text chat
 and semantic document requests. Candidate readiness prefers Azure and selects
-Vertex when only Vertex passes; either or both passing satisfies text admission. `/api/one/models/preference` projects the
+Vertex when only Vertex passes; either or both complete application bundles
+satisfy provider admission. Partial text-only readiness does not certify Voice,
+media or other capabilities. `/api/one/models/preference` projects the
 central deployment as effective, with `source:administrator_policy`; old saved
 choices remain visible as history. Selection writes return `MODEL_MANAGED_BY_POLICY`.
-The generic Gemini-name resolver remains unchanged for unrelated callers and BYOK.
+Managed UAT fleet aliases resolve through the selected Azure compatibility port;
+responses and telemetry retain the actual model/provider. BYOK remains explicit.
 
 New semantic bindings seal `authorization_basis:uat_policy` and the current policy
 generation. Existing eligible pending bindings move only through an atomic,
