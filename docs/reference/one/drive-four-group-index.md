@@ -175,10 +175,19 @@ responsibility; unrelated owners' lifecycle retention is never run by this CLI.
 
 The CSV contains file name, group, fiscal folder and quarter, date and its basis,
 confidence, model top class, candidate, reason, MIME type, original Drive link,
-organizer source and model version. Confidence describes the model's top class,
+organizer source, model version and index status. Confidence describes the model's top class,
 which can be `none`; kept files have no fiscal folder. Text starts, embeddings
-and credentials are excluded. Formula-leading text is escaped, and an existing
-output is never overwritten. JSON is available as a local artifact intermediate.
+and credentials are excluded. Formula-leading text is escaped. JSON is available
+as a local artifact intermediate.
+
+The inventory is published first with pending rows and blank decisions. Completed
+batches replace those rows atomically, alongside a metadata-only checkpoint; an
+interruption preserves completed decisions. `--resume` explicitly permits updating
+that output only when its checkpoint matches the owner, connection generation,
+background revision, model, time zone and format. A fresh fenced listing limits
+reuse to current file IDs with unchanged provider versions. A different existing
+output is refused. Neither file contains text starts or vectors. Every retry checks
+background authority again; credential refresh is single-flight in this process.
 
 The developer adapter loads the same pinned E5 model offline, in process, in
 batches of 32 with one computation thread. On Windows only, a credential-free
@@ -189,7 +198,8 @@ adapter uses the existing conditional Windows `pywin32` dependency and does not
 change the production POSIX child entrypoints. Missing OS limits fail closed.
 
 Focused synthetic checks cover CSV disclosure and formula safety, owner mismatch,
-late connection and background-revision changes, actual Windows memory/CPU limits,
+late connection and background-revision changes, revocation during retry backoff,
+interrupted-batch recovery and version-aware resume, actual Windows memory/CPU limits,
 and descendant cleanup after CPU termination and parent cancellation. Separate
 negative-control processes remove the final authority check or CSV formula guard
 and fail the corresponding tests without editing production source.

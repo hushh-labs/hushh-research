@@ -9,6 +9,28 @@ import sys
 from pathlib import Path
 
 
+async def retry_read(operation):
+    """Retry only transient failures in an already fenced read/refresh path."""
+    from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
+    from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+    for attempt in range(5):
+        try:
+            return await operation()
+        except (DriveOAuthError, DriveReadError) as error:
+            code = str(error)
+            transient = (
+                isinstance(error, DriveOAuthError)
+                and code == "refresh_in_progress"
+                or isinstance(error, DriveReadError)
+                and code == "provider_unavailable"
+            )
+            if not transient or attempt == 4:
+                raise
+            print(json.dumps({"stage": "retry", "code": code, "attempt": attempt + 1}), flush=True)
+            await asyncio.sleep(2 * (attempt + 1))
+
+
 async def windows_parser_process(leaf, argument, payload, *, timeout, limit):
     from hushh_mcp.services.google_drive_adapter import DriveReadError
 

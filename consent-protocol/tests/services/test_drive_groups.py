@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
 import math
 from dataclasses import replace
@@ -502,11 +503,8 @@ async def test_local_export_refuses_a_different_connected_drive_owner(monkeypatc
     assert not __import__("os").environ.get(FLAG)
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["preference_revision", "connection_validation"])
-async def test_local_export_rechecks_canonical_authority_after_embedding(
-    monkeypatch, tmp_path, change
-):
+@pytest.fixture
+def local_export_setup(monkeypatch):
     from contextlib import nullcontext
 
     from firebase_admin import auth
@@ -521,7 +519,6 @@ async def test_local_export_rechecks_canonical_authority_after_embedding(
     from hushh_mcp.services.drive_groups import indexer
     from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
     from scripts import drive_group_local_adapters
-    from scripts.export_drive_groups import export
 
     monkeypatch.setenv("ENVIRONMENT", "development")
     for key in (
@@ -561,28 +558,55 @@ async def test_local_export_rechecks_canonical_authority_after_embedding(
     monkeypatch.setattr(
         google_drive_rest_transport, "GoogleDriveRestTransport", lambda **kwargs: object()
     )
+    listing = AsyncMock(
+        return_value=(
+            [
+                {
+                    "id": "file-one",
+                    "title": "statement.pdf",
+                    "mimeType": PDF,
+                    "version": "1",
+                    "createdTime": "2025-04-01T00:00:00Z",
+                }
+            ],
+            True,
+            False,
+        )
+    )
     monkeypatch.setattr(
         drive_group_index_job.DriveGroupIndexJob,
         "list_files",
-        AsyncMock(return_value=([], True, False)),
+        listing,
     )
     monkeypatch.setattr(
         drive_group_local_adapters, "LocalHeadEmbedder", lambda: SimpleNamespace(embed=AsyncMock())
     )
-    state = {"changed": False}
+    state = {"changed": False, "change": None}
 
     async def embed(*args, **kwargs):
         state["changed"] = True
-        return SimpleNamespace(files=(), skipped=0)
+        placement = place(FileEvidence("statement.pdf", PDF), tiny_bundle())
+        return SimpleNamespace(files=(IndexedFile("file-one", placement),), skipped=0)
 
     def current(*args, **kwargs):
         assert kwargs == {"user_id": "owner", "generation": 1, "read_only": True}
-        if state["changed"] and change == "connection_validation":
+        if state["changed"] and state["change"] == "connection_validation":
             raise DriveReadError("connection_changed")
         return {"revision": int(state["changed"])}
 
     monkeypatch.setattr(indexer, "index_files", embed)
     monkeypatch.setattr(drive_live_preferences.DriveLivePreferences, "background_current", current)
+    return SimpleNamespace(listing=listing, state=state, indexer=indexer, engine=engine)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["preference_revision", "connection_validation"])
+async def test_local_export_rechecks_canonical_authority_after_embedding(
+    tmp_path, change, local_export_setup
+):
+    from scripts.export_drive_groups import export
+
+    local_export_setup.state["change"] = change
     output = tmp_path / "index.csv"
     with pytest.raises(DriveReadError, match="background_preparation_required|connection_changed"):
         await export(
@@ -590,4 +614,152 @@ async def test_local_export_rechecks_canonical_authority_after_embedding(
                 email="owner@example.com", time_zone="Asia/Kolkata", format="csv", output=output
             )
         )
-    assert not output.exists()
+    saved = list(csv.DictReader(io.StringIO(output.read_text(encoding="utf-8-sig"))))
+    assert saved[0]["index_status"] == "pending"
+    assert saved[0]["confidence"] == ""
+
+
+@pytest.mark.asyncio
+async def test_local_export_preserves_completed_batches_and_resumes_only_current_versions(
+    monkeypatch, tmp_path, local_export_setup
+):
+    from scripts.export_drive_groups import export
+
+    setup = local_export_setup
+    original = setup.listing.return_value[0][0]
+    rows = [{**original, "id": f"file-{index}"} for index in range(26)]
+    setup.listing.return_value = (rows, True, False)
+    placement = place(FileEvidence("statement.pdf", PDF), tiny_bundle())
+    batches = []
+
+    async def interrupted(batch, **kwargs):
+        batches.append([row["id"] for row in batch])
+        if len(batches) == 2:
+            raise DriveReadError("provider_unavailable")
+        return SimpleNamespace(
+            files=tuple(
+                IndexedFile(row["id"], placement, "PRIVATE-HEAD-SENTINEL", basis(0))
+                for row in batch
+            ),
+            skipped=0,
+        )
+
+    monkeypatch.setattr(setup.indexer, "index_files", interrupted)
+    output = tmp_path / "index.json"
+    args = SimpleNamespace(
+        email="owner@example.com", time_zone="Asia/Kolkata", format="json", output=output
+    )
+    with pytest.raises(DriveReadError, match="provider_unavailable"):
+        await export(args)
+    checkpoint = output.with_name(output.name + ".checkpoint.json")
+    saved_text = checkpoint.read_text(encoding="utf-8-sig")
+    saved = json.loads(output.read_text(encoding="utf-8-sig"))
+    assert sum(row["index_status"] == "indexed" for row in saved) == 25
+    assert saved[-1]["index_status"] == "pending" and saved[-1]["confidence"] == ""
+    assert "PRIVATE-HEAD-SENTINEL" not in saved_text
+    assert not any(key in saved_text for key in ('"head"', '"vector"', '"embedding"'))
+
+    # An old owner's/connection's/revision's cache must never be republished.
+    args.resume = True
+    for key in ("owner", "generation", "revision"):
+        changed = json.loads(saved_text)
+        changed["context"][key] = "stale"
+        checkpoint.write_text(json.dumps(changed), encoding="utf-8")
+        before = output.read_bytes()
+        with pytest.raises(RuntimeError, match="checkpoint_context_changed"):
+            await export(args)
+        assert output.read_bytes() == before
+    checkpoint.write_text(saved_text, encoding="utf-8-sig")
+
+    rows[0]["version"] = "2"
+
+    async def resumed(batch, **kwargs):
+        batches.append([row["id"] for row in batch])
+        return SimpleNamespace(
+            files=tuple(IndexedFile(row["id"], placement) for row in batch), skipped=0
+        )
+
+    monkeypatch.setattr(setup.indexer, "index_files", resumed)
+    result = await export(args)
+    assert batches[-1] == ["file-0", "file-25"]
+    assert result["files"] == 26
+    assert all(
+        row["index_status"] == "indexed"
+        for row in json.loads(output.read_text(encoding="utf-8-sig"))
+    )
+
+
+@pytest.mark.asyncio
+async def test_local_export_revocation_during_backoff_prevents_another_provider_read(
+    monkeypatch, tmp_path, local_export_setup
+):
+    import asyncio
+    from contextlib import nullcontext
+
+    from hushh_mcp.services import drive_live_preferences, google_drive_rest_transport
+    from scripts.export_drive_groups import export
+
+    setup = local_export_setup
+    read = AsyncMock(side_effect=DriveReadError("provider_unavailable"))
+    monkeypatch.setattr(
+        google_drive_rest_transport,
+        "GoogleDriveRestTransport",
+        lambda **kwargs: SimpleNamespace(read_group_index_tool=read),
+    )
+
+    def preference(*args, **kwargs):
+        return SimpleNamespace(
+            mappings=lambda: SimpleNamespace(
+                first=lambda: {
+                    "revision": int(setup.state["changed"]),
+                    "background_enabled": not setup.state["changed"],
+                    "disclosure_version": drive_live_preferences.LIVE_BACKGROUND_DISCLOSURE,
+                }
+            )
+        )
+
+    setup.engine.connect = lambda: nullcontext(SimpleNamespace(execute=preference))
+
+    async def revoke(*args):
+        setup.state["changed"] = True
+
+    monkeypatch.setattr(asyncio, "sleep", revoke)
+
+    async def listing(reads, user_id):
+        await reads.read_tool(user_id=user_id, tool_name="list_files", arguments={})
+
+    setup.listing.side_effect = listing
+    with pytest.raises(DriveReadError, match="background_preparation_required"):
+        await export(
+            SimpleNamespace(
+                email="owner@example.com", time_zone="Asia/Kolkata", output=tmp_path / "index.csv"
+            )
+        )
+    assert read.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure,retried",
+    [
+        (DriveOAuthError("refresh_in_progress"), True),
+        (DriveReadError("provider_unavailable"), True),
+        (DriveOAuthError("provider_unavailable"), False),
+        (DriveOAuthError("reconnect_required"), False),
+    ],
+)
+async def test_local_export_retries_only_safe_transient_reads(monkeypatch, failure, retried):
+    import asyncio
+
+    from scripts.drive_group_local_adapters import retry_read
+
+    sleep = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    operation = AsyncMock(side_effect=[failure, "ready"])
+    if retried:
+        assert await retry_read(operation) == "ready"
+        assert operation.await_count == 2 and sleep.await_count == 1
+    else:
+        with pytest.raises(type(failure)):
+            await retry_read(operation)
+        assert operation.await_count == 1 and sleep.await_count == 0

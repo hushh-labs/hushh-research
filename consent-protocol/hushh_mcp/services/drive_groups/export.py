@@ -29,6 +29,7 @@ COLUMNS = (
     "drive_link",
     "group_source",
     "model_version",
+    "index_status",
 )
 
 
@@ -86,12 +87,28 @@ def placement_rows(
                         row.get("viewUrl") or "",
                         placement.group_source,
                         placement.version,
+                        "indexed",
                     ),
                     strict=True,
                 )
             )
         )
     return result
+
+
+def pending_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, object]]:
+    """Inventory facts only; blank scores distinguish pending work from a decision."""
+    return [
+        {
+            **dict.fromkeys(COLUMNS, ""),
+            "file_name": row.get("title", row.get("name", "")),
+            "mime_type": row["mimeType"],
+            "drive_link": row.get("viewUrl") or "",
+            "reason": "pending",
+            "index_status": "pending",
+        }
+        for row in rows
+    ]
 
 
 def csv_text(rows: Sequence[Mapping[str, object]]) -> str:

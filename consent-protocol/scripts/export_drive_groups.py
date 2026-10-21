@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -34,6 +35,9 @@ def _arguments():
     parser.add_argument("--format", choices=("csv", "json"), default="csv")
     parser.add_argument("--time-zone", default="Asia/Kolkata")
     parser.add_argument("--deadline-seconds", type=int, default=1800)
+    parser.add_argument(
+        "--resume", action="store_true", help="Resume this owner's matching local checkpoint."
+    )
     parser.add_argument(
         "--oauth-project",
         help="Read fixed Drive OAuth secrets from this project, or 'backend' for the active DB project.",
@@ -72,37 +76,53 @@ def _load_oauth(project: str):
         os.environ[name] = result.stdout.decode().strip()
 
 
-def _write(path: Path, value: str):
+def _write(path: Path, value: str, *, replace: bool = False):
     path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
+    if path.exists() and not replace:
         raise RuntimeError("output_exists")
-    # Publish only a finished export; do not leave a partially written CSV.
+    # Every published checkpoint is a complete file, including explicit pending rows.
     descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=".drive-export-")
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8-sig", newline="") as output:
             output.write(value)
-        os.link(temporary, path)
+        if replace:
+            os.replace(temporary, path)
+        else:
+            os.link(temporary, path)
     finally:
         Path(temporary).unlink(missing_ok=True)
 
 
 async def export(args):
     from firebase_admin import auth
+    from sqlalchemy import text
 
     from api.utils.firebase_admin import get_firebase_auth_app
     from hushh_mcp.services.drive_document_processor import IsolatedDocumentParser
     from hushh_mcp.services.drive_group_index_job import DriveGroupIndexJob
     from hushh_mcp.services.drive_groups.adapters import TransportHeadSource
-    from hushh_mcp.services.drive_groups.export import csv_text, placement_rows
+    from hushh_mcp.services.drive_groups.export import csv_text, pending_rows, placement_rows
     from hushh_mcp.services.drive_groups.indexer import index_files
-    from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+    from hushh_mcp.services.drive_groups.models import load_bundle
+    from hushh_mcp.services.drive_live_preferences import (
+        LIVE_BACKGROUND_DISCLOSURE,
+        DriveLivePreferences,
+    )
     from hushh_mcp.services.external_connector_oauth_service import (
         get_external_connector_oauth_service,
     )
-    from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, DriveReadError
+    from hushh_mcp.services.google_drive_adapter import (
+        LIVE_EXTRACTABLE_ORIGINAL_TYPES,
+        LIVE_POLICY_HASH,
+        DriveReadError,
+    )
     from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
-    from scripts.drive_group_local_adapters import LocalHeadEmbedder, windows_parser_process
+    from scripts.drive_group_local_adapters import (
+        LocalHeadEmbedder,
+        retry_read,
+        windows_parser_process,
+    )
 
     zone = ZoneInfo(args.time_zone)
     if os.getenv("ENVIRONMENT", "").lower() not in {"uat", "test", "local", "development"}:
@@ -120,6 +140,16 @@ async def export(args):
             return await lifecycle_read(**{**kwargs, "purge": False})
 
         oauth.lifecycle.read = read_current
+        # Credential refresh is single-flight within this local run. Another
+        # reader must not cancel the refresh by racing the same lease.
+        credential_current = oauth.current_credential
+        credential_lock = asyncio.Lock()
+
+        async def current_credential(**kwargs):
+            async with credential_lock:
+                return await retry_read(lambda: credential_current(**kwargs))
+
+        oauth.current_credential = current_credential
         row, credential = await oauth.current_credential(
             user_id=user.uid, required_profile="live", refresh=False
         )
@@ -152,6 +182,27 @@ async def export(args):
         def background_allowed():
             return background_revision() == expected_revision
 
+        def revision_unchanged():
+            # Transport owns live grant/policy fencing for each provider call;
+            # keep this hot check to one owner-scoped MVCC query. Publishing
+            # still uses the full canonical policy check above.
+            with database.engine.connect() as connection:
+                preference = (
+                    connection.execute(
+                        text(
+                            "SELECT background_enabled,disclosure_version,revision FROM drive_live_preferences WHERE user_id=:user"
+                        ),
+                        {"user": user.uid},
+                    )
+                    .mappings()
+                    .first()
+                )
+                return expected_revision == (preference["revision"] if preference else 0) and (
+                    preference is None
+                    or preference["background_enabled"] is True
+                    and preference["disclosure_version"] == LIVE_BACKGROUND_DISCLOSURE
+                )
+
         parser = IsolatedDocumentParser(process=windows_parser_process) if os.name == "nt" else None
         transport = GoogleDriveRestTransport(oauth=oauth, parser=parser)
 
@@ -159,15 +210,19 @@ async def export(args):
             async def read_tool(self, *, user_id, tool_name, arguments):
                 if user_id != user.uid:
                     raise DriveReadError("connection_changed")
-                if not await asyncio.to_thread(background_allowed):
-                    raise DriveReadError("background_preparation_required")
-                result = await transport.read_group_index_tool(
-                    user_id=user_id,
-                    tool_name=tool_name,
-                    arguments=arguments,
-                    expected_generation=generation,
-                )
-                if not await asyncio.to_thread(background_allowed):
+
+                async def fenced_read():
+                    if not await asyncio.to_thread(revision_unchanged):
+                        raise DriveReadError("background_preparation_required")
+                    return await transport.read_group_index_tool(
+                        user_id=user_id,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        expected_generation=generation,
+                    )
+
+                result = await retry_read(fenced_read)
+                if not await asyncio.to_thread(revision_unchanged):
                     raise DriveReadError("background_preparation_required")
                 return result
 
@@ -179,33 +234,103 @@ async def export(args):
             ),
             flush=True,
         )
+        bundle = load_bundle()
+        context = {
+            "schema": 1,
+            "owner": hashlib.sha256(user.uid.encode()).hexdigest(),
+            "generation": generation,
+            "revision": expected_revision,
+            "model": bundle.version,
+            "zone": args.time_zone,
+            "format": args.format,
+        }
+        checkpoint = args.output.with_name(args.output.name + ".checkpoint.json")
+        cached = {}
+        if getattr(args, "resume", False) and checkpoint.exists():
+            saved = json.loads(checkpoint.read_text(encoding="utf-8-sig"))
+            if saved.get("context") != context:
+                raise RuntimeError("checkpoint_context_changed")
+            cached = saved["items"]
+        elif checkpoint.exists():
+            raise RuntimeError("output_exists")
+        cached = {
+            row["id"]: cached[row["id"]]
+            for row in rows
+            if row["id"] in cached and cached[row["id"]]["version"] == row["version"]
+        }
+        pending = [row for row in rows if row["id"] not in cached]
+        metadata_only = [
+            row for row in pending if row["mimeType"] not in LIVE_EXTRACTABLE_ORIGINAL_TYPES
+        ]
+        readable = [row for row in pending if row["mimeType"] in LIVE_EXTRACTABLE_ORIGINAL_TYPES]
+        batches = ([metadata_only] if metadata_only else []) + [
+            readable[start : start + 25] for start in range(0, len(readable), 25)
+        ]
+        placeholders = pending_rows(rows)
+        published = args.output.exists()
+
+        async def publish():
+            nonlocal published
+            projected = [
+                cached[row["id"]]["item"] if row["id"] in cached else placeholder
+                for row, placeholder in zip(rows, placeholders, strict=True)
+            ]
+            value = (
+                csv_text(projected)
+                if args.format == "csv"
+                else json.dumps(projected, ensure_ascii=False)
+            )
+            # Check canonical policy and exact revision immediately before each
+            # checkpoint/publication. No heads or vectors enter either file.
+            if not await asyncio.to_thread(background_allowed):
+                raise DriveReadError("background_preparation_required")
+            _write(
+                checkpoint,
+                json.dumps({"context": context, "items": cached}, ensure_ascii=False),
+                replace=checkpoint.exists(),
+            )
+            _write(args.output, value, replace=published)
+            published = True
+
+        await publish()
+        print(
+            json.dumps({"stage": "checkpoint", "indexed": len(cached), "pending": len(pending)}),
+            flush=True,
+        )
         embedder = LocalHeadEmbedder()
-        await embedder.embed(["Local index readiness check."])
-        print(json.dumps({"stage": "model_ready"}), flush=True)
-        indexed = await index_files(
-            rows,
-            heads=ProgressHeads(TransportHeadSource(reads, user.uid), len(rows)),
-            embedder=embedder,
-            owner_email=args.email,
-        )
-        projected = placement_rows(rows, indexed.files, zone=zone)
-        value = (
-            csv_text(projected)
-            if args.format == "csv"
-            else json.dumps(projected, ensure_ascii=False)
-        )
-        # Canonical live policy/validation and preference revision are rechecked
-        # after embedding and serialization, immediately before publication.
-        if not await asyncio.to_thread(background_allowed):
-            raise DriveReadError("background_preparation_required")
-        _write(args.output, value)
+        heads = ProgressHeads(TransportHeadSource(reads, user.uid), len(pending))
+        skipped = 0
+        for batch in batches:
+            indexed = await index_files(
+                batch, heads=heads, embedder=embedder, owner_email=args.email, bundle=bundle
+            )
+            projected = placement_rows(batch, indexed.files, zone=zone)
+            versions = {row["id"]: row["version"] for row in batch}
+            for item, file in zip(projected, indexed.files, strict=True):
+                cached[file.file_id] = {
+                    "version": versions[file.file_id],
+                    "shelf": file.placement.shelf,
+                    "item": item,
+                }
+            skipped += indexed.skipped
+            await publish()
+            print(
+                json.dumps(
+                    {
+                        "stage": "checkpoint",
+                        "indexed": len(cached),
+                        "pending": len(rows) - len(cached),
+                    }
+                ),
+                flush=True,
+            )
         return {
             "status": "exported",
-            "files": len(projected),
-            "skipped": indexed.skipped,
+            "files": len(rows),
+            "skipped": skipped,
             "listingComplete": complete,
             "limited": limited,
-            "groups": dict(Counter(file.placement.shelf for file in indexed.files)),
+            "groups": dict(Counter(item["shelf"] for item in cached.values())),
         }
     finally:
         database.engine.dispose()
@@ -231,7 +356,8 @@ def main():
         OPENBLAS_NUM_THREADS="1",
     )
     try:
-        if args.output.exists():
+        checkpoint = args.output.with_name(args.output.name + ".checkpoint.json")
+        if args.output.exists() and (not args.resume or not checkpoint.exists()):
             raise RuntimeError("output_exists")
         if args.oauth_project:
             project = os.environ.get("CLOUDSQL_INSTANCE_CONNECTION_NAME", "").split(":", 1)[0]
@@ -264,6 +390,15 @@ def main():
             "oauth_configuration_unavailable",
             "oauth_project_mismatch",
             "invalid_deadline",
+            "checkpoint_context_changed",
+            "refresh_in_progress",
+            "grant_rejected",
+            "provider_unavailable",
+            "connector_configuration_invalid",
+            "invalid_argument",
+            "identity_not_verified",
+            "unexpected_scope",
+            "insufficient_scope",
         }
         code = str(error) if str(error) in allowed else "export_unavailable"
         print(
