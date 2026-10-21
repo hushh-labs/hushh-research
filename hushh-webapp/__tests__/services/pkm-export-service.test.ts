@@ -4,13 +4,14 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: { loadFullBlob: vi.fn() },
 }));
 vi.mock("@/lib/services/account-service", () => ({
-  AccountService: { exportData: vi.fn() },
+  AccountService: { exportData: vi.fn(), exportBlob: vi.fn() },
 }));
-vi.mock("@/lib/utils/native-download", () => ({ downloadTextFile: vi.fn() }));
+vi.mock("@/lib/utils/native-download", () => ({ downloadFileBlob: vi.fn() }));
+vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
 
 import { AccountService } from "@/lib/services/account-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
-import { downloadTextFile } from "@/lib/utils/native-download";
+import { downloadFileBlob } from "@/lib/utils/native-download";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
@@ -21,7 +22,8 @@ import {
 
 const loadFullBlob = vi.mocked(PersonalKnowledgeModelService.loadFullBlob);
 const exportData = vi.mocked(AccountService.exportData);
-const download = vi.mocked(downloadTextFile);
+const exportBlob = vi.mocked(AccountService.exportBlob);
+const download = vi.mocked(downloadFileBlob);
 
 const UNLOCKED = {
   userId: "owner-1",
@@ -45,6 +47,10 @@ beforeEach(() => {
     },
   });
   download.mockResolvedValue(true);
+  exportBlob.mockResolvedValue(new Blob([JSON.stringify({
+    encrypted_pkm_blobs: [{ ciphertext: "raw history" }],
+    encrypted_pkm_recovery_segments: [{ ciphertext: "retained revision" }],
+  })], { type: "application/json" }));
 });
 
 describe("buildMemoryExport", () => {
@@ -121,14 +127,52 @@ describe("downloadMemoryExport", () => {
     expect(download).not.toHaveBeenCalled();
   });
 
-  it("writes the assembled export and reports what the person got", async () => {
-    const result = await PkmExportService.downloadMemoryExport(UNLOCKED);
+  it("composes the existing file without parsing/stringifying encrypted history", async () => {
+    const stringify = JSON.stringify;
+    const parseSpy = vi.spyOn(JSON, "parse").mockImplementation(() => { throw new Error("encrypted parse forbidden"); });
+    const stringifySpy = vi.spyOn(JSON, "stringify").mockImplementation((value, ...args) => {
+      if (value && typeof value === "object" &&
+        ("restorable" in value || "encrypted_pkm_recovery_segments" in value)) throw new Error("encrypted stringify forbidden");
+      return stringify(value, ...args);
+    });
+    let result;
+    try { result = await PkmExportService.downloadMemoryExport(UNLOCKED); }
+    finally { parseSpy.mockRestore(); stringifySpy.mockRestore(); }
 
     expect(download).toHaveBeenCalledTimes(1);
     const [content, filename] = download.mock.calls[0]!;
-    expect(JSON.parse(content as string).readable).toHaveProperty("financial");
+    const text = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader(); reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject; reader.readAsText(content);
+    });
+    const bundle = JSON.parse(text);
+    expect(bundle.readable).toHaveProperty("financial");
+    expect(bundle.restorable.encrypted_pkm_recovery_segments[0].ciphertext).toBe("retained revision");
+    expect(exportData).not.toHaveBeenCalled();
+    expect(exportBlob).toHaveBeenCalledWith(UNLOCKED.vaultOwnerToken, expect.objectContaining({ exclude: ["consent_audit"] }));
     expect(filename).toMatch(/^hushh-memory-\d{4}-\d{2}-\d{2}\.json$/);
-    expect(result).toMatchObject({ saved: true, domainCount: 2 });
+    expect(result).toMatchObject({ saved: true, domainCount: 2, backupIncluded: true });
+  });
+
+  it("preserves readable output and explicitly reports the missing backup on failure", async () => {
+    exportBlob.mockRejectedValueOnce(new Error("synthetic incomplete body"));
+    const result = await PkmExportService.downloadMemoryExport(UNLOCKED);
+    expect(result).toMatchObject({ saved: true, backupIncluded: false, domainCount: 2 });
+    const reader = new FileReader();
+    const text = new Promise<string>(resolve => { reader.onload = () => resolve(reader.result as string); });
+    reader.readAsText(download.mock.calls[0]![0]);
+    expect(JSON.parse(await text)).toMatchObject({ restorable: null,
+      meta: { restorable_error: "The encrypted copy could not be fetched." }, readable: { financial: expect.any(Object) } });
+  });
+
+  it("does not hand off an export when the owner changes during encrypted transfer", async () => {
+    exportBlob.mockImplementationOnce(async (_token, options) => {
+      publishValidatedAuthSessionOwner("another-owner");
+      options?.requireCurrent?.();
+      return new Blob();
+    });
+    await expect(PkmExportService.downloadMemoryExport(UNLOCKED)).rejects.toMatchObject({ name: "AbortError" });
+    expect(download).not.toHaveBeenCalled();
   });
 
   it("reports not-saved when the share sheet is dismissed", async () => {
