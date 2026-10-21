@@ -2558,6 +2558,10 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   top: 20px !important;
   width: 44px !important;
   height: 44px !important;
+}
+
+.app-side-pane-close,
+[data-agent-history-drawer] [data-agent-history-close] {
   border: 1px solid transparent !important;
   background: var(--profile-pane-surface-soft) !important;
   color: var(--ios-account-secondary-label) !important;
@@ -2567,12 +2571,56 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
     transform 280ms cubic-bezier(0.2, 0.9, 0.2, 1) !important;
 }
 
-.profile-pane-close:hover,
 .app-side-pane-close:hover,
 [data-agent-history-drawer] [data-agent-history-close]:hover {
   background: var(--profile-pane-surface-strong) !important;
   color: var(--ios-account-label) !important;
   transform: rotate(5deg);
+}
+
+/* Profile's wrapper only places the control; the circular button owns its
+ * material. A 34px face is ~22% smaller while the target stays 44px. */
+.profile-pane-close {
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.profile-pane-header--inner .shell-action-surface,
+.profile-pane-close .shell-action-surface {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.profile-pane-header--inner .shell-action-surface::before,
+.profile-pane-close .shell-action-surface::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 1px solid var(--app-glass-border);
+  border-radius: 50%;
+  background: var(--app-glass-surface);
+  box-shadow: var(--app-glass-shadow);
+  pointer-events: none;
+}
+
+.profile-pane-header--inner .shell-action-surface:hover::before,
+.profile-pane-close .shell-action-surface:hover::before {
+  background: var(--app-shell-surface-bg-hover);
+}
+
+.profile-pane-header--inner .shell-action-surface svg,
+.profile-pane-close .shell-action-surface svg {
+  width: 14px;
+  height: 14px;
+}
+
+.profile-pane-header--inner .shell-action-surface .morphy-ripple-host,
+.profile-pane-close .shell-action-surface .morphy-ripple-host {
+  inset: 5px;
+  border-radius: 50%;
 }
 
 /* History's authored opener/Close share a leading slot, not a trailing pill.

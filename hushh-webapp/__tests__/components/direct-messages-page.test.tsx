@@ -356,7 +356,7 @@ describe("DirectMessagesPage", () => {
     fireEvent.keyDown(within(group).getByRole("button", { name: "Chat options" }), { key: "Enter" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete chat" }));
     const dialog = screen.getByRole("alertdialog");
-    expect(dialog).toHaveTextContent("The other person keeps their copy");
+    expect(dialog).toHaveTextContent("Your chat history is deleted. Their copy and your connection stay.");
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete chat", exact: true }));
     await waitFor(() => expect(mocks.deleteConversation).toHaveBeenCalledTimes(1));
     expect(group).toBeInTheDocument();

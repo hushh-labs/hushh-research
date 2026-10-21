@@ -55,6 +55,7 @@ import {
 import { Button } from "@/lib/morphy-ux/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
+  ArrowBendUpLeft,
   ArrowLeft,
   Check,
   CheckCheck,
@@ -65,7 +66,6 @@ import {
   ChevronDown,
   Pencil,
   PhoneCall,
-  Quote,
   RefreshCw,
   Search,
   Send,
@@ -2081,10 +2081,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                 className={cn(
                                   styles.messageBubble,
                                   !message.senderIsViewer && styles.peerMessageBubble,
+                                  message.deletedForEveryoneAt && styles.deletedMessageBubble,
                                 )}
                               >
                                 {message.deletedForEveryoneAt ? (
-                                  <p className={styles.deletedMessage}>This message was deleted.</p>
+                                  <p className={cn(styles.deletedMessage, styles.messageText)}>This message was deleted.</p>
                                 ) : (
                                   <>
                                     {message.replyTo ? (
@@ -2094,7 +2095,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                         <p>{walletMessagePreview(message.replyTo.content)}</p>
                                       </button>
                                     ) : null}
-                                    {cardRequestReference(message.content) ? <Link className="underline underline-offset-4" href={walletCardRequestHref(cardRequestReference(message.content)!)}>View card request</Link> : cardAccessReference(message.content) ? <WalletCardAccessMessage key={`${message.id}:${activeConversationId}`} grantId={cardAccessReference(message.content)!} senderIsViewer={message.senderIsViewer} /> : isWalletCardShare(message.content) ? <WalletSharedCardMessage key={`${message.id}:${activeConversationId}`} content={message.content} peerPersonRef={thread.peerPersonRef} senderIsViewer={message.senderIsViewer} /> : message.content ? <p className="whitespace-pre-wrap break-words">{message.content}</p> : null}
+                                    {cardRequestReference(message.content) ? <Link className="underline underline-offset-4" href={walletCardRequestHref(cardRequestReference(message.content)!)}>View card request</Link> : cardAccessReference(message.content) ? <WalletCardAccessMessage key={`${message.id}:${activeConversationId}`} grantId={cardAccessReference(message.content)!} senderIsViewer={message.senderIsViewer} /> : isWalletCardShare(message.content) ? <WalletSharedCardMessage key={`${message.id}:${activeConversationId}`} content={message.content} peerPersonRef={thread.peerPersonRef} senderIsViewer={message.senderIsViewer} /> : message.content ? <p className={cn(styles.messageText, "whitespace-pre-wrap break-words")}>{message.content}</p> : null}
                                     <MessageAttachment message={message} visitRevision={presentationEpoch} isCurrentVisit={() => operationGeneration.current === presentationEpoch && readAdmission.current.admitted && readAdmission.current.ownerId === user?.uid} getIdToken={() => {
                                       if (!user) throw new Error("Sign in to open this attachment.");
                                       return user.getIdToken();
@@ -2200,7 +2201,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                   >
                                     {!message.deletedForEveryoneAt ? (
                                       <DropdownMenuItem disabled={sending || hasUnconfirmedSend} onSelect={() => startReply(message)}>
-                                        <Quote className="h-3.5 w-3.5" aria-hidden="true" />
+                                        <ArrowBendUpLeft className="h-3.5 w-3.5" aria-hidden="true" />
                                         Reply
                                       </DropdownMenuItem>
                                     ) : null}
@@ -2505,7 +2506,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete chat with {chatDeleteRequest ? conversationLabel(chatDeleteRequest.conversation) : "this person"}?</AlertDialogTitle>
-            <AlertDialogDescription>This removes the entire chat history for you. The other person keeps their copy, and your connection stays. New messages can start the chat again.</AlertDialogDescription>
+            <AlertDialogDescription>Your chat history is deleted. Their copy and your connection stay.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={Boolean(deletingChat)}>Cancel</AlertDialogCancel>
