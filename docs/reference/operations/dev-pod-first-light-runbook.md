@@ -614,8 +614,15 @@ Chat, its specialists, Browser, recorded commands and the cloud-default connecti
 check share this inference binding. Sealed owner BYOK selections still win. Files
 retains its separate frozen processing approval; Live, embeddings, Memory Bank,
 storage and encryption retain their existing boundaries. Image-only updates
-preserve the observed bridge policy, including absence; adding the exception to
-an existing pod requires the authorized configuration repair, not publication alone.
+preserve the observed bridge policy, including absence. For an existing GCP pod,
+the exact Browser configuration offer can include the configured dev bridge only
+when its named account matches the observed, owner-derived runtime identity. The
+offer discloses the processing project and commits the tuple in its approval
+digest. Authenticated drain and replacement apply it after image preservation;
+serving readback verifies the exact value. Conflicting installed policies refuse
+for reconciliation. Publishing an image or approving an image-only update never
+adds this exception. The configured identity still needs verified access on the
+bridge project; an approved configuration does not grant IAM.
 
 Verify the installed revision, exact project/identity, provider permission and
 owner response separately. Describe this as approved dev bridge processing, not

@@ -74,8 +74,8 @@ beforeEach(() => {
 });
 
 describe("owner hosting and software settings", () => {
-  it("reviews Browser separately, unwinds Back, and reuses one exact approval after a lost response", async () => {
-    status("byoc", { deploymentTarget: "user_gcp", browserActivationAvailable: true });
+  it.each(["user_gcp", "user_azure"])("reviews Browser on %s, unwinds Back, and reuses one exact approval after a lost response", async (deploymentTarget) => {
+    status("byoc", { deploymentTarget, browserActivationAvailable: true });
     mocks.browserPlan.mockResolvedValue({
       releaseId: "rel_browser", browserPlanDigest: "b".repeat(64), summary: "Public research only.",
       changes: ["Screens are processed by your selected model."], model: "Owner model",
@@ -101,6 +101,18 @@ describe("owner hosting and software settings", () => {
     fireEvent.click(approve);
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
     expect(mocks.approve.mock.calls[1][0]).toEqual(first);
+  });
+
+  it.each([
+    ["byoc", "user_azure", false],
+    ["byoc", "user_gcp", undefined],
+    ["shared", "user_azure", true],
+    ["byoc", "unknown", true],
+  ])("keeps Browser review unavailable for %s/%s without qualified owner-cloud admission", (mode, deploymentTarget, browserActivationAvailable) => {
+    status(mode as string, { deploymentTarget, browserActivationAvailable });
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+    expect(screen.queryByRole("button", { name: "Review Browser setup" })).toBeNull();
+    expect(mocks.browserPlan).not.toHaveBeenCalled();
   });
 
   it("discards Browser review when the authenticated owner changes away and back", async () => {

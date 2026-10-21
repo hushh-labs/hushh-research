@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from hushh_mcp.services.pod_inference_bridge import BRIDGE_ENV, BRIDGE_PROJECT
 from hushh_mcp.services.pod_release import image_digest, is_immutable_image_reference
 
 from .deployment import BrowserOwnerPolicy
@@ -38,6 +40,12 @@ def literal_environment(service: dict) -> dict[str, str]:
     return {item["name"]: item["value"] for item in entries if "value" in item}
 
 
+class DevInferenceBridgePlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+    project: str = Field(pattern="^" + BRIDGE_PROJECT + "$")
+    serviceAccount: str = Field(min_length=1, max_length=256)
+
+
 class GcpBrowserCapabilityPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
     version: Literal[1] = 1
@@ -61,6 +69,26 @@ class GcpBrowserCapabilityPlan(BaseModel):
     resourceLimits: dict[str, str]
     requestTimeoutSeconds: int = Field(default=1000, ge=1000, le=3600)
     deliveryConfiguration: dict[str, str] | None = Field(default=None)
+    devInferenceBridge: DevInferenceBridgePlan | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _validate_bridge_identity(self) -> Self:
+        self.require_bridge_identity()
+        return self
+
+    def require_bridge_identity(self) -> None:
+        if self.devInferenceBridge is not None:
+            from hushh_mcp.services.user_gcp_backend import pod_service_account_id
+
+            expected = (
+                f"{pod_service_account_id(self.hushhId)}@{self.project}.iam.gserviceaccount.com"
+            )
+            if (
+                os.getenv("HUSHH_DEPLOY_ENV") != "dev"
+                or self.runtimeAccount != expected
+                or self.devInferenceBridge.serviceAccount != expected
+            ):
+                raise ValueError("Browser dev inference bridge identity changed")
 
     @property
     def digest(self) -> str:
@@ -78,6 +106,11 @@ class GcpBrowserCapabilityPlan(BaseModel):
             "POD_COMPUTER_USE_ENABLED": "true",
             "HUSSH_BROWSER_POLICY_JSON": policy.model_dump_json(),
             **(
+                {BRIDGE_ENV: self.devInferenceBridge.model_dump_json()}
+                if self.devInferenceBridge is not None
+                else {}
+            ),
+            **(
                 {"POD_BROWSER_DELIVERY_MODE": "owner_files_queue_v1"}
                 if self.deliveryConfiguration
                 else {}
@@ -85,6 +118,7 @@ class GcpBrowserCapabilityPlan(BaseModel):
         }
 
     def require_owner(self, row: dict, target_image: str) -> None:
+        self.require_bridge_identity()
         metadata = row.get("backend_metadata") or {}
         expected = {
             "ownerId": row.get("user_id"),
@@ -147,6 +181,7 @@ class GcpBrowserCapabilityPlan(BaseModel):
     def apply_configuration(
         self, existing: dict, desired: dict, qualification: dict | None
     ) -> None:
+        self.require_bridge_identity()
         self.require_observation(existing)
         self.require_qualification(qualification)
         desired["spec"]["template"]["spec"]["timeoutSeconds"] = self.requestTimeoutSeconds
@@ -161,6 +196,7 @@ class GcpBrowserCapabilityPlan(BaseModel):
     def require_installed(self, service: dict) -> None:
         from hushh_mcp.services.gcp_run_client import GcpRunClient
 
+        self.require_bridge_identity()
         try:
             # Reuse the provider's strict serving observation, not erasure authority.
             GcpRunClient.erasure_fence_target(
@@ -170,6 +206,10 @@ class GcpBrowserCapabilityPlan(BaseModel):
             raise ValueError("Browser serving revision is not verified") from None
         spec = service["spec"]["template"]["spec"]
         env = literal_environment(service)
+        if self.devInferenceBridge is None and any(
+            entry["name"] == BRIDGE_ENV for entry in spec["containers"][0].get("env", [])
+        ):
+            raise ValueError("Browser installed inference policy changed")
         if (
             service.get("metadata", {}).get("uid") != self.serviceUid
             or spec.get("serviceAccountName") != self.runtimeAccount
@@ -195,7 +235,21 @@ def plan_from_observation(
         json.dumps(qualification.get("public_policy"))
     )
     metadata, spec = service["metadata"], service["spec"]["template"]["spec"]
+    from hushh_mcp.services.pod_inference_bridge import render_inference_bridge
+
     from .delivery import gcp_delivery_configuration
+
+    bridge_env = render_inference_bridge(service_account=spec["serviceAccountName"])
+    bridge = (
+        DevInferenceBridgePlan.model_validate_json(bridge_env[0]["value"]) if bridge_env else None
+    )
+    for entry in spec["containers"][0].get("env", []):
+        if entry["name"] == BRIDGE_ENV:
+            if (
+                bridge is None
+                or DevInferenceBridgePlan.model_validate_json(entry.get("value", "null")) != bridge
+            ):
+                raise ValueError("Browser installed inference policy needs reconciliation")
 
     plan = GcpBrowserCapabilityPlan(
         ownerId=row["user_id"],
@@ -215,6 +269,7 @@ def plan_from_observation(
         publicPolicy=policy,
         resourceLimits=deepcopy(spec["containers"][0]["resources"]["limits"]),
         deliveryConfiguration=gcp_delivery_configuration(row),
+        devInferenceBridge=bridge,
         requestTimeoutSeconds=max(1000, spec.get("timeoutSeconds", 300)),
     )
     plan.require_owner(row, target_image)

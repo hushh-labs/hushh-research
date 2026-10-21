@@ -1159,7 +1159,7 @@ jobs:
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     services:
       command-postgres:
         # PostgreSQL 17 / pgvector 0.8.6: identical upstream OCI index via Google's public cache.
@@ -1200,7 +1200,10 @@ jobs:
           key: ${{ runner.os }}-mypy-py${{ env.PYTHON_VERSION }}-${{ hashFiles('consent-protocol/uv.lock', 'consent-protocol/pyproject.toml') }}
 
       - name: Run protocol check script (single source of truth)
-        timeout-minutes: 22
+        # Hosted core took 630s vs 419s on the previous green run; the serial
+        # database stage reached 93% at the old 22-minute cap. Preserve its
+        # isolation and leave room for terminal collection and artifact cleanup.
+        timeout-minutes: 32
         run: bash scripts/ci/orchestrate.sh protocol
         env:
           CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}

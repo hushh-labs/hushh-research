@@ -14,7 +14,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { agentUpdateApprovalToast } from "@/lib/one/agent-update-approval";
 import { AZURE_UPDATE_AWAITING_LABEL, useAzureUpdateAwaitingSignIn } from "@/lib/one/azure-update-sign-in";
 import { useAzureUpdateProgress } from "@/lib/one/use-azure-update-progress";
-import { ownerCloudProvider } from "@/lib/one/owner-cloud";
+import { isOwnerCloudTarget, ownerCloudProvider } from "@/lib/one/owner-cloud";
 import { ApiService } from "@/lib/services/api-service";
 import {
   snapshotValidatedAuthSessionOwner,
@@ -399,7 +399,7 @@ export function AgentSettingsPanel({
         retryWithMicrosoft={ownerCloudProvider(status?.deploymentTarget) === "azure" && update.failed &&
           update.presentationState === "blocked" && Boolean(update.operationId)} /> : null}
 
-      {mode === "byoc" && status?.deploymentTarget === "user_gcp" && status.browserActivationAvailable ? (
+      {mode === "byoc" && isOwnerCloudTarget(status?.deploymentTarget) && status?.browserActivationAvailable ? (
         <BrowserActivationPanel userId={userId} disabled={busy || working} onScheduled={refresh} />
       ) : null}
 

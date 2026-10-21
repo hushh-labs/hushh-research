@@ -148,6 +148,7 @@ async def inspect_browser_offer(repo, row: dict, target_image: str, release: dic
 
 
 def public_browser_offer(plan: GcpBrowserCapabilityPlan, qualification: dict) -> dict:
+    bridge = getattr(plan, "devInferenceBridge", None)
     return {
         "releaseId": release_identity(
             plan.hushhId, plan.serviceUid, plan.targetImage, browser_digest=plan.digest
@@ -159,9 +160,16 @@ def public_browser_offer(plan: GcpBrowserCapabilityPlan, qualification: dict) ->
         "resources": plan.resourceLimits,
         "changes": [
             "Your agent can research these public pages; you can watch, take control or stop.",
-            "Screens use your selected AI. Website actions require your approval."
-            if plan.publicPolicy.interactive
-            else "Screens use your selected AI. Login and submissions are unavailable for this policy.",
+            (
+                f"Cloud-default AI uses the approved dev Google project {bridge.project}. "
+                if bridge is not None
+                else "Screens use your selected AI. "
+            )
+            + (
+                "Website actions require your approval."
+                if plan.publicPolicy.interactive
+                else "Login and submissions are unavailable for this policy."
+            ),
             "Your existing cloud size, keys and on-demand settings stay in place.",
             "Background work shares one queue; a browser task can delay other queued work for up to 15 minutes.",
         ],

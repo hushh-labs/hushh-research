@@ -187,7 +187,7 @@ describe("an Azure update approved from the profile pane", () => {
     await approveFromPane();
     handBack();
     expect(await screen.findByTestId("azure-update-updating")).toHaveTextContent("Updating your agent");
-    expect(mocks.setupStatus).toHaveBeenCalled();
+    await waitFor(() => expect(mocks.setupStatus).toHaveBeenCalled());
 
     mocks.getStatus.mockResolvedValue(verifiedAgent(APPROVED, { presentationState: "verified", phase: "verified" }));
     await act(async () => {

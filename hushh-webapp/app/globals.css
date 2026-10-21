@@ -2938,6 +2938,11 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
     -webkit-backdrop-filter: none;
   }
 
+  .profile-pane-sheet[data-slot="sheet-content"],
+  [data-app-side-pane],
+  [data-agent-history-drawer] {
+    background: var(--background) !important;
+  }
 
   .profile-pane-sheet[data-slot="sheet-content"]::after,
   [data-agent-history-drawer]::after {

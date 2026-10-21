@@ -83,6 +83,63 @@ def test_vertex_project_is_the_users_even_when_the_hub_names_its_own(monkeypatch
     assert HUSHH_PROJECT not in entries
 
 
+def test_browser_configuration_approval_repairs_only_the_exact_dev_bridge(monkeypatch):
+    from copy import deepcopy
+
+    from hushh_mcp.services.pod_browser.capability_update import (
+        GcpBrowserCapabilityPlan,
+        commitment,
+        plan_from_observation,
+    )
+    from hushh_mcp.services.pod_browser.update_offer import public_browser_offer
+    from hushh_mcp.services.pod_inference_bridge import BRIDGE_ENV, BRIDGE_PROJECT
+    from tests.helpers.pod_browser_capability import browser_capability_fixture
+
+    row, image, existing, qualification, _ = browser_capability_fixture()
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.delenv(BRIDGE_ENV, raising=False)
+    monkeypatch.delenv("BACKEND_RUNTIME_CONFIG_JSON", raising=False)
+    previous = plan_from_observation(row, image, existing, qualification)
+    assert previous.digest == commitment(
+        previous.model_dump(mode="json", exclude_none=True, exclude={"devInferenceBridge"})
+    )
+    bridge = {"project": BRIDGE_PROJECT, "serviceAccount": previous.runtimeAccount}
+    monkeypatch.setenv(BRIDGE_ENV, json.dumps(bridge))
+    approved = plan_from_observation(row, image, existing, qualification)
+    assert approved.digest != previous.digest
+    assert BRIDGE_PROJECT in " ".join(public_browser_offer(approved, qualification)["changes"])
+    installed = deepcopy(existing)
+    container = installed["spec"]["template"]["spec"]["containers"][0]
+    container["env"].append(
+        {"name": "HUSSH_BROWSER_QUALIFICATION_JSON", "value": json.dumps(qualification)}
+    )
+    approved.apply_configuration(existing, installed, qualification)
+    assert json.loads(_env_of(installed)[BRIDGE_ENV]) == bridge
+    approved.require_installed(installed)
+    with pytest.raises(ValueError, match="inference policy"):
+        previous.require_installed(installed)
+    for changed in (
+        {"project": "unapproved-project"},
+        {"serviceAccount": "other@owner-project.iam.gserviceaccount.com"},
+    ):
+        with pytest.raises(ValueError):
+            GcpBrowserCapabilityPlan.model_validate(
+                {**approved.model_dump(), "devInferenceBridge": {**bridge, **changed}}
+            )
+    container["env"] = [entry for entry in container["env"] if entry["name"] != BRIDGE_ENV]
+    with pytest.raises(ValueError, match="installed configuration"):
+        approved.require_installed(installed)
+    conflicting = deepcopy(existing)
+    conflicting["spec"]["template"]["spec"]["containers"][0]["env"].append(
+        {"name": BRIDGE_ENV, "value": json.dumps({**bridge, "project": "unapproved-project"})}
+    )
+    with pytest.raises(ValueError):
+        plan_from_observation(row, image, conflicting, qualification)
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "prod")
+    with pytest.raises(ValueError, match="bridge"):
+        approved.apply_configuration(existing, installed, qualification)
+
+
 def test_vertex_project_is_the_users_when_the_hub_names_nothing(monkeypatch) -> None:
     """The state dev is actually in. Correct here by fallback; must be correct by rule."""
     monkeypatch.delenv("HUSSH_POD_VERTEX_PROJECT", raising=False)
