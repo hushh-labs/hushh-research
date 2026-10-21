@@ -42,6 +42,8 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
     listCircles: mocks.listCircles,
+    listCircleWorkspace: async (token: string) => ({ circles: await mocks.listCircles(token), customTypePolicy: { version: 1, maxTypes: 3 } }),
+    deleteCircleType: vi.fn().mockResolvedValue({ updatedCircleCount: 1 }),
     ensureTrustedSystemCircle: mocks.ensureTrusted,
     createNamedCircle: mocks.createNamedCircle,
     resolveNamedCircleCode: vi.fn(),
@@ -533,6 +535,29 @@ describe("ConnectCirclesTab", () => {
     await waitFor(() => expect(onStateChange).toHaveBeenLastCalledWith(expect.objectContaining({
       circles: [circle("mine", "My advisors", 4)], count: 1,
     })));
+  });
+
+  it("does not restore a deleted type when an older poll finishes after manual refresh", async () => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    const current = circle("mine", "Investments", 3);
+    const categorized = { ...current, customTypeLabel: "Finance" };
+    let finishPoll!: (circles: typeof current[]) => void;
+    mocks.listCircles
+      .mockResolvedValueOnce([categorized])
+      .mockImplementationOnce(() => new Promise<typeof current[]>((resolve) => { finishPoll = resolve; }))
+      .mockResolvedValueOnce([current]);
+    const view = render(<ConnectCirclesTab currentUserId="owner" isActive refreshToken={0} />);
+    await screen.findByRole("region", { name: "Finance circles" });
+    const tick = intervalSpy.mock.calls.find(([, delay]) => delay === 30_000)?.[0];
+    intervalSpy.mockRestore();
+    expect(tick).toBeDefined();
+    act(() => { (tick as () => void)(); });
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(2));
+    view.rerender(<ConnectCirclesTab currentUserId="owner" isActive refreshToken={1} />);
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Finance circles" })).toBeNull());
+    await act(async () => finishPoll([categorized]));
+    expect(screen.queryByRole("region", { name: "Finance circles" })).toBeNull();
+    expect(screen.getByText("Investments")).toBeInTheDocument();
   });
 
   it("opens a circle without leaving Connect", async () => {

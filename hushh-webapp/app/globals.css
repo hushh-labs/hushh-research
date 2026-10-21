@@ -8726,6 +8726,12 @@ body[data-persona-surface="ria"] {
     line-height: var(--type-major-section-title-line) !important;
   }
 
+  [data-task-surface] .check-in-drawer-title.check-in-drawer-title {
+    font-size: var(--foundation-title3-size) !important;
+    line-height: var(--foundation-title3-line) !important;
+    font-weight: var(--foundation-title3-weight) !important;
+  }
+
   .check-in-subsection-title.check-in-subsection-title {
     font-family: var(--font-app-body) !important;
     font-size: var(--type-row-label-size) !important;

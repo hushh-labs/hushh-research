@@ -207,6 +207,11 @@ and [local styles](../../components/app-ui/illustrated-request-dialog.module.css
 
 ## Current Connect and Feed context schema
 
+Nearby Check in and Add time use the shared anchored task-sheet context: titles
+20/28/600, descriptions 14/20, button labels 13/20/600 and 44px controls. The
+active Checked in status uses the 17/22 headline role; long place labels wrap.
+The map keeps its non-modal panel and 416px desktop rail.
+
 At the checked revision **Connect owns `data-connect-type-scale="page"`** and
 workspace tokens. **The whole Feed AppPageShell has
 `data-profile-type-scale="page"`**. Older CSS comments naming Connect and only
