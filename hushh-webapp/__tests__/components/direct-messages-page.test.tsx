@@ -463,7 +463,7 @@ describe("DirectMessagesPage", () => {
     expect(screen.queryByRole("link", { name: /View .*profile/ })).not.toBeInTheDocument();
   });
 
-  it.each([true, false])("links peer avatars to the existing profile when canSend is %s", async (canSend) => {
+  it.each([true, false])("links the name and peer avatars to the existing profile when canSend is %s", async (canSend) => {
     mocks.getConversationMessages.mockResolvedValueOnce({
       conversation: mocks.conversation,
       items: [visibleMessage], canSend,
@@ -472,8 +472,8 @@ describe("DirectMessagesPage", () => {
     renderConnectionThread();
     expect(await screen.findByText(visibleMessage.content)).toBeVisible();
     const profileLinks = () => screen.getAllByRole("link", { name: "View Ankit Kumar Singh's profile" });
-    expect(profileLinks()).toHaveLength(1);
-    await fireEvent.click(screen.getByRole("button", { name: "Contact info", exact: true }));
+    expect(profileLinks()).toHaveLength(2);
+    await openContactInfo();
     expect(within(screen.getByRole("dialog")).getByRole("link", { name: "View Ankit Kumar Singh's profile" }))
       .toHaveAttribute("href", "/people/person-1?from=%2Fone%2Fmessages");
     for (const link of document.querySelectorAll('a[aria-label="View Ankit Kumar Singh\'s profile"]')) {
@@ -645,14 +645,20 @@ describe("DirectMessagesPage", () => {
     expect(mocks.sendMessage.mock.calls[1]![0].attachment).toBe(original.attachment);
   });
 
-  it("opens authorized contact details from the name/photo and retires them on connection changes", async () => {
+  async function openContactInfo() {
+    const options = await screen.findByRole("button", { name: "Conversation options", exact: true });
+    await waitFor(() => expect(options).toBeEnabled());
+    fireEvent.keyDown(options, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Contact info", exact: true }));
+  }
+
+  it("opens authorized contact details from the conversation menu and retires them on connection changes", async () => {
     mocks.getViewerProfile.mockResolvedValue({ personRef: "person-1", relationship: { status: "connected" },
       contactEmail: "ankit@example.com", contactPhoneNumber: "+15551234567" });
     renderConnectionThread();
-    const identity = await screen.findByRole("button", { name: "Contact info", exact: true });
-    await waitFor(() => expect(identity).toBeEnabled());
+    const identity = await screen.findByRole("link", { name: "View Ankit Kumar Singh's profile", exact: true });
     expect(identity).toHaveTextContent("Ankit Kumar Singh");
-    fireEvent.click(identity);
+    await openContactInfo();
     expect(await screen.findByRole("link", { name: "ankit@example.com" })).toHaveAttribute("href", "mailto:ankit@example.com");
     expect(screen.getByRole("link", { name: "+15551234567" })).toHaveAttribute("href", "tel:+15551234567");
     expect(mocks.getViewerProfile).toHaveBeenCalledWith("person-1", "test-token");
@@ -670,9 +676,7 @@ describe("DirectMessagesPage", () => {
     let finish!: (value: unknown) => void;
     mocks.getViewerProfile.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     const view = renderConnectionThread();
-    const identity = await screen.findByRole("button", { name: "Contact info", exact: true });
-    await waitFor(() => expect(identity).toBeEnabled());
-    fireEvent.click(identity);
+    await openContactInfo();
     await waitFor(() => expect(mocks.getViewerProfile).toHaveBeenCalledOnce());
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     await act(async () => finish({ personRef: "person-1", relationship: { status: "connected" }, contactEmail: "late@example.com" }));
@@ -680,9 +684,7 @@ describe("DirectMessagesPage", () => {
     view.unmount();
     mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [visibleMessage], canSend: false, disconnectedNotice: "Blocked", nextBefore: null });
     renderConnectionThread();
-    const readOnlyIdentity = await screen.findByRole("button", { name: "Contact info", exact: true });
-    await waitFor(() => expect(readOnlyIdentity).toBeEnabled());
-    fireEvent.click(readOnlyIdentity);
+    await openContactInfo();
     expect(await screen.findByRole("dialog")).toHaveTextContent("Blocked");
     expect(mocks.getViewerProfile).toHaveBeenCalledOnce();
   });
@@ -979,7 +981,7 @@ describe("DirectMessagesPage", () => {
     renderConnectionThread();
 
     expect(await screen.findByText("Budget review tomorrow")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Contact info" }));
+    await openContactInfo();
     fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
     fireEvent.change(screen.getByRole("searchbox", { name: "Search messages" }), {
       target: { value: "budget" },
@@ -1003,7 +1005,7 @@ describe("DirectMessagesPage", () => {
     expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
     expect(document.body).not.toHaveTextContent("synthetic-encrypted-payload");
-    fireEvent.click(screen.getByRole("button", { name: "Contact info" }));
+    await openContactInfo();
     fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
     fireEvent.change(screen.getByRole("searchbox", { name: "Search messages" }), { target: { value: "synthetic-encrypted-payload" } });
     expect(screen.queryByRole("region", { name: "Shared payment card" })).toBeNull();
