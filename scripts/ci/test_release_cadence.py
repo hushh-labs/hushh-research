@@ -557,6 +557,51 @@ class AuthorityTest(unittest.TestCase):
                     github.authorize_current("production", "github-actions[bot]")
 
 
+    def test_event_transport_preserves_exact_automatic_release_plan(self):
+        state, child, _, _ = self.authority_fixture()
+        request = state["requests"]["8"]
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory, "event.json")
+            environment = {"GITHUB_EVENT_PATH": str(event), "GITHUB_REPOSITORY": REPOSITORY,
+                           "GITHUB_RUN_ID": "200", "GITHUB_REF_NAME": "main", "GITHUB_EVENT_NAME": "workflow_dispatch"}
+            for lane in ("testflight", "deploy", "appstore"):
+                boolean_fields = {"testflight": {"dry_run", "require_hardware", "run_core_tests"},
+                                  "appstore": {"dry_run", "submit_for_review", "release_after_approval"},
+                                  "deploy": set()}[lane]
+                expected = core.dispatch_inputs("8", request, lane)
+                surface = "uat" if lane == "testflight" else "production"
+                with patch.dict(os.environ, environment), \
+                        patch.object(github, "configuration", return_value=(POLICY, GOVERNANCE)), \
+                        patch.object(github, "run_info", return_value=child), \
+                        patch.object(github, "recorded_authority", return_value=(request, lane)):
+                    forms = [expected, {k: (v == "true" if k in boolean_fields else v)
+                                        for k, v in expected.items()},
+                             {k: v for k, v in expected.items() if v != ""},
+                             {k: v if v != "" else None for k, v in expected.items()}]
+                    for values in forms:
+                        with self.subTest(lane=lane, valid_transport=values):
+                            event.write_text(json.dumps({"inputs": values}))
+                            self.assertIs(github.authorize_current(surface, "github-actions[bot]"), request)
+                    for key, value in expected.items():
+                        mutations = [{**expected, key: "f" * 40 if key == "sha" else value + "changed"}]
+                        if value:
+                            mutations += [{k: v for k, v in expected.items() if k != key}, {**expected, key: None}]
+                        if key in boolean_fields:
+                            mutations += [{**expected, key: value != "true"}, {**expected, key: 0}]
+                        if lane == "deploy" and key in {"run_predeploy_backup_job", "enable_one_email_kyc"}:
+                            mutations += [{**expected, key: False}]
+                        for changed in mutations:
+                            with self.subTest(lane=lane, rejected_field=key):
+                                event.write_text(json.dumps({"inputs": changed}))
+                                with self.assertRaises(core.UnsafeRelease):
+                                    github.authorize_current(surface, "github-actions[bot]")
+                    secret = "never-echo-this-caller-value"
+                    event.write_text(json.dumps({"inputs": {**expected, secret: secret}}))
+                    with self.assertRaisesRegex(core.UnsafeRelease, "unexpected_count=1") as error:
+                        github.authorize_current(surface, "github-actions[bot]")
+                    self.assertNotIn(secret, str(error.exception))
+
+
 class MonitorTest(unittest.TestCase):
     def test_failed_uat_is_reported_once_without_mutating_accounting(self):
         state = counted(2)

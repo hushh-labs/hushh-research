@@ -125,6 +125,14 @@ authorized only for its recorded run ID, workflow, milestone, source and complet
 input set. `config/ci-governance.json` owns the permitted controller for each
 surface. The cadence policy is a protected pipeline file.
 
+The dispatch validator accepts omitted or null `marketing_version`/`notes` only
+when the authorized value is blank, and typed booleans only for the lane's
+declared Boolean fields. Every nonempty value remains required and exact;
+unknown fields, changed source identities and changed switches fail closed.
+Mismatch diagnostics list only known field names and received types, never
+input values or caller-supplied unknown field names. A governed retry reuses the
+recorded failed child run rather than issuing a second release request.
+
 The 2/4 policy preserves the existing counter and certified sources. A one-time
 certified transition makes the latest newly eligible TestFlight milestone pending
 (count 2 when adoption occurs at count 2 or 3), without replaying older milestones.

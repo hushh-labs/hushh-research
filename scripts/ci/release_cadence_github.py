@@ -29,6 +29,7 @@ from release_cadence import (
     trusted_run,
     verified_uat,
     verify_child,
+    verify_dispatch_inputs,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -248,8 +249,7 @@ def authorize_current(surface: str, actor: str) -> dict | None:
     require(str(request["ordinal"]) == ordinal, "Wrong automatic deployment ordinal")
     require(surface == expected_surface and origin == str(request["origin_run_id"]), "Wrong automation surface")
     expected = dispatch_inputs(str(ordinal), request, lane)
-    require(set(inputs) == set(expected) and all(str(inputs.get(k, "")) == v for k, v in expected.items()),
-            "Dispatch inputs differ from the authorized plan")
+    verify_dispatch_inputs(inputs, expected, lane)
     return request
 
 
