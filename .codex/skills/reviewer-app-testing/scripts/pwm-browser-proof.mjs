@@ -8,6 +8,7 @@ export function installPwmBrowserProof({ expectedUserId, expectedEmails }) {
     uid_match: false, email_verified: false, expected_email_match: false };
   let decisionTime = null, researchPosts = 0;
   let generation = 0, watching = false, freshAcknowledged = false, previousDraft = null, preservation = null;
+  let responseFence = 0;
   let latestObservedDraft = null;
   let identityGeneration = 0;
   let baseline = null, expectation = null, exportCode = "idle", armed = null;
@@ -23,17 +24,20 @@ export function installPwmBrowserProof({ expectedUserId, expectedEmails }) {
     const keys = Object.keys(a);
     return keys.length === Object.keys(b).length && keys.every(key => Object.hasOwn(b, key) && equal(a[key], b[key]));
   };
-  const result = (value, observedGeneration) => {
+  const result = (value, observedGeneration, observedFence) => {
+    if (observedGeneration !== generation || observedFence !== responseFence) return;
     const statuses = ["pending", "paused", "offered", "saved", "unavailable", "consent_required", "insufficient_identity", "not_ready", "disabled"];
-    if (observedGeneration === generation && statuses.includes(value?.status)) {
-      lastResearchState = { status: value.status, restart_required: value.restart_required === true,
-        exhausted: value.research_exhausted === true,
-        retry_after_s: Number.isFinite(value.retry_after_s) && value.retry_after_s >= 0 ? value.retry_after_s : null };
+    if (!statuses.includes(value?.status)) return;
+    lastResearchState = { status: value.status, restart_required: value.restart_required === true,
+      exhausted: value.research_exhausted === true,
+      retry_after_s: Number.isFinite(value.retry_after_s) && value.retry_after_s >= 0 ? value.retry_after_s : null };
+    if (value.status === "offered") latestObservedDraft = value.draft_id;
+    if (!["pending", "paused"].includes(value.status)) {
+      report = freshAcknowledged && value.status === "offered" && value.draft_id !== previousDraft ? value : null;
+      usage = null;
     }
-    if (observedGeneration === generation && value?.status === "offered") latestObservedDraft = value.draft_id;
-    if (observedGeneration === generation && freshAcknowledged && value?.status === "offered" && value.draft_id !== previousDraft) report = value;
   };
-  async function observeStream(response, observedGeneration) {
+  async function observeStream(response, observedGeneration, observedFence) {
     if (!watching || observedGeneration !== generation) return;
     const receipt = { status: response.status, reads: 0, events: [], startedAt: performance.now(), error: false };
     streams.push(receipt);
@@ -57,7 +61,7 @@ export function installPwmBrowserProof({ expectedUserId, expectedEmails }) {
           if (!["progress", "partial", "result", "ping"].includes(event)) continue;
           receipt.events.push({ event, read: receipt.reads, ms: Math.round(performance.now() - receipt.startedAt) });
           if (event === "result") {
-            result(JSON.parse(frame.split("\n").filter(line => line.startsWith("data:")).map(line => line.slice(5).trimStart()).join("\n")), observedGeneration);
+            result(JSON.parse(frame.split("\n").filter(line => line.startsWith("data:")).map(line => line.slice(5).trimStart()).join("\n")), observedGeneration, observedFence);
           }
         }
       }
@@ -71,13 +75,20 @@ export function installPwmBrowserProof({ expectedUserId, expectedEmails }) {
       const headers = new Headers(args[1]?.headers ?? (args[0] instanceof Request ? args[0].headers : undefined));
       if (headers.has("Authorization")) ownerHeaders = headers;
       if (watching && method === "POST" && ["/api/one/world-model/jobs", "/api/one/world-model/ensure"].includes(url.pathname)) {
+        const newResearch = researchPosts === 0 || url.pathname.endsWith("/jobs");
         researchPosts++;
-        previousDraft = latestObservedDraft;
-        generation++; report = null; usage = null; lastResearchState = null;
-        streams.length = 0; freshAcknowledged = false;
+        responseFence++; lastResearchState = null; report = null; usage = null;
+        // Ensure resumes this research; it must not erase its paid-start or
+        // transport receipts. Only a new explicit refresh starts another epoch.
+        if (newResearch) {
+          previousDraft = latestObservedDraft;
+          generation++;
+          streams.length = 0; freshAcknowledged = false;
+        }
       }
     }
     const observedGeneration = generation;
+    const observedFence = responseFence;
     const identityLookup = url.hostname === "identitytoolkit.googleapis.com" && url.pathname.endsWith("/accounts:lookup");
     const observedIdentityGeneration = identityLookup ? ++identityGeneration : identityGeneration;
     if (identityLookup) Object.assign(identity, { lookup_seen: true, http_ok: false, parse_ok: false,
@@ -96,12 +107,12 @@ export function installPwmBrowserProof({ expectedUserId, expectedEmails }) {
     }
     if (url.origin !== location.origin) return response;
     if (url.pathname === "/api/one/world-model/jobs/stream" && response.ok) {
-      void observeStream(response.clone(), observedGeneration);
+      void observeStream(response.clone(), observedGeneration, observedFence);
     } else if (["/api/one/world-model/jobs", "/api/one/world-model/ensure", "/api/one/world-model/preferences"].includes(url.pathname)) {
       void response.clone().json().then(value => {
-        if (observedGeneration !== generation) return;
+        if (observedGeneration !== generation || observedFence !== responseFence) return;
         if (watching && method === "POST" && response.ok && ["pending", "paused"].includes(value?.status)) freshAcknowledged = true;
-        result(value, observedGeneration);
+        result(value, observedGeneration, observedFence);
         if (url.pathname.endsWith("/preferences") && response.ok) preferences = value;
       }).catch(() => undefined);
     }
@@ -204,15 +215,15 @@ export function installPwmBrowserProof({ expectedUserId, expectedEmails }) {
     beginResearch() {
       if (!current() || watching) return false;
       previousDraft = latestObservedDraft;
-      generation++; watching = true; freshAcknowledged = false;
+      generation++; responseFence++; watching = true; freshAcknowledged = false;
       report = null; usage = null; lastResearchState = null; streams.length = 0; return true;
     },
     async refreshUsage() {
       usage = null;
       if (!current() || !ownerHeaders || !report?.draft_id) return false;
-      const draftId = report.draft_id, observedGeneration = generation;
+      const draftId = report.draft_id, observedGeneration = generation, observedFence = responseFence;
       const response = await nativeFetch(`/api/one/world-model/jobs?draft_id=${encodeURIComponent(draftId)}`, { headers: ownerHeaders, cache: "no-store" });
-      if (!current() || !response.ok || report?.draft_id !== draftId || observedGeneration !== generation) return false;
+      if (!current() || !response.ok || report?.draft_id !== draftId || observedGeneration !== generation || observedFence !== responseFence) return false;
       const header = response.headers.get("X-Hussh-PWM-Usage");
       if (header) usage = JSON.parse(header);
       return Boolean(header);

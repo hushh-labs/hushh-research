@@ -155,6 +155,15 @@ report is checkpointed first; a paused review resumes there without buying
 research or compilation again. A completed review is bound to that report's
 digest. Missing or repeated IDs fail closed.
 
+A schema-invalid fact selection or resulting report may receive one charged,
+tool-free model correction using the same immutable proposed facts, identity,
+owner decisions and schema. The original validators run again; an invalid
+correction fails, and the host never returns the unreviewed proposal instead.
+The existing model-slot, remaining-time and access checks apply to both calls.
+Saved review checkpoints are validated without repair or new provider calls.
+Validation diagnostics contain only fixed stage/attempt labels and error types;
+they exclude field paths, messages, input and exception context.
+
 Review may retain zero findings without changing the assessed identity. An empty
 matched or uncertain report means no new personal statements remain to review;
 it does not imply no identity candidate exists. A no-match report still cannot
@@ -178,7 +187,7 @@ Provisional extraction also uses medium reasoning, retaining its 2,048-token and
 and every call retains the existing 90-second outer cap. The SDK deadline matches
 that cap; planner and provisional limits remain shorter. Optional sections contain
 positive personal findings, with no placeholder facts or minimum count. Empty
-uncertain reports still fail the unchanged public contract.
+uncertain reports remain valid when no new positive findings survive review.
 
 The provider report schema excludes coverage: the existing host ledger authors
 all twenty rows before unchanged full report validation. The final schema limits
