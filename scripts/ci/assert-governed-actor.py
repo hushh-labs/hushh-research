@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 
@@ -23,6 +24,16 @@ def main() -> int:
 
     policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
     allowed = policy.get(args.surface, {}).get("manual_dispatch_users", [])
+    if os.environ.get("GITHUB_RUN_ATTEMPT", "1") != "1" and os.environ.get("GITHUB_TRIGGERING_ACTOR") not in allowed:
+        raise SystemExit("Rerunning a governed release requires an authorized triggering actor.")
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    event = json.loads(Path(event_path).read_text()) if event_path else {}
+    inputs = event.get("inputs") or {}
+    if inputs.get("cadence_origin") or inputs.get("cadence_ordinal"):
+        from release_cadence_github import authorize_current
+        authorize_current(args.surface, args.actor)
+        print(f"{args.surface} exact-run release cadence authority verified.")
+        return 0
     if args.actor not in allowed:
         joined = ", ".join(allowed) if allowed else "<none>"
         raise SystemExit(

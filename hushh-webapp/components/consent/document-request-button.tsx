@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -24,6 +24,7 @@ import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { IllustratedRequestContent, IllustratedRequestForm, IllustratedRequestBody, IllustratedRequestActions } from "@/components/app-ui/illustrated-request-dialog";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -41,10 +42,6 @@ import {
 } from "@/components/consent/document-file-request";
 import {
   Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog";
 
 type RequestDraft = {
@@ -80,6 +77,7 @@ export function DocumentRequestButton({
   availability,
   onAvailabilityRetry,
   showTrigger = true,
+  returnFocusRef,
 }: {
   personRef: string;
   personName: string;
@@ -89,6 +87,7 @@ export function DocumentRequestButton({
   availability?: PersonConnectorAvailability;
   onAvailabilityRetry?: () => unknown;
   showTrigger?: boolean;
+  returnFocusRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const { user } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken, vaultOwnerToken } = useVault();
@@ -116,6 +115,7 @@ export function DocumentRequestButton({
       onAvailabilityRetry={onAvailabilityRetry}
       initialAction={intent}
       showTrigger={showTrigger}
+      returnFocusRef={returnFocusRef}
     />
   );
 }
@@ -133,6 +133,7 @@ function UnlockedRequestButton({
   credentialReady,
   initialAction,
   showTrigger,
+  returnFocusRef,
 }: {
   userId: string;
   personRef: string;
@@ -145,6 +146,7 @@ function UnlockedRequestButton({
   credentialReady: boolean;
   initialAction: "files" | "query" | null;
   showTrigger: boolean;
+  returnFocusRef?: RefObject<HTMLButtonElement | null>;
   getToken: () => string | null;
 }) {
   const [fallbackEnabled, setEnabled] = useState(false);
@@ -159,6 +161,7 @@ function UnlockedRequestButton({
   const eligibility = useRef(allowed);
   eligibility.current = allowed;
   const [open, setOpen] = useState(initialAction === "query");
+  const questionTriggerRef = useRef<HTMLButtonElement>(null);
   const [query, setQuery] = useState(draft ? draftQuestion(draft) : "");
   const [phase, setPhase] = useState<"idle" | "sending">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -411,26 +414,35 @@ function UnlockedRequestButton({
         availabilityNotice={availabilityNotice}
         initialOpen={initialAction === "files"}
         showTrigger={showTrigger}
+        returnFocusRef={returnFocusRef}
       />
-      {showTrigger ? <Button size="standard" variant="none" onClick={() => setOpen(true)}>
+      {showTrigger ? <Button ref={questionTriggerRef} size="standard" variant="none" onClick={() => setOpen(true)}>
         {renderTrigger?.("Ask about files") ?? "Ask about files"}
       </Button> : null}
       <Dialog
+        modal
         open={open}
         onOpenChange={(value) => {
           if (value) setOpen(true);
           else close();
         }}
       >
-        <DialogContent className="max-h-[85dvh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Ask about their Drive</DialogTitle>
-            <DialogDescription className="break-words">
-              {ASK_HELPER}
-            </DialogDescription>
-          </DialogHeader>
+        <IllustratedRequestContent
+          intent="drive"
+          title={created ? "Question sent" : "Ask about files"}
+          description={`To ${personName}`}
+          success={Boolean(created)}
+          showCloseButton={phase !== "sending"}
+          onCloseAutoFocus={(event) => {
+            const target = questionTriggerRef.current ?? returnFocusRef?.current;
+            if (target) {
+              event.preventDefault();
+              target.focus();
+            }
+          }}
+        >
           {created ? (
-            <div className="min-w-0 space-y-4">
+            <IllustratedRequestBody>
               <DriveQueryRequestCard
                 requestId={created.requestId}
                 direction="outgoing"
@@ -457,15 +469,15 @@ function UnlockedRequestButton({
               >
                 Ask another question
               </Button>
-            </div>
+            </IllustratedRequestBody>
           ) : (
-            <form
-              className="min-w-0 space-y-4"
+            <IllustratedRequestForm
               onSubmit={(event) => {
                 event.preventDefault();
                 void send();
               }}
             >
+              <IllustratedRequestBody>
               {availabilityNotice}
               <div className="space-y-2">
                 <Label htmlFor="drive-query-text">Your question</Label>
@@ -476,9 +488,10 @@ function UnlockedRequestButton({
                   maxLength={2000}
                   required
                   disabled={phase !== "idle"}
-                  placeholder="e.g. Find my bank statement from March"
+                  placeholder="Which file has your latest project update?"
                 />
               </div>
+              <HelperText as="p">{ASK_HELPER}</HelperText>
               {tooLong ? (
                 <HelperText role="status">Shorten your question.</HelperText>
               ) : null}
@@ -487,6 +500,8 @@ function UnlockedRequestButton({
                   {error}
                 </HelperText>
               ) : null}
+              </IllustratedRequestBody>
+              <IllustratedRequestActions>
               <FlowActionGroup
                 primary={
                   <Button
@@ -494,7 +509,7 @@ function UnlockedRequestButton({
                     size="prominent"
                     disabled={!allowed || !valid || phase !== "idle"}
                   >
-                    {phase === "sending" ? "Sending…" : "Send"}
+                    {phase === "sending" ? "Sending…" : "Send request"}
                   </Button>
                 }
                 secondary={
@@ -509,9 +524,10 @@ function UnlockedRequestButton({
                   </Button>
                 }
               />
-            </form>
+              </IllustratedRequestActions>
+            </IllustratedRequestForm>
           )}
-        </DialogContent>
+        </IllustratedRequestContent>
       </Dialog>
     </>
   );

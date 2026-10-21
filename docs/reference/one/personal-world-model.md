@@ -329,6 +329,9 @@ normal charged web retrieval as starting leads, not received evidence or verifie
 identity. They never grant access to private accounts. A changed URL set starts a
 new work generation, retains hourly starts, and cannot replace a live pending
 lease. Omission carries existing profiles and prior decisions across resumes.
+A bare server-requested restart keeps the explicit profile action available;
+the server still checks the live lease and CAS fence before admitting it. A
+pending or paused checkpoint does not expose that recovery action.
 Web and Android use the shared form; the corresponding iOS owned form requires
 its additive `profileWorldModelPublicProfiles` capability. Older binaries retain
 their existing source-review action. The separate Gemini page-review action and

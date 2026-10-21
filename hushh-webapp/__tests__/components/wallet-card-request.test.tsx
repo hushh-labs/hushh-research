@@ -7,6 +7,7 @@ import {
   cleanup,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { createRef } from "react";
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
@@ -139,6 +140,19 @@ it("keeps the card acknowledgement when relationship refresh starts after dispat
   await act(async () => accept(request));
   await screen.findByRole("button", { name: "Card request sent" });
   expect(mocks.create).toHaveBeenCalledOnce();
+});
+
+it("returns focus to Profile when the card opener disappears during review", async () => {
+  const returnFocusRef = createRef<HTMLButtonElement>();
+  const content = (showTrigger: boolean) => <>
+    <button ref={returnFocusRef}>Share profile</button>
+    <RequestCardsButton personRef={person} personName="Owner" showTrigger={showTrigger} canRequest={showTrigger} returnFocusRef={returnFocusRef} />
+  </>;
+  const view = render(content(true));
+  fireEvent.click(screen.getByRole("button", { name: "Request cards" }));
+  view.rerender(content(false));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(returnFocusRef.current).toHaveFocus());
 });
 
 it("stops a fresh card dispatch if eligibility changes during receiving-key preparation", async () => {

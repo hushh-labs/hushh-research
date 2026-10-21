@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "testflight_every": 4,
+  "production_every": 8,
+  "state_branch": "automation/release-cadence-state",
+  "submit_for_review": true,
+  "release_after_approval": true
+}

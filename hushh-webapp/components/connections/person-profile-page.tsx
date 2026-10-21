@@ -883,6 +883,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           tasks={user ? (
               <>
                   <DocumentRequestButton
+                    returnFocusRef={requestScopeReturnFocusRef}
                     key={`files:${user.uid}:${resolvedPersonRef}`}
                     canRequest={canRequest}
                     showTrigger={showRequestActions}
@@ -903,6 +904,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
                   renderTrigger={(label) => actionCardContent(label, ShieldCheck, "lilac")}
                 />
                   <RequestCardsButton
+                    returnFocusRef={requestScopeReturnFocusRef}
                     key={`card:${user.uid}:${resolvedPersonRef}`}
                     personRef={resolvedPersonRef}
                     personName={profile.displayName || "this person"}

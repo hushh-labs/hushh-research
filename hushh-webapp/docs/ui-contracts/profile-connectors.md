@@ -12,6 +12,14 @@ attendance and meeting files have their complete interaction and API reference
 in the [Calendar contract](./calendar.md). The Profile catalog's connector
 confirmation remains a separate caller from Calendar's own disconnect dialog.
 
+The complete Drive-specific interaction, copy, API, typography, geometry and
+QA reference is the [Drive contract](./drive.md). Drive is a detail inside the
+Connectors presentation, with private-agent and sharing handoffs; it has no
+dedicated Drive route or Calendar-style workspace tabs at the inspected revision.
+The Drive-specific confirmation, Back and typography clarifications in this
+supplement were checked at `477864ae8d2925a7cdc5b21d8ca6e91b3f22955e` on
+21 October 2026; the other provider sections retain the baseline above.
+
 ## Visual Map
 
 ```mermaid
@@ -171,7 +179,7 @@ backend/native Google/picker owner rather than local Next round trip.
 | --- | --- | --- |
 | Catalog/Retry | GET C | `{connectors,features,driveAgentPackagesEnabled}`; connector `connectorId,displayName,description,authStyle,status,accountLabel,connectedAt,validationState,profile,revocationOutcome,lastErrorCode,available,curatedOAuth,catalogCard,catalogState`→group/name/status/actions. Not Connected just because OAuth started. |
 | Connector row/Back | Query-owned local detail, no mutation | Controller remains mounted; search native-only/local. Social profile-link inputs local/no submit/API. |
-| Drive/curated Connect/Reconnect | POST C`/<id>/connect/oauth/start`, `{redirectUri,flow:"web"|"native",profile:"selected"|"live"}` | `{authorizeUrl,expiresAt,attemptId?,connectorId?}`→validated bounded HTTPS destination. No connection success yet. |
+| Drive/curated Connect/Reconnect | POST C`/<id>/connect/oauth/start`, `{redirectUri,flow:"web"\|"native",profile:"selected"\|"live"}` | `{authorizeUrl,expiresAt,attemptId?,connectorId?}`→validated bounded HTTPS destination. No connection success yet. |
 | General callback | POST C`/oauth/complete`, `{state,code}` | `{status,connectorId}` must reconcile real connection. One-use code not blindly retried. |
 | Preauthorized popup callback | POST C`/oauth/complete/web`,Firebase,`{state,code,attemptId}` | Only authorized attempt exchanged without vault key; not arbitrary callback authority. |
 | Native pending/finalize | GET C`/oauth/native/pending`; POST `/oauth/native/finalize`, `{attemptId}` | `{pending}` / `{status,connectorId}`→reconciled state. Opaque handoff contains no provider credential. |
@@ -191,9 +199,9 @@ backend/native Google/picker owner rather than local Next round trip.
 | Prepare packets/read | GET D`/collection/status` | `counts.discovered/indexed/pending/failed`, extraction counts/index/sync/duration times→progress/details. Poll visible15seconds. |
 | Prepare packets on/off | POST D`/collection/processing`, `{enabled,confirmed:true,disclosure:"live-drive-collection-v1"}` on enable | Confirm response then GET status; cannot enable unless background true; independent serials fence late results. |
 | Owner packets | GET D`/sharing/packets[?cursor=…]` | `{packets,nextCursor}`→rows; opening selected packet is local, no new route/details GET. |
-| List/Don't list | POST D`/sharing/packets/<id>/listing`, `{version,decision:"allow"|"deny",priceCents,expectedRevision:listingRevision,disclosure:"drive-packet-listing-connections-v1"}` | Acknowledgement then authoritative list reread; no optimistic Listed. Change price/Cancel local only. |
+| List/Don't list | POST D`/sharing/packets/<id>/listing`, `{version,decision:"allow"\|"deny",priceCents,expectedRevision:listingRevision,disclosure:"drive-packet-listing-connections-v1"}` | Acknowledgement then authoritative list reread; no optimistic Listed. Change price/Cancel local only. |
 | Document trust | GET D`/sharing/rules` | Rule `ruleId,version,recipientEmail,purpose:{purpose,periodStart,periodEnd},fileNames,scope,readiness`→scope/recipient/readiness. |
-| Revoke document trust | POST D`/sharing/rules/<id>/revoke`, `{version,confirmed:true}` | Immediate web/native confirms first; stops future trust, not existing Google permissions. |
+| Revoke document trust | POST D`/sharing/rules/<id>/revoke`, `{version,confirmed:true}` | Web calls immediately; the adopted native scene asks for confirmation first. Stops future trust, not existing Google permissions. |
 
 Packet fields projected by owner detail:
 `packetId,version,listingRevision` bind write; `title,coverageSummary,description`
@@ -208,7 +216,7 @@ not enter buyer packet response. [Packet service](../../lib/services/drive-packe
 | Row/action | Wire and consumed fields | Branch |
 | --- | --- | --- |
 | Mail status/Retry | GET `/api/kai/gmail/status/<uid>`,Firebase | `configured,connected,needs_reauth,google_email,scope_csv,compose_permission_granted,send_permission_granted`→Mail/account/permission. Force bypasses1-minute cache. |
-| Mail Connect/Enable drafts | POST `/api/kai/gmail/connect/start`, `{user_id,login_hint,include_granted_scopes,purpose:"read"|"compose",redirect_uri}` | `{configured,authorize_url,state,redirect_uri,expires_at}`→provider. Compose separate deliberate permission. |
+| Mail Connect/Enable drafts | POST `/api/kai/gmail/connect/start`, `{user_id,login_hint,include_granted_scopes,purpose:"read"\|"compose",redirect_uri}` | `{configured,authorize_url,state,redirect_uri,expires_at}`→provider. Compose separate deliberate permission. |
 | Mail complete | POST `/api/kai/gmail/connect/complete`, `{user_id,code,state,redirect_uri}` | Verified status before subsequent sync. Native complete `{user_id,server_auth_code}`. |
 | Mail Disconnect | POST `/api/kai/gmail/disconnect`, `{user_id}` | Must confirm connected:false then invalidate status/receipt caches. Catalog confirms; legacy pane immediate. |
 | Legacy Sync now/reconcile | POST `/api/kai/gmail/sync`, `{user_id}`→`{accepted,reason,run}`; POST `/reconcile` same user | accepted:false can mean already running; GET `/sync/<runId>?user_id=`→run. No false sync-complete claim. |
@@ -318,17 +326,25 @@ important caps win. Source: [task CSS](../../lib/morphy-ux/ui/task-surfaces.modu
 [surface](../../components/app-ui/settings-ui.tsx).
 
 Web ConnectorConfirm is raw small centered AlertDialog; native bottom Drawer
-radius20/safe-bottom≥12/side16/title17/22/description15/20 and48px controls
+radius20/safe-bottom≥12/side16/authored title17/22/description15/20 and48px controls
 radius14. Sheet layers711/712; Dialog800/801; local header/close z belongs
 inside surface, provider windows/OS pickers are not CSS z-index peers.
 Dynamic rows use container+inset and cumulative heights, not fixed Y coordinates.
+The [Drive font and geometry tables](./drive.md#phone-and-desktop-sizing-typography-and-spatial-qa)
+record the global title lock, portal context and separate adopted native scenes;
+the declared utility size alone does not establish the resolved font.
 
 ## Back, tests, and limits
 
-Feature Back unwinds confirmation/editor, selected file, picker review,
-packet price, packet, trust, custom editor or nested native panel before
-Profile parent. Pending writes consume Back. Normal Profile dismissal does
-not fabricate provider cancellation/revocation; the attempt owner decides it.
+The adopted native connector stack explicitly unwinds confirmation/editor,
+picker review, packet price, packet, trust and child scenes before the Profile
+parent; its pending writes consume Back. Web portals own their dismissal and
+global overlay priority. The web packet page closes through `onOpenChange`
+without a busy guard, and the inspected web packet/connector components do not
+register the native adapter's local Back hierarchy. Same-session web Back and
+in-flight dismissal remain explicit QA cases in the [Drive contract](./drive.md).
+Normal Profile dismissal does not establish provider cancellation or revocation;
+the attempt owner and authoritative readback determine the outcome.
 
 Nearest existing tests:
 [catalog](../../__tests__/components/connectors-panel.test.tsx),

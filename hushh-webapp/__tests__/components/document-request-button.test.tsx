@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createRef } from "react";
 const state = vi.hoisted(() => ({
   uid: "b",
   unlocked: true,
@@ -92,7 +93,7 @@ async function open(value = "Six months of statements") {
   fireEvent.click(await screen.findByRole("button", { name: "Ask about files" }));
   fireEvent.change(screen.getByLabelText("Your question"), { target: { value } });
 }
-const send = () => fireEvent.click(screen.getByRole("button", { name: "Send" }));
+const send = () => fireEvent.click(screen.getByRole("button", { name: "Send request" }));
 describe("asking a connection about their Drive", () => {
   it("retains an accepted question while profile eligibility is rechecked", async () => {
     let accept!: (value: ReturnType<typeof queryView>) => void;
@@ -124,22 +125,36 @@ describe("asking a connection about their Drive", () => {
   });
   afterEach(cleanup);
 
+  it.each(["Request files", "Ask about files"])("restores focus after %s closes with its opener removed", async (label) => {
+    const returnFocusRef = createRef<HTMLButtonElement>();
+    const content = (showTrigger: boolean) => <>
+      <button ref={returnFocusRef}>Share profile</button>
+      <DocumentRequestButton personRef={personRef} personName="A" showTrigger={showTrigger} canRequest={showTrigger} returnFocusRef={returnFocusRef} />
+    </>;
+    const view = render(content(true));
+    fireEvent.click(await screen.findByRole("button", { name: label, exact: true }));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    view.rerender(content(false));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    await waitFor(() => expect(returnFocusRef.current).toHaveFocus());
+  });
+
   it("offers one question field and no period or Google account step", async () => {
     mount();
     fireEvent.click(await screen.findByRole("button", { name: "Ask about files" }));
-    expect(screen.getByRole("dialog", { name: "Ask about their Drive" })).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "Ask about files" })).toBeVisible();
     expect(
       screen.getByText(
         "They see your question and decide. Nothing in their Drive is read unless they allow it. If they share files, you get Viewer access through the Google account linked to your One sign-in.",
       ),
     ).toBeVisible();
     const field = screen.getByLabelText("Your question");
-    expect(field).toHaveAttribute("placeholder", "e.g. Find my bank statement from March");
+    expect(field).toHaveAttribute("placeholder", "Which file has your latest project update?");
     expect(screen.getAllByRole("textbox")).toHaveLength(1);
     expect(screen.queryByLabelText("Start date")).toBeNull();
     expect(screen.queryByLabelText("End date")).toBeNull();
     expect(screen.queryByRole("button", { name: "Request documents" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
   });
 
   it("sends exactly one question with a retry key, then shows the outgoing card", async () => {
@@ -149,7 +164,7 @@ describe("asking a connection about their Drive", () => {
       mount();
       await open("  potential bank statement  ");
       expect(state.createQuery).not.toHaveBeenCalled();
-      const submit = screen.getByRole("button", { name: "Send" });
+      const submit = screen.getByRole("button", { name: "Send request" });
       fireEvent.click(submit);
       fireEvent.click(submit);
       const card = await screen.findByTestId("drive-query-card");
@@ -208,8 +223,8 @@ describe("asking a connection about their Drive", () => {
     mount();
     await open("€".repeat(700));
     expect(screen.getByText("Shorten your question.")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
-    fireEvent.submit(screen.getByRole("button", { name: "Send" }).closest("form")!);
+    expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("button", { name: "Send request" }).closest("form")!);
     expect(state.createQuery).not.toHaveBeenCalled();
   });
 
@@ -274,7 +289,7 @@ describe("asking a connection about their Drive", () => {
     await waitFor(() => expect(state.overview).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Ask about files" }));
     await screen.findByText("File requests are unavailable for this connection.");
-    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
     expect(state.createQuery).not.toHaveBeenCalled();
   });
 });
@@ -314,7 +329,7 @@ describe("requesting exact files from a connection", () => {
   async function openFiles(purpose = "Six months of statements", withDates = true) {
     fireEvent.click(await screen.findByRole("button", { name: "Request files" }));
     expect(await screen.findByText("About $10. You pay only if files are found.")).toBeVisible();
-    fireEvent.change(screen.getByLabelText("What do you need?"), { target: { value: purpose } });
+    fireEvent.change(screen.getByLabelText("Which files do you need?"), { target: { value: purpose } });
     if (withDates) {
       fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-03-01" } });
       fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-08-31" } });
@@ -349,7 +364,7 @@ describe("requesting exact files from a connection", () => {
       mount();
       await openFiles("  Files modified in the last two days  ", false);
       expect(screen.getByRole("dialog", { name: "Request files" })).toBeVisible();
-      expect(screen.getByText("Choose a start and end date.")).toBeVisible();
+      expect(screen.getByRole("group", { name: "Dates covered" })).toHaveAccessibleDescription("Start and end dates are required.");
       expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
       // Opening previews the account once; sending proves it again.
       expect(await screen.findByText("Files will be shared with b@gmail.test")).toBeVisible();
@@ -460,7 +475,7 @@ describe("requesting exact files from a connection", () => {
     expect(await screen.findByText("A sets the price. You see it before you pay.")).toBeVisible();
     expect(screen.getByText("We'll ask the owner to set up payouts.")).toBeVisible();
     expect(screen.queryByText(/\$10/)).toBeNull();
-    fireEvent.change(screen.getByLabelText("What do you need?"), { target: { value: "Bank statements" } });
+    fireEvent.change(screen.getByLabelText("Which files do you need?"), { target: { value: "Bank statements" } });
     fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-03-01" } });
     fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-08-31" } });
     expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled();
@@ -492,7 +507,7 @@ describe("requesting exact files from a connection", () => {
   it("refuses an incomplete period before sending or linking anything", async () => {
     mount();
     await openFiles(undefined, false);
-    expect(screen.getByRole("group", { name: "Period (required)" })).toBeVisible();
+    expect(screen.getByRole("group", { name: "Dates covered" })).toBeVisible();
     fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-09-01" } });
     expect(screen.getByText("Choose a start and end date.")).toBeVisible();
     expect(screen.queryByText("The end date must be on or after the start date.")).not.toBeInTheDocument();
@@ -630,7 +645,7 @@ describe("chat draft question card", () => {
       clientRequestId, purpose: "Statements", periodStart: null, periodEnd: null,
     }} />);
     expect(await screen.findByTestId("legacy-document-review")).toHaveTextContent(requestId);
-    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send request" })).toBeNull();
     expect(state.createQuery).not.toHaveBeenCalled();
   });
 });

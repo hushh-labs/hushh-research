@@ -43,7 +43,7 @@ it("offers no question form or send control while intake is off", async () => {
   render(<RequestScopeButton personRef="connected-person" personName="Asha" />);
   await waitFor(() => expect(mocks.gates).toHaveBeenCalled());
   fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
-  expect(screen.queryByLabelText("Question")).toBeNull();
+  expect(screen.queryByLabelText("Your question")).toBeNull();
   expect(screen.queryByRole("button", { name: "Send request" })).toBeNull();
   expect(mocks.create).not.toHaveBeenCalled();
 });
@@ -56,7 +56,7 @@ it("opens the existing question dialog on an available active connection", async
   );
   fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
   expect(screen.getByRole("dialog")).toBeVisible();
-  expect(await screen.findByLabelText("Question")).toBeVisible();
+  expect(await screen.findByLabelText("Your question")).toBeVisible();
 });
 
 
@@ -66,8 +66,8 @@ it("sends only the question and confirms after server acceptance", async () => {
   mocks.create.mockReturnValue(new Promise((resolve) => { accept = resolve; }));
   render(<RequestScopeButton personRef="connected-person" personName="Asha" />);
   fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
-  const field = await screen.findByLabelText("Question");
-  expect(field).toHaveAttribute("placeholder", "E.g. What is your age?");
+  const field = await screen.findByLabelText("Your question");
+  expect(field).toHaveAttribute("placeholder", "What is the best way to contact you?");
   expect(screen.getByText("To Asha")).toBeVisible();
   expect(screen.queryByRole("checkbox")).toBeNull();
   expect(document.querySelector('input[type="date"]')).toBeNull();
@@ -93,7 +93,7 @@ it("retains a failed question and Cancel resets the next request", async () => {
   mocks.create.mockRejectedValue(new Error("This request could not be sent."));
   render(<RequestScopeButton personRef="connected-person" personName="Asha" />);
   fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
-  const field = await screen.findByLabelText("Question");
+  const field = await screen.findByLabelText("Your question");
   fireEvent.change(field, { target: { value: "What is your age?" } });
   fireEvent.click(screen.getByRole("button", { name: "Send request" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("could not be sent");
@@ -101,7 +101,7 @@ it("retains a failed question and Cancel resets the next request", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
-  expect(await screen.findByLabelText("Question")).toHaveValue("");
+  expect(await screen.findByLabelText("Your question")).toHaveValue("");
 });
 
 it("reuses the attempt identity after an uncertain response and offers status recovery", async () => {
@@ -109,7 +109,7 @@ it("reuses the attempt identity after an uncertain response and offers status re
   mocks.create.mockRejectedValueOnce(new Error("Network interrupted")).mockResolvedValueOnce({ requestId: "33333333-3333-4333-8333-333333333333" });
   render(<RequestScopeButton personRef="connected-person" personName="Asha" />);
   fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
-  fireEvent.change(await screen.findByLabelText("Question"), { target: { value: "What is your age?" } });
+  fireEvent.change(await screen.findByLabelText("Your question"), { target: { value: "What is your age?" } });
   fireEvent.click(screen.getByRole("button", { name: "Send request" }));
   const link = await screen.findByRole("link", { name: "Check request status" });
   const retryId = mocks.create.mock.calls[0]![3].clientRequestId;
@@ -127,7 +127,7 @@ it("shows the question form when intake is on and payments are paused", async ()
   mocks.gates.mockResolvedValue({ requests: true, payments: false });
   render(<RequestScopeButton personRef="connected-person" personName="Asha" />);
   fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
-  expect(await screen.findByLabelText("Question")).toBeVisible();
+  expect(await screen.findByLabelText("Your question")).toBeVisible();
   expect(screen.getByRole("button", { name: "Send request" })).toBeVisible();
   expect(screen.queryByText(/not switched on here yet/)).toBeNull();
   // Nothing in this form may offer to charge for the answer.
@@ -143,7 +143,7 @@ it("closes the form when intake is off even with payments live", async () => {
   expect(
     await screen.findByText(/Requests are not switched on here yet/),
   ).toBeVisible();
-  expect(screen.queryByLabelText("Question")).toBeNull();
+  expect(screen.queryByLabelText("Your question")).toBeNull();
   expect(mocks.create).not.toHaveBeenCalled();
 });
 
@@ -156,9 +156,9 @@ it("distinguishes a failed check from a disabled lane and retries", async () => 
   fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
   expect(await screen.findByText(/Sign in to send this request/)).toBeVisible();
   expect(screen.queryByText(/not switched on here yet/)).toBeNull();
-  expect(screen.queryByLabelText("Question")).toBeNull();
+  expect(screen.queryByLabelText("Your question")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-  expect(await screen.findByLabelText("Question")).toBeVisible();
+  expect(await screen.findByLabelText("Your question")).toBeVisible();
 });
 
 
@@ -166,7 +166,7 @@ it("retains the pending question and blocks form submission while connection aut
   mocks.gates.mockResolvedValue({ requests: true, payments: false });
   const view = render(<RequestScopeButton personRef="connected-person" personName="Asha" canRequest />);
   fireEvent.click(screen.getByRole("button", { name: "Request scope" }));
-  const field = await screen.findByLabelText("Question");
+  const field = await screen.findByLabelText("Your question");
   fireEvent.change(field, { target: { value: "What are your food preferences?" } });
   const send = screen.getByRole("button", { name: "Send request" });
   expect(send).toBeEnabled();

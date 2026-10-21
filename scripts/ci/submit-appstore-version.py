@@ -48,6 +48,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import NoReturn
 
 ASC_API_ROOT = "https://api.appstoreconnect.apple.com"
 ASC_AUDIENCE = "appstoreconnect-v1"
@@ -79,7 +80,7 @@ def log(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
-def die(message: str) -> "NoReturn":  # type: ignore[name-defined]
+def die(message: str) -> NoReturn:
     log(f"submit-appstore-version: {message}")
     raise SystemExit(1)
 
@@ -203,6 +204,51 @@ def find_app_store_version(
     url = f"{ASC_API_ROOT}/v1/apps/{app_id}/appStoreVersions?{query}"
     data = asc_get(url, token).get("data") or []
     return data[0] if data else None
+
+
+def resolve_packaging_version(token: str, app_id: str, source_version: str, platform: str, *, testflight: bool = False, defer_if_review: bool = False) -> str:
+    """Read-only automatic train selection; never mutate a reviewed version."""
+    def parts(value: str) -> tuple[int, int, int]:
+        if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", value):
+            die("automatic packaging requires a numeric x.y.z marketing version")
+        return tuple(int(part) for part in value.split("."))
+
+    minimum = parts(source_version)
+    query = urllib.parse.urlencode({"filter[platform]": platform, "limit": "200"})
+    url = f"{ASC_API_ROOT}/v1/apps/{app_id}/appStoreVersions?{query}"
+    versions = []
+    while url:
+        payload = asc_get(url, token)
+        versions.extend(item.get("attributes") or {} for item in payload.get("data", []))
+        url = (payload.get("links") or {}).get("next")
+    if not versions:
+        return source_version
+    latest = max(versions, key=lambda attrs: parts(attrs["versionString"]))
+    version = parts(latest["versionString"])
+    state = latest.get("appStoreState") or latest.get("appVersionState")
+    if state in EDITABLE_VERSION_STATES:
+        return ".".join(map(str, max(minimum, version)))
+    pending = {"WAITING_FOR_REVIEW", "IN_REVIEW", "PENDING_DEVELOPER_RELEASE", "PENDING_APPLE_RELEASE", "PROCESSING_FOR_APP_STORE"}
+    if state in pending:
+        if testflight:
+            return ".".join(map(str, max(minimum, (version[0], version[1], version[2] + 1))))
+        if defer_if_review:
+            log("Public version is awaiting Apple review or release; defer outside macOS.")
+            raise SystemExit(75)
+    if state not in {"READY_FOR_SALE", "READY_FOR_DISTRIBUTION", "REMOVED_FROM_SALE", "DEVELOPER_REMOVED_FROM_SALE"}:
+        die(f"App Store version is {state}; finish its review/release before preparing its successor")
+    return ".".join(map(str, max(minimum, (version[0], version[1], version[2] + 1))))
+
+
+def verify_reviewer_account(token: str, version_id: str) -> None:
+    """Read back required review information without logging credentials."""
+    payload = asc_get(f"{ASC_API_ROOT}/v1/appStoreVersions/{version_id}/appStoreReviewDetail", token)
+    attributes = (payload.get("data") or {}).get("attributes") or {}
+    required = ("contactFirstName", "contactLastName", "contactPhone", "contactEmail", "demoAccountName", "demoAccountPassword")
+    if attributes.get("demoAccountRequired") is not True or not all(
+        isinstance(attributes.get(field), str) and attributes[field].strip() for field in required
+    ):
+        die("production App Review sign-in/contact information is incomplete; submission blocked")
 
 
 def ensure_app_store_version(
@@ -608,6 +654,14 @@ def verify_release_state(
 # --------------------------------------------------------------------------- #
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--resolve-marketing-version", action="store_true",
+                        help="Read-only: select an editable packaging train, incrementing a released patch version.")
+    parser.add_argument("--testflight", action="store_true",
+                        help="For read-only train selection, allow beta uploads while public review is pending.")
+    parser.add_argument("--defer-if-review", action="store_true",
+                        help="Train selection exits 75 while a public version is awaiting review/release.")
+    parser.add_argument("--require-reviewer-account", action="store_true",
+                        help="Require configured App Review sign-in/contact information before submission.")
     parser.add_argument(
         "--p8-path", default=os.environ.get("APPSTORE_CONNECT_API_KEY_PATH")
     )
@@ -782,11 +836,15 @@ def main(argv: list[str]) -> int:
     marketing_version = args.marketing_version or pbx_marketing
     if not marketing_version:
         die("could not determine marketing version (pass --marketing-version)")
-    if not args.build_number:
+    if not args.build_number and not args.resolve_marketing_version:
         die("--build-number is required (CFBundleVersion of the uploaded build)")
 
     token = mint_jwt(args.p8_path, args.key_id, args.issuer_id)
     app_id = resolve_app_id(token, args.bundle_id)
+    if args.resolve_marketing_version:
+        print(resolve_packaging_version(token, app_id, marketing_version, args.platform,
+                                        testflight=args.testflight, defer_if_review=args.defer_if_review))
+        return 0
 
     version = ensure_app_store_version(
         token, app_id, marketing_version, args.platform, args.release_type
@@ -818,10 +876,15 @@ def main(argv: list[str]) -> int:
     evidence = verify_release_state(
         token, version_id, build["id"], args.release_type, args.whats_new, None
     )
-    evidence["submission_attempted"] = args.submit
+    evidence["submission_attempted"] = False
     if args.evidence_path:
         Path(args.evidence_path).write_text(json.dumps(evidence), encoding="utf-8")
     if args.submit:
+        if args.require_reviewer_account:
+            verify_reviewer_account(token, version_id)
+        evidence["submission_attempted"] = True
+        if args.evidence_path:
+            Path(args.evidence_path).write_text(json.dumps(evidence), encoding="utf-8")
         submission_id = submit_for_review(token, app_id, version_id, args.platform)
         evidence = verify_release_state(
             token,
