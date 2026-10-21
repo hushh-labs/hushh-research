@@ -7,6 +7,7 @@ not authorize sign-in, uploads, submissions or arbitrary website requests.
 
 from __future__ import annotations
 
+import hashlib
 from urllib.parse import urlsplit
 
 from pydantic import Field, model_validator
@@ -45,6 +46,14 @@ class PublicResearchPolicy(StrictContract):
     # reviewed directory; they cannot carry a query or authentication.
     page_urls: tuple[str, ...] = Field(min_length=1, max_length=128)
     static_prefixes: tuple[str, ...] = Field(default=(), max_length=32)
+
+    @property
+    def digest(self) -> str:
+        import json
+
+        return hashlib.sha256(
+            json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
 
     @model_validator(mode="after")
     def validate_destinations(self):

@@ -131,6 +131,21 @@ async def test_scheduled_model_closes_existing_native_client_without_creating_an
     await close_owned_adk_model(fresh)
     close.assert_called_once()
     assert "api_client" not in fresh.__dict__
+    # Browser continuation recreates the client from the same owner binding,
+    # even when ambient Shared configuration selects a different provider mode.
+    from hushh_mcp.runtime_providers.factory import build_gemini_byok_adk_model
+
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    owner = build_gemini_byok_adk_model("gemini-3.8-flash", "synthetic")
+    initial = owner.api_client
+    assert initial.vertexai is False
+    await close_owned_adk_model(owner)
+    resumed = owner.api_client
+    try:
+        assert resumed is not initial and resumed.vertexai is False
+        assert owner.client_kwargs == {"vertexai": False, "api_key": "synthetic"}
+    finally:
+        await close_owned_adk_model(owner)
 
 
 async def test_repeated_cancellation_joins_both_owned_genai_halves(monkeypatch):

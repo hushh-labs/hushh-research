@@ -175,58 +175,58 @@ async def test_composed_public_authority_fences_unknown_requests_and_recovery(tm
         await recovered.check_no_pending_dispatch(bound)
 
 
+@pytest.mark.parametrize("host_kind", ["gcp_cloud_run", "azure_vm"])
 async def test_browser_startup_binds_one_owner_after_recovery_and_closes_launcher(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, host_kind
 ):
     from dataclasses import replace
-    from types import SimpleNamespace
-    from unittest.mock import AsyncMock
-
-    from google.adk.models import Gemini
 
     from hushh_mcp.services.pod_browser import composition as startup
-    from hushh_mcp.services.pod_browser.execution_authority import PublicResearchPolicy
-    from hushh_mcp.services.pod_browser.owner_model import OwnerBrowserModel
-    from hushh_mcp.services.pod_browser.task_contracts import BrowserOwnerAccess
-    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
-    from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission
-
-    authority = SimpleNamespace(
-        hushh_id="pod",
-        pod_key_id="key",
-        environment="dev",
-        epoch=1,
-        require_held=AsyncMock(),
+    from hushh_mcp.services.pod_browser import deployment as install
+    from tests.helpers.pod_browser_composition import (
+        browser_startup_ports,
+        install_test_browser_host,
+        qualified_browser_installation_fixture,
     )
-    monkeypatch.setattr(startup, "active_session_authority", lambda: authority)
-    monkeypatch.setattr(startup, "pod_incarnation", lambda: "epoch")
-    monkeypatch.setattr(startup, "workload_platform", lambda: "gcp")
-    monkeypatch.setattr(startup, "ADMISSION", PodUpgradeAdmission(log_resolver=lambda: None))
-    monkeypatch.setenv("HUSSH_POD_IMAGE_TAG", "synthetic-source")
-    monkeypatch.setenv("POD_COMPUTER_USE_ENABLED", "true")
-    monkeypatch.delenv("HUSSH_BROWSER_QUALIFICATION_JSON", raising=False)
-    log = PodCommitLog(LocalObjectStore(str(tmp_path)), b"L" * 32, owner_id="owner")
+
+    fixture = qualified_browser_installation_fixture(monkeypatch, tmp_path, host_kind)
+    authority, log = fixture.authority, fixture.log
+    qualified, policy, cloud = fixture.qualified, fixture.policy, fixture.cloud
     with pytest.raises(BrowserRefused, match="QUALIFICATION_REQUIRED"):
         startup.configure_browser_startup(authority=authority, log=log, dek=b"K" * 32)
-    deployment = startup.BrowserDeployment(
-        version=1,
-        environment="development",
-        pod_id="pod",
-        pod_key_id="key",
-        incarnation="epoch",
-        image_tag="synthetic-source",
-        evidence_sha256="a" * 64,
-        readiness=readiness(),
-        public_policy=PublicResearchPolicy(page_urls=("https://example.com/research",)),
-    )
-    launcher = SimpleNamespace(readiness=deployment.readiness, close=AsyncMock())
-    monkeypatch.setattr(startup.InPodBrowserLauncher, "from_bootstrap", lambda **kwargs: launcher)
-    selected = OwnerBrowserModel(Gemini(model=deployment.readiness.model_name), AsyncMock())
-    monkeypatch.setattr(startup, "resolve_owner_browser_model", lambda check: selected)
-    composed = startup.PodBrowserComposition(
-        deployment=deployment, authority=authority, log=log, dek=b"K" * 32
-    )
-    owner = BrowserOwnerAccess("owner", "pod", "epoch", 2**31 - 1, AsyncMock())
+    import json
+
+    monkeypatch.setenv("HUSSH_BROWSER_QUALIFICATION_JSON", json.dumps(qualified))
+    with pytest.raises(BrowserRefused, match="OWNER_POLICY_REQUIRED"):
+        startup.configure_browser_startup(authority=authority, log=log, dek=b"K" * 32)
+    monkeypatch.setenv("HUSSH_BROWSER_POLICY_JSON", json.dumps(policy))
+    # Azure cloud identity alone must never admit the denied Container Apps host.
+    with pytest.raises(BrowserRefused, match="HOST_UNQUALIFIED"):
+        install.recovered_browser_deployment(authority)
+    install_test_browser_host(monkeypatch, cloud)
+    deployment = install.recovered_browser_deployment(authority)
+    assert deployment.incarnation == "epoch"  # bound after recovery, absent from both documents
+    assert "incarnation" not in policy and "incarnation" not in qualified
+    authority.pod_key_id = "changed-key"
+    with pytest.raises(BrowserRefused, match="QUALIFICATION_CHANGED"):
+        install.recovered_browser_deployment(authority)
+    authority.pod_key_id = "key"
+    changed_policy = {**policy, "public_policy": {"page_urls": ["https://example.com/other"]}}
+    monkeypatch.setenv("HUSSH_BROWSER_POLICY_JSON", json.dumps(changed_policy))
+    with pytest.raises(BrowserRefused, match="OWNER_POLICY_UNQUALIFIED"):
+        install.recovered_browser_deployment(authority)
+    monkeypatch.setenv("HUSSH_BROWSER_POLICY_JSON", json.dumps(policy))
+    changed = {
+        **qualified,
+        "readiness": {**qualified["readiness"], "component_digest": "sha256:" + "c" * 64},
+    }
+    monkeypatch.setenv("HUSSH_BROWSER_QUALIFICATION_JSON", json.dumps(changed))
+    with pytest.raises(BrowserRefused, match="QUALIFICATION_INVALID"):
+        install.recovered_browser_deployment(authority)
+    monkeypatch.setenv("HUSSH_BROWSER_QUALIFICATION_JSON", json.dumps(qualified))
+    ports = browser_startup_ports(monkeypatch, deployment)
+    composed = startup.configure_browser_startup(authority=authority, log=log, dek=b"K" * 32)
+    owner = ports.owner
     try:
         runtime, same = await asyncio.gather(composed.bind(owner), composed.bind(owner))
         assert runtime is same and runtime.capability().public_research_only
@@ -248,7 +248,7 @@ async def test_browser_startup_binds_one_owner_after_recovery_and_closes_launche
         assert not runtime.capability().available
     finally:
         await composed.close()
-    launcher.close.assert_awaited_once()
+    ports.launcher.close.assert_awaited_once()
 
 
 async def test_current_owner_can_read_and_stop_after_original_grant_ends_but_cannot_resume(

@@ -355,6 +355,11 @@ class UserGcpBackend:
         # renderer emits hushh's source ref; this is the single seam that rewrites it, so
         # create AND replace (both consume this config) get the user image in one place.
         container["image"] = self._user_pod_image_ref(spec, image_digest)
+        from hushh_mcp.services.pod_release import browser_qualification_environment
+
+        browser_environment = browser_qualification_environment(
+            spec.browser_qualification, target_image=container["image"], host_kind="gcp_cloud_run"
+        )
 
         # The pod runs as its own least-privilege identity, the one the bootstrap
         # created and bound to this person's key and bucket.
@@ -364,6 +369,7 @@ class UserGcpBackend:
         cfg["spec"]["template"]["spec"]["serviceAccountName"] = service_account
 
         kept = [e for e in container.get("env", []) if e["name"] not in _MANAGED_ONLY_ENV]
+        kept.extend({"name": name, "value": value} for name, value in browser_environment.items())
         kept.extend(render_inference_bridge(service_account=service_account))
         kept.extend(
             [

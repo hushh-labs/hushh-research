@@ -235,9 +235,15 @@ def host_configuration(
     hostname: str,
     signing_secret: str,
     environment: dict[str, str],
+    browser_qualification: dict | None = None,
 ) -> dict:
     """Non-secret installation payload; no API key or signing value is serialized."""
     from browser_runtime.azure_host.config import validate
+    from hushh_mcp.services.pod_release import browser_qualification_environment
+
+    observed = browser_qualification_environment(
+        browser_qualification, target_image=image, host_kind="azure_vm"
+    )
 
     return validate(
         {
@@ -247,6 +253,6 @@ def host_configuration(
             "image": image,
             "hostname": hostname,
             "signing_secret": signing_secret,
-            "environment": environment,
+            "environment": {**environment, **observed},
         }
     )

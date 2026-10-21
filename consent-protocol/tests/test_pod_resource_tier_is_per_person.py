@@ -126,3 +126,54 @@ async def test_warm_gets_cpu_between_requests_and_economy_does_not():
         "so its heartbeat stalls and the hub will read it as faulted"
     )
     assert economy_annotations.get(cpu_throttling) != "false"
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_image_qualification_never_changes_owner_browser_activation_or_policy(enabled):
+    import json
+    from dataclasses import replace
+
+    from hushh_mcp.services.pod_upgrade_configuration import preserve_image_upgrade_configuration
+    from tests.helpers.pod_browser import readiness
+
+    digest = "sha256:" + "a" * 64
+    qualified = {
+        "version": 1,
+        "host_kind": "gcp_cloud_run",
+        "source_revision": "b" * 40,
+        "image_tag": "source",
+        "evidence_sha256": "c" * 64,
+        "public_policy_sha256": "e" * 64,
+        "readiness": readiness().model_dump(),
+    }
+    spec = replace(_spec(), browser_qualification=qualified)
+    existing = _byoc_backend().render_deploy_config(_spec(), image_digest="sha256:" + "d" * 64)
+    old = existing["spec"]["template"]["spec"]["containers"][0]
+    if enabled:
+        old["env"].extend(
+            [
+                {"name": "POD_COMPUTER_USE_ENABLED", "value": "true"},
+                {"name": "HUSSH_BROWSER_POLICY_JSON", "value": "synthetic-exact-owner-policy"},
+                {"name": "HUSSH_BROWSER_QUALIFICATION_JSON", "value": "old-image-evidence"},
+            ]
+        )
+    desired = _byoc_backend().render_deploy_config(spec, image_digest=digest)
+    # A newly rendered release must not overwrite owner activation/policy.
+    target = desired["spec"]["template"]["spec"]["containers"][0]
+    target["env"].extend(
+        [
+            {"name": "POD_COMPUTER_USE_ENABLED", "value": "true"},
+            {"name": "HUSSH_BROWSER_POLICY_JSON", "value": "unapproved-policy"},
+        ]
+    )
+    preserve_image_upgrade_configuration(existing, desired)
+    actual = {entry["name"]: entry.get("value") for entry in target["env"]}
+    assert actual.get("POD_COMPUTER_USE_ENABLED") == ("true" if enabled else None)
+    assert actual.get("HUSSH_BROWSER_POLICY_JSON") == (
+        "synthetic-exact-owner-policy" if enabled else None
+    )
+    assert json.loads(actual["HUSSH_BROWSER_QUALIFICATION_JSON"]) == qualified
+    assert actual["HUSSH_POD_INSTALLED_IMAGE_DIGEST"] == digest
+    assert target["image"].endswith("@" + digest)
+    with pytest.raises(ValueError, match="image is not qualified"):
+        _byoc_backend().render_deploy_config(spec, image_digest="sha256:" + "f" * 64)

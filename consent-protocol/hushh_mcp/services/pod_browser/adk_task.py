@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from contextlib import aclosing
 from uuid import uuid4
 
@@ -11,13 +10,14 @@ from google.adk.agents.run_config import RunConfig
 from google.adk.models import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.adk.telemetry.context import ContentCapturingMode, TelemetryConfig
 from google.genai import types
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2
+from hushh_mcp.hushh_adk.telemetry import private_telemetry
 from hushh_mcp.one_adk.computer_use_agent import BrowserTaskResultV1, build_computer_use_agent
 from hushh_mcp.runtime_providers.azure_browser_adk import AzureBrowserAdkModel
+from hushh_mcp.runtime_providers.lifecycle import close_owned_adk_model
 
 from .contracts import BrowserRefused
 from .control import BrowserControl
@@ -44,31 +44,12 @@ class NativeAdkBrowserModel:
     ) -> BrowserTaskResultV1:
         if processing.task_goal != goal:
             raise BrowserRefused("BROWSER_PROCESSING_TERMS_MISMATCH")
-        telemetry = TelemetryConfig(
-            capture_message_content=ContentCapturingMode.NO_CONTENT,
-            adk_experimental_telemetry_opt_in=False,
-        )
-        if any(
-            (
-                telemetry.should_add_content_to_logs,
-                telemetry.should_add_content_to_legacy_spans,
-                telemetry.should_add_content_to_experimental_spans,
+        try:
+            telemetry = private_telemetry().model_copy(
+                update={"adk_experimental_telemetry_opt_in": False}
             )
-        ) or any(
-            logging.getLogger(name).isEnabledFor(logging.DEBUG)
-            for name in (
-                "google.adk.models.google_llm",
-                "google_adk.google.adk.models.google_llm",
-                "google.genai._api_client",
-                "google_genai._api_client",
-                "google_genai.models",
-                "httpx",
-                "httpcore",
-                "openai",
-                "openai._base_client",
-            )
-        ):
-            raise BrowserRefused("BROWSER_TELEMETRY_CONTENT_REFUSED")
+        except ValueError:
+            raise BrowserRefused("BROWSER_TELEMETRY_CONTENT_REFUSED") from None
         agent = build_computer_use_agent(
             self._manifest,
             control=control,
@@ -110,9 +91,14 @@ class NativeAdkBrowserModel:
                     async with asyncio.timeout(10):
                         await runner.close()
                 finally:
-                    await sessions.delete_session(
-                        app_name=app_name, user_id=owner_id, session_id=session_id
-                    )
+                    try:
+                        await sessions.delete_session(
+                            app_name=app_name, user_id=owner_id, session_id=session_id
+                        )
+                    finally:
+                        # The selected native model belongs to this Browser
+                        # composition; no borrowed/shared client is closed.
+                        await close_owned_adk_model(self._model)
             except BaseException:
                 # A failed cleanup is distinct from a model failure: the pod
                 # must keep its update permit until shutdown can be proved.

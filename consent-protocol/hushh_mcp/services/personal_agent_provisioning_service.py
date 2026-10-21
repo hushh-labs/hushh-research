@@ -137,6 +137,7 @@ from hushh_mcp.services.pod_lifecycle_log import (
     substrate_progress,
 )
 from hushh_mcp.services.pod_release import (
+    approved_browser_qualification,
     approved_release,
     configured_release,
     record_installed_release,
@@ -1766,6 +1767,13 @@ class PersonalAgentProvisioningService:
             upgrade_target_image=(
                 str(approval_metadata.get("targetImage") or "").strip() or None
                 if approval_is_valid and isinstance(approval_metadata, dict)
+                else None
+            ),
+            browser_qualification=(
+                approved_browser_qualification(
+                    approval_metadata, current_image, host_kind="gcp_cloud_run"
+                )
+                if approval_is_valid and row.get("deployment_target") == "user_gcp"
                 else None
             ),
             # Retain the owner's recorded warm floor. Re-deriving it from the

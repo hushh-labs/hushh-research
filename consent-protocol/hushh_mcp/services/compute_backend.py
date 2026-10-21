@@ -135,6 +135,9 @@ class PodSpec:
     # Immutable image reference captured by the approval record. Providers must
     # execute this value, never re-resolve a mutable deployment tag.
     upgrade_target_image: Optional[str] = None
+    # Reviewed image evidence captured by the exact upgrade approval. This does
+    # not authorize Browser activation, destinations or resource changes.
+    browser_qualification: Optional[dict[str, Any]] = dataclass_field(default=None, repr=False)
     provision_attempt_id: Optional[str] = None
     on_provision_ack: Optional[Callable[[dict[str, Any]], None]] = dataclass_field(
         default=None, repr=False, compare=False
@@ -166,27 +169,9 @@ class PodSpec:
         dataclass_field(default=None, repr=False, compare=False)
     )
 
-    # -- the two axes, per person -----------------------------------------------
-    #
-    # WHERE this person's pod runs, and WHOSE model credential it uses. Until these
-    # existed here, both were process-wide environment variables, so every pod in a
-    # deployment necessarily ran on the same target with the same credential class
-    # and neither was expressible for one person.
-    #
-    # That is the gap the north star names as the FIRST change: "the first change is
-    # not credentials or IAM: it is putting both axes on PodSpec and on a per-user
-    # column, after which the rest becomes possible." It is also the deployment-
-    # agnostic test in concrete form — moving a pod to someone else's project must be
-    # setting a value, not editing code.
-    #
-    # It matters more now than when it was written: BYOC is the production path and
-    # the hussh-managed tier is strictly simulation, so "which target" is a per-person
-    # production fact, not a deployment-wide one.
-    #
-    # `None` means "use the deployment default", which is what every existing caller
-    # gets and why this is additive. `resolve_compute_backend` reads the target when
-    # one is set; the registry records both so a later read can tell what a pod was
-    # actually built as rather than what the environment happens to say today.
+    # Placement and model custody are per-owner registry facts. None preserves
+    # the deployment default for legacy callers; owner-cloud coordinates below
+    # must still be explicit. Never infer another person's project or identity.
     deployment_target: Optional[str] = None
     model_credential_mode: Optional[str] = None
 

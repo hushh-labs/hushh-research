@@ -243,7 +243,8 @@ def test_configured_offer_and_pinned_approval_remain_distinct(release, monkeypat
     assert configured_release(release["image"]) is None
 
 
-def test_build_assembles_exact_source_image_and_reviewed_notes(release, tmp_path):
+@pytest.mark.parametrize("with_browser", [False, True])
+def test_build_assembles_exact_source_image_and_reviewed_notes(release, tmp_path, with_browser):
     descriptor = tmp_path / "descriptor.json"
     descriptor.write_text(json.dumps(release["descriptor"]))
     image = tmp_path / "image.txt"
@@ -266,6 +267,16 @@ def test_build_assembles_exact_source_image_and_reviewed_notes(release, tmp_path
         "--output",
         str(output),
     ]
+    if with_browser:
+        statement = _browser_statement(release)
+        raw = json.dumps({"qualification": statement}).encode()
+        receipt = tmp_path / "browser-receipt.json"
+        receipt.write_bytes(raw)
+        pins = tmp_path / "browser-pins.json"
+        pins.write_text(
+            json.dumps([{"receipt": receipt.name, "sha256": hashlib.sha256(raw).hexdigest()}])
+        )
+        command += ["--browser-qualifications", str(pins)]
     result = subprocess.run(command, env={**os.environ}, capture_output=True, text=True, timeout=30)  # noqa: S603 - fixed build helper and temporary fixture paths.
     assert result.returncode == 0, result.stderr
     built = json.loads(output.read_text())
@@ -274,6 +285,75 @@ def test_build_assembles_exact_source_image_and_reviewed_notes(release, tmp_path
     assert built["descriptor"]["version"] == "1.0-test+cccccccccccc.bbbbbbbb"
     assert built["descriptor"]["notes"] == release["descriptor"]["notes"]
     assert json.loads(base64.b64decode(output.with_suffix(".b64").read_text())) == built
+    if with_browser:
+        qualified = built["browserQualifications"][0]
+        assert qualified == {**statement, "evidence_sha256": hashlib.sha256(raw).hexdigest()}
+        assert "pod_id" not in qualified and "incarnation" not in qualified
+    else:
+        assert "browserQualifications" not in built
+
+
+def _browser_statement(release):
+    from tests.helpers.pod_browser import readiness
+
+    return {
+        "version": 1,
+        "host_kind": "gcp_cloud_run",
+        "source_revision": release["sourceRevision"],
+        "image_tag": "source",
+        "public_policy_sha256": "e" * 64,
+        "readiness": readiness(component_digest=release["image"].rsplit("@", 1)[1]).model_dump(),
+    }
+
+
+def test_browser_receipt_and_saved_release_cannot_change_image_host_or_source(release, monkeypatch):
+    from hushh_mcp.services.pod_release import (
+        approved_browser_qualification,
+        qualification_from_receipt,
+    )
+
+    statement = _browser_statement(release)
+    raw = json.dumps({"qualification": statement}).encode()
+    arguments = {
+        "expected_sha256": hashlib.sha256(raw).hexdigest(),
+        "image_digest": release["image"].rsplit("@", 1)[1],
+        "source_revision": release["sourceRevision"],
+    }
+    qualified = qualification_from_receipt(raw, **arguments)
+    released = {**release, "browserQualifications": [qualified]}
+    assert validate_release(released, target_image=release["image"], environment="dev")
+    with pytest.raises(ValueError, match="receipt changed"):
+        qualification_from_receipt(raw + b" ", **arguments)
+    for changed in (
+        {**qualified, "source_revision": "d" * 40},
+        {**qualified, "host_kind": "azure_container_apps"},
+        {**qualified, "readiness": {**qualified["readiness"], "isolated": False}},
+        {
+            **qualified,
+            "readiness": {**qualified["readiness"], "component_digest": "sha256:" + "e" * 64},
+        },
+    ):
+        with pytest.raises(ValueError):
+            validate_release(
+                {**released, "browserQualifications": [changed]},
+                target_image=release["image"],
+                environment="dev",
+            )
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    # Newer mutable hub offers cannot replace the exact captured evidence.
+    monkeypatch.setenv("HUSSH_ONE_POD_RELEASE_B64", "unrelated-new-offer")
+    approval = {"releaseMetadata": released}
+    assert (
+        approved_browser_qualification(approval, release["image"], host_kind="gcp_cloud_run")
+        == qualified
+    )
+    assert approved_browser_qualification(approval, release["image"], host_kind="azure_vm") is None
+    assert (
+        approved_browser_qualification(
+            approval, "pod@sha256:" + "f" * 64, host_kind="gcp_cloud_run"
+        )
+        is None
+    )
 
 
 def test_initial_installed_label_survives_a_new_offer(release, monkeypatch):

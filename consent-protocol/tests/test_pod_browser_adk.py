@@ -138,6 +138,10 @@ async def test_native_adk_task_keeps_authored_instruction_png_and_finish_output(
         runtime.control_owner == "agent"
     )  # runner closes ephemeral tools, lifecycle stays runtime-owned
 
+    assert "api_client" not in model.__dict__
+    # Every explicit continuation gets a fresh client in production. Reinstall
+    # the no-network fixture instead of letting the SDK create a real one.
+    model.__dict__["api_client"] = client
     await _assert_closed_and_private(monkeypatch, manifest, model, runtime, process, requests)
 
 

@@ -1,10 +1,8 @@
 """Startup composition of the qualified, public Browser pilot.
 
-The governed deployment must validate a revision-bound qualification artifact
-before supplying this configuration. Startup checks identity and configuration
-consistency; a shaped evidence hash is not proof of qualification. No artifact is
-currently shipped. Login, retained sessions and PKM remain refused until their
-own production ports and acceptance are installed.
+The existing release carries reviewed image qualification separately from owner
+activation/policy. Startup binds both after authenticated recovery. Login,
+retained sessions and PKM remain refused until their own ports are installed.
 """
 
 from __future__ import annotations
@@ -13,53 +11,24 @@ import asyncio
 import hmac
 import os
 from pathlib import Path
-from typing import Literal
-
-from pydantic import Field
 
 from hushh_mcp.services.pod_ai_selection import ai_selection_revision
-from hushh_mcp.services.pod_platform import workload_platform
 from hushh_mcp.services.pod_session_authority import active_session_authority
-from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
+from hushh_mcp.services.pod_upgrade_admission import ADMISSION
 
 from .adk_task import NativeAdkBrowserModel
-from .contracts import BrowserBinding, BrowserReadiness, BrowserRefused, StrictContract
+from .contracts import BrowserBinding, BrowserRefused
+from .deployment import BrowserDeployment, recovered_browser_deployment
 from .dispatch_journal import BrowserDispatchJournal
 from .execution_authority import (
     BrowserExecutionAuthority,
     PublicResearchNetworkAuthority,
-    PublicResearchPolicy,
 )
 from .inpod_launcher import InPodBrowserLauncher
 from .owner_model import resolve_owner_browser_model
 from .review_client import PodBrowserReviews
 from .task_contracts import BrowserOwnerAccess
 from .task_runtime import BrowserTaskRuntime
-
-
-class BrowserDeployment(StrictContract):
-    version: Literal[1]
-    environment: Literal["development"]
-    pod_id: str = Field(min_length=1, max_length=256)
-    pod_key_id: str = Field(min_length=1, max_length=256)
-    incarnation: str = Field(min_length=1, max_length=256)
-    image_tag: str = Field(min_length=1, max_length=128)
-    evidence_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    readiness: BrowserReadiness
-    public_policy: PublicResearchPolicy
-
-    def require_current(self, authority) -> None:
-        self.readiness.require_ready()
-        if (
-            authority is not active_session_authority()
-            or authority.environment not in {"dev", "development"}
-            or self.pod_id != authority.hushh_id
-            or self.pod_key_id != authority.pod_key_id
-            or self.incarnation != pod_incarnation()
-            or self.readiness.cloud != workload_platform()
-            or self.image_tag != os.environ.get("HUSSH_POD_IMAGE_TAG")
-        ):
-            raise BrowserRefused("BROWSER_QUALIFICATION_CHANGED")
 
 
 class _NoInformation:
@@ -196,13 +165,7 @@ class PodBrowserComposition:
 def configure_browser_startup(*, authority, log, dek) -> PodBrowserComposition | None:
     if os.getenv("POD_COMPUTER_USE_ENABLED", "").lower() not in {"1", "true"}:
         return None
-    raw = os.getenv("HUSSH_BROWSER_QUALIFICATION_JSON", "")
-    if not raw or len(raw.encode()) > 65536:
-        raise BrowserRefused("BROWSER_QUALIFICATION_REQUIRED")
-    try:
-        deployment = BrowserDeployment.model_validate_json(raw)
-    except ValueError:
-        raise BrowserRefused("BROWSER_QUALIFICATION_INVALID") from None
+    deployment = recovered_browser_deployment(authority)
     return PodBrowserComposition(deployment=deployment, authority=authority, log=log, dek=dek)
 
 
