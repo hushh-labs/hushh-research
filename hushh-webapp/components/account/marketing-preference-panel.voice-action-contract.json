@@ -44,7 +44,7 @@
       "aliases": [], "search_keywords": ["email preferences", "retry"],
       "reachability": { "routes": ["/one/setup", "/one/profile/account"], "screens": ["one_setup_hub", "profile_account"], "hidden_navigable": false,
         "navigation_prerequisites": ["The saved email preference could not be loaded."] },
-      "guard_ids": ["auth_signed_in", "manual_user_execution"], "risk_level": "low", "execution_policy": "manual_only",
+      "guard_ids": ["auth_signed_in", "manual_user_execution"], "risk_level": "medium", "execution_policy": "manual_only",
       "execution_target": { "status": "unwired", "reason": "The visible form owns retry and loading state.", "intended_handler": "MarketingPreferencePanel" },
       "control_ids": ["one_email_updates_retry"], "state_exposure": [], "docs_references": ["docs/reference/architecture/api-contracts.md"]
     }
