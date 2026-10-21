@@ -35,6 +35,25 @@ async def cached_market_provider_read(
         fresh = 900
     stale = max(fresh * 4, 3_600)
     fence = us_market_session_opened_at() if price_sensitive else None
+    return await cached_public_information(
+        key,
+        fresh=fresh,
+        stale=stale,
+        fence=fence,
+        fetcher=fetcher,
+        provider_identity=provider_identity,
+    )
+
+
+async def cached_public_information(
+    key: str,
+    *,
+    fresh: int,
+    stale: int,
+    fetcher: Callable[[], Awaitable[Any]],
+    fence: float | None = None,
+    provider_identity: str = "SEC EDGAR",
+) -> Any:
     now = time.time()
     l1 = market_insights_cache.peek(key)
     if l1 and now - l1.fetched_at <= fresh and (fence is None or l1.fetched_at >= fence):
@@ -50,7 +69,7 @@ async def cached_market_provider_read(
         ):
             market_insights_cache.seed_entry(key, entry.payload, entry.updated_at_ts)
     except Exception:
-        logger.warning("market_provider_cache_read_failed operation=%s", request.operation)
+        logger.warning("market_provider_cache_read_failed operation=%s", key)
 
     async def refresh() -> Any:
         value = await fetcher()
@@ -63,7 +82,7 @@ async def cached_market_provider_read(
                 provider_status={"provider": provider_identity},
             )
         except Exception:
-            logger.warning("market_provider_cache_write_failed operation=%s", request.operation)
+            logger.warning("market_provider_cache_write_failed operation=%s", key)
         return value
 
     result = await market_insights_cache.get_or_refresh(
