@@ -1,5 +1,12 @@
 # Finance market provider migration
 
+## Visual Context
+
+The [API contracts](../architecture/api-contracts.md) define route boundaries,
+and [cache coherence](../architecture/cache-coherence.md) defines snapshot
+ownership. This reference records the Finance provider seam and its acceptance
+evidence without changing either authority.
+
 ## Current boundary
 
 `MarketDataProvider` owns public provider measurements. Existing fetcher functions
@@ -62,6 +69,45 @@ so the new path avoids unsupported peer-quote fan-out. Runtime counters count
 HTTP attempts by host only, including yfinance's HTTP session, without query
 strings, credentials or owner identifiers.
 
+## Functional review (2026-10-22, local)
+
+The accepted Market layout is retained. Offline regressions now cover stock
+navigation using the authored `ticker` query, ticker-bound analysis header
+quotes, missing quote timestamps, news pagination after snapshot replacement,
+visible stale-news fallback, recovery of degraded cached quotes, concurrent
+refresh sharing, and FMP attempt accounting. The US Market request explicitly
+selects `exchange=US`; v6 home snapshots retire older timezone-selected status.
+
+Analysis keeps historical metric series but withholds current growth when the
+series does not reach the reported headline period. Missing or invalid peer
+P/E observations produce unavailable comparison evidence, and an authored model
+`peer_ranking` passes through to the stream and synthesis without substitution.
+No scoring thresholds, prompts or recommendation policy changed.
+
+Local checks passed 286 focused backend tests, 39 focused frontend tests, 107
+API/home-session tests, and ten WebKit production-component fixture cases
+(320/393/1024/1440 layouts in both themes and two news replacement races).
+Negative controls reproduced the corrected failures before applying the fixes.
+All 490 navigation tests also pass with one worker; the initial run timed out
+in one unchanged Location test. UI Back/Search contracts, typecheck, scoped
+lint, cache-manifest, analytics, surface-map and service-boundary checks pass.
+The owning developer API contract suite passes all 80 tests.
+The shared cache contract suite passes all 98 tests.
+These are offline/source checks, not authenticated acceptance or licensed-feed
+price verification. Product-agent registry generation and hierarchy checks pass;
+the manifest suite has 65 passes and one Windows-only import failure because
+the unrelated PKM evaluation helper imports Unix `fcntl`.
+
+Remaining transition gap: Finnhub/FMP quote mappings do not establish an
+authoritative `instrument_type`, so the equity-only peer filter excludes unknown
+classifications. The licensed adapter must supply verified equity identities
+and types; no inferred equity label or extra classification request was added.
+Provider cutover, live spot-quote reconciliation, authenticated debate/save
+acceptance, shared curated-database contents and deployed/native acceptance
+remain unverified. All pushes remain on hold.
+The full repository core/CI sweep is not completed by these scoped checks and
+remains required before any future push.
+
 ## Curated reference maintenance
 
 The seed replaces MMC with MRSH (January 14, 2026) and FI with FISV
@@ -80,7 +126,7 @@ labels. Company Strength still includes a neutral fair-value contribution when
 that measurement is unavailable; the UI now exposes limited-analysis status.
 Their meaning requires a separate product/semantic review, not a silent formula
 change in this provider migration. The decision generator's legal entity is still
-TBD; the real legal name must be supplied by the owner.
+unspecified; the real legal name must be supplied by the owner.
 
 ## SEC persistence retirement
 
