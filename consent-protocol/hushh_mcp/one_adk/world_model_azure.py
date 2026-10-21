@@ -338,6 +338,16 @@ def _validation_feedback(error: ValueError) -> list[dict[str, Any]]:
     return [{"path": [], "type": "value_error"}]
 
 
+def _log_validation_failure(stage: str, attempt: str, error: ValueError) -> None:
+    # Types only: paths, messages, inputs and context may contain owner text.
+    logger.warning(
+        "one.pwm_contract_invalid stage=%s attempt=%s validation_error_types=%s",
+        stage,
+        attempt,
+        json.dumps([row["type"] for row in _validation_feedback(error)]),
+    )
+
+
 def _structured_schema(value: Any, *, definitions: dict[str, Any]) -> Any:
     """Translate schema syntax; the original Pydantic bounds still validate output."""
     if isinstance(value, list):
@@ -376,7 +386,7 @@ def _structured_schema(value: Any, *, definitions: dict[str, Any]) -> Any:
 def azure_execution_contract() -> dict[str, Any]:
     """Invalidate old drafts when active transport instructions or bounds change."""
     return {
-        "revision": "observed-topic-report-contract-v23",
+        "revision": "observed-topic-report-contract-v24",
         "assessment": _ASSESSMENT_INSTRUCTION,
         "assessment_repair": _ASSESSMENT_REPAIR_INSTRUCTION,
         "single_page_assessment_repair": _SINGLE_PAGE_REPAIR_INSTRUCTION,
@@ -387,6 +397,7 @@ def azure_execution_contract() -> dict[str, Any]:
         "finding_prompt_scope": "manifest-provisional-only-v1",
         "report_prompt_scope": "manifest-report-only-v1",
         "fact_review": _fact_review_instruction(),
+        "fact_review_repair": _fact_review_instruction(),
         "fact_review_schema": FactReviewSelection.model_json_schema(),
         "fact_review_max_seconds": FACT_REVIEW_MAX_SECONDS,
         "fact_review_output_tokens": FACT_REVIEW_MAX_OUTPUT_TOKENS,
@@ -559,6 +570,7 @@ class AzurePwmGateway:
                     "world_model_report",
                     "world_model_report_repair",
                     "world_model_fact_review",
+                    "world_model_fact_review_repair",
                 }
                 else _instruction(instruction + "\n" + _STRUCTURED_INSTRUCTION),
                 input=json.dumps(
@@ -573,7 +585,12 @@ class AzurePwmGateway:
                     else IDENTITY_REASONING
                     if purpose in {"identity_assessment", "identity_assessment_repair"}
                     else FINDING_REASONING
-                    if purpose in {"provisional_findings", "world_model_fact_review"}
+                    if purpose
+                    in {
+                        "provisional_findings",
+                        "world_model_fact_review",
+                        "world_model_fact_review_repair",
+                    }
                     else "low"
                 },
                 text={
@@ -1656,12 +1673,16 @@ async def run_world_model_azure(
         }
         report_schema = _report_schema(topic_attempt_ids, source_refs)
 
-        def validate_report(value: dict[str, Any]) -> WorldModelReport:
-            report = WorldModelReport.model_validate(
-                _canonical_coverage(value, assessment, attempts)
-            )
-            report.validate_receipts(assessment, attempts, set(report_history["sources"]))
-            return report
+        def validate_report(value: dict[str, Any], *, attempt: str = "initial") -> WorldModelReport:
+            try:
+                report = WorldModelReport.model_validate(
+                    _canonical_coverage(value, assessment, attempts)
+                )
+                report.validate_receipts(assessment, attempts, set(report_history["sources"]))
+                return report
+            except ValueError as error:
+                _log_validation_failure("report", attempt, error)
+                raise
 
         if pending_report is None:
             model_slot = await charge(_MODEL_SLOTS)
@@ -1699,11 +1720,11 @@ async def run_world_model_azure(
                         max_output_tokens=MAX_AZURE_REPORT_OUTPUT_TOKENS,
                     ),
                 )
-                accepted_report = validate_report(repaired)
+                accepted_report = validate_report(repaired, attempt="repair")
             history["pending_report"] = accepted_report.model_dump()
             await checkpoint()
         else:
-            accepted_report = validate_report(pending_report)
+            accepted_report = validate_report(pending_report, attempt="checkpoint")
 
         # The model owns this subset decision. Keep the full accepted proposal
         # checkpoint so a paused selection never rebuys compilation or search.
@@ -1712,13 +1733,29 @@ async def run_world_model_azure(
             json.dumps(accepted_report.model_dump(), sort_keys=True).encode()
         ).hexdigest()
         saved_review = history.get("fact_review")
+
+        def validate_selection(
+            value: dict[str, Any], *, attempt: str
+        ) -> tuple[FactReviewSelection, WorldModelReport]:
+            try:
+                selection = FactReviewSelection.model_validate(value)
+                reviewed = validate_report(
+                    _apply_fact_review(accepted_report, selection), attempt="fact_review_" + attempt
+                )
+                return selection, reviewed
+            except ValueError as error:
+                _log_validation_failure("fact_review", attempt, error)
+                raise
+
         if saved_review is not None:
             if (
                 not isinstance(saved_review, dict)
                 or saved_review.get("report_sha256") != report_digest
             ):
                 raise ValueError("Fact review does not belong to the pending report")
-            selection = FactReviewSelection.model_validate(saved_review.get("selection"))
+            selection, reviewed_report = validate_selection(
+                saved_review.get("selection"), attempt="checkpoint"
+            )
         else:
             time_left(FACT_REVIEW_MAX_SECONDS + 5)
             review_schema = FactReviewSelection.model_json_schema()
@@ -1727,25 +1764,51 @@ async def run_world_model_azure(
                     row["id"] for row in proposed
                 ]
             review_slot = await charge(_MODEL_SLOTS)
+            review_payload = {
+                "proposed_facts": proposed,
+                "current_summary": accepted_report.summary,
+                "identity": accepted_report.identity.model_dump(),
+                "owner_decisions": decisions,
+            }
             selected = await provider_call(
                 slot=review_slot,
                 call=lambda: gateway.structured(
                     purpose="world_model_fact_review",
                     instruction=_fact_review_instruction(),
-                    payload={
-                        "proposed_facts": proposed,
-                        "current_summary": accepted_report.summary,
-                        "identity": accepted_report.identity.model_dump(),
-                        "owner_decisions": decisions,
-                    },
+                    payload=review_payload,
                     schema=review_schema,
                     max_output_tokens=FACT_REVIEW_MAX_OUTPUT_TOKENS,
                 ),
                 max_seconds=FACT_REVIEW_MAX_SECONDS,
                 reserve_seconds=5,
             )
-            selection = FactReviewSelection.model_validate(selected)
-        reviewed_report = validate_report(_apply_fact_review(accepted_report, selection))
+            try:
+                selection, reviewed_report = validate_selection(selected, attempt="initial")
+            except ValueError as error:
+                if not set(_MODEL_SLOTS) - used:
+                    raise
+                time_left(FACT_REVIEW_MAX_SECONDS + 5)
+                validation_errors = _validation_feedback(error)
+                repair_slot = await charge(_MODEL_SLOTS)
+                repaired_selection = await provider_call(
+                    slot=repair_slot,
+                    call=lambda: gateway.structured(
+                        purpose="world_model_fact_review_repair",
+                        instruction=_fact_review_instruction(),
+                        payload={
+                            **review_payload,
+                            "invalid_selection": selected,
+                            "validation_errors": validation_errors,
+                        },
+                        schema=review_schema,
+                        max_output_tokens=FACT_REVIEW_MAX_OUTPUT_TOKENS,
+                    ),
+                    max_seconds=FACT_REVIEW_MAX_SECONDS,
+                    reserve_seconds=5,
+                )
+                selection, reviewed_report = validate_selection(
+                    repaired_selection, attempt="repair"
+                )
         history["fact_review"] = {
             "report_sha256": report_digest,
             "selection": selection.model_dump(),
