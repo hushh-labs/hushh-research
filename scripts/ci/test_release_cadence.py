@@ -88,6 +88,14 @@ class FakeLedger:
 
 
 class DispatchTest(unittest.TestCase):
+    def setUp(self):
+        admission = patch.object(github, "uat_busy", return_value=False)
+        admission.start()
+        self.addCleanup(admission.stop)
+        summaries = patch.object(github, "defer_release")
+        summaries.start()
+        self.addCleanup(summaries.stop)
+
     def test_quiet_hourly_checks_do_not_write_state_or_publish_a_new_certificate(self):
         ledger = object.__new__(github.Ledger)
         ledger.head, ledger.state = "published", counted(4)
@@ -113,8 +121,17 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(calls[0][1]["inputs"]["sha"], calls[1][1]["inputs"]["sha"])
         self.assertEqual(calls[1][1]["inputs"]["production_deploy_run_id"], "201")
         self.assertEqual(calls[1][1]["inputs"]["backend_target"], "production")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(ledger.state["requests"]["8"]["lanes"]["testflight"]["state"], "pending")
         self.assertEqual(ledger.state["requests"]["4"]["lanes"]["testflight"]["state"], "superseded")
         self.assertTrue(any(snapshot["requests"]["8"]["lanes"]["deploy"]["state"] == "dispatching" for snapshot in ledger.saves))
+        for lane in ("deploy", "appstore"):
+            ledger.state["requests"]["8"]["lanes"][lane]["state"] = "success"
+        with patch.object(github, "api", self.dispatch_api(calls)):
+            github.dispatch_pending(ledger)
+        self.assertEqual(len(calls), 3)
+        self.assertIn("ship-ios-testflight.yml", calls[-1][0])
+        self.assertEqual(calls[-1][1]["inputs"]["sha"], calls[0][1]["inputs"]["sha"])
 
     def test_half_dispatched_pair_resumes_app_without_duplicate_deployment(self):
         ledger, calls = FakeLedger(counted()), []
@@ -123,6 +140,58 @@ class DispatchTest(unittest.TestCase):
             github.dispatch_pending(ledger)
         self.assertFalse(any("deploy-production.yml" in path for path, _ in calls))
         self.assertEqual(calls[0][1]["inputs"]["production_deploy_run_id"], "155")
+
+    def test_uat_arrival_between_production_dispatches_yields_and_resumes_once(self):
+        ledger, calls = FakeLedger(counted()), []
+        children = ledger.state["requests"]["8"]["lanes"]
+        with patch.object(github, "api", self.dispatch_api(calls)), \
+                patch.object(github, "uat_busy", side_effect=[False, True]):
+            github.dispatch_pending(ledger)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(children["deploy"]["run_id"], 201)
+        self.assertEqual(children["appstore"]["state"], "pending")
+        with patch.object(github, "api", self.dispatch_api(calls)):
+            github.dispatch_pending(ledger)
+            github.dispatch_pending(ledger)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1][1]["inputs"]["production_deploy_run_id"], "201")
+        self.assertEqual(calls[0][1]["inputs"]["sha"], calls[1][1]["inputs"]["sha"])
+        self.assertEqual(children["testflight"]["state"], "pending")
+
+    def test_running_release_bundles_cannot_admit_a_competing_bundle(self):
+        for active in ("testflight", "production"):
+            with self.subTest(active=active):
+                ledger, calls = FakeLedger(counted(12)), []
+                if active == "testflight":
+                    ledger.state["requests"]["4"]["lanes"]["testflight"] = {"state": "running", "run_id": 150}
+                else:
+                    for index, lane in enumerate(("deploy", "appstore")):
+                        ledger.state["requests"]["8"]["lanes"][lane] = {"state": "running", "run_id": 155 + index}
+                with patch.object(github, "api", self.dispatch_api(calls)):
+                    github.dispatch_pending(ledger)
+                self.assertEqual(calls, [])
+                self.assertEqual(ledger.state["count"], 12)
+                self.assertEqual(ledger.state["requests"]["12"]["lanes"]["testflight"]["state"], "pending")
+
+    def test_continuous_production_candidates_cannot_starve_testflight(self):
+        for last_testflight, first in ((4, "testflight"), (12, "production")):
+            with self.subTest(last_testflight=last_testflight):
+                ledger, calls = FakeLedger(counted(16)), []
+                ledger.state["requests"][str(last_testflight)]["lanes"]["testflight"] = {"state": "success", "run_id": 140}
+                for index, lane in enumerate(("deploy", "appstore")):
+                    ledger.state["requests"]["8"]["lanes"][lane] = {"state": "success", "run_id": 155 + index}
+                children = ledger.state["requests"]["16"]["lanes"]
+                with patch.object(github, "api", self.dispatch_api(calls)):
+                    github.dispatch_pending(ledger)
+                    expected = 1 if first == "testflight" else 2
+                    self.assertEqual(len(calls), expected)
+                    self.assertIn("ship-ios-testflight.yml" if first == "testflight" else "deploy-production.yml", calls[0][0])
+                    for child in children.values():
+                        if child["state"] == "running":
+                            child["state"] = "success"
+                    github.dispatch_pending(ledger)
+                self.assertEqual(len(calls), 3)
+                self.assertEqual({value["inputs"]["sha"] for _, value in calls}, {f"{16:040x}"})
 
     def test_uncertain_dispatch_is_persisted_and_never_blindly_retried(self):
         ledger = FakeLedger(counted())
@@ -161,6 +230,9 @@ class DispatchTest(unittest.TestCase):
             self.assertFalse(any("release-ios-appstore.yml" in path for path, _ in calls))
             children["appstore"]["retry_after"] = "1970-01-01T00:00:00+00:00"
             github.dispatch_pending(ledger)
+            self.assertEqual(children["appstore"]["state"], "pending")
+            children["testflight"]["state"] = "success"
+            github.dispatch_pending(ledger)
         self.assertFalse(any("deploy-production.yml" in path for path, _ in calls))
         self.assertEqual(children["appstore"]["deferred_runs"], [156])
         self.assertEqual(children["appstore"]["state"], "running")
@@ -174,6 +246,43 @@ class DispatchTest(unittest.TestCase):
             github.dispatch_pending(ledger)
         self.assertEqual(older["appstore"]["state"], "superseded")
         self.assertEqual(calls[0][1]["inputs"]["sha"], f"{16:040x}")
+
+
+class AdmissionTest(unittest.TestCase):
+    def test_every_nonterminal_uat_status_defers_without_creating_dispatch_intent(self):
+        from urllib.parse import parse_qs, urlsplit
+        for busy in ("requested", "queued", "pending", "waiting", "in_progress"):
+            with self.subTest(status=busy):
+                ledger, posts = FakeLedger(counted()), []
+                def observed(path, data=None, **kwargs):
+                    if data is not None:
+                        posts.append((path, data))
+                        return {"workflow_run_id": 201, "html_url": f"https://github.com/{REPOSITORY}/actions/runs/201"}
+                    self.assertIn("/workflows/deploy-uat.yml/runs?", path)
+                    query = parse_qs(urlsplit(path).query)
+                    self.assertEqual(query["per_page"], ["1"])
+                    return {"total_count": int(query["status"] == [busy])}
+                with patch.object(github, "api", side_effect=observed), patch.object(github, "defer_release") as deferred:
+                    github.dispatch_pending(ledger)
+                self.assertEqual(posts, [])
+                deferred.assert_called_once_with("UAT is queued or running")
+                self.assertEqual(ledger.state["requests"]["8"]["lanes"]["deploy"], {"state": "pending"})
+                self.assertEqual(ledger.state["count"], 8)
+
+    def test_unreadable_uat_admission_fails_closed_before_dispatch_intent(self):
+        for response in (None, {}, {"total_count": "0"}, {"total_count": -1}):
+            with self.subTest(response=response):
+                ledger = FakeLedger(counted(4))
+                with patch.object(github, "api", return_value=response) as request:
+                    with self.assertRaisesRegex(core.UnsafeRelease, "UAT release admission"):
+                        github.dispatch_pending(ledger)
+                request.assert_called_once()
+                self.assertEqual(ledger.state["requests"]["4"]["lanes"]["testflight"], {"state": "pending"})
+        ledger = FakeLedger(counted(4))
+        with patch.object(github, "api", side_effect=core.UnsafeRelease("unavailable")):
+            with self.assertRaises(core.UnsafeRelease):
+                github.dispatch_pending(ledger)
+        self.assertEqual(ledger.state["requests"]["4"]["lanes"]["testflight"], {"state": "pending"})
 
 
 class ReconciliationTest(unittest.TestCase):
@@ -230,11 +339,13 @@ class ReconciliationTest(unittest.TestCase):
             self.invoke([run(20)], {20: None}, extra_api=jobs)
 
     def test_failed_deploy_and_failed_rerun_do_not_create_release_intents(self):
-        source = run(20)
-        source["conclusion"] = "failure"
-        state, _ = self.invoke([source], {})
-        self.assertEqual(state["count"], 0)
-        self.assertEqual(state["requests"], {})
+        for conclusion in ("failure", "cancelled"):
+            with self.subTest(conclusion=conclusion):
+                source = run(20)
+                source["conclusion"] = conclusion
+                state, _ = self.invoke([source], {}, event={"workflow_run": source})
+                self.assertEqual(state["count"], 0)
+                self.assertEqual(state["requests"], {})
 
 
 class AuthorityTest(unittest.TestCase):
