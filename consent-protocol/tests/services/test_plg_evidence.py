@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from api.routes.one import plg
 from hushh_mcp.hushh_adk import product_activity as sdk
 from hushh_mcp.services import plg_audience as audience
+from hushh_mcp.services import plg_customer_cohort as cohort
 from hushh_mcp.services import plg_evidence as evidence
 from hushh_mcp.services import plg_outcomes as outcomes
 from hushh_mcp.services import plg_reporting as reporting
@@ -113,13 +114,24 @@ async def test_current_reporting_identifiers_are_bounded_read_only_and_productio
     monkeypatch.setattr(
         auth,
         "get_users",
-        lambda identifiers, **kwargs: calls.append(identifiers) or SimpleNamespace(users=[record]),
+        lambda identifiers, **kwargs: (
+            calls.append(identifiers) or SimpleNamespace(users=[record], not_found=[])
+        ),
     )
     result = await reporting.current_reporting_identifiers(["customer", "customer"])
     assert result == {"customer": ("customer@example.test", "staff@company.example")}
     assert len(calls) == 1 and len(calls[0]) == 1
     assert "PRIVATE_AUTH_EXPORT" not in json.dumps(result)
     record.disabled = True
+    assert await reporting.current_reporting_identifiers(["customer"]) == {}
+    monkeypatch.setattr(auth, "get_users", lambda *a, **k: SimpleNamespace(users=[], not_found=[]))
+    with pytest.raises(ValueError, match="Invalid customer reporting identities"):
+        await reporting.current_reporting_identifiers(["customer"])
+    monkeypatch.setattr(
+        auth,
+        "get_users",
+        lambda *a, **k: SimpleNamespace(users=[], not_found=[auth.UidIdentifier("customer")]),
+    )
     assert await reporting.current_reporting_identifiers(["customer"]) == {}
     monkeypatch.setattr(
         firebase_admin, "get_firebase_auth_app", lambda: SimpleNamespace(project_id="hushh-uat")
@@ -169,6 +181,99 @@ def test_export_rejects_wrong_signature_purpose_and_nonproduction(client, monkey
     assert source.call_args.args[0].version == 1
     assert post(client, version=2).status_code == 200
     assert source.call_args.args[0].version == 2
+
+
+def test_customer_cohort_route_has_distinct_read_authority(client, monkeypatch):
+    monkeypatch.setenv("ONE_PLG_AUDIENCE_ENABLED", "true")
+    monkeypatch.setenv("ONE_PLG_AUDIENCE_SECRET", SECRET)
+    source = AsyncMock(return_value={"version": 1})
+    monkeypatch.setattr(plg, "customer_cohort_page", source)
+    assert (
+        post(client, {"cursor": None}, purpose="audience", route="customer-cohort").status_code
+        == 401
+    )
+    assert not source.called
+    assert (
+        post(
+            client, {"cursor": None}, purpose="customer-cohort", route="customer-cohort"
+        ).status_code
+        == 200
+    )
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    assert (
+        post(
+            client, {"cursor": None}, purpose="customer-cohort", route="customer-cohort"
+        ).status_code
+        == 404
+    )
+    assert source.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_customer_cohort_excludes_internal_aliases_and_tombstones_without_private_exports(
+    monkeypatch, reporting_roster
+):
+    ids = ["alias", "company", "customer", "deleted", "missing", "provider", "staff"]
+    registered = (NOW - timedelta(days=30)).isoformat()
+    connection = SimpleNamespace(execute=AsyncMock())
+    connection.fetch = AsyncMock(return_value=[{"user_id": uid} for uid in ids])
+
+    class Lease:
+        async def __aenter__(self):
+            return connection
+
+        async def __aexit__(self, *_):
+            pass
+
+    connection.transaction = lambda **_: Lease()
+    monkeypatch.setattr(
+        cohort, "get_pool", AsyncMock(return_value=SimpleNamespace(acquire=lambda **_: Lease()))
+    )
+    monkeypatch.setattr(
+        cohort.AccountDeletionLifecycleService,
+        "active_projection_user_ids",
+        AsyncMock(return_value=set(ids) - {"deleted"}),
+    )
+    identities = {uid: {"email": uid + "@example.test"} for uid in ids}
+    identities["company"] = {"email": "person@company.example"}
+    monkeypatch.setattr(cohort.ActorIdentityService, "get_many", AsyncMock(return_value=identities))
+    monkeypatch.setattr(
+        cohort.ActorIdentityService,
+        "get_many_verified_email_aliases",
+        AsyncMock(return_value={"alias": ["staff@example.test"]}),
+    )
+    current = {
+        uid: {"emails": (uid + "@example.test",), "registeredAt": registered}
+        for uid in ids
+        if uid != "missing"
+    }
+    current["provider"]["emails"] = ("external@example.test", "person@company.example")
+    monkeypatch.setattr(cohort, "current_reporting_records", AsyncMock(return_value=current))
+    result = await cohort.customer_cohort_page(cohort.CohortRequest(), SECRET, NOW)
+    assert result["rows"] == [
+        {"analyticsUserId": "abfd2046757cddb0c5d965b012287279", "registeredAt": registered}
+    ]
+    assert result["scanned"] == 7 and result["excluded"] == 6 and result["nextCursor"] is None
+    assert "@" not in json.dumps(result) and "deleted" not in json.dumps(result)
+    sql, last, at = connection.fetch.call_args.args
+    assert sql.count('COLLATE "C"') == 2 and last == "" and at == NOW
+    # Continuation hides even the last denied UID and binds the policy and window.
+    revision = reporting.reporting_policy().revision
+    cursor = cohort._cipher(SECRET).seal(
+        json.dumps(
+            {"last": "private-denied-uid", "asOf": NOW.isoformat(), "policyRevision": revision}
+        ),
+        cohort.PURPOSE,
+    )
+    assert "private-denied-uid" not in cursor
+    assert cohort._cursor(cursor, SECRET, revision, NOW) == ("private-denied-uid", NOW)
+    for key, version, now in [
+        (SECRET + "bad", revision, NOW),
+        (SECRET, "a" * 64, NOW),
+        (SECRET, revision, NOW + timedelta(minutes=10)),
+    ]:
+        with pytest.raises(ValueError, match="Invalid customer cohort cursor"):
+            cohort._cursor(cursor, key, version, now)
 
 
 def test_validation_and_provider_errors_never_echo_identifiers_or_private_details(

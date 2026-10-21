@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import os
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Iterable, Mapping
 
 from hushh_mcp.runtime_settings import one_magic_intelligence_cohorts
@@ -27,7 +29,7 @@ def reporting_identifiers(record) -> tuple[str, ...] | None:
     return (str(record.email or ""), *(str(p.email or "") for p in record.provider_data))
 
 
-async def current_reporting_identifiers(user_ids: Iterable[str]) -> dict[str, tuple[str, ...]]:
+async def current_reporting_records(user_ids: Iterable[str]) -> dict[str, dict]:
     """Bounded, production-only read of current and linked-provider deny identifiers."""
     from firebase_admin import auth
 
@@ -46,7 +48,14 @@ async def current_reporting_identifiers(user_ids: Iterable[str]) -> dict[str, tu
         timeout=6,
     )
     records = list(result.users)
-    if len(records) > len(ids) or len({r.uid for r in records}) != len(records):
+    missing = list(result.not_found)
+    missing_ids = [item.uid for item in missing if isinstance(item, auth.UidIdentifier)]
+    returned_ids = [record.uid for record in records]
+    if (
+        len(missing_ids) != len(missing)
+        or len(set(returned_ids + missing_ids)) != len(ids)
+        or sorted(returned_ids + missing_ids) != ids
+    ):
         raise ValueError("Invalid customer reporting identities")
     identifiers = {}
     for record in records:
@@ -54,8 +63,21 @@ async def current_reporting_identifiers(user_ids: Iterable[str]) -> dict[str, tu
             raise ValueError("Unexpected customer reporting identity")
         emails = reporting_identifiers(record)
         if emails is not None:
-            identifiers[record.uid] = emails
+            created = getattr(getattr(record, "user_metadata", None), "creation_timestamp", None)
+            registered = None
+            if (
+                isinstance(created, (int, float))
+                and not isinstance(created, bool)
+                and math.isfinite(created)
+                and 0 < created <= datetime.now(timezone.utc).timestamp() * 1000
+            ):
+                registered = datetime.fromtimestamp(created / 1000, timezone.utc).isoformat()
+            identifiers[record.uid] = {"emails": emails, "registeredAt": registered}
     return identifiers
+
+
+async def current_reporting_identifiers(user_ids: Iterable[str]) -> dict[str, tuple[str, ...]]:
+    return {uid: row["emails"] for uid, row in (await current_reporting_records(user_ids)).items()}
 
 
 @dataclass(frozen=True)

@@ -281,6 +281,23 @@ Reapplying 366 leaves retained rows uncorrelated; it cannot reconstruct history.
 
 ### Customer reporting exclusions
 
+`POST /api/one/plg/customer-cohort` is a private read projection for aggregate
+customer reporting. It shares audience read authority with the distinct HMAC
+purpose `customer-cohort`; it grants no campaign, write or sending authority.
+Production project/lane checks apply. Each page scans at most 50 canonical
+production identities in stable `COLLATE "C"` key order, checks current Firebase
+registration, provider identifiers, verified aliases and deletion barriers, and
+returns only eligible analytics hashes and Firebase creation timestamps (nullable).
+The hash matches the client contract: first 32 hexadecimal characters of SHA256
+of `hushh-observability-v1:<uid>`. No names, raw UIDs, emails, phone numbers, tokens
+or denied identifiers are exported. AES-GCM cursors hide the keyset position and
+bind the policy revision and ten-minute traversal window. Traversal is live,
+not a transaction-wide snapshot. Missing pages, source failures or policy drift
+must withhold the full aggregate, never publish partial zeros. The consumer must
+enforce expiry and apply positive account membership before event aggregation;
+anonymous events cannot be attached retrospectively through device identifiers.
+Registration dates must not be inferred from identity-cache creation timestamps.
+
 The audience reader requires `ONE_PLG_REPORTING_POLICY_JSON`, stored in Secret
 Manager and bound by the existing production PLG deploy helper. The strict JSON
 schema is `{version:1, excludedAccountIds:[], excludedEmails:[], excludedDomains:[]}`.
