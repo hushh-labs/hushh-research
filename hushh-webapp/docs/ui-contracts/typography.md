@@ -3,6 +3,9 @@
 Mail's page-specific heading overrides, dialogs, editor, phone/desktop sizing
 and cascade boundaries are recorded in the [Mail contract](./mail.md#font-schema-what-to-use-where-and-actual-override-boundaries).
 
+Calendar's Inter family exception, heading cascade, controls, overlays and
+responsive dimensions are recorded in the [Calendar contract](./calendar.md).
+
 Status: current source-backed usage map, checked against revision
 `296d7769c83176739e4db8d3ad549b0521894f52` on 20 October 2026. Owner: frontend design system. Classification:
 `canonical`, package-local. This answers **when to use what** in these product
@@ -51,7 +54,10 @@ infer the result from a JSX `text-sm` class.
 
 ## Family and weight schema
 
-Web and WebView product text uses self-hosted **Plus Jakarta Sans**. Display
+Shared web and WebView product text defaults to self-hosted **Plus Jakarta Sans**.
+Calendar's connected content and invitation portal have the explicit Inter
+exception documented in its [font schema](./calendar.md#font-schema-what-to-use-where-and-resolved-overrides).
+Display
 and body aliases resolve to that same family. Shipped normal and italic faces
 are 400, 600, and 700 with `font-display: swap`. Emoji/unsupported glyphs use
 platform fallback. Technical/uppercase metadata uses the existing system
