@@ -433,8 +433,9 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         backHref: setupBackHref || ROUTES.ONE_HOME,
         width: "content",
         align: "center",
-        suppressFallbackTitle: true,
-        items: fromSetup ? [] : [{ label: "One", href: ROUTES.ONE_HOME }],
+        items: fromSetup
+          ? [{ label: "Finance" }]
+          : [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Finance" }],
       };
     },
   },

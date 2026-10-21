@@ -8,7 +8,6 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import { KaiFlow, type FlowState } from "@/components/kai/kai-flow";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
@@ -124,10 +123,6 @@ export function KaiMarketHubPage() {
         className="space-y-[var(--page-header-section-gap)]"
         data-finance-workspace-header="true"
       >
-        <PageHeader
-          title="Finance"
-          titleRole="agent"
-        />
         <TopShellTabs
           tabSet={{ ...FINANCE_TAB_DEFINITION, activeValue: visibleTab }}
         />

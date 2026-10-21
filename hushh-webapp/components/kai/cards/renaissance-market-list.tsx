@@ -9,6 +9,7 @@ import {
   TrendingUp,
 } from "@/components/icons";
 
+import marketBriefingStyles from "@/components/kai/shared/market-briefing.module.css";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { RenaissanceVerdictCard } from "@/components/kai/cards/renaissance-verdict-card";
 import { Badge } from "@/components/ui/badge";
@@ -849,6 +850,7 @@ export function RiaPicksList({
       </SettingsGroup>
 
       <KaiControlSurface
+        surfaceClassName={marketBriefingStyles.typography}
         open={Boolean(selectedRow)}
         onOpenChange={(open) => {
           if (!open) setSelectedRow(null);

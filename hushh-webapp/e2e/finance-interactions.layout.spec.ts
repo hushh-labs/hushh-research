@@ -149,6 +149,12 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
       });
       await page.addScriptTag({ content: marketScript });
       await awaitProductFont(page);
+      const financeTitle = page.getByRole("heading", { name: "Finance", exact: true });
+      await expect(financeTitle).toHaveCount(1);
+      expect(await financeTitle.evaluate(element => {
+        const style = getComputedStyle(element);
+        return [style.fontSize, style.lineHeight, style.fontWeight];
+      })).toEqual(["17px", "22px", "600"]);
       const frame = page.locator(".app-page-shell").first();
       const frameStyle = await frame.evaluate(element => {
         const style = getComputedStyle(element);
@@ -313,6 +319,17 @@ for (const width of [375, 393, 430]) {
     expect(geometry.left).toBeGreaterThanOrEqual(0);
     expect(geometry.right).toBeGreaterThanOrEqual(0);
     expect(geometry.height).toBeGreaterThanOrEqual(44);
+    await row.click();
+    const stockDetail = page.getByRole("dialog", { name: "Berkshire Hathaway Inc. Class B", exact: true });
+    await expect(stockDetail).toBeVisible();
+    const capLabel = stockDetail.getByText("Market cap", { exact: true });
+    expect(await capLabel.evaluate(element => {
+      const style = getComputedStyle(element);
+      return [style.fontFamily, style.fontSize, style.lineHeight];
+    })).toEqual([expect.stringMatching(/Plus Jakarta Sans/), "14px", "21px"]);
+    await expect(stockDetail.getByText("$850B", { exact: true })).toBeVisible();
+    expect(await stockDetail.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await stockDetail.getByRole("button", { name: "Close", exact: true }).click();
     const search = stocks.getByRole("button", { name: "Search list" });
     await expect(search).toBeVisible();
     const bounds = await search.boundingBox();

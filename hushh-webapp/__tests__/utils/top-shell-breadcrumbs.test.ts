@@ -7,10 +7,10 @@ import {
 } from "@/lib/navigation/top-shell-breadcrumbs";
 
 describe("top shell breadcrumbs", () => {
-  it.each(["market", "portfolio", "analysis"])("keeps %s root chrome back-only", (tab) => {
+  it.each(["market", "portfolio", "analysis"])("keeps %s root titled beside Back", (tab) => {
     const config = resolveTopShellBreadcrumb("/one/kai", new URLSearchParams({ tab }));
-    expect(config?.suppressFallbackTitle).toBe(true);
-    expect(visibleTopShellBreadcrumbItems(config?.items ?? [])).toEqual([]);
+    expect(config?.suppressFallbackTitle).not.toBe(true);
+    expect(visibleTopShellBreadcrumbItems(config?.items ?? [])).toEqual([{ label: "Finance" }]);
   });
 
   it.each(["/one/setup/finance", "/one/setup/kai"])("keeps re-entry chrome stable through %s", (path) => {
@@ -249,8 +249,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/setup",
       width: "content",
       align: "center",
-      suppressFallbackTitle: true,
-      items: [],
+      items: [{ label: "Finance" }],
     });
 
     // No origin → Kai home still falls back to One home (unchanged behavior).
@@ -258,8 +257,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one",
       width: "content",
       align: "center",
-      suppressFallbackTitle: true,
-      items: [{ label: "One", href: "/one" }],
+      items: [{ label: "One", href: "/one" }, { label: "Finance" }],
     });
 
     // Unsafe origins are rejected → One home fallback.
@@ -304,13 +302,14 @@ describe("top shell breadcrumbs", () => {
     ).toBe("/one/gmail");
   });
 
-  it("returns every base Finance tab to One", () => {
+  it("returns every base Finance tab to One with a stable compact title", () => {
     for (const tab of ["market", "portfolio", "analysis"]) {
       const params = new URLSearchParams();
       params.set("tab", tab);
       expect(resolveTopShellBreadcrumb("/one/kai", params)?.backHref).toBe(
         "/one",
       );
+      expect(resolveTopShellBreadcrumb("/one/kai", params)?.items.at(-1)?.label).toBe("Finance");
     }
   });
 
@@ -1147,6 +1146,10 @@ describe("top shell title slot", () => {
     ["/one/gmail", "", "title"],
     ["/one/feed", "", ["Feed"]],
     ["/one/connect", "", ["Connect"]],
+    ["/one/kai", "tab=market", ["Finance"]],
+    ["/one/kai", "tab=portfolio", ["Finance"]],
+    ["/one/kai", "tab=analysis", ["Finance"]],
+    ["/one/kai", "from=/one/setup", ["Finance"]],
     // Profile > Memory swapped its trail for a "Profile" chip.
     ["/one/profile/my-data", "", ["Profile", "Memory"]],
     ["/one/pkm/recent", "", ["Memory", "Recently learned"]],

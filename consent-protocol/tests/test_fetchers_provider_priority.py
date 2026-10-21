@@ -574,3 +574,48 @@ async def test_market_data_falls_back_when_finnhub_is_rate_limited(monkeypatch):
     payload = await fetchers.fetch_market_data("MSFT", "user_1", "vault_token")
     assert payload["source"] == "PMP/FMP"
     assert called == ["finnhub", "pmp"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("yield_value", [None, 0, 0.02])
+async def test_yahoo_fast_missing_dividend_yield_is_not_measured_zero(monkeypatch, yield_value):
+    original_client = httpx.AsyncClient
+
+    def reply(request):
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "quoteResponse": {
+                    "result": [
+                        {
+                            "regularMarketPrice": 100,
+                            "trailingAnnualDividendYield": yield_value,
+                        }
+                    ]
+                }
+            },
+        )
+
+    monkeypatch.setattr(fetchers, "_provider_in_cooldown", lambda *_: False)
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: original_client(transport=httpx.MockTransport(reply), **kwargs),
+    )
+    row = await fetchers._fetch_yahoo_quote_fast("TEST")
+    assert row["dividend_yield"] == yield_value
+
+
+def test_market_only_fundamentals_keep_unknown_distinct_from_measured_zero():
+    from hushh_mcp.agents.kai.fundamental_agent import FundamentalAgent
+
+    agent = FundamentalAgent(processing_mode="offline")
+    missing = agent._build_market_only_analysis("TEST", {})["key_metrics"]
+    assert (
+        missing["price"] is None and missing["market_cap"] is None and missing["pe_ratio"] is None
+    )
+    measured = agent._build_market_only_analysis("TEST", {"change_percent": 0, "change_pct": 5})[
+        "key_metrics"
+    ]
+    assert measured["change_percent"] == 0

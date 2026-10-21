@@ -34,8 +34,6 @@ import {
 import { showDebateAlreadyRunningToast } from "@/lib/kai/debate-run-notifications";
 import {
   fetchLatestMarketSnapshot,
-  getLatestMarketSnapshotFromCache,
-  pickPreferredMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
@@ -451,30 +449,12 @@ interface DebateStreamViewProps {
   showHeader?: boolean;
 }
 
-type MarketSnapshot = {
-  last_price: number | null;
-  change_pct: number | null;
-  observed_at: string | null;
-  source: string;
-};
-
 type HeaderMarketQuote = {
   last_price: number | null;
   change_pct: number | null;
   observed_at: string | null;
   source: string;
 };
-
-function toDecisionMarketSnapshot(quote: HeaderMarketQuote | null): NonNullable<
-  NonNullable<DecisionResult["raw_card"]>["market_snapshot"]
-> {
-  return {
-    last_price: quote?.last_price ?? null,
-    change_pct: quote?.change_pct ?? null,
-    observed_at: quote?.observed_at ?? null,
-    source: quote?.source ?? "unavailable",
-  };
-}
 
 type StreamPayload = Record<string, unknown>;
 
@@ -485,18 +465,6 @@ function toMarketNumber(value: unknown): number | null {
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
-}
-
-function extractMarketSnapshotFromDecision(data: StreamPayload): MarketSnapshot {
-  const rawCard = data.raw_card && typeof data.raw_card === "object"
-    ? data.raw_card as Record<string, unknown> : {};
-  const supplied = rawCard.market_snapshot as Partial<MarketSnapshot> | undefined;
-  return {
-    last_price: supplied ? toMarketNumber(supplied.last_price) : null,
-    change_pct: supplied ? toMarketNumber(supplied.change_pct) : null,
-    observed_at: typeof supplied?.observed_at === "string" ? supplied.observed_at : null,
-    source: typeof supplied?.source === "string" ? supplied.source : "unavailable",
-  };
 }
 
 function toEpoch(value: string | null | undefined): number {
@@ -839,19 +807,6 @@ export function DebateStreamView({
     setHeaderQuoteLoading(Boolean(showHeader && vaultOwnerToken) && !cached);
     if (!cancelled) {
       setHeaderMarketQuote(cached);
-      if (cached) {
-        setDecision((prev) =>
-          prev
-            ? {
-                ...prev,
-                raw_card: {
-                  ...(prev.raw_card || {}),
-                  market_snapshot: toDecisionMarketSnapshot(cached),
-                },
-              }
-            : prev
-        );
-      }
     }
 
     if (!vaultOwnerToken) {
@@ -872,17 +827,6 @@ export function DebateStreamView({
         if (!cancelled) {
           setHeaderMarketQuote((prev) => {
             const nextQuote = pickPreferredHeaderQuote(prev, liveQuote);
-            setDecision((currentDecision) =>
-              currentDecision
-                ? {
-                    ...currentDecision,
-                    raw_card: {
-                      ...(currentDecision.raw_card || {}),
-                      market_snapshot: toDecisionMarketSnapshot(nextQuote),
-                    },
-                  }
-                : currentDecision
-            );
             return nextQuote;
           });
         }
@@ -1130,13 +1074,6 @@ export function DebateStreamView({
               ? data.final_statement.trim().slice(0, 280)
               : "Final recommendation synthesized from the completed debate.";
 
-          const marketSnapshot = extractMarketSnapshotFromDecision(data);
-          const cachedMarketSnapshot = getLatestMarketSnapshotFromCache(
-            userId,
-            String(data.ticker || ticker).toUpperCase()
-          );
-          const resolvedMarketSnapshot =
-            pickPreferredMarketSnapshot(marketSnapshot, cachedMarketSnapshot) || marketSnapshot;
           const incomingRawCard: Record<string, unknown> =
             data.raw_card && typeof data.raw_card === "object"
               ? ((data.raw_card as DecisionResult["raw_card"]) ?? {})
@@ -1200,7 +1137,6 @@ export function DebateStreamView({
               typeof data.valuation_summary === "string" ? data.valuation_summary : undefined,
             raw_card: {
               ...incomingRawCard,
-              market_snapshot: resolvedMarketSnapshot,
               analysis_degraded: Boolean(data.analysis_degraded || incomingRawCard.analysis_degraded),
               degraded_agents: degradedAgents,
               pick_source: incomingRawCard.pick_source || fallbackPickSource,
@@ -1615,7 +1551,7 @@ export function DebateStreamView({
             <div>
               {decision ? (
                 <Badge className="text-[10px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-semibold">
-                  <Icon icon={CheckCircle2} size={12} className="mr-1" /> Complete
+                  <Icon icon={CheckCircle2} size={12} className="mr-1" /> {decision.analysis_degraded ? "Limited analysis" : "Complete"}
                 </Badge>
               ) : loading && kaiThinking ? (
                 <Badge

@@ -39,14 +39,14 @@ describe("canonical workspace hierarchy", () => {
     );
   });
 
-  it("matches Finance's header and tabs to the Location agent column", () => {
+  it("keeps Finance title in the shared top bar and tabs in the reading frame", () => {
     const finance = read("components/kai/kai-market-hub-page.tsx");
 
     expect(finance).toContain('width="agent"');
     expect(finance).toContain("<AppPageHeaderRegion");
     expect(finance).toContain("<AppPageContentRegion>");
-    expect(finance).toContain('title="Finance"');
-    expect(finance).toContain('titleRole="agent"');
+    expect(finance).not.toContain("<PageHeader");
+    expect(finance).toContain("marketBriefingStyles.workspaceFrame");
     expect(finance).not.toContain(
       'className="ms-[var(--page-inline-gutter-standard)]"',
     );
