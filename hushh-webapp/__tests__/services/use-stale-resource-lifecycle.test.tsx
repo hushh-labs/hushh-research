@@ -32,6 +32,24 @@ function getCache() {
 // ---------------------------------------------------------------------------
 
 describe("useStaleResource lifecycle", () => {
+  it("shares one total deadline across an invalidated read and its follow-up", async () => {
+    vi.useFakeTimers();
+    try {
+      let version = 0;
+      let finish!: (value: string) => void;
+      const load = vi.fn(() => new Promise<string>(resolve => { finish = resolve; }));
+      const { result } = renderHook(() => useStaleResource({ cacheKey: "bounded-reconciliation", load,
+        getRequestVersion: () => version, requestBudgetMs: 30_000, cacheTtlMs: 60_000 }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(20_000); version++; finish("obsolete"); });
+      expect(load).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_001); });
+      expect(result.current.loading).toBe(false);
+      expect(result.current.error).toBe("Request timed out.");
+      await act(async () => { finish("late"); });
+      expect(getCache().peek("bounded-reconciliation")).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
   it("never starts an old-session reconciliation after an owner purge", async () => {
     let version = 0;
     let currentSession = true;

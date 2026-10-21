@@ -36,8 +36,8 @@
     transform: translateY(calc(46px + var(--card-index) * 22px))
       rotate(calc(-6deg + var(--card-index) * 6deg))
       scale(calc(1 - var(--card-index) * 0.04));
-    transition: transform 450ms cubic-bezier(0.22, 1, 0.36, 1);
-    transition-delay: calc(var(--card-index) * 35ms);
+    transition: transform var(--motion-duration-xl) var(--motion-ease-decelerate);
+    transition-delay: calc(var(--card-index) * var(--motion-duration-xs));
   }
 
   .stack:hover .card {

@@ -1,5 +1,8 @@
 "use client";
 
+import { withDeadline } from "@/lib/utils/with-deadline";
+import mailStyles from "./mail-workspace.module.css";
+
 import {
   useCallback,
   useEffect,
@@ -10,7 +13,7 @@ import {
 } from "react";
 
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
-import { Button } from "@/components/ui/button";
+import { MailActionButton as Button } from "./mail-action-button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
@@ -391,7 +394,7 @@ function ReceiptListRow({
           />
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span className="min-w-0 truncate text-sm font-normal text-foreground">
+              <span className="min-w-0 truncate text-sm font-[550] text-foreground">
                 {row.merchantName}
               </span>
               <ReceiptStatusBadge row={row} />
@@ -540,7 +543,7 @@ export function GmailRecentReceipts({
     setDetailError(null);
     setLiveUnavailable(null);
     setDetailLoading(true);
-    void loadReceiptDetail(selectedReceiptKey, controller.signal)
+    void withDeadline(loadReceiptDetail(selectedReceiptKey, controller.signal), Date.now() + 30_000)
       .then((detail) => {
         if (controller.signal.aborted) return;
         setReceiptDetail(detail.item);
@@ -719,6 +722,7 @@ export function GmailRecentReceipts({
       ) : null}
 
       <AdaptiveDetailSurface
+        surfaceClassName={`${mailStyles.typography} ${mailStyles.portal}`}
         open={Boolean(selectedRow && selectedReceiptAvailable)}
         onOpenChange={(open) => {
           if (!open) closeDetail();

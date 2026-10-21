@@ -906,7 +906,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         backHref: resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
         width: "profile",
         align: "center",
-        items: [{ label: "One" }],
+        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Mail" }],
       };
     },
   },

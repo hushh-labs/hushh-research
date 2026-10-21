@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 
+import { withDeadline } from "@/lib/utils/with-deadline";
 import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import { CacheService, type CacheSnapshot } from "@/lib/services/cache-service";
 
@@ -23,7 +24,7 @@ const inflightRequests = new Map<string, ResourceRequest>();
 type UseStaleResourceOptions<T> = {
   cacheKey: string;
   enabled?: boolean;
-  load: (options?: { force?: boolean }) => Promise<T>;
+  load: (options?: { force?: boolean; deadlineMs?: number }) => Promise<T>;
   resourceLabel?: string;
   refreshKey?: string;
   /** Separate lifecycle-bound requests while retaining the canonical cache. */
@@ -32,6 +33,8 @@ type UseStaleResourceOptions<T> = {
   retainOnInvalidate?: boolean;
   /** Opt-in memory publication after lifecycle fencing. */
   cacheTtlMs?: number;
+  /** Optional total budget shared by the initial read and its reconciliation. */
+  requestBudgetMs?: number;
   /** Domain invalidation version; unchanged slow reads remain valid. */
   getRequestVersion?: () => number | string;
   /** Session authority for follow-up reads, independent of an individual mount. */
@@ -58,6 +61,7 @@ export function useStaleResource<T>({
   requestScope = "",
   retainOnInvalidate = false,
   cacheTtlMs,
+  requestBudgetMs,
   getRequestVersion,
   isRequestCurrent,
 }: UseStaleResourceOptions<T>): UseStaleResourceResult<T> {
@@ -301,13 +305,18 @@ export function useStaleResource<T>({
         // A doorbell never cancels a valid slow backend read. If the domain
         // changed during it, reconcile once it settles, sharing that follow-up
         // with all consumers rather than publishing an obsolete return value.
+        const requestDeadline = requestBudgetMs === undefined ? null : Date.now() + requestBudgetMs;
         request.promise = (async () => {
           let nextOptions = options;
           for (;;) {
             request.forced = Boolean(nextOptions?.force);
             request.followupRequired = false;
             const version = readVersion?.();
-            const value = await loader(nextOptions);
+            if (requestDeadline !== null && Date.now() >= requestDeadline) {
+              throw Object.assign(new Error("Request timed out."), { name: "TimeoutError" });
+            }
+            const value = await (requestDeadline === null ? loader(nextOptions)
+              : withDeadline(loader({ ...nextOptions, deadlineMs: requestDeadline }), requestDeadline));
             if (!request.followupRequired && version === readVersion?.()) return value;
             if (sessionCurrent ? !sessionCurrent() : ![...request.consumers].some((current) => current())) return value;
             nextOptions = { force: true };
@@ -350,7 +359,7 @@ export function useStaleResource<T>({
         }
       }
     },
-    [cache, cacheKey, enabled, label, resourceGeneration, requestKey, requestScope, cacheTtlMs],
+    [cache, cacheKey, enabled, label, resourceGeneration, requestKey, requestScope, cacheTtlMs, requestBudgetMs],
   );
 
   // Keep the latest refresh in a ref so the auto-load effect below can run it
