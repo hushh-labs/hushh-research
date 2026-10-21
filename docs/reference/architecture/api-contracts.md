@@ -1156,6 +1156,14 @@ holds labels and field names only. History restores it as the structured
 experience `one.shared_with_me_card.v1` with content `{cards: [...]}`, each card
 re-validated field by field.
 
+`GET /api/one/people/{person_ref}/relationship` requires Firebase authentication
+and returns `{personRef, relationship}` through the existing relationship owner.
+Self, missing, or inactive profiles return 404. The private/no-store read omits
+internal subject IDs, contacts, catalogs, grants and history. It establishes
+current presentation eligibility independently of slower full-profile assembly;
+mutations still recheck current server authority. The complete viewer response
+remains unchanged and can establish eligibility if the narrow read fails.
+
 `GET /api/one/people/{person_ref}/request-history` requires the authenticated
 Firebase user. It reads only bundles that user requested from the active person
 profile named by `person_ref`; the profile URL alone grants no access. A self
@@ -2085,7 +2093,7 @@ The Request scope dialog contains a recipient, one labelled question field and C
 | Method | Path under `/api/one/answer-requests` | Contract |
 | --- | --- | --- |
 | GET | `/availability` | Three independent gates: `requests` admits intake and owner review, `payments` admits checkout and additionally requires usable answer credentials, `payouts` reports owner payout reachability. Legacy `payments`-meaning `enabled` is retained so an older client fails closed. Each field is absent-is-false; a surface whose gate is off opens an explanation instead of a control, and a check that could not be made is reported as retryable rather than as a disabled lane. |
-| POST | `/` | Create a connected-person question and resolve eligible scopes through the existing resolver. `periodStart` and `periodEnd` may be omitted or null; a supplied range must contain two real ISO calendar dates in order. |
+| POST | `/` | Create a connected-person question and resolve eligible scopes through the existing resolver. Optional UUID `clientRequestId` replays the same requester/owner/canonical question/dates without reopening lifecycle state or duplicating Feed events; conflicts return generic 409, invalid IDs 422. Omission preserves legacy UUID generation. Participant `/{id}/state` supports uncertain-submit recovery. `periodStart` and `periodEnd` may be omitted or null; a supplied range must contain two real ISO calendar dates in order. |
 | GET | `/inbox`, `/{id}/state` | Owner review queue or exact participant state; unrelated users cannot read the question. |
 | POST | `/{id}/approve`, `/{id}/decline`, `/{id}/cancel` | Exact terms and model-processing consent, refusal or withdrawal; paid cancellation owes a full refund. Approval is admitted by the request gate and records a price without charging; with payments paused the requester sees that price and no pay control. |
 | GET / POST | `/{id}/payment`, `/{id}/payment/checkout` | Quote/status and mode-bound hosted Checkout with durable overlapping-session recovery. |
@@ -3098,6 +3106,12 @@ Registration neither authenticates a provider nor grants tool execution permissi
 The response is a safe connector summary with `registrationKind=private` and
 `status=not_connected`, never endpoint or credential configuration.
 
+`GET /api/connectors/features` is a private/no-store Vault Owner read of
+`{features, driveAgentPackagesEnabled}` using the same rollout predicates as the
+complete overview, without registry, OAuth, or provider-status reads. These flags
+do not certify provider readiness or authorize a mutation. Deploy support before
+first-party callers; the existing overview and its complete payload remain unchanged.
+
 `GET /api/connectors` lists the operator-curated registry and the authenticated
 owner's connection statuses; custom definitions are loaded separately from the
 browser-encrypted vault. This overview does not require migration 243's private
@@ -3323,6 +3337,7 @@ routes remain default-off and do **not** enable chat reads or indexing.
 
 | Route | Authority | Contract |
 | --- | --- | --- |
+| `GET /api/connectors/features` | Vault Owner | Lightweight `{features,driveAgentPackagesEnabled}` rollout projection; private/no-store, no provider or registry reads. |
 | `GET /api/connectors` | Vault Owner | Existing catalog/status plus redacted validation/revocation state, `available`, and computed rollout flags; deactivated Drive and a curated OAuth connector with an existing owner grant keep a recovery row with `available=false`. No endpoints, scopes, raw policy, provider subject or credentials. |
 | `POST /api/connectors/google_drive/connect/oauth/start` | Vault Owner + UAT admission/connection flag | Registered `redirectUri`, optional `flow=web\|native`; returns authorization URL, opaque `attemptId`, connector and ten-minute expiry. |
 | `POST /api/connectors/{connector_id}/connect/oauth/start` | Vault Owner + active operator registry row + provider OAuth secrets present | For a reviewed curated OAuth MCP connector, requires its exact registered web return URI and returns only a provider authorization URL, opaque attempt ID, connector ID and expiry. |

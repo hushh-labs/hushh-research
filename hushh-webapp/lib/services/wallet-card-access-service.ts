@@ -3,7 +3,7 @@ import type { CardShareContext } from "./wallet-card-share-service";
 import type { WalletCardPublicProfile } from "./wallet-card-service";
 import { readCardRequest } from "@/lib/wallet/card-request";
 
-export type WalletAccessContext = Omit<CardShareContext, "vaultKey">;
+export type WalletAccessContext = Omit<CardShareContext, "vaultKey"> & { canDispatch?: () => boolean };
 export class CardRequestStateError extends Error {
   constructor(readonly code: string) { super("Card request is unavailable."); }
 }
@@ -67,7 +67,8 @@ async function ownerRequest<T>(context: WalletAccessContext, path: string, metho
   if (!context.isCurrent()) throw new Error("Wallet changed.");
   const token = await context.getIdToken();
   if (!context.isCurrent()) throw new Error("Wallet changed.");
-  const result = await request<T>(token, path, method, body, context.vaultOwnerToken, signal, context.isCurrent);
+  const result = await request<T>(token, path, method, body, context.vaultOwnerToken, signal,
+    () => context.isCurrent() && (method === "GET" || context.canDispatch?.() !== false));
   if (!context.isCurrent()) throw new Error("Wallet changed.");
   return result;
 }

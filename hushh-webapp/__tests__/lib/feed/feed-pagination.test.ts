@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { useFeedHistoryPresentation } from "@/lib/feed/use-feed-history-presentation";
+import { bumpFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 
 import {
   appendFeedPage,
@@ -32,6 +37,69 @@ function page(ids: number[], nextCursor: string | null): FeedListResponse {
 function range(from: number, to: number): number[] {
   return Array.from({ length: from - to + 1 }, (_, index) => from - index);
 }
+
+describe("Feed history reading continuity", () => {
+  let root: HTMLDivElement;
+  beforeEach(() => {
+    CacheService.getInstance().clear();
+    publishValidatedAuthSessionOwner("reader");
+    root = document.createElement("div");
+    root.dataset.appScrollRoot = "true";
+    document.body.append(root);
+  });
+  afterEach(() => { cleanup(); root.remove(); CacheService.getInstance().clear(); });
+
+  it("retains the reading position and existing row updates until new history is requested", () => {
+    const initial = page([3, 2, 1], "older");
+    const { result, rerender } = renderHook(({ data }) => useFeedHistoryPresentation("reader", data), { initialProps: { data: initial } });
+    act(() => { root.scrollTop = 600; root.dispatchEvent(new Event("scroll")); });
+    const updated = page([4, 3, 2], "new-older");
+    updated.items[1]!.actor_label = "Updated label";
+    rerender({ data: updated });
+    expect(result.current.page!.items.map((row) => row.id)).toEqual(["3", "2", "1"]);
+    expect(result.current.page!.items[0]!.actor_label).toBe("Updated label");
+    expect(result.current.hasNew).toBe(true);
+    act(() => result.current.showNew());
+    expect(result.current.page!.items[0]!.id).toBe("4");
+    expect(root.scrollTop).toBe(0);
+  });
+
+  it("restores loaded pages and scroll on an ordinary same-session return", async () => {
+    const data = page([5, 4], "4");
+    const first = renderHook(() => useFeedHistoryPresentation("reader", data));
+    act(() => {
+      first.result.current.setPagination((state) => appendFeedPage(state, page([3, 2], "2"), "4"));
+      root.scrollTop = 500;
+      root.dispatchEvent(new Event("scroll"));
+    });
+    first.unmount();
+    root.scrollTop = 0;
+    const second = renderHook(() => useFeedHistoryPresentation("reader", data));
+    expect(second.result.current.pagination.additionalItems.map((row) => row.id)).toEqual(["3", "2"]);
+    await waitFor(() => expect(root.scrollTop).toBe(500));
+    second.unmount();
+  });
+
+  it("cannot repopulate presentation memory after sign-out purges it", () => {
+    const data = page([3, 2], null);
+    const first = renderHook(() => useFeedHistoryPresentation("reader", data));
+    publishValidatedAuthSessionOwner(null);
+    CacheService.getInstance().invalidateUser("reader");
+    first.unmount();
+    expect(CacheService.getInstance().peek(CACHE_KEYS.FEED_PRESENTATION("reader"))).toBeNull();
+  });
+
+  it.each(["dismiss", "clear", "undo"])("cannot re-save obsolete rows after a confirmed %s", () => {
+    const data = page([3, 2], null);
+    const first = renderHook(() => useFeedHistoryPresentation("reader", data));
+    bumpFeedPresentationRevision("reader");
+    CacheService.getInstance().invalidate(CACHE_KEYS.FEED_PRESENTATION("reader"));
+    first.unmount();
+    const second = renderHook(() => useFeedHistoryPresentation("reader", null));
+    expect(second.result.current.page).toBeNull();
+    expect(second.result.current.pagination.additionalItems).toEqual([]);
+  });
+});
 
 describe("Feed live pagination", () => {
   it("carries a displaced first-page tail forward without changing a continuous cursor", () => {

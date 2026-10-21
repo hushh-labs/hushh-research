@@ -171,6 +171,7 @@ export function useFileRequest({
   onQuoteChanged,
   identityMissing = false,
   onIdentityLinked,
+  canRequest = true,
 }: {
   userId: string;
   personRef: string;
@@ -181,6 +182,7 @@ export function useFileRequest({
   identityMissing?: boolean;
   /** A Google account was linked while sending; the preview reads it again. */
   onIdentityLinked?: () => void;
+  canRequest?: boolean;
 }) {
   const [phase, setPhase] = useState<"idle" | "verifying" | "sending">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -188,6 +190,8 @@ export function useFileRequest({
   const [linked, setLinked] = useState(false);
   const needsGoogle = needsGoogleAfterSend || (identityMissing && !linked);
   const alive = useRef(false);
+  const eligibility = useRef(canRequest);
+  eligibility.current = canRequest;
   const serial = useRef(0);
   const inFlight = useRef(false);
   const attempt = useRef<{ fingerprint: string; id: string; quoteVersion: number | null } | null>(
@@ -210,7 +214,7 @@ export function useFileRequest({
     };
   }, []);
   const send = async (terms: FileRequestTerms, quote: DriveRequestQuote | null): Promise<string | null> => {
-    if (inFlight.current || !validFileRequest(terms) || !quote || !alive.current) return null;
+    if (!eligibility.current || inFlight.current || !validFileRequest(terms) || !quote || !alive.current) return null;
     const token = getToken();
     if (!token) return null;
     const epoch = snapshotVaultSessionEpoch();
@@ -220,9 +224,9 @@ export function useFileRequest({
       serial.current === operation &&
       isVaultSessionEpochCurrent(epoch) &&
       getToken() === token;
-    const guard = () => {
+    const guard = Object.assign(() => {
       if (!current()) throw new DriveSharingError("session_changed");
-    };
+    }, { canDispatch: () => eligibility.current });
     const clean = normalize(terms);
     const fingerprint = fingerprintOf(personRef, clean);
     if (attempt.current?.fingerprint !== fingerprint ||
@@ -241,6 +245,10 @@ export function useFileRequest({
         ? AuthService.linkGoogleIdentity(userId, current)
         : AuthService.documentRequestIdentityToken(userId, current));
       guard();
+      if (!eligibility.current) {
+        setError("Your connection needs to be confirmed before sending. Your details are kept.");
+        return null;
+      }
       if (linkGoogle) {
         setNeedsGoogle(false);
         setLinked(true);
@@ -330,6 +338,10 @@ export function RequestFilesButton({
   getToken,
   agentPackagesEnabled = false,
   renderTrigger,
+  canRequest = true,
+  availabilityNotice,
+  initialOpen = false,
+  showTrigger = true,
 }: {
   userId: string;
   personRef: string;
@@ -337,8 +349,12 @@ export function RequestFilesButton({
   getToken: () => string | null;
   agentPackagesEnabled?: boolean;
   renderTrigger?: (label: string) => ReactNode;
+  canRequest?: boolean;
+  availabilityNotice?: ReactNode;
+  initialOpen?: boolean;
+  showTrigger?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [purpose, setPurpose] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
@@ -346,9 +362,10 @@ export function RequestFilesButton({
   const [requesterActorType, setRequesterActorType] = useState<"person" | "ria">("person");
   const [reason, setReason] = useState("");
   const [created, setCreated] = useState<{ requestId: string; purpose: string; start: string; end: string } | null>(null);
-  const quote = useDocumentRequestQuote({ active: open && !created, ownerPersonRef: personRef, getToken });
-  const identity = useRecipientIdentityPreview({ active: open && !created, userId, getToken });
+  const quote = useDocumentRequestQuote({ active: open && !created && canRequest, ownerPersonRef: personRef, getToken });
+  const identity = useRecipientIdentityPreview({ active: open && !created && canRequest, userId, getToken });
   const request = useFileRequest({
+    canRequest,
     userId,
     personRef,
     getToken,
@@ -387,9 +404,9 @@ export function RequestFilesButton({
           else close();
         }}
       >
-        <DialogTrigger asChild>
+        {showTrigger ? <DialogTrigger asChild>
           <Button size="standard" variant="none">{renderTrigger?.("Request files") ?? "Request files"}</Button>
-        </DialogTrigger>
+        </DialogTrigger> : null}
         <DialogContent
           data-request-files-dialog
           // Phone sheet geometry lives in globals.css ([data-request-files-dialog]);
@@ -438,6 +455,7 @@ export function RequestFilesButton({
                     type="button"
                     size="prominent"
                     variant="none"
+                    disabled={!canRequest}
                     onClick={() => {
                       setCreated(null);
                       request.reset();
@@ -456,6 +474,7 @@ export function RequestFilesButton({
                 void submit();
               }}
             >
+              {availabilityNotice}
               <div className="space-y-2">
                 <Label htmlFor="document-request-purpose">
                   What do you need?
@@ -549,7 +568,7 @@ export function RequestFilesButton({
                 error={quote.error} onRetry={quote.refresh} personName={personName} />
               <FlowActionGroup
                 primary={
-                  <Button type="submit" size="prominent" disabled={!valid || !quote.quote || busy}>
+                  <Button type="submit" size="prominent" disabled={!canRequest || !valid || !quote.quote || busy}>
                     {request.phase !== "idle"
                       ? "Sending…"
                       : request.needsGoogle

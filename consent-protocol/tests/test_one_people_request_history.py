@@ -10,6 +10,32 @@ from hushh_mcp.services.person_profile_service import PersonProfileNotFoundError
 PERSON_REF = "11111111-1111-4111-8111-111111111111"
 
 
+def test_relationship_read_is_independent_and_keeps_internal_identity_private(monkeypatch):
+    from unittest.mock import Mock
+
+    relationship = {"status": "connected", "connectionId": "connection", "requestId": None}
+    service = Mock()
+    service.get_relationship_target.return_value = ("internal-subject", relationship)
+    service.get_viewer_profile.side_effect = RuntimeError("catalog unavailable")
+    monkeypatch.setattr(people, "_service", lambda: service)
+    app = FastAPI()
+    app.include_router(people.router)
+    client = TestClient(app, raise_server_exceptions=False)
+    assert client.get(f"/api/one/people/{PERSON_REF}/relationship").status_code == 401
+    app.dependency_overrides[require_firebase_auth] = lambda: "viewer"
+    response = client.get(f"/api/one/people/{PERSON_REF}/relationship")
+    assert response.status_code == 200
+    assert response.json() == {"personRef": PERSON_REF, "relationship": relationship}
+    assert response.headers["cache-control"] == "private, no-store"
+    service.get_viewer_profile.assert_not_called()
+    service.get_relationship_target.assert_called_once_with(
+        viewer_user_id="viewer", public_person_ref=PERSON_REF
+    )
+    service.get_relationship_target.side_effect = PersonProfileNotFoundError("not found")
+    assert client.get(f"/api/one/people/{PERSON_REF}/relationship").status_code == 404
+    assert client.get("/api/one/people/invalid/relationship").status_code == 404
+
+
 class _HistoryService:
     def __init__(self) -> None:
         self.calls = []

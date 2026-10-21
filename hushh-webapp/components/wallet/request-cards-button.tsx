@@ -31,11 +31,15 @@ export function RequestCardsButton({
   personName,
   className,
   renderTrigger,
+  canRequest = true,
+  showTrigger = true,
 }: {
   personRef: string;
   personName: string;
   className?: string;
   renderTrigger?: (label: string) => ReactNode;
+  canRequest?: boolean;
+  showTrigger?: boolean;
 }) {
   const { user } = useAuth();
   const { vaultOwnerToken, vaultKey, isVaultUnlocked } = useVault();
@@ -67,6 +71,8 @@ export function RequestCardsButton({
     sending = useRef(false),
     attempt = useRef(walletOperationId());
   const visibilityRevision = useRef(0);
+  const eligibility = useRef(canRequest);
+  eligibility.current = canRequest;
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -83,10 +89,17 @@ export function RequestCardsButton({
     return () => document.removeEventListener("visibilitychange", change);
   }, []);
   useEffect(() => {
+    // Credential renewal revalidates transport authority without dismissing a
+    // review or receipt. A true lock/person/account change still retires it.
+    if (!isVaultUnlocked) setOpen(false);
+    setBusy(false);
+    setError(null);
+  }, [isVaultUnlocked, vaultOwnerToken, epoch]);
+  useEffect(() => {
     setOpen(false);
     setBusy(false);
     setError(null);
-  }, [user?.uid, vaultOwnerToken, isVaultUnlocked, epoch, personRef]);
+  }, [user?.uid, personRef]);
   const review = () => {
     if (!user || sent) return false;
     if (!isVaultUnlocked || !vaultOwnerToken) {
@@ -124,6 +137,7 @@ export function RequestCardsButton({
       isVaultSessionEpochCurrent(operationEpoch);
     if (
       sending.current ||
+      !eligibility.current ||
       !owner.user ||
       !owner.token ||
       !owner.vaultKey ||
@@ -140,6 +154,7 @@ export function RequestCardsButton({
         vaultKey: owner.vaultKey,
         getIdToken: () => owner.user!.getIdToken(),
         isCurrent,
+        canDispatch: () => eligibility.current,
       };
       // Establish the existing recipient key so a first-time requester can receive
       // the owner's encrypted response; no payment card is read here.
@@ -148,6 +163,10 @@ export function RequestCardsButton({
         strictRecovery: true,
       });
       if (!isCurrent()) return;
+      if (!eligibility.current) {
+        setError("Your connection needs to be confirmed before sending. Your review is kept.");
+        return;
+      }
       if (key.userId !== owner.user.uid || !key.publicKeyJwk)
         throw new Error("Recipient key unavailable.");
       await WalletCardAccessService.createRequest(
@@ -174,7 +193,7 @@ export function RequestCardsButton({
   };
   return (
     <>
-      <Button
+      {showTrigger ? <Button
         type="button"
         variant="none"
         effect="fade"
@@ -184,7 +203,7 @@ export function RequestCardsButton({
         data-voice-control-id="person-profile-request-card"
       >
         {renderTrigger?.(sent ? "Card request sent" : "Request cards") ?? (sent ? "Card request sent" : "Request cards")}
-      </Button>
+      </Button> : null}
       <Dialog
         open={open && isVaultUnlocked}
         onOpenChange={(value) => {
@@ -206,6 +225,7 @@ export function RequestCardsButton({
               Ask {personName} to choose a card to share with you.
             </DialogDescription>
           </DialogHeader>
+          {!canRequest ? <p role="status" className="text-sm text-muted-foreground">Your connection needs to be confirmed before sending.</p> : null}
           {error ? (
             <p role="alert" className="text-sm text-destructive">
               {error}
@@ -217,7 +237,7 @@ export function RequestCardsButton({
                 type="button"
                 variant="blue-gradient"
                 effect="fill"
-                disabled={busy}
+                disabled={busy || !canRequest}
                 onClick={() => void send()}
               >
                 {busy ? "Sending…" : "Send request"}

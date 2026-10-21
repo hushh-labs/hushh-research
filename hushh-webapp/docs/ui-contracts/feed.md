@@ -60,7 +60,7 @@ omitted; section counts are current account state, not product limits.
 
 | State / CTA | Current behavior |
 | --- | --- |
-| Loading feed | Four-row skeleton while history/actionable/progress or legacy watermark hydration is pending. |
+| Loading feed | Cold skeleton while no content is usable. Once any lane is usable it renders immediately; unfinished Needs you, In progress, or Recent activity lanes show local skeleton/retry states. |
 | Activity unavailable · Retry | Cold failure with no retained content. Retry forces history plus actionable/progress reconciliation. |
 | Showing saved activity… · Retry | Retains saved rows after failed refresh; does not replace them with a cold error page. |
 | No activity yet | Valid only when all rendered content families and errors are absent. No second explanatory sentence is mounted in the current empty state. |
@@ -839,3 +839,18 @@ No real requests, file grants, checkout, notifications, or account mutations
 were triggered for this inventory. Run `./bin/hushh docs verify` for prose;
 implementation changes follow the existing
 [UI contributor scaffold](../../../docs/reference/architecture/ui-contract-contributor-guide.md).
+
+### Background reads and return continuity
+
+History reads share one owner/session/version-scoped request. A forced refresh
+behind an older read schedules one forced successor; obsolete mutation versions
+cannot publish or refill memory. Unchanged-version slow responses remain valid.
+Sign-out fences token acquisition, transport dispatch and cache publication.
+
+While reading below the top, existing-row updates settle in place and newly
+prepended history waits behind **New activity**. The CTA applies it and scrolls
+to the top; live/actionable lanes continue independently. One memory-only bounded
+snapshot retains loaded history and scroll for an ordinary same-session return.
+Confirmed Dismiss/Clear/Undo advances a presentation revision and invalidates
+that snapshot, preventing an old unmount cleanup from resurrecting removed rows.
+Server mutation receipts and existing Undo/clear-watermark semantics remain canonical.

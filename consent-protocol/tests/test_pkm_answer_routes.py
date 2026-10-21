@@ -13,6 +13,26 @@ async def _create_answer_request(*args, **kwargs):
     return await routes.create_answer_request(*args, **kwargs, background_tasks=BackgroundTasks())
 
 
+async def test_question_create_forwards_valid_retry_identity_and_refuses_invalid_keys(monkeypatch):
+    operation = str(uuid4())
+    service = Mock(create=AsyncMock(return_value={"requestId": operation}))
+    monkeypatch.setattr(routes, "_requests", lambda: service)
+    body = {
+        "ownerUserId": "owner",
+        "question": "What are your food preferences?",
+        "clientRequestId": operation,
+    }
+    assert await _create_answer_request(Response(), body, "requester") == {"requestId": operation}
+    assert service.create.call_args.kwargs["client_request_id"] == operation
+    for invalid in ("not-a-uuid", False, {}):
+        with pytest.raises(HTTPException) as error:
+            await _create_answer_request(
+                Response(), {**body, "clientRequestId": invalid}, "requester"
+            )
+        assert error.value.status_code == 422
+    assert service.create.await_count == 1
+
+
 @pytest.fixture(autouse=True)
 def env(monkeypatch):
     monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", "true")

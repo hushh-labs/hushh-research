@@ -32,6 +32,88 @@ function getCache() {
 // ---------------------------------------------------------------------------
 
 describe("useStaleResource lifecycle", () => {
+  it("never starts an old-session reconciliation after an owner purge", async () => {
+    let version = 0;
+    let currentSession = true;
+    let complete!: (value: string) => void;
+    const load = vi.fn(() => new Promise<string>((resolve) => { complete = resolve; }));
+    const first = renderHook(() => useStaleResource({ cacheKey: "purged-feed", load,
+      requestScope: "old-owner", getRequestVersion: () => version,
+      isRequestCurrent: () => currentSession,
+    }));
+    await waitFor(() => expect(load).toHaveBeenCalledOnce());
+    act(() => { currentSession = false; version++; getCache().clear(); });
+    first.unmount();
+    await act(async () => complete("old-result"));
+    expect(load).toHaveBeenCalledOnce();
+    expect(getCache().peek("purged-feed")).toBeNull();
+  });
+  it("reconciles an update during a cold read once without publishing the obsolete return", async () => {
+    let version = 0;
+    const completions: Array<(value: string) => void> = [];
+    const load = vi.fn(() => new Promise<string>((resolve) => completions.push(resolve)));
+    const { result } = renderHook(() => useStaleResource({
+      cacheKey: "cold-update", load, getRequestVersion: () => version,
+    }));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    let refresh!: Promise<string | null>;
+    act(() => {
+      version++;
+      // No cache entry exists yet; invalidation alone emits no cache event.
+      getCache().invalidate("cold-update");
+      refresh = result.current.refresh({ force: true });
+      void result.current.refresh({ force: true });
+    });
+    await act(async () => completions[0]("before-update"));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(true);
+    await act(async () => { completions[1]("after-update"); await refresh; });
+    expect(result.current.data).toBe("after-update");
+    expect(result.current.loading).toBe(false);
+    expect(load).toHaveBeenLastCalledWith({ force: true });
+  });
+
+  it("shares a valid slow read across a same-session remount", async () => {
+    let complete!: (value: string) => void;
+    const load = vi.fn(() => new Promise<string>((resolve) => { complete = resolve; }));
+    const options = { cacheKey: "slow-remount", requestScope: "same-session", load,
+      getRequestVersion: () => 0 };
+    const first = renderHook(() => useStaleResource(options));
+    await waitFor(() => expect(load).toHaveBeenCalledOnce());
+    first.unmount();
+    const second = renderHook(() => useStaleResource(options));
+    expect(second.result.current.loading).toBe(true);
+    await act(async () => complete("valid-backend-response"));
+    await waitFor(() => expect(second.result.current.data).toBe("valid-backend-response"));
+    expect(second.result.current.error).toBeNull();
+    expect(load).toHaveBeenCalledOnce();
+    second.unmount();
+  });
+
+  it("retains saved information when the post-update reconciliation fails and permits retry", async () => {
+    getCache().set("update-retry", "saved");
+    let version = 0;
+    let complete!: (value: string) => void;
+    const load = vi.fn()
+      .mockImplementationOnce(() => new Promise<string>((resolve) => { complete = resolve; }))
+      .mockRejectedValueOnce(new Error("Temporarily unavailable"))
+      .mockResolvedValueOnce("recovered");
+    const { result } = renderHook(() => useStaleResource({
+      cacheKey: "update-retry", retainOnInvalidate: true, load,
+      getRequestVersion: () => version,
+    }));
+    let refresh!: Promise<string | null>;
+    act(() => { refresh = result.current.refresh({ force: true }); });
+    await waitFor(() => expect(load).toHaveBeenCalledOnce());
+    act(() => { version++; getCache().invalidate("update-retry"); });
+    await act(async () => { complete("obsolete"); await refresh; });
+    expect(result.current.data).toBe("saved");
+    expect(result.current.error).toBe("Temporarily unavailable");
+    await act(async () => { await result.current.refresh({ force: true }); });
+    expect(result.current.data).toBe("recovered");
+    expect(result.current.error).toBeNull();
+  });
   it("does not join an obsolete lifecycle-bound request when a surface remounts", async () => {
     let rejectOld!: (error: Error) => void;
     const oldLoad = vi.fn(

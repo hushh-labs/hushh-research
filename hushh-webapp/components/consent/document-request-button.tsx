@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
+import type { PersonConnectorAvailability } from "@/lib/connections/use-person-connector-features";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import {
   snapshotVaultSessionEpoch,
   isVaultSessionEpochCurrent,
+  subscribeVaultSessionEpoch,
 } from "@/lib/vault/session-epoch";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import {
@@ -73,24 +76,46 @@ export function DocumentRequestButton({
   personName,
   draft,
   renderTrigger,
+  canRequest = true,
+  availability,
+  onAvailabilityRetry,
+  showTrigger = true,
 }: {
   personRef: string;
   personName: string;
   draft?: RequestDraft;
   renderTrigger?: (label: string) => ReactNode;
+  canRequest?: boolean;
+  availability?: PersonConnectorAvailability;
+  onAvailabilityRetry?: () => unknown;
+  showTrigger?: boolean;
 }) {
   const { user } = useAuth();
-  const { isVaultUnlocked, getVaultOwnerToken } = useVault();
-  if (!user || !isVaultUnlocked) return null;
+  const { isVaultUnlocked, getVaultOwnerToken, vaultOwnerToken } = useVault();
+  const [unlockOpen, setUnlockOpen] = useState(false);
+  const [intent, setIntent] = useState<"files" | "query" | null>(null);
+  if (!user) return null;
+  if (!isVaultUnlocked) return draft ? null : <>
+    {showTrigger && (["files", "query"] as const).map((action) => <Button key={action} size="standard" variant="none" onClick={() => { setIntent(action); setUnlockOpen(true); }}>
+      {renderTrigger?.(action === "files" ? "Request files" : "Ask about files") ?? (action === "files" ? "Request files" : "Ask about files")}
+    </Button>)}
+    <VaultUnlockDialog user={user} open={unlockOpen} onOpenChange={setUnlockOpen} onSuccess={() => setUnlockOpen(false)} title="Unlock to request" description="Unlock your vault to continue this request." />
+  </>;
   return (
     <UnlockedRequestButton
-      key={`${user.uid}:${personRef}:${draft?.clientRequestId ?? "manual"}:${snapshotVaultSessionEpoch()}`}
+      key={`${user.uid}:${personRef}:${draft?.clientRequestId ?? "manual"}`}
       userId={user.uid}
       personRef={personRef}
       personName={personName}
       draft={draft}
       renderTrigger={renderTrigger}
       getToken={getVaultOwnerToken}
+      credentialReady={Boolean(vaultOwnerToken || getVaultOwnerToken())}
+      canRequest={canRequest}
+      availability={availability}
+      onAvailabilityRetry={onAvailabilityRetry}
+      initialAction={intent}
+      showTrigger={showTrigger}
     />
   );
 }
@@ -102,17 +127,38 @@ function UnlockedRequestButton({
   draft,
   getToken,
   renderTrigger,
+  canRequest,
+  availability,
+  onAvailabilityRetry,
+  credentialReady,
+  initialAction,
+  showTrigger,
 }: {
   userId: string;
   personRef: string;
   personName: string;
   draft?: RequestDraft;
   renderTrigger?: (label: string) => ReactNode;
+  canRequest: boolean;
+  availability?: PersonConnectorAvailability;
+  onAvailabilityRetry?: () => unknown;
+  credentialReady: boolean;
+  initialAction: "files" | "query" | null;
+  showTrigger: boolean;
   getToken: () => string | null;
 }) {
-  const [enabled, setEnabled] = useState(false);
-  const [agentPackagesEnabled, setAgentPackagesEnabled] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [fallbackEnabled, setEnabled] = useState(false);
+  const [fallbackPackagesEnabled, setAgentPackagesEnabled] = useState(false);
+  const [featureError, setFeatureError] = useState(false);
+  const [featureChecked, setFeatureChecked] = useState(false);
+  const [featureRetry, setFeatureRetry] = useState(0);
+  const enabled = availability ? availability.status === "ready" && availability.documentSharing : fallbackEnabled;
+  const agentPackagesEnabled = availability ? availability.status === "ready" && availability.agentPackages : fallbackPackagesEnabled;
+  const allowed = canRequest && enabled && !featureError;
+  const injectedAvailability = availability !== undefined;
+  const eligibility = useRef(allowed);
+  eligibility.current = allowed;
+  const [open, setOpen] = useState(initialAction === "query");
   const [query, setQuery] = useState(draft ? draftQuestion(draft) : "");
   const [phase, setPhase] = useState<"idle" | "sending">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -134,6 +180,7 @@ function UnlockedRequestButton({
     getToken,
   });
   const files = useFileRequest({
+    canRequest: allowed,
     userId,
     personRef,
     getToken,
@@ -156,28 +203,43 @@ function UnlockedRequestButton({
       : null,
   );
   const draftClientRequestId = draft?.clientRequestId;
+  const credentialEpoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
   useEffect(() => {
     alive.current = true;
+    return () => {
+      alive.current = false;
+      // Monotonic operation fence, intentionally advanced at owner cleanup.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      serial.current++;
+      inFlight.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    let active = true;
     const epoch = snapshotVaultSessionEpoch();
     const token = getToken();
-    if (token)
+    if (token && !injectedAvailability) {
+      setFeatureError(false);
+      setFeatureChecked(false);
       void ExternalConnectorService.overview(token)
         .then((result) => {
           if (
-            alive.current &&
+            active && alive.current &&
             isVaultSessionEpochCurrent(epoch) &&
             getToken() === token
           ) {
             setEnabled(result.features.drive_document_sharing === true);
+            setFeatureChecked(true);
             setAgentPackagesEnabled(result.driveAgentPackagesEnabled === true);
           }
         })
         .catch(() => {
-          /* A rollout-status failure cannot enable a new action. */
+          if (active && alive.current && isVaultSessionEpochCurrent(epoch)) setFeatureError(true);
         });
+    }
     if (token && draftClientRequestId) {
       const guard = () => {
-        if (!alive.current || !isVaultSessionEpochCurrent(epoch) || getToken() !== token)
+        if (!active || !alive.current || !isVaultSessionEpochCurrent(epoch) || getToken() !== token)
           throw new DriveSharingError("session_changed");
       };
       void DriveSharingService.lookupClient(token, draftClientRequestId, guard)
@@ -185,13 +247,9 @@ function UnlockedRequestButton({
         .catch(() => { /* Sending still requires an explicit tap and server idempotency. */ });
     }
     return () => {
-      alive.current = false;
-      // This is a monotonic operation fence, not a captured DOM reference.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      serial.current++;
-      inFlight.current = false;
+      active = false;
     };
-  }, [getToken, draftClientRequestId]);
+  }, [getToken, draftClientRequestId, credentialReady, credentialEpoch, featureRetry, injectedAvailability]);
   const question = query.trim();
   const valid = validDriveQuery(question);
   const close = () => {
@@ -204,7 +262,7 @@ function UnlockedRequestButton({
   };
   const send = async () => {
     // One draft sends one request: a question or a file request, never both at once.
-    if (inFlight.current || !valid || !alive.current || files.phase !== "idle") return;
+    if (!eligibility.current || inFlight.current || !valid || !alive.current || files.phase !== "idle") return;
     const token = getToken();
     if (!token) return;
     const epoch = snapshotVaultSessionEpoch();
@@ -214,9 +272,9 @@ function UnlockedRequestButton({
       serial.current === operation &&
       isVaultSessionEpochCurrent(epoch) &&
       getToken() === token;
-    const guard = () => {
+    const guard = Object.assign(() => {
       if (!current()) throw new DriveSharingError("session_changed");
-    };
+    }, { canDispatch: () => eligibility.current });
     // An unchanged retry reuses its key, so the server never records it twice.
     const fingerprint = JSON.stringify({ personRef, query: question });
     if (attempt.current?.fingerprint !== fingerprint)
@@ -279,7 +337,14 @@ function UnlockedRequestButton({
         onChanged={() => CacheSyncService.onConsentMutated(userId)}
       />
     );
-  if (!enabled)
+  const availabilityNotice = !allowed ? <div role="status" className="space-y-2">
+    <HelperText>{!canRequest ? "Your connection needs to be confirmed before sending. Your details are kept."
+      : availability?.status === "error" || featureError ? "Availability could not be checked. Your details are kept."
+      : availability?.status === "ready" || featureChecked ? "File requests are unavailable for this connection."
+      : "Checking availability…"}</HelperText>
+    {availability?.status === "error" || featureError ? <Button type="button" size="compact" variant="none" onClick={() => { if (onAvailabilityRetry) void onAvailabilityRetry(); else setFeatureRetry((value) => value + 1); }}>Try again</Button> : null}
+  </div> : null;
+  if (!enabled && draft && !created)
     return draft ? (
       <HelperText>Drive questions are unavailable here.</HelperText>
     ) : null;
@@ -342,10 +407,14 @@ function UnlockedRequestButton({
         getToken={getToken}
         agentPackagesEnabled={agentPackagesEnabled}
         renderTrigger={renderTrigger}
+        canRequest={allowed}
+        availabilityNotice={availabilityNotice}
+        initialOpen={initialAction === "files"}
+        showTrigger={showTrigger}
       />
-      <Button size="standard" variant="none" onClick={() => setOpen(true)}>
+      {showTrigger ? <Button size="standard" variant="none" onClick={() => setOpen(true)}>
         {renderTrigger?.("Ask about files") ?? "Ask about files"}
-      </Button>
+      </Button> : null}
       <Dialog
         open={open}
         onOpenChange={(value) => {
@@ -397,6 +466,7 @@ function UnlockedRequestButton({
                 void send();
               }}
             >
+              {availabilityNotice}
               <div className="space-y-2">
                 <Label htmlFor="drive-query-text">Your question</Label>
                 <Textarea
@@ -422,7 +492,7 @@ function UnlockedRequestButton({
                   <Button
                     type="submit"
                     size="prominent"
-                    disabled={!valid || phase !== "idle"}
+                    disabled={!allowed || !valid || phase !== "idle"}
                   >
                     {phase === "sending" ? "Sending…" : "Send"}
                   </Button>

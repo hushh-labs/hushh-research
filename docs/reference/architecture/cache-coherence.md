@@ -460,3 +460,23 @@ five minutes. `lib/cache/pkm-invalidation-epoch.ts` closes that gap:
   - first-party financial/one/profile/portfolio/history writes must go through `PkmWriteCoordinator`
   - stale manifests/domains should resume the client-side PKM upgrade before save when the vault is unlocked
   - if the vault is locked and the domain is stale, the UI should surface an upgrade-required/read-only state instead of attempting a legacy plaintext fallback
+
+### Profile and Feed state ownership (2026-10-21)
+
+Feed opts into `useStaleResource` version-aware single flight using the existing
+Feed invalidation epoch and auth generation. A forced invalidation during a read
+coalesces into one forced successor; publication waits for the current version.
+Same-version slow backend results are accepted. Token acquisition and final
+transport dispatch are session-fenced; a post-sign-out result cannot refill cache.
+Consent mutations now invalidate Feed as well as their existing projections.
+
+Feed return-position memory is separate from canonical list/count data and never
+authorizes actions. Confirmed history mutations invalidate its revision so later
+cleanup cannot restore raw dismissed/cleared rows. Sign-out clears owner memory.
+
+Person profile uses cached public identity for display, independent lightweight
+relationship and owner-feature readiness reads, and the existing complete viewer
+payload for all catalog, grants and history data. Retained labels/drafts are
+separate from current permission authority. Revalidation keeps workflow owners
+mounted, gates new submits while uncertain and accepts already dispatched server
+receipts under the original session guard. No backend response fields are removed.
