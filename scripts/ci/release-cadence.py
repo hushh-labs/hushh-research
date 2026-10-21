@@ -32,7 +32,10 @@ def main() -> int:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
         state = reconcile(repository, int(os.environ["GITHUB_RUN_ID"]), event,
                           args.full or event.get("schedule") == "7 3 * * 1", args.recover_head)
-        lines = [f"Verified UAT deployments: {state['count']}; TestFlight every 4; production every 8."]
+        policy = configuration()[0]
+        Path(os.environ["RUNNER_TEMP"], "release-cadence-monitor.json").write_text(json.dumps(state))
+        lines = [(f"Verified UAT deployments: {state['count']}; TestFlight every {policy['testflight_every']}; "
+                  f"production every {policy['production_every']}.")]
         for ordinal, request in state["requests"].items():
             for lane, child in request["lanes"].items():
                 if child["state"] != "superseded":

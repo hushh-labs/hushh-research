@@ -25,6 +25,7 @@ on:
 permissions:
   contents: write
   actions: write
+  issues: write
 
 concurrency:
   group: release-cadence-accounting
@@ -50,6 +51,7 @@ jobs:
       - name: Require the protected main controller
         run: test "$GITHUB_REF_NAME" = main
       - name: Account verified deployments and dispatch eligible releases
+        id: accounting
         shell: bash
         run: |
           set -euo pipefail
@@ -58,6 +60,7 @@ jobs:
           if [[ -n "$RECOVER_CHECKPOINT_SHA" ]]; then args+=(--recover-head "$RECOVER_CHECKPOINT_SHA"); fi
           python3 scripts/ci/release-cadence.py reconcile "${args[@]}"
       - name: Publish immutable controller authority and accounting checkpoint
+        id: checkpoint
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -66,3 +69,10 @@ jobs:
           retention-days: 90
           overwrite: true
           if-no-files-found: warn
+      - name: Report release milestones and failures in GitHub
+        if: always()
+        timeout-minutes: 2
+        env:
+          ACCOUNTING_OUTCOME: ${{ steps.accounting.outcome }}
+          CHECKPOINT_OUTCOME: ${{ steps.checkpoint.outcome }}
+        run: python3 scripts/ci/release_cadence_monitor.py
