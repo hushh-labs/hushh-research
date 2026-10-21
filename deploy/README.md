@@ -119,6 +119,11 @@ healthy UAT release's frontend after verifying both against live revision
 provenance. A UAT run that passed every release gate and failed solely while
 retiring old tags may use its healthy artifact after job and live revision
 provenance checks. Other failed deployments and no-op runs grant no cleanup authority.
+Retried UAT releases can retain duplicate artifact names. Cleanup resolves these
+only through the current run attempt and its unique successful upload step, then
+verifies the immutable artifact ID and archive digest. Unproven or ambiguous
+attempts remain blocked; existing release health and live provenance checks still apply.
+
 Maintenance runs hourly or by explicit governed manual request; no deployment
 event starts it. GitHub delivered only 3-6 of the 24 daily runs of its former
 minute-17 cron on 2026-10-12..14, so **Capacity Maintenance Clock** is now its only
