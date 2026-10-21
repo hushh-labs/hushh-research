@@ -35,6 +35,7 @@ from hushh_mcp.services.fmp_call_budget import is_budget_critical, record_fmp_ca
 from hushh_mcp.services.market_cache_store import get_market_cache_store_service
 from hushh_mcp.services.market_insights_cache import market_insights_cache
 from hushh_mcp.services.market_news_images import article_image_url, enrich_market_news_images
+from hushh_mcp.services.market_provider_telemetry import record_provider_request
 from hushh_mcp.services.market_refresh_policy import (
     seconds_until_us_market_open,
     us_market_is_open,
@@ -438,7 +439,11 @@ async def _resolve_pick_source_rows(
         try:
             ria_sources = await ria_iam.list_investor_pick_sources(user_id)
         except Exception as exc:
-            logger.debug("[Kai Market] investor pick sources unavailable for %s: %s", user_id, exc)
+            logger.debug(
+                "[Kai Market] investor pick sources unavailable for %s: %s",
+                user_id,
+                type(exc).__name__,
+            )
             ria_sources = []
 
     if ria_sources:
@@ -467,7 +472,7 @@ async def _resolve_pick_source_rows(
                 "[Kai Market] pick source %s unavailable for %s: %s",
                 active_pick_source,
                 user_id,
-                exc,
+                type(exc).__name__,
             )
 
     return default_rows, sources, DEFAULT_PICK_SOURCE_ID
@@ -969,7 +974,7 @@ async def _get_market_news_feed_page(
                     logger.debug(
                         "[Kai Market] paginated news failed for %s: %s",
                         symbol,
-                        exc,
+                        type(exc).__name__,
                     )
                     return symbol, [], _provider_status_from_exception(exc)
 
@@ -1171,7 +1176,7 @@ async def _get_or_refresh_public_module(
         l2_entry = await store.get_entry(key)
     except Exception as exc:
         # L2 is optional. Never fail the request path when Postgres cache is unavailable.
-        logger.warning("[Kai Market] L2 cache read skipped for %s: %s", key, exc)
+        logger.warning("[Kai Market] L2 cache read skipped for %s: %s", key, type(exc).__name__)
         store = None
         l2_entry = None
     if (
@@ -1217,7 +1222,9 @@ async def _get_or_refresh_public_module(
                     provider_status=provider_status,
                 )
             except Exception as exc:
-                logger.warning("[Kai Market] L2 cache write skipped for %s: %s", key, exc)
+                logger.warning(
+                    "[Kai Market] L2 cache write skipped for %s: %s", key, type(exc).__name__
+                )
         return value
 
     result = await market_insights_cache.get_or_refresh(
@@ -1270,7 +1277,9 @@ async def _legacy_fetch_market_status(exchange: str = DEFAULT_EXCHANGE) -> dict[
 
     url = "https://finnhub.io/api/v1/stock/market-status"
     timeout = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=3.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout
+    ) as client:
         res = await client.get(url, params={"exchange": code, "token": api_key})
         res.raise_for_status()
         payload = res.json() or {}
@@ -1319,7 +1328,7 @@ async def _fetch_market_status_for_exchange(exchange: str) -> dict[str, Any]:
             status_payload = await _fetch_market_status(code)
             provider = "partial" if status_payload.get("degraded") else "ok"
         except Exception as exc:
-            logger.warning("[Kai Market] market status (%s) failed: %s", code, exc)
+            logger.warning("[Kai Market] market status (%s) failed: %s", code, type(exc).__name__)
             status_payload = _scheduled_market_status_fallback(code)
             provider = _provider_status_from_exception(exc)
         return {
@@ -1391,7 +1400,7 @@ async def _fetch_macro_bundle() -> dict[str, Any]:
             vix = await _fetch_vix_signal()
             return vix, "partial" if vix.get("degraded") else "ok"
         except Exception as exc:
-            logger.warning("[Kai Market] volatility failed: %s", exc)
+            logger.warning("[Kai Market] volatility failed: %s", type(exc).__name__)
             fallback = {
                 "label": "Volatility",
                 "value": None,
@@ -1407,7 +1416,7 @@ async def _fetch_macro_bundle() -> dict[str, Any]:
             market_status = await _fetch_market_status()
             return market_status, "partial" if market_status.get("degraded") else "ok"
         except Exception as exc:
-            logger.warning("[Kai Market] market status failed: %s", exc)
+            logger.warning("[Kai Market] market status failed: %s", type(exc).__name__)
             return _scheduled_market_status_fallback(), _provider_status_from_exception(exc)
 
     (vix, vix_status), (market_status, ms_status) = await asyncio.gather(
@@ -1423,7 +1432,7 @@ async def _fetch_macro_bundle() -> dict[str, Any]:
     }
 
 
-async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[str, Any]:
+async def _legacy_fetch_recommendation(symbol: str, quote_price: float | None) -> dict[str, Any]:
     finnhub_key = _finnhub_api_key()
     if finnhub_key:
         finnhub_cooldown_key = f"finnhub:recommendation:{symbol.upper()}"
@@ -1432,7 +1441,9 @@ async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[
     if finnhub_key:
         try:
             timeout = httpx.Timeout(connect=3.0, read=6.0, write=6.0, pool=3.0)
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(
+                event_hooks={"request": [record_provider_request]}, timeout=timeout
+            ) as client:
                 res = await client.get(
                     "https://finnhub.io/api/v1/stock/recommendation",
                     params={"symbol": symbol, "token": finnhub_key},
@@ -1456,7 +1467,9 @@ async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[
                             "degraded": False,
                         }
         except Exception as exc:
-            logger.warning("[Kai Market] recommendation(Finnhub) failed for %s: %r", symbol, exc)
+            logger.warning(
+                "[Kai Market] recommendation(Finnhub) failed for %s: %r", symbol, type(exc).__name__
+            )
             if isinstance(exc, httpx.HTTPStatusError):
                 cooldown_seconds = _provider_cooldown_seconds(
                     exc.response.status_code if exc.response is not None else None
@@ -1477,7 +1490,9 @@ async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[
     if pmp_key and quote_price and quote_price > 0:
         try:
             timeout = httpx.Timeout(connect=3.0, read=6.0, write=6.0, pool=3.0)
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(
+                event_hooks={"request": [record_provider_request]}, timeout=timeout
+            ) as client:
                 res = await client.get(
                     "https://financialmodelingprep.com/stable/price-target-consensus",
                     params={"symbol": symbol, "apikey": pmp_key},
@@ -1529,7 +1544,9 @@ async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[
                             "degraded": False,
                         }
         except Exception as exc:
-            logger.warning("[Kai Market] recommendation(PMP/FMP) failed for %s: %r", symbol, exc)
+            logger.warning(
+                "[Kai Market] recommendation(PMP/FMP) failed for %s: %r", symbol, type(exc).__name__
+            )
             if isinstance(exc, httpx.HTTPStatusError):
                 cooldown_seconds = _provider_cooldown_seconds(
                     exc.response.status_code if exc.response is not None else None
@@ -1569,7 +1586,9 @@ async def _fetch_finnhub_candles(symbol: str) -> list[dict[str, float]]:
     now_ts = int(time())
     since = now_ts - (5 * 24 * 60 * 60)
     timeout = httpx.Timeout(connect=3.0, read=6.0, write=6.0, pool=3.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout
+    ) as client:
         try:
             res = await client.get(
                 "https://finnhub.io/api/v1/stock/candle",
@@ -1624,7 +1643,9 @@ async def _fetch_pmp_json(paths: list[str], params: dict[str, Any]) -> list[dict
         return []
 
     timeout = httpx.Timeout(connect=3.0, read=6.0, write=6.0, pool=3.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout
+    ) as client:
         for path in paths:
             cooldown_key = f"fmp:{path}"
             if market_insights_cache.is_provider_in_cooldown(cooldown_key):
@@ -1651,7 +1672,9 @@ async def _fetch_pmp_json(paths: list[str], params: dict[str, Any]) -> list[dict
                     if rows:
                         return rows
             except Exception as exc:
-                logger.warning("[Kai Market] FMP endpoint failed: %s (%s)", path, exc)
+                logger.warning(
+                    "[Kai Market] FMP endpoint failed: %s (%s)", path, type(exc).__name__
+                )
                 if isinstance(exc, httpx.HTTPStatusError):
                     cooldown_seconds = _provider_cooldown_seconds(
                         exc.response.status_code if exc.response is not None else None
@@ -1745,7 +1768,9 @@ async def _legacy_fetch_symbol_series_batch(symbols: list[str]) -> dict[str, lis
             try:
                 series = await _fetch_symbol_price_series(symbol)
             except Exception as exc:
-                logger.debug("[Kai Market] price series unavailable for %s: %r", symbol, exc)
+                logger.debug(
+                    "[Kai Market] price series unavailable for %s: %r", symbol, type(exc).__name__
+                )
                 series = None
             if series:
                 results[symbol] = series
@@ -1854,7 +1879,7 @@ async def _fetch_sector_rotation_from_etf_quotes(
                     "[Kai Market] sector ETF quote unavailable for %s (%s): %r",
                     sector_name,
                     etf_symbol,
-                    exc,
+                    type(exc).__name__,
                 )
                 return sector_name, None
 
@@ -1898,7 +1923,7 @@ async def _fetch_sector_rotation_snapshot(
     try:
         histories = await fetch_market_session_history(list(SECTOR_ETF_MAP.values()))
     except Exception as exc:
-        logger.debug("[Kai Market] sector history unavailable: %s", exc)
+        logger.debug("[Kai Market] sector history unavailable: %s", type(exc).__name__)
         histories = {}
     rows = []
     for sector, symbol in SECTOR_ETF_MAP.items():
@@ -2211,7 +2236,9 @@ async def _get_financial_summary(user_id: str) -> dict[str, Any]:
             return {}
         return dict((index.domain_summaries or {}).get("financial") or {})
     except Exception as exc:
-        logger.warning("[Kai Market] financial summary unavailable for %s: %s", user_id, exc)
+        logger.warning(
+            "[Kai Market] financial summary unavailable for %s: %s", user_id, type(exc).__name__
+        )
         return {}
 
 
@@ -2276,7 +2303,7 @@ async def _refresh_public_market_modules_once() -> None:
             f"macro:tier={tier},hit={str(cache_hit).lower()},stale={str(stale).lower()},age={age_seconds}s"
         )
     except Exception as exc:
-        logger.warning("[Kai Market] background macro refresh failed: %s", exc)
+        logger.warning("[Kai Market] background macro refresh failed: %s", type(exc).__name__)
 
     try:
         _, stale, age_seconds, tier, cache_hit = await _get_or_refresh_public_module(
@@ -2293,7 +2320,7 @@ async def _refresh_public_market_modules_once() -> None:
             f"movers:tier={tier},hit={str(cache_hit).lower()},stale={str(stale).lower()},age={age_seconds}s"
         )
     except Exception as exc:
-        logger.warning("[Kai Market] background movers refresh failed: %s", exc)
+        logger.warning("[Kai Market] background movers refresh failed: %s", type(exc).__name__)
 
     try:
         _, stale, age_seconds, tier, cache_hit = await _get_or_refresh_public_module(
@@ -2308,12 +2335,12 @@ async def _refresh_public_market_modules_once() -> None:
             f"sectors:tier={tier},hit={str(cache_hit).lower()},stale={str(stale).lower()},age={age_seconds}s"
         )
     except Exception as exc:
-        logger.warning("[Kai Market] background sectors refresh failed: %s", exc)
+        logger.warning("[Kai Market] background sectors refresh failed: %s", type(exc).__name__)
     finally:
         try:
             await get_market_cache_store_service().delete_expired(max_rows=250)
         except Exception as exc:
-            logger.debug("[Kai Market] L2 cleanup skipped: %s", exc)
+            logger.debug("[Kai Market] L2 cleanup skipped: %s", type(exc).__name__)
 
     if refresh_summary:
         logger.debug("[Kai Market] warm refresh %s", " | ".join(refresh_summary))
@@ -2328,7 +2355,9 @@ async def _run_refresh_with_advisory_lock() -> None:
         if not acquired:
             return
     except Exception as exc:
-        logger.warning("[Kai Market] advisory lock unavailable; falling back: %s", exc)
+        logger.warning(
+            "[Kai Market] advisory lock unavailable; falling back: %s", type(exc).__name__
+        )
         await _refresh_public_market_modules_once()
 
 
@@ -2361,7 +2390,9 @@ async def _market_refresh_loop() -> None:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.warning("[Kai Market] background refresh cycle failed, will retry: %s", exc)
+            logger.warning(
+                "[Kai Market] background refresh cycle failed, will retry: %s", type(exc).__name__
+            )
         interval = _market_refresh_interval_seconds()
         jitter_max = max(5.0, interval * 0.12)
         jitter_ms = int(jitter_max * 1000)
@@ -2391,7 +2422,7 @@ async def warm_market_insights_startup_once() -> None:
             "[Kai Market] startup public module warm timed out after %ss", timeout_seconds
         )
     except Exception as exc:
-        logger.warning("[Kai Market] startup public module warm failed: %s", exc)
+        logger.warning("[Kai Market] startup public module warm failed: %s", type(exc).__name__)
 
     try:
         await asyncio.wait_for(_warm_shared_baseline_market_home_once(), timeout=timeout_seconds)
@@ -2400,7 +2431,7 @@ async def warm_market_insights_startup_once() -> None:
             "[Kai Market] startup baseline home warm timed out after %ss", timeout_seconds
         )
     except Exception as exc:
-        logger.warning("[Kai Market] startup baseline home warm failed: %s", exc)
+        logger.warning("[Kai Market] startup baseline home warm failed: %s", type(exc).__name__)
 
 
 async def _get_market_insights_payload(
@@ -2423,7 +2454,9 @@ async def _get_market_insights_payload(
         try:
             ria_source_roster = await RIAIAMService().list_investor_pick_sources(user_id)
         except Exception as exc:
-            logger.debug("[Kai Market] source roster unavailable for %s: %s", user_id, exc)
+            logger.debug(
+                "[Kai Market] source roster unavailable for %s: %s", user_id, type(exc).__name__
+            )
             ria_source_roster = []
     else:
         ria_source_roster = []
@@ -2501,7 +2534,7 @@ async def _get_market_insights_payload(
             try:
                 batch_quotes = await fetch_market_data_batch(symbol_set, user_id, consent_token)
             except Exception as exc:
-                logger.debug("[Kai Market] quote batch failed: %s", exc)
+                logger.debug("[Kai Market] quote batch failed: %s", type(exc).__name__)
                 batch_quotes = {}
 
             if batch_quotes:
@@ -2546,7 +2579,7 @@ async def _get_market_insights_payload(
                                 "[Kai Market] quote failed for %s (allow_slow=%s): %s",
                                 symbol,
                                 allow_slow_fallbacks,
-                                exc,
+                                type(exc).__name__,
                             )
                     return symbol, {}, _provider_status_from_exception(last_exc or RuntimeError())
 
@@ -2586,7 +2619,7 @@ async def _get_market_insights_payload(
                 logger.warning(
                     "[Kai Market] %s module failed during concurrent refresh: %s",
                     name,
-                    exc,
+                    type(exc).__name__,
                 )
                 return failed_module(fallback_factory(status_value))
 
@@ -2732,7 +2765,7 @@ async def _get_market_insights_payload(
                 logger.warning(
                     "[Kai Market] region status override failed for %s: %s",
                     effective_exchange,
-                    exc,
+                    type(exc).__name__,
                 )
         stale = stale or macro_stale
         aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, macro_cache_tier)
@@ -2953,7 +2986,9 @@ async def _get_market_insights_payload(
                         articles = await enrich_market_news_images(symbol, articles or [])
                         return symbol, (articles or []), ("ok" if articles else "partial")
                     except Exception as exc:
-                        logger.debug("[Kai Market] news failed for %s: %s", symbol, exc)
+                        logger.debug(
+                            "[Kai Market] news failed for %s: %s", symbol, type(exc).__name__
+                        )
                         return symbol, [], _provider_status_from_exception(exc)
 
             news_results = await asyncio.gather(
@@ -3266,7 +3301,9 @@ async def _get_market_insights_payload(
             serve_stale_while_revalidate=True,
         )
     except Exception as exc:
-        logger.exception("[Kai Market] home payload build failed for %s: %s", user_id, exc)
+        logger.exception(
+            "[Kai Market] home payload build failed for %s: %s", user_id, type(exc).__name__
+        )
         return _empty_market_home_payload(
             user_id=user_id,
             requested_watchlist_symbols=requested_watchlist_symbols,
@@ -3576,7 +3613,11 @@ async def get_stock_preview(
     try:
         quote_payload = await fetch_market_data(normalized_symbol, user_id, consent_token) or {}
     except Exception as exc:
-        logger.warning("[Kai Market] stock preview quote failed for %s: %s", normalized_symbol, exc)
+        logger.warning(
+            "[Kai Market] stock preview quote failed for %s: %s",
+            normalized_symbol,
+            type(exc).__name__,
+        )
         quote_payload = {}
 
     matched_row: dict[str, Any] | None = None
@@ -3756,4 +3797,16 @@ async def _fetch_symbol_series_batch(symbols: list[str]):
     return await fetch_with_market_provider(
         MarketDataRequest("intraday", tuple(symbols)),
         lambda: _legacy_fetch_symbol_series_batch(symbols),
+    )
+
+
+async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[str, Any]:
+    from hushh_mcp.services.market_data_provider import (
+        MarketDataRequest,
+        fetch_with_market_provider,
+    )
+
+    return await fetch_with_market_provider(
+        MarketDataRequest("recommendations", (symbol,)),
+        lambda: _legacy_fetch_recommendation(symbol, quote_price),
     )

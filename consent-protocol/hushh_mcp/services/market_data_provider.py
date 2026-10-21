@@ -43,6 +43,7 @@ MarketOperation = Literal[
     "peers",
     "ratios",
     "price_targets",
+    "recommendations",
     "sector_rotation",
 ]
 

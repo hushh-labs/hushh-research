@@ -31,6 +31,7 @@ class SentimentInsight:
     sources: List[str]
     confidence: float
     recommendation: str  # "bullish", "neutral", "bearish"
+    analysis_degraded: bool = False
 
 
 class SentimentAgent(HushhAgent):
@@ -199,6 +200,7 @@ class SentimentAgent(HushhAgent):
                 sources=analysis.get("sources", ["Deterministic Analysis"]),
                 confidence=analysis.get("confidence", 0.5),
                 recommendation=analysis.get("recommendation", "neutral"),
+                analysis_degraded=True,
             )
         except Exception as e:
             logger.error(f"[Sentiment] Deterministic analysis failed: {e}")

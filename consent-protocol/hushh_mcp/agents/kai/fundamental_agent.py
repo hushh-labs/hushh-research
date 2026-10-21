@@ -38,6 +38,7 @@ class FundamentalInsight:
     sources: List[str]
     confidence: float
     recommendation: str  # "buy", "hold", "reduce"
+    analysis_degraded: bool = False
 
 
 class FundamentalAgent(HushhAgent):
@@ -214,6 +215,9 @@ class FundamentalAgent(HushhAgent):
                 confidence=gemini_analysis.get("confidence", analysis["confidence"]),
                 recommendation=gemini_analysis.get("recommendation", analysis["recommendation"]),
                 sources=self._format_sources(sec_filings) + ["Gemini Senior Analyst Report"],
+                analysis_degraded=bool(
+                    sec_filings and sec_filings.get("latest_10k", {}).get("headline_stale")
+                ),
             )
 
         # Step 5: Format as FundamentalInsight (Fallback)
@@ -229,6 +233,7 @@ class FundamentalAgent(HushhAgent):
             confidence=analysis["confidence"],
             recommendation=analysis["recommendation"],
             sources=analysis.get("sources", self._format_sources(sec_filings)),
+            analysis_degraded=True,
         )
 
     def _build_market_only_analysis(
