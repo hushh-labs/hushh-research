@@ -694,3 +694,76 @@ def test_embedding_chunk_cap_reports_truncation(monkeypatch):
     result = embedder.prepare(ParsedText(("x" * MAX_TEXT_BYTES,)))
     assert len(result.chunks) == 128
     assert result.truncated
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows local-export adapter only")
+@pytest.mark.parametrize("limited", [True, False])
+def test_local_export_windows_memory_boundary_with_negative_control(limited):
+    code = (
+        "import os; from scripts.drive_group_local_parse import install_limits; "
+        + ("job=install_limits(memory_bytes=64*1024*1024); " if limited else "job=None; ")
+        + "\ntry:\n value=bytearray(96*1024*1024); blocked=False"
+        "\nexcept MemoryError:\n blocked=True"
+        + "\nprint('blocked' if blocked else 'allocated',flush=True); os._exit(0)"
+    )
+    result = subprocess.run(  # noqa: S603 - authored synthetic boundary probe
+        [sys.executable, "-c", code], capture_output=True, timeout=10
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == (b"blocked" if limited else b"allocated")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows local-export adapter only")
+@pytest.mark.parametrize("cancel", [False, True])
+def test_local_export_windows_cpu_boundary_and_descendant_cleanup(cancel):
+    import win32api
+    import win32con
+    import win32event
+
+    code = (
+        "import os,sys,subprocess; from scripts.drive_group_local_parse import install_limits; "
+        f"job=install_limits(cpu_seconds={30 if cancel else 1}); "
+        "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); "
+        "print(child.pid,flush=True); "
+        "\nwhile True: pass"
+    )
+    process = subprocess.Popen(  # noqa: S603 - authored synthetic boundary probe
+        [sys.executable, "-c", code], stdout=subprocess.PIPE
+    )
+    child_handle = None
+    try:
+        child_pid = int(process.stdout.readline())
+        child_handle = win32api.OpenProcess(win32con.SYNCHRONIZE, False, child_pid)
+        if cancel:
+            process.kill()
+        assert process.wait(timeout=10) != 0
+        assert win32event.WaitForSingleObject(child_handle, 5000) == win32event.WAIT_OBJECT_0
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+        if child_handle is not None:
+            child_handle.Close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="Windows local-export adapter only")
+async def test_local_export_windows_parser_uses_scrubbed_child(monkeypatch):
+    import asyncio
+
+    from scripts.drive_group_local_adapters import windows_parser_process
+
+    monkeypatch.setenv("DB_PASSWORD", "synthetic-sensitive-environment")
+    create = asyncio.create_subprocess_exec
+
+    async def checked(*args, **kwargs):
+        assert "DB_PASSWORD" not in kwargs["env"]
+        assert kwargs["env"]["PYTHON_DOTENV_DISABLED"] == "1"
+        return await create(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", checked)
+    result = await IsolatedDocumentParser(process=windows_parser_process).parse(
+        content=b"Issuer,Period\nSynthetic utility,April 2025", mime_type="text/csv", live=True
+    )
+    assert result.pages and "Synthetic utility" in result.pages[0]
+    assert "synthetic-sensitive-environment" not in str(result)

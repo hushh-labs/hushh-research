@@ -114,7 +114,8 @@ class DriveGroupIndexJob:
             finally:
                 pulse.cancel()
 
-    async def _listing(self, reads, user):
+    @staticmethod
+    async def list_files(reads, user):
         rows, tokens = {}, set()
         token = None
         complete, limited = True, False
@@ -163,6 +164,9 @@ class DriveGroupIndexJob:
         else:
             limited = True
         return list(rows.values()), complete and not limited, limited
+
+    async def _listing(self, reads, user):
+        return await self.list_files(reads, user)
 
     async def _prepare(self, job):
         reads = _JobReads(self.store, self.transport or GoogleDriveRestTransport(), job)

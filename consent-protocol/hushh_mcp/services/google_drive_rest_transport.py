@@ -239,10 +239,11 @@ def _as_mcp_file(item: dict[str, Any]) -> dict[str, Any]:
 
 
 class GoogleDriveRestTransport:
-    def __init__(self, *, oauth=None, adapter=None, writer=None) -> None:
+    def __init__(self, *, oauth=None, adapter=None, writer=None, parser=None) -> None:
         self._oauth = oauth or get_external_connector_oauth_service().drive()
         self.adapter = adapter or GoogleDriveAdapter()
         self.writer = writer or GoogleDriveWriteAdapter()
+        self._parser = parser
 
     async def probe(self, *, access_token: str) -> None:
         """Prove the granted owner can search Drive before the grant is verified."""
@@ -457,7 +458,7 @@ class GoogleDriveRestTransport:
         )
         parse_started = time.perf_counter()
         try:
-            parsed = await IsolatedDocumentParser().parse(
+            parsed = await (self._parser or IsolatedDocumentParser()).parse(
                 content=content, mime_type=mime_type, live=True
             )
             text = "\n\n".join(parsed.pages)

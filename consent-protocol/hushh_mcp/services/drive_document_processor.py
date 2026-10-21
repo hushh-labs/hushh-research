@@ -261,9 +261,12 @@ class ClamAvScanner:
 
 
 class IsolatedDocumentParser:
+    def __init__(self, *, process=None):
+        self._process = process or _private_process
+
     async def parse(self, *, content: bytes, mime_type: str, live: bool = False) -> ParsedText:
         try:
-            result = await _private_process(
+            result = await self._process(
                 "parser",
                 ("live:" if live else "") + mime_type,
                 content,

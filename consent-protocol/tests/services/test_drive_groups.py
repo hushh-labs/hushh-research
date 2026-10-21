@@ -8,6 +8,8 @@ model: ports are fakes and every document is invented.
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 import math
 from dataclasses import replace
@@ -34,9 +36,11 @@ from hushh_mcp.services.drive_groups import (
 from hushh_mcp.services.drive_groups.adapters import IsolatedHeadEmbedder, TransportHeadSource
 from hushh_mcp.services.drive_groups.contract import EMBEDDING_DIMENSIONS, FLAG
 from hushh_mcp.services.drive_groups.embedding_model import EmbeddingModel
+from hushh_mcp.services.drive_groups.export import COLUMNS, csv_text, placement_rows
 from hushh_mcp.services.drive_groups.features import metadata_features, text_features
 from hushh_mcp.services.drive_groups.folders import FolderNames, load_folders, summarize_folders
 from hushh_mcp.services.drive_groups.fusion import FusionPolicy
+from hushh_mcp.services.drive_groups.indexer import IndexedFile
 from hushh_mcp.services.drive_groups.linear_model import LinearModel
 from hushh_mcp.services.drive_groups.models import DATA_FILES, version_of
 from hushh_mcp.services.drive_groups.period import deciding_day, fiscal_quarter, title_day
@@ -420,3 +424,170 @@ def test_folders_are_counted_by_group_and_quarter_with_kept_files_last():
             {"kind": "folders_v1", "names": {}, "kept": "x", "fiscal_year_start_month": 4}
         )
     assert load_folders().names["personal_documents"] == "Personal Documents"
+
+
+def test_csv_exports_placements_and_periods_without_private_index_payloads():
+    placement = place(
+        FileEvidence("statement", PDF, head="statement", vector=basis(0)), tiny_bundle()
+    )
+    assert placement.group == "financial_statements"
+    rows = [
+        {
+            "id": "file-one",
+            "title": '=HYPERLINK("https://invalid.example","open")',
+            "mimeType": PDF,
+            "createdTime": "2025-03-31T20:00:00Z",
+            "viewUrl": "https://drive.google.com/file/d/file-one/view",
+        }
+    ]
+    indexed = IndexedFile("file-one", placement, "PRIVATE-HEAD-SENTINEL", basis(0))
+    projected = placement_rows(rows, [indexed], zone=IST)
+    exported = list(csv.DictReader(io.StringIO(csv_text(projected))))
+    assert tuple(exported[0]) == COLUMNS
+    assert exported[0]["file_name"] == "'" + rows[0]["title"]
+    assert exported[0]["folder"] == "Financial Assets (FY 26 Q1)"
+    assert exported[0]["date"] == "2025-04-01"
+    assert "PRIVATE-HEAD-SENTINEL" not in csv_text(projected)
+    kept = replace(placement, group=None)
+    assert (
+        placement_rows(rows, [replace(indexed, placement=kept)], zone=IST)[0]["fiscal_quarter"]
+        == ""
+    )
+    assert csv_text([{"file_name": " normal"}]).splitlines()[1].startswith(" normal,")
+
+
+@pytest.mark.asyncio
+async def test_local_export_refuses_a_different_connected_drive_owner(monkeypatch):
+    from firebase_admin import auth
+
+    from api.utils import firebase_admin as firebase_setup
+    from hushh_mcp.services import external_connector_oauth_service, google_drive_rest_transport
+    from scripts.export_drive_groups import export
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.delenv(FLAG, raising=False)
+    monkeypatch.setattr(firebase_setup, "get_firebase_auth_app", lambda: None)
+    monkeypatch.setattr(
+        auth,
+        "get_user_by_email",
+        lambda *args, **kwargs: SimpleNamespace(
+            uid="authorized-owner", email="owner@example.com", disabled=False
+        ),
+    )
+    oauth = SimpleNamespace(
+        lifecycle=SimpleNamespace(
+            read=AsyncMock(), db=SimpleNamespace(engine=SimpleNamespace(dispose=lambda: None))
+        ),
+        current_credential=AsyncMock(
+            return_value=(
+                {"validation_state": "verified"},
+                {"accountLabel": "someone-else@example.com"},
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        external_connector_oauth_service,
+        "get_external_connector_oauth_service",
+        lambda: SimpleNamespace(drive=lambda: oauth),
+    )
+    constructed = []
+    monkeypatch.setattr(
+        google_drive_rest_transport,
+        "GoogleDriveRestTransport",
+        lambda **kwargs: constructed.append(True),
+    )
+    with pytest.raises(RuntimeError, match="drive_identity_mismatch"):
+        await export(SimpleNamespace(email="owner@example.com", time_zone="Asia/Kolkata"))
+    assert not constructed
+    assert not __import__("os").environ.get(FLAG)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["preference_revision", "connection_validation"])
+async def test_local_export_rechecks_canonical_authority_after_embedding(
+    monkeypatch, tmp_path, change
+):
+    from contextlib import nullcontext
+
+    from firebase_admin import auth
+
+    from api.utils import firebase_admin as firebase_setup
+    from hushh_mcp.services import (
+        drive_group_index_job,
+        drive_live_preferences,
+        external_connector_oauth_service,
+        google_drive_rest_transport,
+    )
+    from hushh_mcp.services.drive_groups import indexer
+    from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
+    from scripts import drive_group_local_adapters
+    from scripts.export_drive_groups import export
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    for key in (
+        FLAG,
+        "GOOGLE_DRIVE_LIVE",
+        "CONNECTOR_INTERNAL_OWNER_COHORT",
+        "CONNECTOR_UAT_ALL_USERS",
+    ):
+        monkeypatch.setenv(key, "")
+    monkeypatch.setattr(firebase_setup, "get_firebase_auth_app", lambda: None)
+    monkeypatch.setattr(
+        auth,
+        "get_user_by_email",
+        lambda *args, **kwargs: SimpleNamespace(
+            uid="owner", email="owner@example.com", disabled=False
+        ),
+    )
+    engine = SimpleNamespace(begin=lambda: nullcontext(object()), dispose=lambda: None)
+    oauth = SimpleNamespace(
+        lifecycle=SimpleNamespace(read=AsyncMock(), db=SimpleNamespace(engine=engine)),
+        current_credential=AsyncMock(
+            return_value=(
+                {
+                    "validation_state": "verified",
+                    "verified_policy_hash": LIVE_POLICY_HASH,
+                    "connection_generation": 1,
+                },
+                {"accountLabel": "owner@example.com"},
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        external_connector_oauth_service,
+        "get_external_connector_oauth_service",
+        lambda: SimpleNamespace(drive=lambda: oauth),
+    )
+    monkeypatch.setattr(
+        google_drive_rest_transport, "GoogleDriveRestTransport", lambda **kwargs: object()
+    )
+    monkeypatch.setattr(
+        drive_group_index_job.DriveGroupIndexJob,
+        "list_files",
+        AsyncMock(return_value=([], True, False)),
+    )
+    monkeypatch.setattr(
+        drive_group_local_adapters, "LocalHeadEmbedder", lambda: SimpleNamespace(embed=AsyncMock())
+    )
+    state = {"changed": False}
+
+    async def embed(*args, **kwargs):
+        state["changed"] = True
+        return SimpleNamespace(files=(), skipped=0)
+
+    def current(*args, **kwargs):
+        assert kwargs == {"user_id": "owner", "generation": 1, "read_only": True}
+        if state["changed"] and change == "connection_validation":
+            raise DriveReadError("connection_changed")
+        return {"revision": int(state["changed"])}
+
+    monkeypatch.setattr(indexer, "index_files", embed)
+    monkeypatch.setattr(drive_live_preferences.DriveLivePreferences, "background_current", current)
+    output = tmp_path / "index.csv"
+    with pytest.raises(DriveReadError, match="background_preparation_required|connection_changed"):
+        await export(
+            SimpleNamespace(
+                email="owner@example.com", time_zone="Asia/Kolkata", format="csv", output=output
+            )
+        )
+    assert not output.exists()

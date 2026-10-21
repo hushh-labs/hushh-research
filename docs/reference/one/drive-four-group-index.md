@@ -146,6 +146,54 @@ The dev/UAT configuration steps support older selected SHAs: they pass the expli
 
 Impact: four new backend owner endpoints, one derived table family from migration 368, no new browser cache key, PKM write, UI/native caller or plugin. Existing connector proxy methods cover the backend contract. The new group flag is the rollback switch and defaults off. Read-only evidence review covered the worker/store/transport and API contracts; branch, patch, commit and release authority stayed with the parent session.
 
+## Local CSV export
+
+`consent-protocol/scripts/export_drive_groups.py` runs the existing inventory and
+organizer for one explicitly supplied Hussh sign-in email. It requires the
+connected live Drive account to match that email, preserves the current grant
+and connection generation, and rechecks the canonical live policy and exact
+background-preference revision before publishing. The output is a local derived
+export, not a server index or a PKM write. It does not apply migrations, register
+a scheduler, change owner processing preferences or activate hosted flags.
+
+Run with an existing backend configuration and an ignored output destination:
+
+```bash
+cd consent-protocol
+python scripts/export_drive_groups.py \
+  --email owner@example.com --env-file /absolute/path/to/backend.env \
+  --output ../tmp/drive-index.csv --time-zone Asia/Kolkata
+```
+
+When the local configuration lacks the matching Drive OAuth client, the optional
+`--oauth-project backend` reads only the two fixed Drive OAuth secrets from the
+active Cloud SQL project's Secret Manager, using the current operator's gcloud
+access. Values remain in process memory. No secret or profile file is written.
+The live and organizer switches and the exact owner cohort are scoped to that
+one local process. Existing owner credential refresh remains the OAuth service's
+responsibility; unrelated owners' lifecycle retention is never run by this CLI.
+
+The CSV contains file name, group, fiscal folder and quarter, date and its basis,
+confidence, model top class, candidate, reason, MIME type, original Drive link,
+organizer source and model version. Confidence describes the model's top class,
+which can be `none`; kept files have no fiscal folder. Text starts, embeddings
+and credentials are excluded. Formula-leading text is escaped, and an existing
+output is never overwritten. JSON is available as a local artifact intermediate.
+
+The developer adapter loads the same pinned E5 model offline, in process, in
+batches of 32 with one computation thread. On Windows only, a credential-free
+parser child installs a 512 MiB job-wide memory limit, a 20-second job CPU limit
+and descendant teardown before importing a parser or reading private stdin.
+Its parent retains the bounded input/output and 25-second wall deadline. This
+adapter uses the existing conditional Windows `pywin32` dependency and does not
+change the production POSIX child entrypoints. Missing OS limits fail closed.
+
+Focused synthetic checks cover CSV disclosure and formula safety, owner mismatch,
+late connection and background-revision changes, actual Windows memory/CPU limits,
+and descendant cleanup after CPU termination and parent cancellation. Separate
+negative-control processes remove the final authority check or CSV formula guard
+and fail the corresponding tests without editing production source.
+
 ## Open decisions
 
 - Whether the fiscal year assumptions above (India, named by the ending year, latest title date, owner's time zone) are what the senior meant by "FY 26 Quarter 1st".

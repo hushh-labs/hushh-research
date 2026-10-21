@@ -54,8 +54,10 @@ class DriveLivePreferences(DriveDocumentStore):
             raise DriveReadError("connection_changed")
         return row
 
-    def background_current(self, connection, *, user_id: str, generation: int) -> dict:
-        self.live_active(connection, user_id=user_id, generation=generation)
+    def background_current(
+        self, connection, *, user_id: str, generation: int, read_only: bool = False
+    ) -> dict:
+        self.live_active(connection, user_id=user_id, generation=generation, read_only=read_only)
         preference = self._row(
             connection,
             """SELECT * FROM drive_live_preferences WHERE user_id=:user FOR SHARE""",
