@@ -1205,17 +1205,23 @@ class OneLocationAgentService:
         return min(max_workers, worker_limit)
 
     def _run_batched_read_queries(
-        self, tasks: list[tuple[str, str, dict[str, Any]]], *, require_complete: bool = False
+        self,
+        tasks: list[tuple[str, str, dict[str, Any]]],
+        *,
+        require_complete: bool = False,
+        required_sections: frozenset[str] = frozenset(),
     ) -> dict[str, list[dict[str, Any]]]:
         """One instrumented statement for authored, independent read projections.
 
         Retain each section's ordering, caps and bound owner predicate. A failed
         optional section falls back to the existing independently degraded reads;
-        complete inventory keeps its strict repeatable-read path. No cache or
-        additional persistence authority is introduced.
+        required sections still raise on fallback failure, and complete inventory
+        keeps its strict repeatable-read path. No new persistence is introduced.
         """
         if require_complete or not tasks:
-            return self._run_read_queries_parallel(tasks, require_complete=require_complete)
+            return self._run_read_queries_parallel(
+                tasks, require_complete=require_complete, required_sections=required_sections
+            )
         projections = []
         values: dict[str, Any] = {}
         for index, (_, query, params) in enumerate(tasks):
@@ -1257,7 +1263,7 @@ class OneLocationAgentService:
             return result
         except Exception as exc:  # additive schema rollout: preserve healthy sections
             logger.warning("one_location.read_batch_fallback error_type=%s", type(exc).__name__)
-            return self._run_read_queries_parallel(tasks)
+            return self._run_read_queries_parallel(tasks, required_sections=required_sections)
 
     def _run_read_queries_parallel(
         self,
@@ -1265,6 +1271,7 @@ class OneLocationAgentService:
         *,
         max_workers: int = 8,
         require_complete: bool = False,
+        required_sections: frozenset[str] = frozenset(),
     ) -> dict[str, list[dict[str, Any]]]:
         """Run several independent, read-only SQL queries concurrently.
 
@@ -1281,7 +1288,7 @@ class OneLocationAgentService:
         `get_db().execute_raw`, so concurrent calls are safe -- there is no
         shared connection/cursor state across tasks.
 
-        A failing task degrades to `[]` and is logged rather than raised --
+        An optional failing task degrades to `[]` and is logged rather than raised --
         the same resilience a sequential per-section try/except gave before
         this existed. One bad section must never fail the rest of the page.
         Each worker runs inside a copy of the
@@ -1324,7 +1331,11 @@ class OneLocationAgentService:
                 key = future_to_key[future]
                 try:
                     results[key] = future.result()
-                except Exception as exc:  # noqa: BLE001 - degrade, never fail the page
+                except Exception as exc:  # noqa: BLE001 - only optional sections degrade
+                    if key in required_sections:
+                        # An unavailable private-key backup must never look
+                        # absent: bootstrap could replace the account key.
+                        raise
                     logger.warning(
                         "one_location.parallel_query_failed section=%s error=%s",
                         key,
@@ -9553,6 +9564,7 @@ class OneLocationAgentService:
         _sections = self._run_batched_read_queries(
             state_queries,
             **({"require_complete": True} if require_complete else {}),
+            required_sections=frozenset() if consent_only else frozenset({"my_recipient_key"}),
         )
         owner_grants = _sections.get("owner_grants", [])
         received_grants = _sections.get("received_grants", [])

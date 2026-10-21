@@ -822,13 +822,6 @@ const LOCATION_VOICE_CONTROLS = [
     actionId: "location.refresh",
     role: "button",
   },
-  {
-    id: "one-location-refresh-sms-contacts",
-    label: "Refresh circle",
-    purpose: "Check the current emergency contacts and receiving readiness.",
-    actionId: "location.refresh_sms_contacts",
-    role: "button",
-  },
   // One control, two contract actions: the direction is whichever one the
   // switch is not already in. It is rendered in the header and again in
   // Settings, so both places answer to the same id.
@@ -1099,7 +1092,7 @@ function recipientRecommendationLine(recipient: OneLocationRecipient): string {
     visibleRecommendationReasons(recipient)[0]?.label ||
     (recipient.canReceiveLocation
       ? "Ready for private location sharing"
-      : "Needs to open Location once")
+      : "Location receiving unavailable")
   );
 }
 
@@ -4009,6 +4002,30 @@ export function OneLocationAgentPageContent({
     [refreshSmsRoster, smsContactUserIds.length],
   );
 
+  const pendingSmsReadiness = smsRosterRecipients === null ||
+    smsActionRecipients.filter(isSosShareReadyRecipient).length < smsContactUserIds.length;
+  const isSosViewForRepair = searchParams.get("action") === "sos";
+  useEffect(() => {
+    if (!auth.userId || !vaultOwnerToken || !isSosViewForRepair || !pendingSmsReadiness || busy === "sos" || sosIncident) return;
+    // Entry already reads the exact roster. Catch newly published keys without
+    // asking the sender to diagnose a peer; minute repair remains the fallback.
+    const delays = [2_000, 5_000, 10_000, 30_000];
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = (index: number) => {
+      if (cancelled || index >= delays.length) return;
+      timer = setTimeout(async () => {
+        if (cancelled) return;
+        if (document.visibilityState === "visible" && navigator.onLine !== false) {
+          await refreshSmsRoster();
+        }
+        schedule(index + 1);
+      }, delays[index]);
+    };
+    schedule(0);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [auth.userId, busy, isSosViewForRepair, pendingSmsReadiness, refreshSmsRoster, sosIncident, vaultOwnerToken]);
+
   // Ref kept in sync with the latest sosIncident value so the reconcile effect
   // can read it without adding it as a dependency (preventing infinite loops).
 
@@ -5161,7 +5178,7 @@ export function OneLocationAgentPageContent({
       if (!vaultOwnerToken) throw new Error("Vault owner token required.");
       if (!recipient.publicKeyJwk || !recipient.keyId) {
         throw new Error(
-          "They need to open Location once before private sharing can start.",
+          "Location receiving is unavailable. Private sharing could not start.",
         );
       }
       const point =
@@ -5530,8 +5547,8 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked",
           summary: blockedNames.length
-            ? `${blockedNames.join(", ")} still needs to finish Location setup before you can share with them.`
-            : "Someone you picked still needs to finish Location setup.",
+            ? `Location receiving is unavailable for ${blockedNames.join(", ")}.`
+            : "Location receiving is unavailable for someone you picked.",
         };
       }
       if (shareMessage.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH) {
@@ -6030,6 +6047,7 @@ export function OneLocationAgentPageContent({
       if (!operation) return;
       setBusy("sos");
       try {
+        ++smsRosterRevision.current;
         // Refresh the exact roster and its verified identities at send time.
         // A cached directory page is neither membership nor readiness authority.
         const roster = await OneLocationService.getSmsRecipientRoster(vaultOwnerToken);
@@ -6375,7 +6393,7 @@ export function OneLocationAgentPageContent({
     async (grant: OneLocationGrant) => {
       const recipient = recipientForGrant(grant);
       if (!recipient) {
-        toast.error("This share needs the recipient to open Location once.");
+        toast.error("Location receiving is unavailable. This share could not start.");
         return;
       }
       setBusy("publish");
@@ -11165,14 +11183,6 @@ export function OneLocationAgentPageContent({
     await refresh({ throwOnError: true });
     return { status: "succeeded", summary: "Location refreshed." };
   }, { prepare: () => ({ status: "ready", binding: { owner: auth.userId }, summary: "Refresh Location." }) });
-  useLocalOnboardingActionHandler("location.refresh_sms_contacts", async () => {
-    const roster = await refreshSmsRosterForSos();
-    return roster === null
-      ? { status: "failed", summary: "Couldn't refresh your circle. Try again." }
-      : { status: "succeeded", summary: "Emergency contacts refreshed." };
-  }, { prepare: () => auth.userId && vaultOwnerToken
-    ? { status: "ready", binding: { owner: auth.userId }, summary: "Refresh your emergency contacts." }
-    : { status: "blocked", gate: "input", summary: "Unlock One to check emergency contacts." } });
   // Wired in the generated gateway as execution_target.path: "control" -- a
   // dropdown item the person taps directly, not a route or a distinct
   // local_handler-named function. handleSyncContactSignal already catches
@@ -15259,8 +15269,7 @@ export function OneLocationAgentPageContent({
                             {peopleCountLabel(
                               setupNeededSelectedRecipients.length,
                             )}{" "}
-                            need to open Location once before private sharing
-                            can start.
+                            cannot receive private location sharing right now.
                           </div>
                         ) : null}
                         <p className="text-[12px] font-medium text-[#8e8e93] dark:text-white/55">

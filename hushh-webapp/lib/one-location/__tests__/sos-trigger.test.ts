@@ -156,7 +156,7 @@ describe("sosRecipientReadinessMessage", () => {
         makeRecipient("u1", { phoneVerified: false, keyId: null }),
       ]),
     ).toBe(
-      "Your SMS contacts are not ready to receive location yet.",
+      "Couldn't reach your SMS Circle. Alert not sent. Try again.",
     );
   });
 
@@ -165,7 +165,7 @@ describe("sosRecipientReadinessMessage", () => {
       sosRecipientReadinessMessage([
         makeRecipient("u1", { canReceiveLocation: false, keyId: null }),
       ]),
-    ).toBe("Your SMS contacts are not ready to receive location yet.");
+    ).toBe("Couldn't reach your SMS Circle. Alert not sent. Try again.");
   });
 });
 

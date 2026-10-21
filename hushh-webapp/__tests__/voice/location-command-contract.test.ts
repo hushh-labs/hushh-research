@@ -12,14 +12,6 @@ it("preserves the authored atomic backend binding in the client projection", () 
   expect(getKaiActionById("location.create_circle")?.execution_policy).toBe("allow_direct");
 });
 
-it("checks emergency contacts without requesting GPS permission or mutating the roster", () => {
-  const action = getKaiActionById("location.refresh_sms_contacts");
-  expect(action?.guard_ids).toEqual(expect.arrayContaining(["auth_signed_in", "vault_unlocked"]));
-  expect(action?.command?.permission).toBeUndefined();
-  expect(action?.risk_level).toBe("low");
-  expect(action?.control_ids).toContain("one-location-refresh-sms-contacts");
-});
-
 it("covers generated Location capabilities with a prepared owner, backend binding or explicit screen", () => {
   const root = path.resolve(__dirname, "../..");
   const registered = new Map<string, boolean>();

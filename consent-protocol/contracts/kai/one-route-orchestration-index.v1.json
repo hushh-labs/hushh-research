@@ -2979,7 +2979,6 @@
         "location.open_temporary_link",
         "location.pause_updates",
         "location.refresh",
-        "location.refresh_sms_contacts",
         "location.remove_emergency_contact",
         "location.remove_from_circle",
         "location.rename_circle",

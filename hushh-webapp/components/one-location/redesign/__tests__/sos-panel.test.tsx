@@ -61,37 +61,35 @@ afterEach(() => {
 });
 
 describe("SosPanel", () => {
-  it("groups receiving setup once and keeps missing roster entries separate without blocking phone-less members", () => {
+  it("keeps the composer usable without per-person diagnostics while connected recipients reconcile", () => {
     render(<SosPanel {...baseProps} contactCount={4} isRecipientShareReady={isSosShareReadyRecipient} recipients={[
       recipient({ userId: "ready", displayName: "Ready contact", keyId: "key", publicKeyJwk: { kty: "EC" } }),
       recipient({ userId: "key-missing", displayName: "Key missing", canReceiveLocation: false }),
       recipient({ userId: "phone-missing", displayName: "Phone missing", phoneVerified: false, keyId: "key2", publicKeyJwk: { kty: "EC" } }),
     ]} />);
-    expect(screen.getByText("2 of 4 contacts ready.")).toBeInTheDocument();
-    expect(screen.getByText("2 contacts need attention")).toBeInTheDocument();
-    expect(screen.getAllByText("Location receiving unavailable")).toHaveLength(1);
-    expect(screen.getByText("Key missing")).toBeInTheDocument();
-    expect(screen.getByText("1 contact could not be checked.")).toBeInTheDocument();
-    expect(screen.queryByText(/account verification/i)).toBeNull();
+    expect(screen.getByText("4 contacts · Live location")).toBeInTheDocument();
+    expect(screen.queryByText(/needs? attention|contacts ready|account verification|unlock once/i)).toBeNull();
+    expect(screen.queryByText("Key missing")).toBeNull();
     expect(screen.queryByText("Phone missing")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
     expect(screen.getByTestId("sos-send-custom-message")).toBeEnabled();
     expect(screen.queryByText(/Ready contact:/)).toBeNull();
   });
 
-  it("groups blocked names and refreshes the authoritative circle without sending an alert", async () => {
-    const onRefreshRecipients = vi.fn().mockResolvedValue(["first", "second"]);
+  it("allows send-time authoritative revalidation when every cached receiving key is pending", async () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} recipients={[
       recipient({ userId: "first", displayName: "First contact", canReceiveLocation: false }),
       recipient({ userId: "second", displayName: "Second contact", canReceiveLocation: false, phoneVerified: false }),
-    ]} isRecipientShareReady={isSosShareReadyRecipient} onRefreshRecipients={onRefreshRecipients} onTrigger={onTrigger} />);
-    expect(screen.getByText("First contact, Second contact")).toBeInTheDocument();
-    expect(screen.getAllByText("Ask them to open One and unlock once.")).toHaveLength(1);
-    expect(screen.queryByTestId("sos-send-custom-message")).toBeNull();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Refresh circle" })));
-    expect(onRefreshRecipients).toHaveBeenCalledTimes(1);
-    expect(onTrigger).not.toHaveBeenCalled();
+    ]} isRecipientShareReady={isSosShareReadyRecipient} onTrigger={onTrigger} />);
+    expect(screen.queryByText(/needs? attention|unlock once|First contact|Second contact/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
+    const send = screen.getByTestId("sos-send-custom-message");
+    expect(send).toBeEnabled();
+    fireEvent.click(send);
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(onTrigger).toHaveBeenCalledExactlyOnceWith("Come get me");
+    expect(screen.queryByText("Alert active")).toBeNull();
   });
 
   it("keeps Stop available if the circle becomes empty during an active alert", () => {
@@ -99,14 +97,11 @@ describe("SosPanel", () => {
     expect(screen.getByRole("button", { name: "Stop Save My Soul alert" })).toBeEnabled();
   });
 
-  it("reports an unconfirmed refresh without hiding unavailable contacts", async () => {
-    render(<SosPanel {...baseProps} recipients={[
-      recipient({ displayName: "Unavailable contact", canReceiveLocation: false }),
-    ]} onRefreshRecipients={vi.fn().mockResolvedValue(null)} />);
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Refresh circle" })));
-    expect(toastError).toHaveBeenCalledWith("Couldn't refresh your circle. Try again.");
-    expect(screen.getByText("Unavailable contact")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Refresh circle" })).toBeEnabled();
+  it("keeps a known selected Circle sendable while the recipient projection is loading", () => {
+    render(<SosPanel {...baseProps} recipients={[]} contactCount={2} recipientsLoading />);
+    fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
+    expect(screen.getByTestId("sos-send-custom-message")).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Add emergency contacts" })).toBeNull();
   });
 
   it("cancels a keyboard hold when focus leaves the button", () => {

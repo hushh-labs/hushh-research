@@ -4150,7 +4150,6 @@
         "location.open_temporary_link",
         "location.pause_updates",
         "location.refresh",
-        "location.refresh_sms_contacts",
         "location.remove_emergency_contact",
         "location.remove_from_circle",
         "location.rename_circle",
@@ -10387,5 +10386,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "a300d6a8c8fd4d5f95d107666c844b86090ebe7403082fc7df55e9f09ffdfde0"
+  "content_sha256": "c3a49f93b9bcb5d8e49897a52317859ce03e018fca70ba570ac363282221b804"
 }

@@ -4079,7 +4079,7 @@ function PersonActionsDialog({
                   {status.label ? <span className="block">{status.label}</span> : null}
                   {!shareReady ? (
                     <span className="block">
-                      {`${name} is connected on One. They need to open One before they can receive your location.`}
+                      {`${name} is connected on One. Location receiving is unavailable.`}
                     </span>
                   ) : null}
                 </DialogDescription>
@@ -4845,7 +4845,6 @@ function SosFlow({
         stopBusy={vm.sosBusy}
         onClose={onClose}
         onEditContacts={onEditContacts}
-        onRefreshRecipients={onRefreshSmsContacts}
         recipientLabel={vm.recipientLabel}
         isRecipientShareReady={
           vm.isSosRecipientShareReady ?? vm.isRecipientShareReady

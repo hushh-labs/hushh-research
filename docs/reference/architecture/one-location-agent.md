@@ -61,7 +61,9 @@ The operation adopts the existing vault-encrypted backup across devices; a faile
 remote read or undecryptable backup cannot silently replace a registered key.
 Session and owner generations fence recovery and registration across lock/logout.
 Transient failures retry with bounded backoff; the root provider also retries on
-online/foreground return after those attempts are exhausted. The setup status
+online/foreground return, valid credential renewal and every visible online
+minute after those attempts are exhausted. Successful sessions deduplicate these
+checks; lock and account transitions release timers and stale work. The setup status
 waits for registration before publishing readiness.
 Receiving readiness requests no GPS permission and enables no location sharing.
 
@@ -105,14 +107,23 @@ canonical identity writer, after confirming an existing actor profile. Missing o
 disabled provider accounts and deletion tombstones cannot create replacement
 identities; a missing phone on an existing row never triggers this recovery.
 
-The panel groups unavailable receiving keys under one explanation and lists the
-affected names once. Missing authoritative roster entries have a separate count
-and a Refresh circle action. A missing phone claim never becomes an account
-verification warning, an invitation requirement or evidence of account deletion.
-Ready contacts remain sendable while another contact is unavailable; delivery
-results still report partial failures. The earlier connection lifecycle fix
+The SMS composer shows the selected Circle without per-person readiness lists,
+attention counts or instructions to make another person unlock. Pending roster
+metadata refreshes automatically on short bounded retries, existing graph events,
+foreground return and minute repair. A known selected Circle stays sendable even
+if a cached key projection is incomplete: the send handler reads the exact current
+roster and keys before creating any grant, and reports actual partial or failed
+delivery. A missing phone claim never becomes an account-verification warning,
+an invitation requirement or evidence of account deletion. The earlier connection lifecycle fix
 (PR #8272) repaired key bootstrap and roster invalidation, but did not remove the
 inherited SMS phone gate or compact this disclosure.
+
+The own recipient-key section is authoritative even in a degraded workspace
+response. A failed key query raises instead of becoming `myRecipientKey: null`;
+only a successful empty read proves absence. Strict bootstrap also rejects an
+omitted key field. A transient read failure cannot authorize generating a
+replacement key and invalidating existing shares. Receiving private keys remain
+recoverable only by their owner's vault; no sender or server fabricates peer keys.
 
 The authored SOS action meanings fit the existing model-catalog budget while
 retaining exact audience confirmation, encrypted publication and verified delivery
@@ -120,6 +131,10 @@ before a sent claim. The capability evolution ledger rejects paused command runs
 for the four revised actions pinned to graph `65ab266e1b246630`; those commands
 need fresh preparation under the current graph. This does not revoke an already
 active SOS share or prevent a fresh Stop SOS request.
+Removing the intermediate draft's manual Refresh action also retires that
+unreleased draft workflow graph `ba18c0e75894966d`; main's existing setup cursor
+compatibility remains intact. This is an exact graph declaration, not a broader
+exception to compatibility validation.
 
 The introduction has three steps: Features, an optional Save a place step, then the
 existing Circle invite, copy/share, Join and Find contacts finale. Continue on

@@ -89,7 +89,7 @@ export function EmptyStateCard({ message }: { message: string }) {
 /**
  * The Add / Remove control that ends a person row.
  *
- * `ready === false` means the person has not finished Location or phone setup,
+ * `ready === false` means receiving-key readiness is unavailable,
  * so adding them would silently produce a contact who receives nothing. The
  * button says "Setup" rather than going disabled-and-silent, because the row
  * still has to explain why it will not act.

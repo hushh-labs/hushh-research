@@ -172,33 +172,21 @@ test("Chrome autoplay blocking uses the system fallback, then a gesture primes l
   }
 });
 
-test("mixed readiness groups warnings, wraps names and keeps ready contacts sendable on mobile", async ({ page }, testInfo) => {
+test("pending recipient metadata keeps the mobile SMS composer usable without diagnostic clutter", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 393, height: 852 });
   await page.setContent(`<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body data-readiness="mixed"><div id="root"></div></body></html>`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
-  await expect(page.getByText("5 of 8 contacts ready.")).toBeVisible();
-  const disclosure = page.locator("details");
-  const summary = disclosure.locator("summary");
-  await expect(summary).toHaveText("3 contacts need attention");
-  expect((await summary.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  await summary.focus();
-  await page.keyboard.press("Enter");
-  await expect(disclosure).toHaveAttribute("open", "");
-  await expect(disclosure.getByText("Location receiving unavailable", { exact: true })).toHaveCount(1);
-  await expect(disclosure.getByText(/Roopmann Varadharaj/)).toBeVisible();
-  await expect(disclosure.getByText(/1 contact could not be checked/)).toBeVisible();
-  await expect(page.getByText(/account verification|verify their phone/i)).toHaveCount(0);
-  expect((await disclosure.boundingBox())!.height).toBeLessThan(330);
-  const refresh = page.getByRole("button", { name: "Refresh circle" });
-  expect((await refresh.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  await refresh.click();
-  await expect(page.locator("body")).toHaveAttribute("data-refreshed", "true");
+  await expect(page.getByText("8 contacts · Live location")).toBeVisible();
+  await expect(page.locator("details")).toHaveCount(0);
+  await expect(page.getByText(/needs? attention|contacts ready|account verification|unlock once|Roopmann Varadharaj/i)).toHaveCount(0);
   const send = page.getByTestId("sos-send-custom-message");
   await page.getByRole("button", { name: "Come get me" }).click();
   await send.scrollIntoViewIfNeeded();
   await expect(send).toBeVisible();
   await expect(send).toBeEnabled();
+  expect((await send.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await expect(page.getByText("Alert active", { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("sms-mixed-readiness.png"), fullPage: true });
 });

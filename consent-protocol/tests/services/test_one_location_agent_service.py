@@ -8666,6 +8666,22 @@ def test_the_owners_state_carries_the_link_back() -> None:
     assert invites[0]["publicUrl"] == created["publicUrl"]
 
 
+def test_state_never_reports_an_absent_receiving_key_when_its_read_fails() -> None:
+    class UnavailableKeyService(FourUserMemoryService):
+        def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
+            if "encrypted_private_key_jwk" in sql:
+                raise RuntimeError("receiving key unavailable")
+            return super()._execute_many(sql, params)
+
+    with pytest.raises(RuntimeError, match="receiving key unavailable"):
+        UnavailableKeyService().list_state(user_id="user_a")
+
+    # A successful empty query is genuine absence, unlike a failed section.
+    healthy = FourUserMemoryService()
+    healthy.keys.clear()
+    assert healthy.list_state(user_id="user_a")["myRecipientKey"] is None
+
+
 def test_state_never_reports_auto_approve_off_when_its_authority_read_fails() -> None:
     class UnavailablePreferenceService(FourUserMemoryService):
         def get_auto_approve_preference(self, *, user_id: str) -> dict:

@@ -14,8 +14,10 @@ deployment does not prove this flow fixed on TestFlight.
 | Case | Required result |
 | --- | --- |
 | Selected connected member signed in with Google/Apple, no verified phone, active receiving key | Add, Circle selection, manual alert and voice alert all include that account. No account-verification warning or provider lookup is required. |
-| Same member without a receiving key | Remains connected; grouped receiving-unavailable explanation names them once. Other ready members remain sendable. Opening One and unlocking repairs receiving readiness without completing Location onboarding. |
-| Mixed phone claims, two unavailable keys and one unresolved roster entry | Only key-unavailable members appear in the setup group; unresolved count stays separate. Expanded disclosure wraps on mobile and Refresh circle retries the authoritative roster without sending. |
+| Same member with pending receiving metadata | Remains connected. The owner's active unlocked session repairs receiving automatically without Location onboarding. The sender's open SMS composer refreshes pending metadata without a readiness list or asking another member to unlock. |
+| Mixed phone claims, two pending keys and one unresolved roster entry | No per-person warning list or attention count crowds the composer. A known selected Circle stays sendable; send revalidates exact current membership/keys and reports actual partial or failed delivery. |
+| Backend outage outlasts fast bootstrap retries while the recipient stays online in Chat | Visible-session minute recovery publishes the same recovered key when the backend returns; renewed authority rearms recovery without another focus event or manual unlock. |
+| Own-key query fails during partial workspace fallback | State fails rather than claiming the key is absent. Strict bootstrap creates/registers no replacement key; a later successful read recovers the existing key and preserves live shares. |
 | Unselected, removed, disconnected or deleted member | No emergency grant or envelope can be created for them. |
 | Recipient phone verification provider unavailable | A receiving-ready selected connection can still receive an encrypted alert; no phone claim is fabricated. |
 | Public invitation or contact discovery needs phone proof | Existing phone verification remains enforced on those separate flows. |

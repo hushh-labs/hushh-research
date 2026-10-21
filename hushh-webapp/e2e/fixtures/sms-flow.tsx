@@ -19,7 +19,6 @@ function Fixture() {
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
   return <SosPanel recipients={shownRecipients} contactCount={8} active={active} busy={busy}
-    onRefreshRecipients={async () => { document.body.dataset.refreshed = "true"; }}
     onTrigger={async (note) => {
       setBusy(true);
       document.body.dataset.sentCount = String(Number(document.body.dataset.sentCount ?? 0) + 1);

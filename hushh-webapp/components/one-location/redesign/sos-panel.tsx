@@ -3,14 +3,12 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
 import { Check, Loader2 } from "@/components/icons";
-import { toast } from "sonner";
 
 import {
   AlertDialog,
@@ -77,7 +75,6 @@ export type SosPanelProps = {
   stopBusy: boolean;
   onClose: () => void;
   onEditContacts: () => void;
-  onRefreshRecipients?: () => Promise<unknown>;
 
   recipientLabel: (recipient: OneLocationRecipient) => string;
   isRecipientShareReady: (recipient: OneLocationRecipient) => boolean;
@@ -96,15 +93,11 @@ export function SosPanel({
   onStopSos,
   stopBusy,
   onEditContacts,
-  onRefreshRecipients,
-  recipientLabel,
-  isRecipientShareReady,
 }: SosPanelProps) {
   const [customMessage, setCustomMessage] = useState("");
   const [holdTarget, setHoldTarget] = useState<"sms" | "composer" | null>(null);
   const [tapCountdownActive, setTapCountdownActive] = useState(false);
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
-  const [refreshingRecipients, setRefreshingRecipients] = useState(false);
 
   /**
    * The message that actually went out, held for as long as the alert is live.
@@ -127,12 +120,6 @@ export function SosPanel({
   const firedRef = useRef(false);
   const observedBusyRef = useRef(false);
 
-  const readyRecipients = useMemo(
-    () => recipients.filter(isRecipientShareReady),
-    [isRecipientShareReady, recipients],
-  );
-  const blockedRecipients = recipients.filter((recipient) => !isRecipientShareReady(recipient));
-  const uncheckedRecipientCount = Math.max(0, (contactCount ?? recipients.length) - recipients.length);
   const customMessageLength = customMessage.length;
   const customMessageLimitExceeded =
     customMessageLength > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH;
@@ -141,16 +128,15 @@ export function SosPanel({
   // stay reachable in the state someone is actually in when they need it.
   const selectedMessage = customMessage.trim() || null;
   const customMessageInvalid = customMessageLimitExceeded;
-  const noReadyRecipients = !recipientsLoading && readyRecipients.length === 0;
-  const hardDisabled = busy || active || customMessageInvalid;
-  const disabled = hardDisabled || recipientsLoading || noReadyRecipients;
   const recipientCount = contactCount ?? recipients.length;
-  const needsRecipientAttention = !recipientsLoading && readyRecipients.length < recipientCount;
-  const readinessDescribedBy = needsRecipientAttention ? "sos-recipient-readiness" : undefined;
+  const noContacts = recipientCount === 0;
+  const hardDisabled = busy || active || customMessageInvalid;
+  // A cached key projection is not send-time authority. The owning trigger
+  // refreshes the exact Circle and reports actual delivery, even if this
+  // screen first opened with pending or incomplete recipient metadata.
+  const disabled = hardDisabled || noContacts;
   const recipientCountLabel =
     recipientCount === 1 ? "1 contact" : `${recipientCount} contacts`;
-  const readyCountLabel =
-    readyRecipients.length === 1 ? "1 contact" : `${readyRecipients.length} contacts`;
   const alertedSummary = "Live location sharing is active";
   const messageDescribedBy = customMessageLimitExceeded
     ? "sos-short-message-error sos-short-message-count"
@@ -372,53 +358,6 @@ export function SosPanel({
   const quickPill =
     "ui-text-button-label press-scale flex h-11 flex-1 items-center justify-center rounded-xl border transition-colors";
 
-  const recipientAttention = needsRecipientAttention ? (
-    <div className="mt-1">
-      <HelperText id="sos-recipient-readiness" as="p">
-        {readyRecipients.length} of {recipientCount} contacts ready.
-      </HelperText>
-      <details className="mt-1 min-w-0 text-sm text-muted-foreground">
-        <summary className="min-h-11 cursor-pointer content-center py-2">
-          {recipientCount - readyRecipients.length} {recipientCount - readyRecipients.length === 1 ? "contact needs" : "contacts need"} attention
-        </summary>
-        <div className="space-y-2 pb-2 [overflow-wrap:anywhere]">
-          {blockedRecipients.length ? (
-            <div>
-              <p className="font-medium text-foreground">Location receiving unavailable</p>
-              <p>{blockedRecipients.map(recipientLabel).join(", ")}</p>
-              <p>Ask them to open One and unlock once.</p>
-            </div>
-          ) : null}
-          {uncheckedRecipientCount ? (
-            <p>{uncheckedRecipientCount} {uncheckedRecipientCount === 1 ? "contact could" : "contacts could"} not be checked.</p>
-          ) : null}
-          {onRefreshRecipients ? (
-            <button
-              type="button"
-              data-voice-control-id="one-location-refresh-sms-contacts"
-              disabled={refreshingRecipients || recipientsLoading || busy}
-              className="min-h-11 text-[color:var(--app-accent)] disabled:opacity-60"
-              onClick={async () => {
-                if (refreshingRecipients) return;
-                setRefreshingRecipients(true);
-                try {
-                  const result = await onRefreshRecipients();
-                  if (result === null) toast.error("Couldn't refresh your circle. Try again.");
-                } catch {
-                  toast.error("Couldn't refresh your circle. Try again.");
-                } finally {
-                  setRefreshingRecipients(false);
-                }
-              }}
-            >
-              {refreshingRecipients ? "Refreshing…" : "Refresh circle"}
-            </button>
-          ) : null}
-        </div>
-      </details>
-    </div>
-  ) : null;
-
   return (
     <section
       data-testid="sms-safety-screen"
@@ -428,10 +367,10 @@ export function SosPanel({
         <h1 className="ui-text-page-title">
           Save My Soul
         </h1>
-        {recipientsLoading && !readyRecipients.length ? (
+        {recipientsLoading && noContacts ? (
           <PageSubtitle>Checking emergency contacts…</PageSubtitle>
-        ) : noReadyRecipients ? (
-          recipientCount ? <PageSubtitle>{recipientCountLabel} · No contacts ready</PageSubtitle> : null
+        ) : noContacts ? (
+          null
         ) : (
           <div className="flex items-center gap-3">
             <PageSubtitle className="min-w-0 flex-1 truncate">
@@ -449,7 +388,7 @@ export function SosPanel({
         )}
       </header>
 
-      {!active && recipientsLoading && !readyRecipients.length ? (
+      {!active && recipientsLoading && noContacts ? (
         <div
           role="status"
           className="mt-6 flex min-h-24 items-center justify-center gap-2 rounded-[16px] bg-[color:var(--app-card-surface-default-solid)] text-[14px] text-[color:var(--app-secondary-label)]"
@@ -457,15 +396,14 @@ export function SosPanel({
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           Updating your SMS Circle…
         </div>
-      ) : !active && noReadyRecipients ? (
+      ) : !active && noContacts ? (
         <div className="mt-6">
-          {recipientAttention}
           <button
             type="button"
             onClick={onEditContacts}
             className="ui-text-button-label press-scale flex h-[52px] w-full items-center justify-center rounded-[16px] bg-[color:var(--app-accent)] px-5 text-[color:var(--app-accent-fg)]"
           >
-            {recipientCount ? "Review emergency contacts" : "Add emergency contacts"}
+            Add emergency contacts
           </button>
         </div>
       ) : active ? (
@@ -515,7 +453,6 @@ export function SosPanel({
         <>
           <div className="mt-5 sm:mt-6">
             <RowLabel as="p">Choose or type a message</RowLabel>
-            {recipientAttention}
           </div>
 
           <div className="mt-3 flex gap-2.5">
@@ -577,7 +514,7 @@ export function SosPanel({
                 aria-label={tapCountdownActive
                   ? "Cancel pending Save My Soul alert"
                   : "Send message: tap for a two-second countdown or hold for two seconds"}
-                aria-describedby={[customMessageLimitExceeded ? "sos-short-message-error" : "sos-send-hint", readinessDescribedBy].filter(Boolean).join(" ")}
+                aria-describedby={customMessageLimitExceeded ? "sos-short-message-error" : "sos-send-hint"}
                 onClick={handleSendClick}
                 onPointerDown={(event) => handlePointerDown(event, "composer")}
                 onPointerUp={handlePointerEnd}
@@ -663,7 +600,7 @@ export function SosPanel({
               <button
                 type="button"
                 disabled={disabled}
-                aria-label={`Press and hold for two seconds to send Save My Soul SMS alert with your live location to ${readyCountLabel}`}
+                aria-label={`Press and hold for two seconds to send Save My Soul SMS alert with your live location to ${recipientCountLabel}`}
                 onPointerDown={(event) => handlePointerDown(event, "sms")}
                 onPointerUp={handlePointerEnd}
                 onPointerCancel={handlePointerEnd}
@@ -695,7 +632,7 @@ export function SosPanel({
               {statusLabel}
             </StatusText>
             <HelperText as="p" className="mt-1 text-center text-[color:var(--sos-label)]">
-              Sends {selectedMessage ? "your message and live location" : "live location"} to {readyCountLabel}
+              Alerts your SMS Circle with {selectedMessage ? "your message and live location" : "live location"}
             </HelperText>
           </div>
         </>

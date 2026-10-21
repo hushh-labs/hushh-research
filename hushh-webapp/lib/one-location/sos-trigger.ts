@@ -78,7 +78,7 @@ export function sosRecipientReadinessMessage(
   if (!recipients.length) {
     return "Add at least one SMS contact before sending an alert.";
   }
-  return "Your SMS contacts are not ready to receive location yet.";
+  return "Couldn't reach your SMS Circle. Alert not sent. Try again.";
 }
 
 // ---------------------------------------------------------------------------
