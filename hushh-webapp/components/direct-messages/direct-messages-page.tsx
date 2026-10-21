@@ -2009,7 +2009,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                           activeMessageActions === message.id ? "true" : undefined
                         }
                         onPointerEnter={(event) => {
-                          if (event.pointerType === "mouse" && !openMessageMenu) {
+                          if (event.pointerType === "mouse" && !openMessageMenu &&
+                            !window.matchMedia("(max-width: 767px), (hover: none)").matches) {
                             setActiveMessageActions(message.id);
                           }
                         }}
