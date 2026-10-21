@@ -11,7 +11,7 @@ import marketStyles from "../../components/kai/shared/market-briefing.module.css
 createRoot(document.getElementById("root")!).render(
   <>
     {/* The public fixture supplies shell geometry; title and tabs use shared production roles. */}
-    <div className="mx-auto flex h-14 max-w-[728px] items-center px-5"><NavigationTitle as="h1">{window.location.pathname === "/finance-market-news-fixture" ? "News" : "Finance"}</NavigationTitle></div>
+    <div className="mx-auto flex h-14 max-w-[728px] items-center px-5"><NavigationTitle as="div" role="heading" aria-level={1}>{window.location.pathname === "/finance-market-news-fixture" ? "News" : "Finance"}</NavigationTitle></div>
     {window.location.pathname === "/finance-market-news-fixture" ? <KaiMarketNewsPage /> : <>
     <AppPageShell width="agent" fitContent className={`${marketStyles.typography} ${marketStyles.workspaceFrame}`}>
       <AppPageHeaderRegion><TopShellTabs tabSet={{ ...TOP_SHELL_TAB_REGISTRY.finance, activeValue: "market" }} /></AppPageHeaderRegion>

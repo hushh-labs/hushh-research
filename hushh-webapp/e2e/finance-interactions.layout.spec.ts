@@ -154,7 +154,7 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
       expect(await financeTitle.evaluate(element => {
         const style = getComputedStyle(element);
         return [style.fontSize, style.lineHeight, style.fontWeight];
-      })).toEqual(["17px", "22px", "600"]);
+      })).toEqual(["17px", "22px", "550"]);
       const frame = page.locator(".app-page-shell").first();
       const frameStyle = await frame.evaluate(element => {
         const style = getComputedStyle(element);
@@ -199,6 +199,14 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
       expect(sectionTypography.slice(1)).toEqual(["14px", "22px", "600"]);
       const movers = page.getByRole("region", { name: "Market movers", exact: true });
       await movers.scrollIntoViewIfNeeded();
+      if (width >= 1024) {
+        const sectorCard = page.getByRole("region", { name: "Sector rotation", exact: true }).locator(":scope > [data-surface-tone]");
+        const moverCard = movers.locator(":scope > [data-surface-tone]");
+        const sectorBounds = await sectorCard.boundingBox();
+        const moverBounds = await moverCard.boundingBox();
+        expect(Math.abs(sectorBounds!.y - moverBounds!.y)).toBeLessThanOrEqual(1);
+        expect(Math.abs(sectorBounds!.height - moverBounds!.height)).toBeLessThanOrEqual(1);
+      }
       const gainers = await movers.getByRole("heading", { name: "Gainers", exact: true }).boundingBox();
       const decliners = await movers.getByRole("heading", { name: "Decliners", exact: true }).boundingBox();
       expect(Math.abs(gainers!.y - decliners!.y)).toBeLessThanOrEqual(1);

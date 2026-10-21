@@ -14,6 +14,7 @@
 .workspaceFrame {
   --page-inline-gutter-standard: 24px;
   --app-shell-reading: 728px;
+  --app-shell-agent: 728px;
   max-width: 728px;
 }
 
@@ -69,5 +70,7 @@
 }
 
 @media (min-width: 1024px) {
-  .activity { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 24px; }
+  .activity { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: stretch; gap: 24px; }
+  .activity > section { display: flex; flex-direction: column; }
+  .activity > section > [data-surface-tone] { flex: 1; }
 }
