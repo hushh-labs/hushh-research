@@ -42,6 +42,7 @@ python3 scripts/ci/test_web_ci_lane_partition.py
 python3 scripts/ci/test_pkm_upgrade_gate_scope.py
 python3 scripts/ci/test_private_native_artifact.py
 node --test scripts/release/dispatch-ios-appstore.test.mjs
+node --test scripts/release/dispatch-android-playstore.test.mjs
 python3 scripts/ci/test_resolve_ios_build_number.py
 # PR Validation only restores the Next.js and Swift package caches; main saves
 # them under the keys the PR lanes look up.
