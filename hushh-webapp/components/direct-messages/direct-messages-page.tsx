@@ -26,7 +26,6 @@ import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-mes
 import { OneChatBubble } from "@/components/agent/chat-message-styles";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { ConnectionsService, type ConnectionSummaryEntry } from "@/lib/services/connections-service";
-import { PersonProfileService } from "@/lib/services/person-profile-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { useLongPress } from "@/lib/morphy-ux/hooks/use-long-press";
@@ -53,7 +52,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/lib/morphy-ux/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   ArrowBendUpLeft,
   ArrowLeft,
@@ -62,7 +61,6 @@ import {
   Loader2,
   MessageCircle,
   Mic,
-  MoreHorizontal,
   ChevronDown,
   Pencil,
   PhoneCall,
@@ -494,16 +492,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [sending, setSending] = useState(false);
   const [recordingVoice, setRecordingVoice] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const [contactInfoOpen, setContactInfoOpen] = useState(false);
-  const [contactReadRevision, setContactReadRevision] = useState(0);
-  const contactReadGeneration = useRef(0);
-  const [contactDetails, setContactDetails] = useState<{
-    key: string;
-    revision: number;
-    status: "loading" | "ready" | "unavailable";
-    email: string | null;
-    phone: string | null;
-  } | null>(null);
   const [chatDeleteRequest, setChatDeleteRequest] = useState<{ ownerId: string; conversation: DirectMessageConversation } | null>(null);
   const [, setChatDeleteRevision] = useState(0);
   const pendingChatDeletes = useRef(new Set<string>());
@@ -676,7 +664,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const readThrough = useRef<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [readRevision, setReadRevision] = useState(0);
-  const blockingLayer = Boolean(useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions || contactInfoOpen);
+  const blockingLayer = Boolean(useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions);
   const messageLongPress = useLongPress(lane !== "people" || !hasRouteSelection || pendingSelection || blockingLayer);
   const cancelMessageLongPress = messageLongPress.cancel;
   const foreground = () => document.visibilityState === "visible" && appInteractionCoordinator.getLifecycleSnapshot().state === "active";
@@ -739,7 +727,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
       loadedReadScopes.current = [];
       setSettledReadScopes([]);
       setThread(EMPTY_THREAD); setMessages([]); setDraft(""); setAttachment(null); setReplyingTo(null);
-      setUnconfirmedDraft(null); setComposerError(null); setContactInfoOpen(false);
+      setUnconfirmedDraft(null); setComposerError(null);
       replaceMessageHistory(null);
       writeLastMessagesSelection(ownerId, { lane: "people", token: null });
       router.replace(ROUTES.ONE_MESSAGES, { scroll: false });
@@ -757,7 +745,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     cancelMessageLongPress();
     ownerRef.current = user?.uid; invalidateSelection();
     selectionRef.current = routeSelection;
-    acknowledged.current.clear(); setContactInfoOpen(false); setJumpTarget(null); setRecordingVoice(false); jumping.current = false;
+    acknowledged.current.clear(); setJumpTarget(null); setRecordingVoice(false); jumping.current = false;
     readThrough.current = null; reading.current = false; visibleBottom.current = false;
     atBottomRef.current = true; scrollMetrics.current = null; prependPosition.current = null; setAtBottom(true);
     const previousAttempt = sendAttempts.current.get(draftScope);
@@ -1007,42 +995,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
 
   useEffect(() => subscribeToConnectionGraphChanges(({ userId }) => {
     if (userId !== user?.uid) return;
-    contactReadGeneration.current += 1;
-    setContactDetails(null);
-    setContactReadRevision(value => value + 1);
     refresh();
   }), [refresh, user?.uid]);
-
-  const contactKey = JSON.stringify([user?.uid ?? null, routeSelection, thread.peerPersonRef]);
-  const visibleContactDetails = contactInfoOpen && thread.canSend
-    && contactDetails?.key === contactKey && contactDetails.revision === contactReadRevision
-    ? contactDetails : null;
-  useEffect(() => {
-    const generation = ++contactReadGeneration.current;
-    const personRef = thread.peerPersonRef;
-    setContactDetails(null);
-    if (!contactInfoOpen || !user || !thread.canSend || !personRef) return;
-    let active = true;
-    const empty = { key: contactKey, revision: contactReadRevision, email: null, phone: null };
-    setContactDetails({ ...empty, status: "loading" });
-    void (async () => {
-      const idToken = await user.getIdToken();
-      if (!active || generation !== contactReadGeneration.current) return;
-      const profile = await PersonProfileService.getViewer(personRef, idToken);
-      if (!active || generation !== contactReadGeneration.current) return;
-      const connected = profile.personRef === personRef && profile.relationship.status === "connected";
-      setContactDetails({ ...empty, status: "ready",
-        email: connected ? profile.contactEmail : null,
-        phone: connected && /^\+[1-9][0-9]{1,14}$/.test(profile.contactPhoneNumber ?? "")
-          ? profile.contactPhoneNumber! : null,
-      });
-    })().catch(() => {
-      if (active && generation === contactReadGeneration.current) {
-        setContactDetails({ ...empty, status: "unavailable" });
-      }
-    });
-    return () => { active = false; };
-  }, [contactInfoOpen, contactKey, contactReadRevision, thread.canSend, thread.peerPersonRef, user]);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -1912,17 +1866,15 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     >
                       <PhoneCall className="h-4 w-4" aria-hidden="true" />
                     </button>
-                    <DropdownMenu modal={false}>
-                      <DropdownMenuTrigger asChild>
-                        <button type="button" className={styles.headerAction} aria-label="Conversation options" disabled={pendingSelection}>
-                          <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onSelect={() => { setContactDetails(null); setContactInfoOpen(true); }}>Contact info</DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => setMessageSearchOpen(true)}>Search messages</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <button
+                      type="button"
+                      className={styles.headerAction}
+                      aria-label="Search messages"
+                      disabled={pendingSelection}
+                      onClick={() => setMessageSearchOpen(true)}
+                    >
+                      <Search className="h-5 w-5" aria-hidden="true" />
+                    </button>
                   </div>
                 </div>
               </header>
@@ -2201,7 +2153,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                   >
                                     {!message.deletedForEveryoneAt ? (
                                       <DropdownMenuItem disabled={sending || hasUnconfirmedSend} onSelect={() => startReply(message)}>
-                                        <ArrowBendUpLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                                        <ArrowBendUpLeft weight="fill" className="h-3.5 w-3.5" aria-hidden="true" />
                                         Reply
                                       </DropdownMenuItem>
                                     ) : null}
@@ -2418,25 +2370,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     ) : null}
                   </form>
                   </AgentDockPortal> : null}
-              <Dialog open={contactInfoOpen} onOpenChange={setContactInfoOpen}>
-                <DialogContent className={styles.contactInfoDialog}>
-                  <DialogHeader><DialogTitle>Contact info</DialogTitle></DialogHeader>
-                  <PeerProfileLink href={peerProfileHref} label={selectedLabel} className={styles.contactProfileLink}>
-                  <ConnectionPersonAvatar label={selectedLabel} photoUrl={thread.peerPhotoUrl} size="list" className={styles.contactInfoAvatar} />
-                  </PeerProfileLink>
-                  <h3>{selectedLabel}</h3>
-                  <DialogDescription>{thread.canSend ? "Connected" : thread.disconnectedNotice || "Messaging unavailable"}</DialogDescription>
-                  {thread.canSend && visibleContactDetails?.status === "loading" ? <p role="status">Loading contact details…</p> : null}
-                  {visibleContactDetails?.email || visibleContactDetails?.phone ? <dl className={styles.contactDetails}>
-                    {visibleContactDetails.email ? <div><dt>Email</dt><dd><a href={`mailto:${visibleContactDetails.email}`} dir="auto">{visibleContactDetails.email}</a></dd></div> : null}
-                    {visibleContactDetails.phone ? <div><dt>Phone</dt><dd><a href={`tel:${visibleContactDetails.phone}`} dir="auto">{visibleContactDetails.phone}</a></dd></div> : null}
-                  </dl> : null}
-                  {visibleContactDetails?.status === "unavailable" ? <p role="status">Contact details are unavailable right now.</p> : null}
-                  <Button variant="none" effect="fade" onClick={() => { setContactInfoOpen(false); setMessageSearchOpen(true); }}>
-                    <Search className="h-5 w-5" aria-hidden="true" /> Search messages
-                  </Button>
-                </DialogContent>
-              </Dialog>
               <Dialog modal open={Boolean(editingMessage)} onOpenChange={(open) => {
                 if (!open) { editDraftGeneration.current += 1; setEditingMessage(null); setEditingContent(""); }
               }}>

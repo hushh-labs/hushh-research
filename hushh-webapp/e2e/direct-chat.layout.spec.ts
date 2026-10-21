@@ -200,8 +200,8 @@ for (const width of [768, 820, 1024]) {
   test(`message search controls fit the split conversation at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1024 });
     const errors = await mount(page);
-    await page.getByRole("button", { name: "Conversation options", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Search messages", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Conversation options", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Search messages", exact: true }).click();
     const input = page.getByRole("searchbox", { name: "Search messages" });
     await expect(input).toBeVisible();
     await expect(page.getByRole("menu")).toHaveCount(0);
@@ -342,8 +342,7 @@ test("system Back closes message search before returning from a People thread", 
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page);
   const chat = page.locator("[data-direct-message-page]");
-  await page.getByRole("button", { name: "Conversation options", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Search messages", exact: true }).click();
+  await page.getByRole("button", { name: "Search messages", exact: true }).click();
   await expect(page.getByRole("searchbox", { name: "Search messages" })).toBeVisible();
   const systemBack = () => page.evaluate(() => (window as any).directChatUnwindBack());
 
