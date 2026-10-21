@@ -114,7 +114,9 @@ class ProviderAdkModel(BaseLlm):
         if is_owner_model(self.provider, self.runtime_mode):
             # The owner's Azure deployment or their own OpenAI key: one door for both,
             # never the general factory (whose ``openai`` is the hub's Chat Completions).
-            return owner_model_client(self.provider, self.runtime_mode or "", self.credential)
+            return owner_model_client(
+                self.provider, self.runtime_mode or "", self.credential or None
+            )
         if self.runtime_mode == "user_adc" and self.provider == "gemini" and not self.credential:
             from .owner_gemini import build_owner_gemini_client
 

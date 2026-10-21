@@ -158,7 +158,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     @contextmanager
     def _committing_db():
         nonlocal committed
-        yield conn
+        with _db(conn):
+            yield conn
         committed = True
 
     def _capture_viewers(connection, **kwargs):
@@ -756,7 +757,8 @@ async def test_full_delete_does_not_report_rollback_or_notification_failure_as_r
 
     @contextmanager
     def transaction():
-        yield conn
+        with _db(conn):
+            yield conn
         if rollback:
             raise RuntimeError("commit failed")
 

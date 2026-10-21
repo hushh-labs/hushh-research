@@ -29,6 +29,14 @@
     "hushh_mcp/services/azure_teardown_authority.py": {
       "connections": 3,
       "why": "Azure cleanup holds one dedicated session per admitted operation through joined worker settlement and context close. All dedicated callers share db.connection\u2019s process-wide ceiling of three, reserved before network access; this is not three additional sessions per caller."
+    },
+    "hushh_mcp/services/azure_vm_lifecycle.py": {
+      "connections": 3,
+      "why": "Retained VM lifecycle forwards the bounded connection factory to its power authority. It shares the existing process-wide three-connection ceiling; no additional per-caller allowance."
+    },
+    "hushh_mcp/services/azure_vm_power_authority.py": {
+      "connections": 3,
+      "why": "Retained VM power authority holds its admitted operation session through settlement and close. It shares the existing process-wide three-connection ceiling; inventory does not increase fleet capacity."
     }
   },
   "listener_modules": {

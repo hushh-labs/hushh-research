@@ -299,6 +299,9 @@ async def test_azure_browser_approval_reuses_files_queue_and_preserves_host_auth
     from hushh_mcp.services.compute_backend import PodSpec
     from tests.helpers.pod_browser_capability import azure_browser_capability_fixture
 
+    monkeypatch.setenv(
+        "HUSSH_CONSENT_PLANE_SA", "consent-plane@hushh-pda-dev.iam.gserviceaccount.com"
+    )
     row, image, app, qualification, plan, _backend, arm = azure_browser_capability_fixture()
     approval = {
         "version": 2,

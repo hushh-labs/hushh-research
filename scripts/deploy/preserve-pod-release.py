@@ -15,6 +15,8 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
+# The shared stdlib qualification contract lives in the protocol build context.
+sys.path.insert(0, str(ROOT / "consent-protocol"))
 SPEC = importlib.util.spec_from_file_location(
     "pod_release_contract", ROOT / "consent-protocol/hushh_mcp/services/pod_release.py"
 )

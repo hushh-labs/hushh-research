@@ -239,9 +239,16 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
     assert {a["id"] for a in catalog["agents"]} == {a["id"] for a in registry["agents"]}
     assert {a["capability_id"] for a in graph["actions"]} <= {a["id"] for a in catalog["actions"]}
     assert {a["agentId"] for a in catalog["actions"]} <= {a["id"] for a in catalog["agents"]}
-    assert {a["id"] for a in catalog["agents"] if a["public"]} == set(outcomes.DEFINITIONS)
+    assert set(outcomes.DEFINITIONS) <= {a["id"] for a in catalog["agents"] if a["public"]}
     assert all(
-        a["outcome"]["status"] == ("supported" if a["public"] else "internal")
+        a["outcome"]["status"]
+        == (
+            "internal"
+            if not a["public"]
+            else "supported"
+            if a["id"] in outcomes.DEFINITIONS
+            else "unmeasured"
+        )
         for a in catalog["agents"]
     )
     gateway = json.loads(

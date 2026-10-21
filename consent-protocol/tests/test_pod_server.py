@@ -443,6 +443,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/browser/tasks/{task_id}/input",
         "/api/one/pod/browser/tasks/{task_id}/review",
         "/api/one/pod/browser/tasks/{task_id}/session",
+        "/api/one/pod/browser/tasks/{task_id}/downloads/{download_id}",
         "/api/one/pod/connectors/{connector_id}",
         "/health",
         "/health/ready",
@@ -472,6 +473,8 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/files/mutate",
         "/api/one/pod/tasks",
         "/api/one/pod/tasks/control",
+        "/api/one/pod/tasks/review",
+        "/api/one/pod/tasks/continue",
         "/api/one/pod/status",
         "/api/one/pod/config",
         "/api/one/pod/turn",
@@ -496,7 +499,9 @@ OWNER_REACHABLE_PATHS = frozenset(
 
 
 # Queue identity is checked at this exact route, never by an owner session.
-QUEUE_REACHABLE_PATHS = frozenset({"/api/one/pod/files/worker", "/api/one/pod/tasks/worker"})
+QUEUE_REACHABLE_PATHS = frozenset(
+    {"/api/one/pod/files/worker", "/api/one/pod/tasks/worker", "/api/one/pod/browser/worker"}
+)
 # Exact Pub/Sub OIDC identity is enforced at the route; it gets no owner session.
 PROVIDER_REACHABLE_PATHS = frozenset({"/api/one/pod/gmail/push"})
 
@@ -507,6 +512,7 @@ def _concrete(path: str) -> str:
 
     values = {
         "task_id": "browser_" + "0" * 32,
+        "download_id": "0" * 32,
         "command_id": "00000000-0000-4000-8000-000000000001",
         "connector_id": "gmail"
         if path.startswith("/api/one/pod/connectors/")
@@ -609,3 +615,19 @@ def test_a_memory_path_that_is_not_named_stays_walled(walled):
     assert is_app_surface("/api/one/pod/memory") is False
     client = TestClient(pod_server.app, raise_server_exceptions=False)
     assert client.get("/api/one/pod/memory/export").json() == {"detail": "not found"}
+
+
+def test_browser_download_admission_remains_exact_and_authenticated(walled):
+    from fastapi.testclient import TestClient
+
+    from api.middlewares.pod_ingress import is_app_surface
+
+    path = "/api/one/pod/browser/tasks/browser_" + "0" * 32 + "/downloads/" + "1" * 32
+    assert is_app_surface(path)
+    client = TestClient(pod_server.app, raise_server_exceptions=False)
+    response = client.post(path, json={"name": "synthetic.txt", "parent": "root"})
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "LOCAL_AUTHORITY_UNAVAILABLE"
+    for refused in (path + "/export", path[:-1] + "z", path.replace("/downloads/", "/export/")):
+        assert not is_app_surface(refused)
+        assert client.post(refused, json={}).json() == {"detail": "not found"}

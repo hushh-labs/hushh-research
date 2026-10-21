@@ -649,7 +649,7 @@ async def test_nav_actual_invocation_and_tool_require_a_live_local_owner_session
             await read_metadata()
     allowed = True
     hub_nav, hub_task = await nav_for("HCT:synthetic-hub-authority")
-    with pytest.raises(PermissionError, match="local session"):
+    with pytest.raises(PermissionError, match="local authority"):
         await hub_nav.handle(hub_task)
 
 

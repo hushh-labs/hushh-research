@@ -175,6 +175,7 @@ APP_SURFACE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         r"/api/one/pod/actions/(?:gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}/confirm",
         r"/api/one/pod/actions/gmod_[A-Za-z0-9_-]{16,64}/status",
         r"/api/one/pod/browser/tasks/browser_[a-f0-9]{32}(?:/(?:frame|control|input|review|session))?",
+        r"/api/one/pod/browser/tasks/browser_[a-f0-9]{32}/downloads/[a-f0-9]{32}",
     )
 )
 

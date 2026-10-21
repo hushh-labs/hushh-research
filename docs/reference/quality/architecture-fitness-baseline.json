@@ -14992,7 +14992,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
       "symbol": "test_full_account_deletion_covers_account_owned_tables",
-      "value": 314
+      "value": 315
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -20527,7 +20527,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
       "symbol": null,
-      "value": 1851
+      "value": 1853
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22093,7 +22093,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_server.py",
       "symbol": null,
-      "value": 611
+      "value": 633
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30866,7 +30866,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_bulk_share_worker.py",
       "symbol": null,
-      "value": 534
+      "value": 536
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -30999,7 +30999,7 @@
       "path": "consent-protocol/tests/test_pod_browser_capability.py",
       "symbol": "test_azure_browser_approval_reuses_files_queue_and_preserves_host_authority",
       "detail": "function exceeds the advisory gene budget",
-      "value": 109,
+      "value": 112,
       "limit": 80,
       "key": "function_size|consent-protocol/tests/test_pod_browser_capability.py|test_azure_browser_approval_reuses_files_queue_and_preserves_host_authority|function exceeds the advisory gene budget"
     },
@@ -31502,7 +31502,7 @@
       "kind": "module_size",
       "path": "consent-protocol/tests/services/test_plg_evidence.py",
       "detail": "module exceeds the advisory operon budget",
-      "value": 833,
+      "value": 840,
       "limit": 500,
       "symbol": null,
       "key": "module_size|consent-protocol/tests/services/test_plg_evidence.py||module exceeds the advisory operon budget"
@@ -81216,6 +81216,60 @@
         "after": 560,
         "source_sha256": "2d135a09edc43d1744298252a9d1b3ea4966d9ddf4d5fe69ac561492b55b760c",
         "review": "Preserve main3882 cadence2/4 transitions, recovery, monitoring and attempt history with branch exact-predecessor/UAT-admission fixes. Read-only release reviewer approved semantic union and bounded inherited monitor structure. Parent extracted attempt-correct interval recording; original created-at behavior fails the existing overlap regression, all39 release cases pass. Monitoring cannot dispatch or mutate certified accounting."
+      }
+    ]
+  },
+  "combined_core_fixture_review_20261021": {
+    "parent_revision": "26ebfbd142",
+    "policy": "Bounded corrections to existing authoritative tests and exact Browser download ingress regression; budgets and all non-size gates unchanged.",
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py|test_full_account_deletion_covers_account_owned_tables|function exceeds the advisory gene budget",
+        "before": 314,
+        "after": 315,
+        "source_sha256": "eeeca30d1c44d35a7aec819314a2e0f20046a488bb465b45862387152366d321",
+        "reviewer": "root with independent backend/browser reviewers",
+        "review": "Explicit absent legacy paid-answer inventory in existing account erasure fakes; real product financial-erasure guard unchanged."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_browser_capability.py|test_azure_browser_approval_reuses_files_queue_and_preserves_host_authority|function exceeds the advisory gene budget",
+        "before": 109,
+        "after": 112,
+        "source_sha256": "1d4c7e8bff75d76a99ac10917b7e2351289a816baf46f015f80b653498675827",
+        "reviewer": "root with independent backend/browser reviewers",
+        "review": "Synthetic consent-plane caller supplied to rendered Azure capability fixture; real owner/IAM refusal preserved."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py||module exceeds the advisory operon budget",
+        "before": 1851,
+        "after": 1853,
+        "source_sha256": "eeeca30d1c44d35a7aec819314a2e0f20046a488bb465b45862387152366d321",
+        "reviewer": "root with independent backend/browser reviewers",
+        "review": "Explicit absent legacy paid-answer inventory in existing account erasure fakes; real product financial-erasure guard unchanged."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_plg_evidence.py||module exceeds the advisory operon budget",
+        "before": 833,
+        "after": 840,
+        "source_sha256": "c3f7f7e874bfe3ff55c5bd5bece310dbb73ddf0155c5b48032625283111386ba",
+        "reviewer": "root with independent backend/browser reviewers",
+        "review": "Public Files/Browser remain honestly unmeasured without outcome adapters; no fabricated success metrics."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_server.py||module exceeds the advisory operon budget",
+        "before": 611,
+        "after": 633,
+        "source_sha256": "69fbdaca1c29f66850afc5fe1a97f74514b8ce3747de4f6e84d520ff6382a362",
+        "reviewer": "root with independent backend/browser reviewers",
+        "review": "Reviewed exact task/queue/download route inventory and malformed/neighbour path refusal. Download keeps Browser and Files authority; no broad prefix."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_bulk_share_worker.py||module exceeds the advisory operon budget",
+        "before": 534,
+        "after": 536,
+        "source_sha256": "6797d47710034f2b16c745bfdb91649fe7dcf3c6cfcdaeb34883f43a775d058b",
+        "reviewer": "root with independent backend/browser reviewers",
+        "review": "Explicit Shared placement fixture preserves unknown/private placement refusal."
       }
     ]
   }

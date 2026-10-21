@@ -183,6 +183,7 @@ async def test_same_image_connector_repair_requires_the_existing_owner_handoff(
     wanted = pod_connector_public_environment(values)
     app = arm.resources[backend.app_id]
     entries = app["properties"]["template"]["containers"][0]["env"]
+    entries[:] = [entry for entry in entries if entry["name"] not in values]
     if state in {"matching", "mismatch", "duplicate", "secret_ref"}:
         entries.extend(deepcopy(wanted))
     if state == "mismatch":

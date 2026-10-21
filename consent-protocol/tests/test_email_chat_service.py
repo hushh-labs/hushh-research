@@ -212,7 +212,7 @@ async def test_private_email_runs_shared_loop_with_scoped_broker_and_owner_store
     from hushh_mcp.adk_bridge import _register_builtin_specialists
     from hushh_mcp.adk_bridge.dispatch import bind_specialist_runtime, dispatch
     from hushh_mcp.one_adk import agent_tree as tree
-    from hushh_mcp.runtime_providers import factory
+    from hushh_mcp.runtime_providers import owner_gemini
     from hushh_mcp.services import pod_consent_client, pod_memory_service, pod_specialist_runtime
     from hushh_mcp.services.pod_consent_client import ConsentVerdict
     from hushh_mcp.services.pod_hub_client import PodHubClient
@@ -262,7 +262,7 @@ async def test_private_email_runs_shared_loop_with_scoped_broker_and_owner_store
         return next(responses)
 
     client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate)))
-    monkeypatch.setattr(factory, "build_managed_runtime_client", lambda provider: client)
+    monkeypatch.setattr(owner_gemini, "build_owner_gemini_client", lambda: client)
     reads = []
 
     def read(_self, name, token, **kwargs):

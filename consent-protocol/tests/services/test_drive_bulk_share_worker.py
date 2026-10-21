@@ -503,7 +503,9 @@ async def test_bulk_worker_passes_frozen_expiry_and_records_it_for_early_stop(sh
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tamper", [False, True])
-async def test_discovery_delivery_uses_metadata_acl_checks_and_rejects_forged_source(tamper):
+async def test_discovery_delivery_uses_metadata_acl_checks_and_rejects_forged_source(
+    tamper, shared_hub_owner
+):
     from hushh_mcp.services.drive_request_discovery import discovery_evidence
     from tests.services.test_drive_request_search_unit import _discovery_checkpoint
 

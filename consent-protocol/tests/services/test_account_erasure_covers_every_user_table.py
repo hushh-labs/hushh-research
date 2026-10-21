@@ -42,6 +42,7 @@ _DROP = re.compile(r'DROP TABLE (?:IF EXISTS )?"?([a-z_0-9]+)"?', re.I)
 # Every edge is checked against the creating migration below. The parent must
 # itself be deleted or lead to another checked cascade edge.
 _CASCADE_PARENT = {
+    "google_calendar_additional_accounts": "actor_profiles",
     "calendar_attendance_reviews": "actor_profiles",
     "pwm_research_preferences": "actor_profiles",
     "pwm_completion_events": "pwm_research_preferences",

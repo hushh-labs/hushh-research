@@ -63,7 +63,7 @@ class _Handoff:
             "incarnation": incarnation,
             "activeWork": 0,
             "committedState": "committed-state",
-            "runtimeEpoch": 1,
+            "runtimeEpoch": "epoch-1",
         }
 
     def release(self, *, operation_id, incarnation):  # pragma: no cover - never reached
