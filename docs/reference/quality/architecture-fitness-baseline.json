@@ -4489,7 +4489,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 3029,
+  "finding_count": 3031,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -23182,7 +23182,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts",
       "symbol": null,
-      "value": 1524
+      "value": 1528
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23209,7 +23209,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/pkm-write-coordinator.test.ts",
       "symbol": null,
-      "value": 884
+      "value": 898
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23425,7 +23425,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 11561
+      "value": 11591
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24802,7 +24802,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/agent/agui-structured-experiences.ts",
       "symbol": null,
-      "value": 896
+      "value": 899
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25666,7 +25666,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/personal-knowledge-model-service.ts",
       "symbol": null,
-      "value": 4895
+      "value": 4899
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25693,7 +25693,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/pkm-write-coordinator.ts",
       "symbol": null,
-      "value": 829
+      "value": 831
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29201,7 +29201,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/calendar-chat-workspace-stream.test.tsx",
       "symbol": null,
-      "value": 902
+      "value": 952
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29813,7 +29813,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/owner_style.py",
       "symbol": "propose_style_settings",
-      "value": 99
+      "value": 121
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -31758,6 +31758,24 @@
       "limit": 500,
       "symbol": null,
       "key": "module_size|consent-protocol/hushh_mcp/one_voice/azure_live.py||module exceeds the advisory operon budget"
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/api/routes/one/pod_agent_chat.py|trusted_state|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/api/routes/one/pod_agent_chat.py",
+      "symbol": "trusted_state",
+      "value": 83
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/routes/one/pod_agent_chat.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/api/routes/one/pod_agent_chat.py",
+      "symbol": null,
+      "value": 505
     }
   ],
   "inspected_files": 6625,
@@ -82447,6 +82465,122 @@
         "reviewers": [
           "root",
           "adk_frontend_conflicts"
+        ]
+      }
+    ],
+    "budgets_changed": false,
+    "non_size_findings_changed": false
+  },
+  "browser_main_preferred_name_review_20261021": {
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/owner_style.py|propose_style_settings|function exceeds the advisory gene budget",
+        "before": 99,
+        "after": 121,
+        "source_sha256": "2a165a1da8c8b1bb075badc7f4c1091b85574c04231b6c99afcfadb8af8333bc",
+        "review": "Preserve main ac904 preferred-name/device-save and mayPublish guards alongside private-pod turn ownership. The signed private route adds closed style admission and exact owner binding; workspace connector authority stays false. No cosmetic function splitting. Nearest authority, stream, PKM and style checks pass.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/api/routes/one/pod_agent_chat.py|trusted_state|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 83,
+        "source_sha256": "aef54302ac6264b45df3e757eee7037ae50c1264933dac6223888eb5d5c80bd2",
+        "review": "Preserve main ac904 preferred-name/device-save and mayPublish guards alongside private-pod turn ownership. The signed private route adds closed style admission and exact owner binding; workspace connector authority stays false. No cosmetic function splitting. Nearest authority, stream, PKM and style checks pass.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "before": 11561,
+        "after": 11591,
+        "source_sha256": "8fa66044769baea7b0837ad1f216970c7e88d9adad38018fb2fc3f98cf9571a1",
+        "review": "Preserve main ac904 preferred-name/device-save and mayPublish guards alongside private-pod turn ownership. The signed private route adds closed style admission and exact owner binding; workspace connector authority stays false. No cosmetic function splitting. Nearest authority, stream, PKM and style checks pass.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/personal-knowledge-model-service.ts||module exceeds the advisory operon budget",
+        "before": 4895,
+        "after": 4899,
+        "source_sha256": "93b9954231e0fa26a0b42ef9b7147e0ade49e31ba8bf544a3535d838a34dbfa5",
+        "review": "Preserve main ac904 preferred-name/device-save and mayPublish guards alongside private-pod turn ownership. The signed private route adds closed style admission and exact owner binding; workspace connector authority stays false. No cosmetic function splitting. Nearest authority, stream, PKM and style checks pass.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts||module exceeds the advisory operon budget",
+        "before": 1524,
+        "after": 1528,
+        "source_sha256": "907a0c8cc4dca20a645c3e0edfe06b6a2d4d4d79538d42d5fc1420d0c09fe48e",
+        "review": "Preserve main ac904 preferred-name/device-save and mayPublish guards alongside private-pod turn ownership. The signed private route adds closed style admission and exact owner binding; workspace connector authority stays false. No cosmetic function splitting. Nearest authority, stream, PKM and style checks pass.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/calendar-chat-workspace-stream.test.tsx||module exceeds the advisory operon budget",
+        "before": 902,
+        "after": 952,
+        "source_sha256": "2d6381d2511f767f6d76dbf417b7ea968a501a4197b3c77c968ff3f351555fd4",
+        "review": "Preserve main ac904 preferred-name/device-save and mayPublish guards alongside private-pod turn ownership. The signed private route adds closed style admission and exact owner binding; workspace connector authority stays false. No cosmetic function splitting. Nearest authority, stream, PKM and style checks pass.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/agent/agui-structured-experiences.ts||module exceeds the advisory operon budget",
+        "before": 896,
+        "after": 899,
+        "source_sha256": "4504dadf3eeb8b6f749f1abb0ca0c83f5768ad2be0a4a855d6be20f12f77cf2c",
+        "review": "Preserve main ac904 preferred-name/device-save and mayPublish guards alongside private-pod turn ownership. The signed private route adds closed style admission and exact owner binding; workspace connector authority stays false. No cosmetic function splitting. Nearest authority, stream, PKM and style checks pass.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/pkm-write-coordinator.test.ts||module exceeds the advisory operon budget",
+        "before": 884,
+        "after": 898,
+        "source_sha256": "4b6686d1fc5f9ccb721a49baf966e4e81b0c32907d94eb86feac1f1ff59d3c22",
+        "review": "Preserve main ac904 preferred-name/device-save and mayPublish guards alongside private-pod turn ownership. The signed private route adds closed style admission and exact owner binding; workspace connector authority stays false. No cosmetic function splitting. Nearest authority, stream, PKM and style checks pass.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/pkm-write-coordinator.ts||module exceeds the advisory operon budget",
+        "before": 829,
+        "after": 831,
+        "source_sha256": "ec8384ae783c1b21766170213929b412de57b04e5cecae7469aa9dfcc45e49c6",
+        "review": "Preserve main ac904 preferred-name/device-save and mayPublish guards alongside private-pod turn ownership. The signed private route adds closed style admission and exact owner binding; workspace connector authority stays false. No cosmetic function splitting. Nearest authority, stream, PKM and style checks pass.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/one/pod_agent_chat.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 505,
+        "source_sha256": "aef54302ac6264b45df3e757eee7037ae50c1264933dac6223888eb5d5c80bd2",
+        "review": "Preserve main ac904 preferred-name/device-save and mayPublish guards alongside private-pod turn ownership. The signed private route adds closed style admission and exact owner binding; workspace connector authority stays false. No cosmetic function splitting. Nearest authority, stream, PKM and style checks pass.",
+        "reviewers": [
+          "root",
+          "adk_backend_conflicts"
         ]
       }
     ],
