@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic, Check, X } from "@/components/icons";
+import { Mic, Send, X } from "@/components/icons";
 import { CommandCapture } from "@/lib/voice/command-capture";
 import { appInteractionCoordinator, type VoiceSessionLease } from "@/lib/interaction/interaction-intent-coordinator";
 import { inspectVoiceMessage, formatVoiceDuration } from "@/lib/direct-messages/voice-message";
@@ -113,6 +113,6 @@ export function DirectMessageVoiceRecorder({ disabled, onRecorded, onRecordingCh
   </button> : <div className={styles.recordingControls} role="group" aria-label="Voice recording">
     <span role="status">{phase === "starting" ? "Starting…" : phase === "finishing" ? "Finishing…" : formatVoiceDuration(elapsed)}</span>
     <button type="button" className={styles.voiceButton} aria-label="Cancel recording" onClick={cancel}><X className="h-5 w-5" aria-hidden="true" /></button>
-    <button type="button" className={styles.sendButton} aria-label="Use voice recording" disabled={phase !== "recording"} onClick={() => void finish()}><Check className="h-5 w-5" aria-hidden="true" /></button>
+    <button type="button" className={styles.sendButton} aria-label="Send voice message" disabled={phase !== "recording"} onClick={() => void finish()}><Send className="h-5 w-5" aria-hidden="true" /></button>
   </div>;
 }

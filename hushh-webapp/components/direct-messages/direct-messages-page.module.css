@@ -1113,6 +1113,8 @@ article[data-message-role="user"] .messageActionError {
 .threadTitle h2 { font-size: 1.375rem; line-height: 1.3; font-weight: 600; }
 .threadAvatar { width: 2.75rem; height: 2.75rem; }
 .threadIdentity { flex: 1; overflow: hidden; gap: 0.75rem; }
+.threadIdentity { padding: 0; border: 0; background: transparent; color: inherit; text-align: start; font: inherit; cursor: pointer; border-radius: 8px; min-height: 44px; }
+.threadIdentity:focus-visible { outline: 2px solid var(--chat-accent); outline-offset: 2px; }
 .threadHeaderActions { flex-shrink: 0; gap: 0.5rem; }
 .headerAction, .backButton, .refreshButton { width: 2.75rem; min-width: 2.75rem; height: 2.75rem; }
 .conversationList { flex: 1; }
@@ -1856,4 +1858,43 @@ article[data-message-role] .messageActions .messageActionButton { background: ra
 .page[data-theme="light"] .messageDateMarker time {
   background: var(--chat-incoming);
   box-shadow: none;
+}
+
+.contactDetails { display: grid; gap: 12px; min-width: 0; margin: 0; }
+.contactDetails dt { color: var(--chat-muted, var(--muted-foreground)); font-size: 12px; }
+.contactDetails dd { margin: 0; overflow-wrap: anywhere; }
+.contactDetails a { display: inline-flex; align-items: center; min-height: 44px; color: var(--chat-accent, var(--app-accent)); }
+.photoDraftPreview { position: relative; flex-basis: 100%; width: 100%; max-width: 100%; }
+.photoDraftPreview img { display: block; max-width: min(240px, 100%); max-height: 180px; object-fit: contain; border-radius: 12px; }
+.photoDraftPreview > button { position: absolute; top: 4px; right: 8px; width: 44px; border-radius: 50%; background: var(--chat-surface, var(--background)); }
+.photoMessage { display: grid; place-items: center; min-width: 160px; min-height: 120px; max-width: 100%; color: var(--chat-accent); overflow: hidden; border-radius: 10px; }
+.photoMessage:has(img) { min-width: 0; min-height: 0; }
+.photoMessage img { display: block; }
+.photoMessage:focus-visible { outline: 2px solid var(--chat-accent); outline-offset: 2px; }
+.photoDialog { width: fit-content; max-width: calc(100vw - 32px); padding: 32px 12px 12px; background: var(--background); }
+.photoDialog img { display: block; max-width: 100%; max-height: calc(100dvh - 100px); object-fit: contain; }
+/* Keep the peer avatar attached to the bubble, independently of reaction rows.
+   Preserve the original article-relative width caps after the 38px avatar gutter. */
+.messageFeedItem article[data-message-role="peer"] { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: end; row-gap: 0; }
+article[data-message-role="peer"] > .messageProfileLink,
+article[data-message-role="peer"] > .messagePeerAvatar { grid-column: 1; grid-row: 1; align-self: end; }
+article[data-message-role="peer"] .messageCluster,
+article[data-message-role="peer"] .messageContent { display: contents; }
+article[data-message-role="peer"] .messageBubbleWrap,
+article[data-message-role="peer"] .messageReactions,
+article[data-message-role="peer"] .messageActionError { grid-column: 2; min-width: 0; max-width: min(calc(85% + 32.3px), calc(100% - 52px)); justify-self: start; }
+article[data-message-role="peer"] .messageBubbleWrap { grid-row: 1; }
+article[data-message-role="peer"] .messageReactions { grid-row: 2; }
+article[data-message-role="peer"] .messageActionError { grid-row: 3; }
+@media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
+  article[data-message-role="peer"] .messageBubbleWrap,
+  article[data-message-role="peer"] .messageReactions,
+  article[data-message-role="peer"] .messageActionError { max-width: min(calc(75% + 28.5px), 40rem); }
+}
+@media (max-width: 767px), (hover: none) {
+  article[data-message-role="peer"] .messageBubbleWrap,
+  article[data-message-role="peer"] .messageReactions,
+  article[data-message-role="peer"] .messageActionError { max-width: min(calc(85% + 32.3px), calc(100% - 2px)); }
+  .messageFeedItem article[data-message-role][data-actions-visible="true"] .messageActions { opacity: 1; pointer-events: auto; }
+  .messageFeedItem article[data-message-role][data-actions-visible="true"] .messageActionButton { pointer-events: auto; }
 }
