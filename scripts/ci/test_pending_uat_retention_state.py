@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 from zipfile import ZipFile
@@ -74,6 +75,30 @@ def fixture() -> tuple[dict, dict, dict]:
 
 
 class PendingUatStateTests(unittest.TestCase):
+    def test_bridge_intent_survives_checkpoints_and_blocks_a_conflicting_deployment(self):
+        bridge = {
+            "version": 1, "project": "hushh-pda", "service": "consent-protocol",
+            "revision": "consent-protocol-cap-" + "a" * 16,
+            "sourceFingerprint": "b" * 64, "serviceControlsFingerprint": "c" * 64,
+            "sourceRevision": "consent-protocol-source", "displacedLatestRevision": "consent-protocol-displaced",
+            "pins": {"DB_PASSWORD": {"version": "projects/hushh-pda/secrets/DB_PASSWORD/versions/1", "unchangedSinceSource": True}},
+            "traffic": [["consent-protocol-source", 100, ""]], "requested": True, "status": "intent",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            receipt = directory / "completed.json"
+            receipt.write_text(json.dumps({"capacity_bridge": bridge}))
+            args = SimpleNamespace(state_dir=directory, environment="production")
+            maintenance.checkpoint(args, 123, 456, [], "complete")
+            self.assertEqual(json.loads(receipt.read_text())["capacity_bridge"], bridge)
+            with mock.patch.object(maintenance, "assert_checkpoint_publication"), \
+                mock.patch.object(maintenance, "restore_state"):
+                with self.assertRaisesRegex(maintenance.retention.UnsafeState, "bridge provider outcome"):
+                    maintenance.assert_no_pending_mutations("org/repo", directory, "production")
+                bridge["status"] = "verified"
+                receipt.write_text(json.dumps({"capacity_bridge": bridge, "pass_status": "complete"}))
+                maintenance.assert_no_pending_mutations("org/repo", directory, "production")
+
     def test_three_realistic_overlapping_passes_restore_original_deadline(self) -> None:
         base_run, base_artifact, base_jobs = fixture()
         observations = (
