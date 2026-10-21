@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockApiJson, mockTrackEvent, mockNativeDeleteAccount, nativePlatform } =
+const { mockApiJson, mockApiFetch, mockTrackEvent, mockNativeDeleteAccount, nativePlatform } =
   vi.hoisted(() => ({
   mockApiJson: vi.fn(),
+  mockApiFetch: vi.fn(),
   mockTrackEvent: vi.fn(),
     mockNativeDeleteAccount: vi.fn(),
     nativePlatform: { current: false },
@@ -45,6 +46,8 @@ vi.mock("@/lib/services/api-client", () => {
     },
   };
 });
+
+vi.mock("@/lib/services/api-service", () => ({ ApiService: { apiFetch: mockApiFetch } }));
 
 vi.mock("@/lib/observability/client", () => ({
   trackEvent: mockTrackEvent,
@@ -231,25 +234,63 @@ describe("AccountService", () => {
     });
 
     it("calls export route with VAULT_OWNER authorization header", async () => {
-      mockApiJson.mockResolvedValue({
+      const payload = {
         success: true,
         exported_at: "2026-04-24T00:00:00Z",
         requested_target: "account",
-      });
-
+        data: { encrypted_pkm_recovery_segments: [{ ciphertext: "history" }] },
+      };
+      mockApiFetch.mockResolvedValue(Response.json(payload));
       const result = await AccountService.exportData("vault-token-abc");
-
-      expect(mockApiJson).toHaveBeenCalledWith(
+      expect(mockApiFetch).toHaveBeenCalledWith(
         "/api/account/export",
         expect.objectContaining({
           method: "GET",
-          headers: {
-            Authorization: "Bearer vault-token-abc",
-          },
-        })
+          headers: { Authorization: "Bearer vault-token-abc" },
+        }),
       );
-      expect(result.success).toBe(true);
-      expect(result.requested_target).toBe("account");
+      expect(result).toEqual(payload);
+    });
+
+    it.each([
+      '{"success":true,"data":',
+      JSON.stringify({ success: true }),
+      JSON.stringify({ success: false, data: {} }),
+      JSON.stringify({ success: true, data: [], requested_target: "account", exported_at: "2026-04-24T00:00:00Z" }),
+    ])("rejects incomplete or invalid successful exports", async body => {
+      mockApiFetch.mockResolvedValue(new Response(body));
+      await expect(AccountService.exportData("owner-token")).rejects.toThrow("did not finish");
+    });
+
+    it("cancels a stalled body rather than accepting a partial backup", async () => {
+      vi.useFakeTimers();
+      const cancel = vi.fn();
+      mockApiFetch.mockResolvedValue(new Response(new ReadableStream({ cancel })));
+      try {
+        const operation = AccountService.exportData("owner-token");
+        const rejection = expect(operation).rejects.toThrow("did not finish");
+        await vi.advanceTimersByTimeAsync(240_000);
+        await rejection;
+        expect(cancel).toHaveBeenCalledOnce();
+      } finally { vi.useRealTimers(); }
+    });
+
+    it("preserves a bulk export above the generic small-API limit", async () => {
+      const ciphertext = "x".repeat(11 * 1024 * 1024);
+      const payload = {
+        success: true, requested_target: "account", exported_at: "2026-04-24T00:00:00Z",
+        data: { encrypted_pkm_recovery_segments: [{ ciphertext }] },
+      };
+      mockApiFetch.mockResolvedValue(Response.json(payload));
+      const result = await AccountService.exportData("owner-token");
+      expect(result.data?.encrypted_pkm_recovery_segments?.[0]?.ciphertext).toBe(ciphertext);
+    });
+
+    it("does not expose a refused export body", async () => {
+      const cancel = vi.fn();
+      mockApiFetch.mockResolvedValue(new Response(new ReadableStream({ cancel }), { status: 403 }));
+      await expect(AccountService.exportData("revoked-token")).rejects.toMatchObject({ status: 403 });
+      expect(cancel).toHaveBeenCalledOnce();
     });
   });
 

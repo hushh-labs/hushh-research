@@ -2784,6 +2784,36 @@ Frontend reads/writes these fields through the centralized onboarding/profile fl
 
 #### Account & Sync
 
+`GET /api/account/export` requires the current database-validated `VAULT_OWNER`
+identity; a caller-supplied owner parameter cannot select another account. Its
+existing JSON envelope (`requested_target`, `exported_at`, `data`, `success`)
+streams from one read-only repeatable-read snapshot. The ten existing sections
+include all retained encrypted recovery revisions and segments. The historical
+500-row consent-audit cap and optional-table null/empty behavior remain unchanged;
+this is the existing account bundle scope, not every table in the system.
+
+The backend uses actual server-side cursors fetching one row at a time. Memory
+scales with the largest row and its JSON encoding, rather than total history.
+Each process admits two exports, with a 240-second streaming budget, 30-second
+statement timeout, and 60-second idle-transaction timeout. Blocking database work
+can finish its bounded statement before cancellation cleanup. Saturation returns
+503 with `Retry-After: 30`; preparation failures return a sanitized 500.
+Disconnect, stalled sends, and header failures close the cursor and connection.
+No data rows or prompts enter export telemetry: only outcome, row/byte counts,
+and elapsed time are recorded.
+
+The Next proxy forwards JSON bytes with backpressure and cancellation, using
+`private, no-store`; it never buffers/parses/reserializes the encrypted bundle.
+A mid-stream failure aborts the body without a success footer. The platform-aware
+account service accepts bulk JSON beyond the generic small-API 10 MiB cap, but
+requires the complete successful envelope and cancels stalled reads after 240
+seconds. Partial JSON never becomes an apparently complete encrypted backup.
+The Memory download preserves its existing readable-only fallback with explicit
+`meta.restorable_error` when the encrypted half fails. Browser assembly still
+uses memory proportional to the bundle, and the native HTTP bridge still buffers
+the response; this server-memory fix does not establish constant-memory client
+downloads or a downloaded-file restore implementation.
+
 Phone metadata refreshes cannot transfer a verified phone to another actor,
 regardless of their descriptive source. Only a server-validated Firebase phone
 session claim carries transfer authority. Fixed-code test verification preserves
