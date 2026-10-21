@@ -290,7 +290,7 @@ def reconcile(repository: str, controller_id: int, event: dict, full: bool = Fal
     except UnsafeRelease:
         require(recovery_head, "Checkpoint is inconsistent; a production operator must review its exact head before recovery")
         verify_recovery(ledger, recovery_head, controller, governance, policy)
-        ledger.save()
+        ledger.save(force=True)
     if ledger.state is None:
         anchor = git("log", "-1", "--format=%H", "--", "config/release-cadence.json")
         activated = git("show", "-s", "--format=%cI", anchor)

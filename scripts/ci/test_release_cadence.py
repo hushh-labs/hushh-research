@@ -238,6 +238,30 @@ class ReconciliationTest(unittest.TestCase):
 
 
 class AuthorityTest(unittest.TestCase):
+    def test_quiet_reviewed_recovery_publishes_a_fresh_checkpoint(self):
+        ledger = object.__new__(github.Ledger)
+        ledger.repository, ledger.base = REPOSITORY, f"repos/{REPOSITORY}"
+        ledger.branch, ledger.head, ledger.tree = POLICY["state_branch"], "reviewed-head", "old-tree"
+        ledger.state = core.new_state("0" * 40, "2026-10-22T00:00:00Z")
+        ledger.state["writer_run_id"] = 100
+        ledger.saved_digest = core.state_digest(ledger.state)
+        controller = run(101, core.CONTROLLER)
+        responses = ({"sha": "new-blob"}, {"sha": "new-tree"}, {"sha": "recovered-head"}, {})
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict(os.environ, {"GITHUB_RUN_ID": "101", "RUNNER_TEMP": directory}), \
+                patch.object(github, "configuration", return_value=(POLICY, GOVERNANCE)), \
+                patch.object(github, "Ledger", return_value=ledger), \
+                patch.object(github, "run_info", return_value=controller), \
+                patch.object(ledger, "verify_checkpoint", side_effect=core.UnsafeRelease("interrupted publication")), \
+                patch.object(github, "runs", return_value=[]), \
+                patch.object(github, "api", side_effect=responses):
+            github.reconcile(REPOSITORY, 101, {}, recovery_head="reviewed-head")
+            checkpoint = json.loads(Path(directory, "release-cadence-authority/checkpoint.json").read_text())
+            self.assertEqual(checkpoint["ledger_sha"], ledger.head)
+            self.assertEqual(checkpoint["state_sha256"], core.state_digest(ledger.state))
+            self.assertEqual(ledger.state["count"], 0)
+            self.assertEqual(ledger.state["requests"], {})
+
     def test_interrupted_checkpoint_recovery_requires_reviewed_head_and_independent_sources(self):
         ledger = FakeLedger(counted(4))
         controller = run(101, core.CONTROLLER)
