@@ -3,8 +3,12 @@
 # ruff: noqa: F401,F811 -- shared isolated PostgreSQL fixture dependency graph
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import text
@@ -16,7 +20,8 @@ from hushh_mcp.services.drive_group_index_store import (
     GroupEntry,
 )
 from hushh_mcp.services.drive_groups.contract import FLAG, GroupIndexDisabled, Placement
-from hushh_mcp.services.google_drive_adapter import DriveReadError
+from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, DriveMetadata, DriveReadError
+from tests.services.test_drive_groups import basis, tiny_bundle
 from tests.services.test_drive_ingestion import (
     collection,
     connector_postgres_url,
@@ -299,3 +304,226 @@ async def test_erasing_the_index_deletes_every_entry_and_withdraws_the_opt_in(gr
     assert rows(groups) == []
     status = await groups.status(user_id="owner")
     assert status["enabled"] is False and status["indexedFiles"] == 0 and status["state"] == "off"
+
+
+@pytest.mark.parametrize("complete,limited", [(False, False), (True, True)])
+async def test_partial_or_limited_listings_cannot_prune(groups, complete, limited):
+    job = await opted_in(groups)
+    await commit(groups, job, [entry("a", "financial_statements")])
+    job = await groups.claim(user_id="owner")
+    with pytest.raises(DriveReadError, match="invalid_argument"):
+        await groups.commit(
+            job, [], listed=0, complete=complete, limited=limited, keep=set(), more=False
+        )
+    assert len(rows(groups)) == 1
+
+
+async def test_renewal_cannot_resurrect_expired_erased_or_reauthorized_work(groups):
+    job = await opted_in(groups)
+    with groups.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_group_index_state SET lease_expires_at=now()+interval '2 seconds'")
+        )
+    await groups.renew(job)
+    assert (
+        rows(groups, "drive_group_index_state")[0]["lease_expires_at"] - datetime.now(UTC)
+    ).total_seconds() > 250
+    await groups.set_background(user_id="owner", enabled=False, confirmed=True)
+    # This minimum-schema fixture omits the sharing/search queues updated by
+    # set_background(True); exercise its authoritative preference revision here.
+    with groups.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_live_preferences SET background_enabled=TRUE, revision=revision+1 WHERE user_id='owner'"
+            )
+        )
+    with pytest.raises(DriveReadError, match="group_index_superseded"):
+        await groups.renew(job)
+    await groups.release(job, code="error", delay_seconds=0)
+    expired = await groups.claim(user_id="owner")
+    with groups.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_group_index_state SET lease_expires_at=now()-interval '1 second'")
+        )
+    with pytest.raises(DriveReadError, match="group_index_superseded"):
+        await groups.renew(expired)
+    replacement = await groups.claim(user_id="owner")
+    assert replacement["lease_id"] != expired["lease_id"]
+    await groups.erase(user_id="owner")
+    for operation in (groups.renew, groups.require_current):
+        with pytest.raises(DriveReadError, match="group_index_processing_required"):
+            await operation(replacement)
+    with pytest.raises(DriveReadError):
+        await commit(groups, replacement, [entry("late", "financial_statements")])
+    assert rows(groups) == []
+
+
+async def test_final_owner_shelf_cannot_regain_a_kept_head_or_embedding(groups):
+    job = await opted_in(groups)
+    await commit(
+        groups, job, [entry("a", "personal_documents", head="must be discarded", vector=basis(0))]
+    )
+    stored = rows(groups)[0]
+    assert groups.sealer.open_entry(stored)["head"] is None
+    with groups.db.engine.begin() as connection:
+        connection.execute(text("UPDATE drive_group_index SET group_source='owner'"))
+    job = await groups.claim(user_id="owner")
+    await commit(groups, job, [entry("a", head="kept prediction", vector=basis(0))])
+    stored = rows(groups)[0]
+    assert stored["shelf"] == "personal_documents" and stored["group_source"] == "owner"
+    assert groups.sealer.open_entry(stored)["head"] is None
+    assert groups.sealer.open_entry(stored)["vec"] is None
+
+
+def provider_file(identity="file-a"):
+    return {
+        "id": identity,
+        "name": "Statement 14 Sep 2025.pdf",
+        "mimeType": "application/pdf",
+        "modifiedTime": MOMENT.isoformat(),
+        "createdTime": MOMENT.isoformat(),
+        "version": "1",
+    }
+
+
+def worker(groups, monkeypatch, files, *, incomplete=False):
+    from hushh_mcp.services import google_drive_rest_transport as rest
+    from hushh_mcp.services.drive_group_index_job import DriveGroupIndexJob
+
+    current = {
+        "status": "connected",
+        "validation_state": "verified",
+        "verified_policy_hash": LIVE_POLICY_HASH,
+        "connection_generation": 1,
+    }
+    oauth = SimpleNamespace(
+        current_credential=AsyncMock(return_value=(current, {"accessToken": "synthetic"})),
+        lifecycle=SimpleNamespace(read=AsyncMock(return_value=current)),
+    )
+    adapter = SimpleNamespace(
+        list_files=AsyncMock(return_value={"files": files, "incompleteSearch": incomplete}),
+        get_metadata=AsyncMock(
+            return_value=DriveMetadata(
+                "file-a", "Statement.pdf", "application/pdf", "1", MOMENT.isoformat(), 10, None
+            )
+        ),
+        read_live_bytes=AsyncMock(return_value=("application/pdf", b"synthetic PDF")),
+    )
+    parser = AsyncMock(
+        return_value=SimpleNamespace(pages=("statement statement",), truncated=False)
+    )
+    monkeypatch.setattr(rest.IsolatedDocumentParser, "parse", parser)
+    monkeypatch.setattr(rest, "connector_feature_enabled", lambda *_: True)
+    embedder = SimpleNamespace(embed=AsyncMock(side_effect=lambda heads: [basis(0)] * len(heads)))
+    job = DriveGroupIndexJob(
+        store=groups,
+        transport=rest.GoogleDriveRestTransport(oauth=oauth, adapter=adapter),
+        embedder=embedder,
+        bundle=replace(tiny_bundle(), version=VERSION),
+    )
+    return job, adapter, parser, embedder
+
+
+async def test_worker_resumes_changed_batches_skips_unchanged_and_prunes_only_after_listing(
+    groups, monkeypatch
+):
+    from hushh_mcp.services import drive_group_index_job as module
+
+    monkeypatch.setattr(module, "EMBED_BATCH", 1)
+    await groups.set_processing(
+        user_id="owner", enabled=True, disclosure=DISCLOSURE, time_zone="Asia/Kolkata"
+    )
+    job, adapter, parser, embedder = worker(
+        groups, monkeypatch, [provider_file(), provider_file("file-b")]
+    )
+    assert (await job.run_one(user_id="owner"))["status"] == "queued"
+    assert (await job.run_one(user_id="owner"))["status"] == "indexed"
+    assert len(rows(groups)) == 2 and parser.await_count == 2
+    assert adapter.list_files.await_args.kwargs["order_by"] == "createdTime desc"
+    assert [len(call.args[0]) for call in embedder.embed.await_args_list] == [1, 1]
+    assert (await groups.folders(user_id="owner"))[0]["name"] == "Financial Assets (FY 26 Q2)"
+    # Force only the refresh clock; a stable source is never read or embedded again.
+    with groups.db.engine.begin() as connection:
+        connection.execute(text("UPDATE drive_group_index_state SET next_at=now()"))
+    assert (await job.run_one(user_id="owner"))["written"] == 0
+    assert parser.await_count == 2
+    # Drive can advance a revision (including a rename) without changing the
+    # caller-visible modified timestamp. Refresh its title and fiscal folder.
+    with groups.db.engine.begin() as connection:
+        connection.execute(text("UPDATE drive_group_index_state SET next_at=now()"))
+    changed = {**provider_file("file-b"), "name": "Statement 14 Apr 2026.pdf", "version": "2"}
+    adapter.list_files.return_value = {"files": [provider_file(), changed]}
+    assert (await job.run_one(user_id="owner"))["written"] == 1
+    assert parser.await_count == 3
+    assert "Financial Assets (FY 27 Q1)" in [
+        item["name"] for item in await groups.folders(user_id="owner")
+    ]
+    with groups.db.engine.begin() as connection:
+        connection.execute(text("UPDATE drive_group_index_state SET next_at=now()"))
+    adapter.list_files.return_value = {"files": [changed]}
+    assert (await job.run_one(user_id="owner"))["pruned"] == 1
+    assert len(rows(groups)) == 1
+
+
+async def test_worker_incomplete_listing_retains_absent_rows_and_reports_incomplete(
+    groups, monkeypatch
+):
+    old = await opted_in(groups)
+    await commit(groups, old, [entry("old", "personal_documents")])
+    job, _, _, _ = worker(groups, monkeypatch, [provider_file()], incomplete=True)
+    result = await job.run_one(user_id="owner")
+    assert result["pruned"] == 0 and result["complete"] is False
+    assert len(rows(groups)) == 2
+    assert (await groups.status(user_id="owner"))["state"] == "incomplete"
+
+
+async def test_worker_real_transport_parser_outage_cannot_commit_kept_rows(groups, monkeypatch):
+    await groups.set_processing(user_id="owner", enabled=True, disclosure=DISCLOSURE)
+    job, _, parser, embedder = worker(groups, monkeypatch, [provider_file()])
+    parser.side_effect = DriveReadError("processor_unavailable")
+    assert (await job.run_one(user_id="owner"))["status"] == "unavailable"
+    assert rows(groups) == [] and embedder.embed.await_count == 0
+    assert rows(groups, "drive_group_index_state")[0]["lease_id"] is None
+
+
+async def test_worker_cap_preserves_absent_entries_and_never_reads_beyond_its_budget(
+    groups, monkeypatch
+):
+    from hushh_mcp.services import drive_group_index_job as module
+
+    monkeypatch.setattr(module, "MAX_INDEXED_FILES", 2)
+    monkeypatch.setattr(module, "PAGE_SIZE", 2)
+    old = await opted_in(groups)
+    await commit(groups, old, [entry("old", "personal_documents")])
+    files = [{**provider_file(name), "mimeType": "image/png"} for name in ("image-a", "image-b")]
+    job, adapter, parser, _ = worker(groups, monkeypatch, files)
+    adapter.list_files.return_value["nextPageToken"] = "another-page"
+    result = await job.run_one(user_id="owner")
+    assert result["limited"] is True and result["complete"] is False
+    assert result["pruned"] == 0 and len(rows(groups)) == 2
+    assert adapter.list_files.await_count == 1 and parser.await_count == 0
+    assert (await groups.status(user_id="owner"))["state"] == "incomplete"
+
+
+async def test_worker_heartbeat_loss_cancels_work_and_reaps_its_lease(groups, monkeypatch):
+    from hushh_mcp.services import drive_group_index_job as module
+
+    monkeypatch.setattr(module, "LEASE_SECONDS", 0.03)
+    await groups.set_processing(user_id="owner", enabled=True, disclosure=DISCLOSURE)
+    job, _, _, embedder = worker(groups, monkeypatch, [provider_file()])
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def blocked(heads):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    embedder.embed.side_effect = blocked
+    running = asyncio.create_task(job.run_one(user_id="owner"))
+    await asyncio.wait_for(entered.wait(), 5)
+    await groups.erase(user_id="owner")
+    result = await asyncio.wait_for(running, 5)
+    assert result["status"] == "unavailable" and cancelled.is_set()
+    assert rows(groups) == []

@@ -148,6 +148,7 @@ from api.routes import (  # noqa: E402
     db_proxy,
     debug_firebase,
     developer,
+    drive_groups,
     drive_request_payments,
     drive_request_requester,
     drive_searches,
@@ -381,6 +382,7 @@ app.include_router(drive_request_requester.router)
 app.include_router(drive_request_payments.router)
 app.include_router(drive_request_payments.webhook_router)
 app.include_router(drive_searches.router)
+app.include_router(drive_groups.router)
 app.include_router(drive_shared_files.router)
 # A separately authenticated, default-off Cloud Scheduler route performs one
 # finite Drive workflow sweep. It has no startup/background execution path.

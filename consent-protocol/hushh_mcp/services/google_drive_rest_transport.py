@@ -277,6 +277,24 @@ class GoogleDriveRestTransport:
             user_id, tool_name, arguments, _OWNER_SEARCH_OPERATIONS, _MAX_ARGUMENT_BYTES
         )
 
+    async def read_group_index_tool(
+        self,
+        *,
+        user_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        expected_generation: int,
+    ) -> ExternalMcpToolResult:
+        """Internal background reads: job-bound grant and explicit processor failures."""
+        return await self._fenced(
+            user_id,
+            tool_name,
+            arguments,
+            _GROUP_INDEX_OPERATIONS,
+            _MAX_ARGUMENT_BYTES,
+            expected_generation=expected_generation,
+        )
+
     @asynccontextmanager
     async def owner_search_session(self):
         """Share connections within one bounded search, never credentials or authority."""
@@ -397,7 +415,12 @@ class GoogleDriveRestTransport:
             )
         return ExternalMcpToolResult(is_error=False, payload=payload, truncated=False)
 
-    async def _read_file_content(self, arguments: dict[str, Any], token: str) -> dict:
+    async def _read_index_file_content(self, arguments: dict[str, Any], token: str) -> dict:
+        return await self._read_file_content(arguments, token, strict=True)
+
+    async def _read_file_content(
+        self, arguments: dict[str, Any], token: str, *, strict: bool = False
+    ) -> dict:
         file_id = arguments.get("fileId")
         if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
             raise DriveOAuthError("invalid_argument", status_code=400)
@@ -448,6 +471,8 @@ class GoogleDriveRestTransport:
             )
             if code in PARSE_REASONS:
                 return {"textFormattingNotSupported": True, "reason": code}
+            if strict:
+                raise
             return {"textFormattingNotSupported": True}
         logger.info(
             "drive_live_content_read source_bytes=%d extracted_text_bytes=%d "
@@ -763,6 +788,10 @@ _OWNER_SEARCH_OPERATIONS = {
     # Owner name index (drive_owner_metadata_index): metadata deltas only.
     "changes_start_token": "_owner_changes_start_token",
     "list_changes": "_owner_list_changes",
+}
+_GROUP_INDEX_OPERATIONS = {
+    "search_files": "_owner_search_files",
+    "read_file_content": "_read_index_file_content",
 }
 REST_TOOLS = frozenset(_OPERATIONS)
 # Owner writes. Create, copy, move/rename and comment run when the owner's agent

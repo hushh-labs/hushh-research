@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS drive_group_index (
   CHECK (group_source='owner' OR ((shelf='kept')=(reason<>'placed')))
 );
 CREATE INDEX IF NOT EXISTS drive_group_index_owner_shelf ON drive_group_index(user_id,shelf);
+-- Nullable for an index created by the earlier local slice. Those entries are
+-- refreshed once; timestamps alone do not identify a Drive source revision.
+ALTER TABLE drive_group_index ADD COLUMN IF NOT EXISTS source_version TEXT
+  CHECK (source_version ~ '^[0-9]{1,32}$');
 COMMENT ON TABLE drive_group_index_state IS
   'Owner opt-in, time zone, lease and counters for the four-group Drive organizing aid. No sharing, consent or search authority.';
 COMMENT ON TABLE drive_group_index IS

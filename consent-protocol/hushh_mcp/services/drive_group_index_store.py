@@ -21,7 +21,7 @@ import logging
 import secrets
 import struct
 from collections.abc import Collection, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from typing import Any
 from uuid import uuid4
@@ -112,6 +112,7 @@ class GroupEntry:
     placement: Placement
     head: str | None = field(default=None, repr=False)
     vector: tuple[float, ...] | None = field(default=None, repr=False)
+    source_version: str | None = None
 
 
 def _zone(name: str) -> ZoneInfo:
@@ -267,19 +268,38 @@ class DriveGroupIndexStore(DriveLivePreferences):
         self._require_flag()
         await self._transaction(lambda connection: self._job(connection, job))
 
-    async def known(self, job: dict) -> dict[str, tuple[datetime, str]]:
+    async def renew(self, job: dict) -> None:
+        """Extend only a live lease, rechecking every authority revision first."""
+        self._require_flag()
+
+        def operation(connection):
+            self._job(connection, job)
+            connection.execute(
+                text("""UPDATE drive_group_index_state
+                  SET lease_expires_at=clock_timestamp()+make_interval(secs=>:seconds)
+                  WHERE user_id=:user AND lease_id=:lease"""),
+                {"user": job["user_id"], "lease": str(job["lease_id"]), "seconds": LEASE_SECONDS},
+            )
+
+        await self._transaction(operation)
+
+    async def known(self, job: dict) -> dict[str, tuple[datetime, str, str, str | None]]:
         """Each indexed file's reference with the Drive modified time it was placed at and its source."""
 
         def operation(connection):
             self._job(connection, job)
             rows = connection.execute(
                 text(
-                    "SELECT source_ref,source_modified,group_source FROM drive_group_index"
+                    "SELECT source_ref,source_modified,group_source,model_version,source_version"
+                    " FROM drive_group_index"
                     " WHERE user_id=:user"
                 ),
                 {"user": job["user_id"]},
             ).all()
-            return {ref: (modified, source) for ref, modified, source in rows}
+            return {
+                ref: (modified, source, model, version)
+                for ref, modified, source, model, version in rows
+            }
 
         return await self._transaction(operation)
 
@@ -287,6 +307,8 @@ class DriveGroupIndexStore(DriveLivePreferences):
         user, generation = job["user_id"], job["connection_generation"]
         ref = self.sealer.ref(user, entry.file_id)
         placement = entry.placement
+        if placement.shelf != KEPT:
+            entry = replace(entry, head=None, vector=None)
         sealed = self.sealer.seal_entry(
             {
                 "v": 1,
@@ -316,6 +338,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
             "title_day": entry.title_day,
             "created": entry.created_time,
             "modified": entry.modified_time,
+            "source_version": entry.source_version,
             "envelope": json.dumps(sealed),
         }
 
@@ -336,23 +359,46 @@ class DriveGroupIndexStore(DriveLivePreferences):
         row of this owner is a file that no longer exists and is removed.
         """
         self._require_flag()
-        if len(entries) > MAX_BATCH or not 0 <= listed <= 10_000_000:
+        if (
+            len(entries) > MAX_BATCH
+            or not 0 <= listed <= 10_000_000
+            or keep is not None
+            and (not complete or limited)
+        ):
             raise DriveReadError("invalid_argument")
         unique = {self.sealer.ref(job["user_id"], entry.file_id): entry for entry in entries}
-        params = [self._params(job, entry) for entry in unique.values()]
-        version = params[0]["version"] if params else None
 
         def operation(connection):
             self._job(connection, job)
+            # An owner's move wins over the aid, including its retention rule:
+            # a file on an owner-placed shelf must not regain a kept text start.
+            owner_shelves = dict(
+                connection.execute(
+                    text("""SELECT source_ref,shelf FROM drive_group_index
+                  WHERE user_id=:user AND group_source='owner'
+                  AND source_ref=ANY(CAST(:refs AS text[]))"""),
+                    {"user": job["user_id"], "refs": list(unique)},
+                ).all()
+            )
+            params = [
+                self._params(
+                    job,
+                    replace(entry, head=None, vector=None)
+                    if ref in owner_shelves and owner_shelves[ref] != KEPT
+                    else entry,
+                )
+                for ref, entry in unique.items()
+            ]
+            version = params[0]["version"] if params else None
             if params:
                 connection.execute(
                     text("""
                     INSERT INTO drive_group_index
                       (user_id,connection_generation,source_ref,shelf,candidate,confidence,reason,
                        group_source,model_version,title_day,created_time,modified_time,
-                       source_modified,entry_envelope)
+                       source_modified,source_version,entry_envelope)
                     VALUES (:user,:generation,:ref,:shelf,:candidate,:confidence,:reason,:source,
-                            :version,:title_day,:created,:modified,:modified,
+                            :version,:title_day,:created,:modified,:modified,:source_version,
                             CAST(:envelope AS jsonb))
                     ON CONFLICT (user_id,source_ref) DO UPDATE SET
                       connection_generation=EXCLUDED.connection_generation,
@@ -369,6 +415,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
                       title_day=EXCLUDED.title_day, created_time=EXCLUDED.created_time,
                       modified_time=EXCLUDED.modified_time,
                       source_modified=EXCLUDED.source_modified,
+                      source_version=EXCLUDED.source_version,
                       entry_envelope=EXCLUDED.entry_envelope, updated_at=clock_timestamp()
                     """),
                     params,
@@ -475,6 +522,10 @@ class DriveGroupIndexStore(DriveLivePreferences):
             phase = "off"
         elif preference is not None and preference["background_enabled"] is not True:
             phase = "paused"
+        elif state["last_run_at"] and (
+            state["limited"] or not state["listing_complete"] or state["last_error_code"]
+        ):
+            phase = "incomplete"
         elif state["initial_completed_at"] is None:
             phase = "indexing"
         else:

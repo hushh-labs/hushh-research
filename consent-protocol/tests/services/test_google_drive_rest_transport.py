@@ -43,6 +43,19 @@ def transport(*, current=None, adapter=None, monkeypatch=None, enabled=True):
     return rest.GoogleDriveRestTransport(oauth=oauth, adapter=adapter or SimpleNamespace())
 
 
+async def test_group_index_read_refuses_a_replacement_grant_before_provider_io(monkeypatch):
+    adapter = SimpleNamespace(list_files=AsyncMock())
+    drive = transport(adapter=adapter, monkeypatch=monkeypatch)
+    with pytest.raises(DriveOAuthError, match="connection_changed"):
+        await drive.read_group_index_tool(
+            user_id="owner",
+            tool_name="search_files",
+            arguments={"query": "trashed = false"},
+            expected_generation=6,
+        )
+    adapter.list_files.assert_not_awaited()
+
+
 async def test_real_rest_page_keeps_version_and_bounded_provider_relationship_facts(monkeypatch):
     source = {
         "id": FILE_ID,
