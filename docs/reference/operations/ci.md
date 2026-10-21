@@ -125,6 +125,14 @@ authorized only for its recorded run ID, workflow, milestone, source and complet
 input set. `config/ci-governance.json` owns the permitted controller for each
 surface. The cadence policy is a protected pipeline file.
 
+The dispatch validator accepts omitted or null `marketing_version`/`notes` only
+when the authorized value is blank, and typed booleans only for the lane's
+declared Boolean fields. Every nonempty value remains required and exact;
+unknown fields, changed source identities and changed switches fail closed.
+Mismatch diagnostics list only known field names and received types, never
+input values or caller-supplied unknown field names. A governed retry reuses the
+recorded failed child run rather than issuing a second release request.
+
 The 2/4 policy preserves the existing counter and certified sources. A one-time
 certified transition makes the latest newly eligible TestFlight milestone pending
 (count 2 when adoption occurs at count 2 or 3), without replaying older milestones.
@@ -134,9 +142,17 @@ both policy periods. Missing transition metadata means the original 4/8 policy.
 
 Monitoring runs in GitHub inside the same observer job, after checkpoint
 publication. It adds no workflow, runner job, polling loop or UAT dependency.
-Completion events report failures and verified milestones promptly; the existing
-hourly schedule catches missed observations and long UAT queues. GitHub can delay
-scheduled runs. The monitor uses only standard-library code and the existing
+Completion events report failures and verified milestones when delivered. The
+observer also subscribes to the existing `capacity-maintenance-clock` repository
+dispatch, whose GitHub environment timer waits without a runner. This reuses its
+hourly broadcast without changing the clock, adding a producer job or touching
+UAT. The existing hourly cron remains a fallback; GitHub can delay scheduled runs.
+Only the repository bot's exact clock event is accepted on protected main; clock
+events cannot request full replay or checkpoint recovery. Unresolved recorded
+child failures are rechecked for governed retries without replaying settled
+release artifacts. More than 20 unresolved failures stops reconciliation for
+operator recovery rather than silently dropping history or growing polling work.
+The monitor uses only standard-library code and the existing
 repository token, with `issues: write` added for one bot-owned `UAT release monitor`
 issue assigned to `monitor_issue_assignee` in the policy. Notification delivery
 follows that person's GitHub notification settings.

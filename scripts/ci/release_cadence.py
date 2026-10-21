@@ -165,6 +165,32 @@ def dispatch_inputs(ordinal: str, request: dict, lane: str) -> dict[str, str]:
     return inputs
 
 
+def verify_dispatch_inputs(inputs: dict, expected: dict[str, str], lane: str) -> None:
+    """Validate event transport without changing any authorized release value."""
+    require(isinstance(inputs, dict), "Dispatch inputs must be an object")
+    booleans = {
+        "testflight": {"dry_run", "require_hardware", "run_core_tests"},
+        "deploy": set(),  # These switches are choice inputs, so remain strings.
+        "appstore": {"dry_run", "submit_for_review", "release_after_approval"},
+    }[lane]
+    blanks = {"marketing_version", "notes"} if lane in {"testflight", "appstore"} else set()
+    mismatches = []
+    for key, value in expected.items():
+        actual = inputs.get(key, "")
+        if key in blanks and value == "" and actual is None:
+            actual = ""
+        if key in booleans and type(actual) is bool:
+            actual = "true" if actual else "false"
+        if type(actual) is not str or actual != value or (key not in inputs and key not in blanks):
+            kind = type(inputs[key]).__name__ if key in inputs else "missing"
+            mismatches.append(f"{key}:{kind}")
+    unexpected = len(set(inputs) - set(expected))
+    # Names come only from our plan; never echo caller-supplied values/keys.
+    require(not unexpected and not mismatches,
+            f"Dispatch inputs differ from the authorized plan; fields={','.join(mismatches) or 'none'}; "
+            f"unexpected_count={unexpected}")
+
+
 def verify_child(state: dict, run: dict, repository: str, ordinal: str, origin: str) -> tuple[dict, str]:
     require(state.get("schema_version") == 1, "Unsupported cadence state")
     require((run.get("actor") or {}).get("login") == "github-actions[bot]", "Not an automation actor")
