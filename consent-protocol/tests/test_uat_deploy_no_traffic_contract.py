@@ -2408,3 +2408,54 @@ def test_uploaded_provider_receipt_proves_selection_separately(tmp_path, selecti
     )
     subprocess.run(["bash", "-c", command], check=True, timeout=10)  # noqa: S603 - execute authored workflow with synthetic receipts
     assert json.loads(report.read_text())["selection_verified"] is (selection == "verified")
+
+
+def test_text_recovery_generation_matches_the_selected_runtime_processor(monkeypatch):
+    path = REPO_ROOT / "scripts/ops/run_uat_text_recovery_job.py"
+    spec = importlib.util.spec_from_file_location("uat_text_recovery_generation", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    # Derive the expectation from the actual producer, not a second test formula.
+    from hushh_mcp.runtime_providers.managed_text import managed_text_policy
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    generations = []
+    for provider in ("azure_openai", "vertex"):
+        monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", provider)
+        monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", provider)
+        job = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "template": {
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "env": [
+                                            {
+                                                "name": "HUSHH_UAT_MANAGED_AI_PROVIDER",
+                                                "value": provider,
+                                            },
+                                            {
+                                                "name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER",
+                                                "value": provider,
+                                            },
+                                        ]
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        actual = module.expected_policy_generation(job)
+        assert actual == managed_text_policy()["generation"]
+        generations.append(actual)
+        job["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]["env"][1]["value"] = (
+            "invalid"
+        )
+        with pytest.raises(ValueError, match="bindings disagree"):
+            module.expected_policy_generation(job)
+    assert generations[0] != generations[1]
