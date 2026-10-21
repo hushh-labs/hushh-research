@@ -1618,7 +1618,10 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
                     payment.requestId,
                   );
                   if (!current()) return;
-                  window.location.assign(checkoutUrl);
+                  if (typeof checkoutUrl === "string") window.location.assign(checkoutUrl);
+                  else {
+                    await Promise.all([refreshDocumentRequests(), sentProgressRefresh({ force: true })]);
+                  }
                 } catch (cause) {
                   if (!current()) return;
                   toast.error(drivePaymentErrorMessage(cause));
@@ -2428,6 +2431,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     appTaskState.tasks,
     currentCheckout,
     refreshDocumentRequests,
+    sentProgressRefresh,
     consentDecision.allow,
     declineConsentRequest,
     declineDocumentRequest,
