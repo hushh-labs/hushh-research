@@ -843,6 +843,29 @@ class ActorIdentityService:
             if str(row.get("user_id") or "").strip()
         }
 
+    async def get_many_verified_email_aliases(
+        self, user_ids: Iterable[str], *, conn
+    ) -> dict[str, list[str]]:
+        """Bounded, read-only aliases in the reporting caller's lifecycle transaction."""
+        ids = sorted({str(uid).strip() for uid in user_ids if str(uid).strip()})
+        if len(ids) > 50:
+            raise ValueError("Identity alias read exceeds bound")
+        if not ids:
+            return {}
+        rows = await conn.fetch(
+            "SELECT user_id,email_normalized FROM actor_verified_email_aliases "
+            "WHERE user_id=ANY($1::text[]) AND verification_status='verified' "
+            "AND revoked_at IS NULL ORDER BY user_id,email_normalized LIMIT 5001 FOR SHARE",
+            ids,
+            timeout=5,
+        )
+        if len(rows) > 5000:
+            raise ValueError("Identity alias read exceeds bound")
+        result: dict[str, list[str]] = {}
+        for row in rows:
+            result.setdefault(str(row["user_id"]), []).append(str(row["email_normalized"]))
+        return result
+
     async def upsert_identity(
         self,
         *,

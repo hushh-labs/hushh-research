@@ -51,6 +51,7 @@ export const AlertTriangle = createCanonicalIcon(Phosphor.Warning);
 export const AlignCenter = createCanonicalIcon(Phosphor.TextAlignCenter);
 export const AlignLeft = createCanonicalIcon(Phosphor.AlignLeft);
 export const AlignRight = createCanonicalIcon(Phosphor.AlignRight);
+export const ArrowBendUpLeft = createCanonicalIcon(Phosphor.ArrowBendUpLeft, "regular");
 export const ArrowDownLeft = createCanonicalIcon(Phosphor.ArrowDownLeft);
 export const ArrowDownRight = createCanonicalIcon(Phosphor.ArrowDownRight);
 export const ArrowLeft = createCanonicalIcon(Phosphor.ArrowLeft, "regular");

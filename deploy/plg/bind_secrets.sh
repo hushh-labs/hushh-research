@@ -17,4 +17,7 @@ if [[ "${1:-}" == "production" ]]; then
   if [[ "$(gcloud secrets versions describe latest --secret=ONE_PLG_AUDIENCE_SECRET --project="$plg_project" --format='value(state)' 2>/dev/null)" == "ENABLED" ]]; then
     add_secret ONE_PLG_AUDIENCE_SECRET ONE_PLG_AUDIENCE_SECRET
   fi
+  if [[ "$(gcloud secrets versions describe latest --secret=ONE_PLG_REPORTING_POLICY_JSON --project="$plg_project" --format='value(state)' 2>/dev/null)" == "ENABLED" ]]; then
+    add_secret ONE_PLG_REPORTING_POLICY_JSON ONE_PLG_REPORTING_POLICY_JSON
+  fi
 fi
