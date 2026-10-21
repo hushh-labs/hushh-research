@@ -522,3 +522,15 @@ def test_preview_public_admission_follows_authenticated_health_and_application_p
             )
             is expected
         )
+
+
+def test_dev_secret_sync_retains_its_own_environment_policy():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    sync = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Sync canonical hosted runtime secrets"
+    )
+    assert '--project "${{ env.GCP_PROJECT_ID }}"' in sync["run"]
+    assert "--environment dev" in sync["run"]
+    assert "--environment uat" not in sync["run"]
