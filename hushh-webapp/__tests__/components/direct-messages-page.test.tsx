@@ -680,7 +680,9 @@ describe("DirectMessagesPage", () => {
     view.unmount();
     mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [visibleMessage], canSend: false, disconnectedNotice: "Blocked", nextBefore: null });
     renderConnectionThread();
-    fireEvent.click(await screen.findByRole("button", { name: "Contact info", exact: true }));
+    const readOnlyIdentity = await screen.findByRole("button", { name: "Contact info", exact: true });
+    await waitFor(() => expect(readOnlyIdentity).toBeEnabled());
+    fireEvent.click(readOnlyIdentity);
     expect(await screen.findByRole("dialog")).toHaveTextContent("Blocked");
     expect(mocks.getViewerProfile).toHaveBeenCalledOnce();
   });
