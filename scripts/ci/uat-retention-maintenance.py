@@ -333,6 +333,141 @@ def artifact_exists(repository: str, run_id: int, name: str) -> bool:
     return True
 
 
+def replayed_uat_release_artifact(repository: str, run_id: int, name: str) -> dict:
+    """Resolve a duplicate release name only from its exact current upload step."""
+    run = api(repository, f"runs/{run_id}")
+    attempt = run.get("run_attempt")
+    if (
+        name != f"uat-release-{run_id}"
+        or run.get("id") != run_id
+        or not governed_dispatch(run, repository, "uat")
+        or type(attempt) is not int
+        or attempt < 2
+        or run.get("conclusion") not in {"success", "failure"}
+        or not re.fullmatch(r"[0-9a-f]{40}", str(run.get("head_sha", "")))
+        or any(type((run.get(key) or {}).get("id")) is not int for key in ("repository", "head_repository"))
+    ):
+        raise retention.UnsafeState("replayed release origin is invalid")
+    result = api(repository, f"runs/{run_id}/artifacts?per_page=100")
+    artifacts = result.get("artifacts")
+    if not isinstance(artifacts, list) or result.get("total_count") != len(artifacts):
+        raise retention.UnsafeState("release artifact inventory is incomplete")
+    matches = [item for item in artifacts if isinstance(item, dict) and item.get("name") == name]
+    if len(matches) < 2:
+        raise retention.UnsafeState("release artifact is expired or ambiguous")
+    result = api(repository, f"runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
+    jobs = result.get("jobs")
+    if not isinstance(jobs, list) or result.get("total_count") != len(jobs):
+        raise retention.UnsafeState("release attempt job inventory is incomplete")
+    deploy = [
+        job for job in jobs if isinstance(job, dict) and job.get("name") == "Deploy UAT Scope"
+    ]
+    if len(deploy) != 1 or any(
+        deploy[0].get(key) != value
+        for key, value in {
+            "run_id": run_id,
+            "run_attempt": attempt,
+            "head_sha": run.get("head_sha"),
+            "head_branch": "main",
+            "status": "completed",
+        }.items()
+    ):
+        raise retention.UnsafeState("release attempt deploy job is not bound")
+    uploads = [
+        step
+        for step in deploy[0].get("steps", [])
+        if step.get("name") == "Upload UAT deploy artifacts"
+    ]
+    if (
+        len(uploads) != 1
+        or uploads[0].get("status") != "completed"
+        or uploads[0].get("conclusion") != "success"
+    ):
+        raise retention.UnsafeState("release attempt upload is not proven")
+    started = _github_timestamp(uploads[0].get("started_at"))
+    ended = _github_timestamp(uploads[0].get("completed_at"))
+    if not started or not ended or not timedelta(0) <= ended - started <= timedelta(minutes=5):
+        raise retention.UnsafeState("release attempt upload window is invalid")
+    selected = []
+    for artifact in matches:
+        created = _github_timestamp(artifact.get("created_at"))
+        origin = artifact.get("workflow_run") or {}
+        if (
+            not created
+            or type(artifact.get("id")) is not int
+            or artifact["id"] < 1
+            or any(
+                origin.get(key) != value
+                for key, value in {
+                    "id": run_id,
+                    "head_sha": run.get("head_sha"),
+                    "head_branch": "main",
+                    "repository_id": (run.get("repository") or {}).get("id"),
+                    "head_repository_id": (run.get("head_repository") or {}).get("id"),
+                }.items()
+            )
+        ):
+            raise retention.UnsafeState("release artifact origin is invalid")
+        if started - timedelta(seconds=5) <= created <= ended + timedelta(seconds=30):
+            selected.append(artifact)
+    if len(selected) != 1 or selected[0].get("expired") is not False:
+        raise retention.UnsafeState("release attempt artifact is expired or ambiguous")
+    return selected[0]
+
+
+def download_replayed_uat_release(repository: str, artifact: dict, directory: Path) -> None:
+    """Read only the release status from an immutable, digest-verified archive."""
+    if (
+        type(artifact.get("id")) is not int
+        or artifact["id"] < 1
+        or type(artifact.get("size_in_bytes")) is not int
+        or not 0 < artifact["size_in_bytes"] <= 10 * 1024 * 1024
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(artifact.get("digest", "")))
+    ):
+        raise retention.UnsafeState("release artifact envelope is invalid")
+    deadline = _LOOKUP_DEADLINE.get()
+    timeout = min(180.0, deadline - time.monotonic()) if deadline is not None else 180.0
+    if timeout <= 0:
+        raise retention.UnsafeState("release artifact lookup deadline exhausted")
+    archive = retention.run_command(
+        ["gh", "api", f"repos/{repository}/actions/artifacts/{artifact['id']}/zip"],
+        timeout=timeout,
+        text=False,
+    ).stdout
+    if len(archive) != artifact["size_in_bytes"] or hashlib.sha256(archive).hexdigest() != artifact[
+        "digest"
+    ].removeprefix("sha256:"):
+        raise retention.UnsafeState("release artifact digest changed")
+    try:
+        with ZipFile(BytesIO(archive)) as bundle:
+            entries = bundle.infolist()
+            names = [entry.filename for entry in entries]
+            if (
+                len(entries) > 500
+                or len(names) != len(set(names))
+                or names.count("uat-release-status.json") != 1
+                or sum(entry.file_size for entry in entries) > 20 * 1024 * 1024
+                or any(path.is_absolute() or ".." in path.parts for path in map(Path, names))
+            ):
+                raise retention.UnsafeState("release artifact has unsafe files")
+            status = bundle.getinfo("uat-release-status.json")
+            if (
+                status.is_dir()
+                or stat.S_IFMT(status.external_attr >> 16) == stat.S_IFLNK
+                or status.file_size > 2 * 1024 * 1024
+            ):
+                raise retention.UnsafeState("release status member is unsafe")
+            if directory.is_symlink():
+                raise retention.UnsafeState("release artifact directory is a symlink")
+            directory.mkdir(parents=True, exist_ok=True)
+            target = directory / "uat-release-status.json"
+            with target.open("xb") as output:
+                output.write(bundle.read(status))
+            target.chmod(0o600)
+    except BadZipFile as exc:
+        raise retention.UnsafeState("release artifact is not a ZIP") from exc
+
+
 def download(repository: str, run_id: int, name: str, directory: Path) -> None:
     command(
         "gh",
@@ -378,12 +513,23 @@ def governed_dispatch(
 def load_release(repository: str, run_id: int, directory: Path, environment: str) -> dict | None:
     prefix = LANES[environment]["prefix"]
     name = f"{prefix}-release-{run_id}"
-    if not artifact_exists(repository, run_id, name):
-        return None
-    release_directory = directory / str(run_id)
+    artifact = None
+    try:
+        if not artifact_exists(repository, run_id, name):
+            return None
+    except retention.UnsafeState:
+        if environment != "uat":
+            raise
+        artifact = replayed_uat_release_artifact(repository, run_id, name)
+    release_directory = directory / (
+        f"{run_id}-artifact-{artifact['id']}" if artifact else str(run_id)
+    )
     status_file = release_directory / f"{prefix}-release-status.json"
     if not status_file.exists():
-        download(repository, run_id, name, release_directory)
+        if artifact:
+            download_replayed_uat_release(repository, artifact, release_directory)
+        else:
+            download(repository, run_id, name, release_directory)
     if status_file.is_symlink():
         raise retention.UnsafeState("source release artifact is a symlink")
     release = json.loads(status_file.read_text())
