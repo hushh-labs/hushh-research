@@ -485,12 +485,20 @@ for (const width of [320, 393, 1440]) {
     await group.getByRole("button", { name: "Options for Investments" }).click();
     const openAction = page.getByRole("button", { name: "Open circle", exact: true });
     const deleteAction = page.getByRole("button", { name: "Delete circle", exact: true });
-    await expect.poll(() => openAction.evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
-    const first = await openAction.boundingBox();
-    const second = await deleteAction.boundingBox();
-    expect(first!.height).toBeGreaterThanOrEqual(44);
-    expect(second!.height).toBeGreaterThanOrEqual(44);
-    expect(second!.y - first!.y - first!.height).toBeGreaterThanOrEqual(4);
+    await expect(openAction).toHaveCSS("min-height", "44px");
+    await expect(deleteAction).toHaveCSS("min-height", "44px");
+    await expect(openAction.locator("..")).toHaveCSS("row-gap", "4px");
+    // Chromium can report 43.99997px after the popover's scale animation.
+    // Keep the CSS target exact and allow only floating-point geometry noise.
+    await expect.poll(() => openAction.evaluate(node => node.getBoundingClientRect().height)).toBeCloseTo(44, 2);
+    const geometry = await openAction.evaluate((node) => {
+      const first = node.getBoundingClientRect();
+      const second = node.nextElementSibling!.getBoundingClientRect();
+      return { firstHeight: first.height, secondHeight: second.height, gap: second.y - first.bottom };
+    });
+    expect(geometry.firstHeight).toBeCloseTo(44, 2);
+    expect(geometry.secondHeight).toBeCloseTo(44, 2);
+    expect(geometry.gap).toBeGreaterThanOrEqual(4 - 0.01);
     await page.keyboard.press("Escape");
     await group.getByRole("button", { name: "Delete Finance type" }).click();
     await expect(page.getByRole("alertdialog")).toContainText("Your circles and their members will stay");
