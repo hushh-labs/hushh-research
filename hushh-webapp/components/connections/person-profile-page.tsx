@@ -20,6 +20,7 @@ import styles from "./person-profile-page.module.css";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -31,7 +32,8 @@ import {
 import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { DrivePacketCatalog } from "@/components/consent/drive-packet-catalog";
-import { ExternalConnectorService } from "@/lib/services/external-connector-service";
+import { usePersonConnectorFeatures } from "@/lib/connections/use-person-connector-features";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { RequestScopeButton } from "@/components/consent/request-scope-button";
 import { RequestCardsButton } from "@/components/wallet/request-cards-button";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
@@ -55,6 +57,7 @@ import {
   mergePersonScopePage,
   type PublicPersonProfile,
   type ViewerPersonProfile,
+  type PersonRelationship,
   type InformationRequestBundle,
   type PersonInformationRequestHistory,
   type PersonRequestHistoryPage,
@@ -129,28 +132,18 @@ function actionCardContent(label: string, Icon: typeof FileText, tone: "blue" | 
   return <PersonProfileTaskContent label={label} Icon={Icon} tone={tone} />;
 }
 
-export function PersonProfilePage({ personRef, initialProfile }: Props) {
+export function PersonProfilePage(props: Props) {
+  const { user } = useAuth();
+  return <PersonProfileSession key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`} {...props} />;
+}
+
+function PersonProfileSession({ personRef, initialProfile }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
   const { vaultOwnerToken, isVaultUnlocked } = useVault();
-  const [packetCatalogAvailable, setPacketCatalogAvailable] = useState(false);
-  useEffect(() => {
-    if (!isVaultUnlocked || !vaultOwnerToken) {
-      setPacketCatalogAvailable(false);
-      return;
-    }
-    let current = true;
-    setPacketCatalogAvailable(false);
-    void ExternalConnectorService.overview(vaultOwnerToken)
-      .then((overview) => {
-        if (current) setPacketCatalogAvailable(overview.driveAgentPackagesEnabled === true);
-      })
-      .catch(() => {
-        if (current) setPacketCatalogAvailable(false);
-      });
-    return () => { current = false; };
-  }, [isVaultUnlocked, vaultOwnerToken]);
+  const connectorFeatures = usePersonConnectorFeatures(user?.uid, vaultOwnerToken, isVaultUnlocked);
+  const packetCatalogAvailable = connectorFeatures.availability.status === "ready" && connectorFeatures.availability.agentPackages;
   const resolvedPersonRef = useMemo(() => {
     const isNativeIOS =
       Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
@@ -160,10 +153,12 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const [profileState, setProfileState] = useState<{
     personRef: string;
     profile: PublicPersonProfile | null;
-  }>({ personRef: resolvedPersonRef, profile: initialProfile });
+  }>(() => ({ personRef: resolvedPersonRef, profile: initialProfile ?? PersonProfileService.peekPublic?.(resolvedPersonRef) ?? null }));
   const profile =
-    profileState.personRef === resolvedPersonRef ? profileState.profile : null;
+    profileState.personRef === resolvedPersonRef ? profileState.profile
+      : initialProfile?.personRef === resolvedPersonRef ? initialProfile : null;
   const [publicProfileUnavailable, setPublicProfileUnavailable] = useState(false);
+  const [publicReloadToken, setPublicReloadToken] = useState(0);
   const [viewerLoadError, setViewerLoadError] = useState<{
     personRef: string; viewerUid: string;
   } | null>(null);
@@ -178,16 +173,29 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     viewerProfileState.personRef === resolvedPersonRef && viewerProfileState.viewerUid === user?.uid
       ? viewerProfileState.profile
       : null;
+  const [displayState, setDisplayState] = useState<typeof viewerProfileState>(viewerProfileState);
+  const displayViewerProfile = viewerProfile ?? (displayState.personRef === resolvedPersonRef && displayState.viewerUid === user?.uid ? displayState.profile : null);
+  const displayRef = useRef(displayViewerProfile);
+  displayRef.current = displayViewerProfile;
+  const [relationshipState, setRelationshipState] = useState<{ personRef: string; viewerUid: string; value: PersonRelationship } | null>(null);
+  const relationshipReadGeneration = useRef(0);
+  // The complete response computes relationship last, after its slower reads.
+  // Use the lightweight projection while waiting, then converge on that full
+  // snapshot so independent response timing cannot split badge and contacts.
+  const relationship = viewerProfile?.relationship ?? (relationshipState?.personRef === resolvedPersonRef && relationshipState.viewerUid === user?.uid
+    ? relationshipState.value : undefined);
+  const canRequest = relationship?.status === "connected";
+  const showRequestActions = !relationship || canRequest;
   const recentHistoryGroups = useMemo(() => {
     const groups = new Map<string, { first: PersonInformationRequestHistory; items: PersonInformationRequestHistory[] }>();
-    for (const item of viewerProfile?.requestHistory ?? []) {
+    for (const item of displayViewerProfile?.requestHistory ?? []) {
       const key = item.bundleId || item.requestId;
       const group = groups.get(key);
       if (group) group.items.push(item);
       else groups.set(key, { first: item, items: [item] });
     }
     return [...groups.entries()].map(([bundleId, group]) => ({ bundleId, ...group }));
-  }, [viewerProfile?.requestHistory]);
+  }, [displayViewerProfile?.requestHistory]);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyCursors, setHistoryCursors] = useState<Array<string | null>>([null]);
   const [historyState, setHistoryState] = useState<{
@@ -258,7 +266,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const [cancellingBundleId, setCancellingBundleId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (profile) return;
+    if (initialProfile?.personRef === resolvedPersonRef && publicReloadToken === 0) return;
     let active = true;
     setPublicProfileUnavailable(false);
     void PersonProfileService.getPublic(resolvedPersonRef)
@@ -273,9 +281,19 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     return () => {
       active = false;
     };
-  }, [resolvedPersonRef, profile]);
+  }, [resolvedPersonRef, publicReloadToken, initialProfile]);
 
   const [viewerReloadToken, setViewerReloadToken] = useState(0);
+  useEffect(() => {
+    if (authLoading || !user) return;
+    let current = true;
+    const generation = ++relationshipReadGeneration.current;
+    setRelationshipState(null);
+    void user.getIdToken().then((token) => PersonProfileService.getRelationship(resolvedPersonRef, token))
+      .then((value) => { if (current && generation === relationshipReadGeneration.current) setRelationshipState({ personRef: resolvedPersonRef, viewerUid: user.uid, value }); })
+      .catch(() => { /* The independent full response may still establish eligibility. */ });
+    return () => { current = false; };
+  }, [authLoading, resolvedPersonRef, user, viewerReloadToken]);
   useEffect(() => {
     if (authLoading || !user) return;
     let active = true;
@@ -301,8 +319,6 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     catalogInFlight.current = false;
     setCatalogLoading(false);
     setCatalogError(false);
-    setSelectedScopeRefs(new Set());
-    setReviewOpen(false);
     let active = true;
     setViewerLoadError(null);
     void user
@@ -310,11 +326,23 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       .then((token) => PersonProfileService.getViewer(resolvedPersonRef, token, { page: 1 }))
       .then((value) => {
         if (active && generation === viewerReadGeneration.current) {
+          const previous = displayRef.current;
+          const sameCatalog = previous?.personRef === value.personRef && previous.scopeCatalog && value.scopeCatalog
+            && previous.scopeCatalog.catalogRevision === value.scopeCatalog.catalogRevision && !value.scopeCatalog.paginationReset;
+          const retainedTail = sameCatalog ? previous.requestableScopes : [];
+          const scopes = new Map(retainedTail.map((scope) => [scope.scopeRef, scope]));
+          value.requestableScopes.forEach((scope) => scopes.set(scope.scopeRef, scope));
+          const next = { ...value, requestableScopes: [...scopes.values()],
+            ...(sameCatalog && previous.scopeCatalog!.page > value.scopeCatalog!.page
+              ? { scopeCatalog: { ...value.scopeCatalog!, page: previous.scopeCatalog!.page, nextPage: previous.scopeCatalog!.nextPage, hasMore: previous.scopeCatalog!.hasMore } } : {}) };
           setViewerProfileState({
             personRef: resolvedPersonRef,
             viewerUid: user.uid,
-            profile: value,
+            profile: next,
           });
+          setDisplayState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: next });
+          const availableRefs = new Set(next.requestableScopes.map((scope) => scope.scopeRef));
+          setSelectedScopeRefs((selected) => new Set([...selected].filter((ref) => availableRefs.has(ref))));
         }
       })
       .catch(() => {
@@ -322,7 +350,6 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           setViewerLoadError({ personRef: resolvedPersonRef, viewerUid: user.uid });
           // Do not present an older eligibility catalog as current authority.
           setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: null });
-          setReviewOpen(false);
         }
       });
     return () => {
@@ -340,6 +367,8 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       if (!voiceRefreshDedupe.current.shouldRefresh(result)) return;
       requestGeneration.current += 1;
       viewerReadGeneration.current += 1;
+      relationshipReadGeneration.current += 1;
+      setRelationshipState(null);
       setViewerProfileState((current) => current.personRef === resolvedPersonRef && current.viewerUid === user?.uid
         ? { ...current, profile: null } : current);
       setViewerReloadToken((token) => token + 1);
@@ -370,6 +399,8 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     const refresh = () => {
       requestGeneration.current += 1;
       viewerReadGeneration.current += 1;
+      relationshipReadGeneration.current += 1;
+      setRelationshipState(null);
       setViewerProfileState((current) => current.personRef === resolvedPersonRef && current.viewerUid === user.uid
         ? { ...current, profile: null } : current);
       setViewerReloadToken((value) => value + 1);
@@ -409,7 +440,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     }
   }, [sharedIntent, viewerProfile, isVaultUnlocked]);
 
-  const allScopes = useMemo(() => viewerProfile?.requestableScopes || [], [viewerProfile]);
+  const allScopes = useMemo(() => displayViewerProfile?.requestableScopes || [], [displayViewerProfile]);
 
   async function loadMoreScopes() {
     const catalog = viewerProfile?.scopeCatalog;
@@ -431,6 +462,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         setReviewOpen(false);
       }
       setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: merged });
+      setDisplayState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: merged });
     } catch {
       if (generation === requestGeneration.current) setCatalogError(true);
     } finally {
@@ -493,6 +525,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   };
 
   const submitRequest = async () => {
+    if (!viewerProfile) return;
     const sent = await request.submit({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours });
     if (sent) {
       setReviewOpen(false);
@@ -548,6 +581,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               );
       requestGeneration.current += 1;
       viewerReadGeneration.current += 1;
+      relationshipReadGeneration.current += 1;
       catalogInFlight.current = false;
       setCatalogLoading(false);
       setCatalogError(false);
@@ -556,6 +590,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       } else {
         CacheSyncService.onConnectionCapabilityMutated(user.uid);
       }
+      setRelationshipState({ personRef: resolvedPersonRef, viewerUid: user.uid, value: relationship });
       setViewerProfileState((current) =>
         current.personRef === resolvedPersonRef && current.viewerUid === user.uid && current.profile
           ? {
@@ -769,6 +804,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           <p className="text-sm text-muted-foreground" role={publicProfileUnavailable ? "alert" : undefined}>
             {publicProfileUnavailable ? "This profile is unavailable." : "Loading profile…"}
           </p>
+          {publicProfileUnavailable ? <Button type="button" variant="none" onClick={() => setPublicReloadToken((value) => value + 1)}>Try again</Button> : null}
         </div>
       </AppPageShell>
     );
@@ -794,18 +830,18 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
-          status={viewerProfile ? (
+          status={relationship ? (
             <>
-              <StatusPill className={styles.status} tone={viewerProfile.relationship.status === "connected" ? "ready" : "neutral"}>
-                {viewerProfile.relationship.status === "connected" ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : null}
-                {viewerProfile.relationship.status === "connected"
+              <StatusPill className={styles.status} tone={relationship.status === "connected" ? "ready" : "neutral"}>
+                {relationship.status === "connected" ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : null}
+                {relationship.status === "connected"
                   ? "Connected"
-                  : viewerProfile.relationship.status.startsWith("pending")
+                  : relationship.status.startsWith("pending")
                     ? "Request pending"
                     : "Not connected"}
               </StatusPill>
             </>
-          ) : null}
+          ) : user ? <span role="status" className="text-sm text-muted-foreground">Checking connection…</span> : null}
           contacts={<>
             {viewerProfile?.relationship.status === "connected" && viewerProfile.contactEmail ? (
             <a href={`mailto:${viewerProfile.contactEmail}`}>
@@ -846,30 +882,36 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           </>}
           tasks={user ? (
               <>
-                {viewerProfile?.relationship.status === "connected" ? (
                   <DocumentRequestButton
+                    returnFocusRef={requestScopeReturnFocusRef}
+                    key={`files:${user.uid}:${resolvedPersonRef}`}
+                    canRequest={canRequest}
+                    showTrigger={showRequestActions}
+                    availability={connectorFeatures.availability}
+                    onAvailabilityRetry={connectorFeatures.retry}
                     personRef={resolvedPersonRef}
                     personName={profile.displayName || "this person"}
                     renderTrigger={(label) => actionCardContent(label, label === "Request files" ? FileText : MessageCircle, label === "Request files" ? "blue" : "pink")}
                   />
-                ) : null}
                 {/* Stay mounted while authority refreshes so accepted confirmation survives. */}
                 <RequestScopeButton
                   key={`question:${user.uid}:${resolvedPersonRef}`}
                   personRef={resolvedPersonRef}
                   personName={profile.displayName || "this person"}
-                  canRequest={viewerProfile?.relationship.status === "connected"}
+                  canRequest={canRequest}
+                  showTrigger={showRequestActions}
                   returnFocusRef={requestScopeReturnFocusRef}
                   renderTrigger={(label) => actionCardContent(label, ShieldCheck, "lilac")}
                 />
-                {viewerProfile?.relationship.status === "connected" ? (
                   <RequestCardsButton
+                    returnFocusRef={requestScopeReturnFocusRef}
                     key={`card:${user.uid}:${resolvedPersonRef}`}
                     personRef={resolvedPersonRef}
                     personName={profile.displayName || "this person"}
+                    canRequest={canRequest}
+                    showTrigger={showRequestActions}
                     renderTrigger={(label) => actionCardContent(label, CreditCard, "amber")}
                   />
-                ) : null}
               </>
             ) : null}
           footer={<>
@@ -935,7 +977,16 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           </SectionCard>
         ) : null}
 
-        {viewerProfile ? (
+        {displayViewerProfile && viewerUnavailable ? <div role="status" className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+          <span>Showing saved details. Some updates could not load.</span>
+          <Button type="button" variant="none" size="compact" onClick={() => setViewerReloadToken((value) => value + 1)}>Try again</Button>
+        </div> : null}
+        {user && !displayViewerProfile && !viewerUnavailable ? <section aria-label="Loading profile details" aria-busy="true" className="space-y-6">
+          {["Shared with you", "Available to request", "Request history"].map((label) => <div key={label} className={styles.section}>
+            <h2 className={styles.heading}>{label}</h2><Skeleton className="h-20 w-full rounded-2xl" />
+          </div>)}
+        </section> : null}
+        {displayViewerProfile ? (
           <>
             <section
               id="shared-with-you"
@@ -946,7 +997,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               <h2 id="shared-with-you-heading" className={styles.heading}>Shared with you</h2>
               <p className="sr-only">End-to-end encrypted information shared with your account, opened on this device only.</p>
 
-              {sharedCardItems.length ? (
+              {!viewerProfile ? <p role="status" className="text-sm text-muted-foreground">Checking shared information…</p> : sharedCardItems.length ? (
                 <SharedWithYouCard
                   person={{
                     personRef: viewerProfile.personRef,
@@ -982,6 +1033,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 catalogue is a set of `attr.<domain>.<path...>` references, so
                 it already knew how to nest; the page just threw the path away.
               */}
+              <fieldset disabled={!viewerProfile} className="min-w-0">
               <ConsentScopeNestedList
                 items={scopeItems}
                 renderDomainLeading={renderCategoryIcon}
@@ -999,9 +1051,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     )),
                 }}
               />
-              {viewerProfile.scopeCatalog?.hasMore ? (
+              </fieldset>
+              {displayViewerProfile.scopeCatalog?.hasMore ? (
                 <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <p className="text-muted-foreground">{allScopes.length} of {viewerProfile.scopeCatalog.totalCount} loaded. Search checks loaded information.</p>
+                  <p className="text-muted-foreground">{allScopes.length} of {displayViewerProfile.scopeCatalog.totalCount} loaded. Search checks loaded information.</p>
                   <Button type="button" size="compact" variant="none" effect="fade" disabled={catalogLoading}
                     onClick={() => void loadMoreScopes()}>
                     {catalogLoading ? "Loading more…" : catalogError ? "Try loading more again" : "Load more information"}
@@ -1105,7 +1158,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   size="compact"
                   variant="blue-gradient"
                   effect="fill"
-                  disabled={!selectedScopes.length}
+                  disabled={!viewerProfile || !selectedScopes.length}
                   onClick={openRequestReview}
                   data-voice-control-id="person-profile-review-information"
                 >
@@ -1150,6 +1203,9 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
             <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
               onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={requesting} />
             {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
+            {!viewerProfile ? <div role="status" className="text-sm text-muted-foreground">
+              {viewerUnavailable ? <>Connection details could not refresh. Your review is kept. <Button type="button" size="compact" variant="none" onClick={() => setViewerReloadToken((value) => value + 1)}>Try again</Button></> : "Checking connection. Your review is kept."}
+            </div> : null}
           </div>
           <DialogFooter className="shrink-0 flex-row items-center justify-end border-t border-border/60 pt-3">
             <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-request-cancel" onClick={() => setReviewOpen(false)}>
@@ -1159,7 +1215,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               type="button"
               variant="blue-gradient"
               effect="fill"
-              disabled={requesting || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50 || !request.available}
+              disabled={!viewerProfile || requesting || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50 || !request.available}
               onClick={() => void submitRequest()}
               data-voice-control-id="person-profile-request-confirm"
             >

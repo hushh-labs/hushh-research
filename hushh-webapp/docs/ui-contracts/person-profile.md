@@ -4,7 +4,7 @@ Status: current source-backed contract, updated for Profile v16 on 21 October
 2026, based on `f64c890498dd4aa9bd1fe8bb3ac35c6445948f47`.
 Owner: frontend design system and the existing consent/wallet feature owners.
 Classification: `canonical`, package-local. This is **another person's profile**
-opened from Connect, not the signed-in person's [Profile settings](./profile.md).
+opened from Connect or Messages, not the signed-in person's [Profile settings](./profile.md).
 
 This contract covers the complete mounted profile, its local dialogs/sheets,
 every immediate CTA, responsive geometry, typography, request submission,
@@ -48,12 +48,13 @@ Sources: [route](../../app/people/[personRef]/page.tsx),
 | --- | --- |
 | URL | `/people/<publicPersonRef>?from=<normalized internal return>`; a public person reference is required. The route initially mounts with no prefetched profile. |
 | From Connect | A permitted identity row opens this shared route. The trailing connection/message controls belong to Connect, not this page. |
+| From Messages | The conversation name/photo opens Contact info; the separate info icon beside calling is omitted. Received-message and Contact info avatars open the loaded peer's existing profile through a Next client link. Contact info reads the existing authorized viewer profile only for a current writable conversation and projects email/verified phone only for its connected relationship. Owner, selection, dialog close and connection-graph revisions retire old results; it does not perform a public identity or Firebase lookup. Links require the current owner/selection's admitted public person reference and have 44px minimum targets. `from=/one/messages` gives shell Back a Messages breadcrumb and returns through the existing owner-scoped conversation restoration; identifiers and route tokens are not added to the return URL. |
 | Native iOS | Resolves the actual person reference from the pathname instead of the static-export placeholder. Other platforms use the route prop. This remains a web/WebView component. |
-| Public identity | Public no-store read supplies display name, photo, and optional verified role. Contact details and grants are not public profile fields. |
-| Loading/unavailable | Centered minimum `50vh` loading region: “Loading profile…” then “This profile is unavailable.” on failure; no local public-profile Retry CTA. |
+| Public identity | Memory-cached public identity paints immediately; a no-store read revalidates display name, photo, and optional verified role. Contact details and grants are not public profile fields. |
+| Loading/unavailable | Centered minimum `50vh` loading region: “Loading profile…” then “This profile is unavailable.” on failure; **Try again** retries the public read. |
 | Signed out | Identity, Share, “Connect through Hussh,” and **Sign in** → `/login`. This sign-in CTA adds no return query. |
 | Signed in | Firebase ID-token viewer/history reads; vault unlock is independently required for encrypted information and particular request flows. |
-| Viewer read fails | Public identity and Share remain. Protected sections are replaced by the connection-load error and **Try again**. Failed eligibility is not retained as current authority. |
+| Viewer read fails | Public identity, Share, drafts, receipts and previously loaded catalog/history display remain with **Try again**. Protected shared values wait for current authority. An independent relationship read establishes action eligibility without waiting for the complete catalog/history; failed eligibility is not retained as current authority. |
 | `?request=1` | Scrolls to Available to request after viewer state is ready. |
 | `?section=shared` | Scrolls to Shared with you; opens existing vault unlock if locked. |
 | Back | Shell Back uses normalized `from`. An entry without a trusted origin has no authored parent. Do not replace this with arbitrary browser history. |
@@ -459,7 +460,7 @@ is the separate information bundle review above.
 | Helper | Owner approves question, exact information used, and price before payment. No scope picker, dates, price field, consent checkbox or upload here. |
 | **Send request / Sending…** | Explicit pending question create with Firebase identity authority. Invalid/busy/disconnected disables Send; after 5 seconds shows “Still sending—please wait…”. |
 | **Cancel** / dismissal | Disabled/refused during send. Ready unsent form hides X. Idle cancel closes and clears question/error/created confirmation. |
-| Failure | Alert, question retained, same form for retry. |
+| Failure | Alert, question retained, same retry UUID for unchanged terms; **Check request status** recovers an uncertain submission through participant state. |
 | Success | “Request sent”; explains the owner's next review/price step. **View request / Ask another question**. No answer/payment sheet is mounted here. |
 | **View request** | Pending/sent Consent Center URL with `requestId=answer_request:<uuid>`. |
 | **Ask another question** | Returns entry state. |
@@ -1020,7 +1021,7 @@ values. A missing body is stated explicitly; `{}` is a real empty JSON body.
 | --- | --- |
 | Public identity | PersonProfileService → [public person proxy](../../app/api/public/people/[personRef]/route.ts) → [public router in people.py](../../../consent-protocol/api/routes/one/people.py), [person service](../../../consent-protocol/hushh_mcp/services/person_profile_service.py). GET/no-store,15-second upstream deadline; transport failure502. |
 | People / information / question / card / recipient key | [ApiService](../../lib/services/api-service.ts) → [One catchall](../../app/api/one/[...path]/route.ts) → identical `/api/one/<path>` and query. Forwards method, auth/consent and body; private/no-store; ordinary upstream deadline45seconds, transport502/504. Native generic transport uses configured backend directly. |
-| Connector overview | [ExternalConnectorService](../../lib/services/external-connector-service.ts) → [connector root](../../app/api/connectors/route.ts) / [proxy](../../app/api/connectors/_proxy.ts) → [external connectors router](../../../consent-protocol/api/routes/external_connectors.py). |
+| Connector feature readiness (complete overview retained for other callers) | [ExternalConnectorService](../../lib/services/external-connector-service.ts) → [connector root](../../app/api/connectors/route.ts) / [proxy](../../app/api/connectors/_proxy.ts) → [external connectors router](../../../consent-protocol/api/routes/external_connectors.py). |
 | Drive quote/files/questions/packets | Respective service → [connector catchall](../../app/api/connectors/[...path]/route.ts) / proxy → [Drive sharing router](../../../consent-protocol/api/routes/drive_sharing.py). Recipient identity uses [requester router](../../../consent-protocol/api/routes/drive_request_requester.py); checkout uses [payment router](../../../consent-protocol/api/routes/drive_request_payments.py). |
 | Information request | [PersonProfileService](../../lib/services/person-profile-service.ts) → One proxy → [information router](../../../consent-protocol/api/routes/one/information_requests.py) → [information service](../../../consent-protocol/hushh_mcp/services/information_request_service.py). |
 | Relationship | Same profile service/proxy → [people router](../../../consent-protocol/api/routes/one/people.py) → [ConnectionsService](../../../consent-protocol/hushh_mcp/services/connections_service.py). |
@@ -1055,7 +1056,8 @@ Source: [page handlers](../../components/connections/person-profile-page.tsx),
 
 | Trigger / row | Read or mutation | Response → state; No/Cancel/error branch |
 | --- | --- | --- |
-| Initial identity | GET `/api/public/people/<ref>`, no auth/query/body | P→identity; failed read→unavailable, no Retry. |
+| Initial identity / Try again | GET `/api/public/people/<ref>`, no auth/query/body | P→identity; memory seeds display, failed cold read→unavailable with Retry. |
+| Relationship readiness | GET `U/relationship`, F | `{personRef,relationship}`→current eligibility; independent full viewer response is the fallback. Mutations retain server admission. |
 | Initial viewer / Try again / authority event | GET `U?catalog_page=1`, F, no body | Vprofile→rows; nulls protected eligibility during failed refresh. Try again also rereads HP. Obsolete person/viewer results ignored. |
 | Email / phone | Reuses Vprofile contact fields; `mailto:` / `tel:` | External OS handoff only; cancelling OS handler changes nothing locally. |
 | Request | Reuses loaded viewer; no HTTP | Scroll to catalog. No submission. |
@@ -1167,7 +1169,7 @@ caller**, excluding optional Chat-draft and owner-only APIs.
 
 | Trigger / row | Method / path / auth / body | Response fields → UI; alternate branch |
 | --- | --- | --- |
-| Controls/packet admission | GET `/api/connectors`, V, no body/query | `{connectors,features,driveAgentPackagesEnabled}`; `features.drive_document_sharing` exposes file/question triggers; package flag adds actor/reason/access fields and packet catalog. Failure hides those gates. |
+| Controls/packet admission | GET `/api/connectors/features`, V, no body/query | `{features,driveAgentPackagesEnabled}`; shared owner/session-scoped readiness read. File/question action positions remain stable during checking/locked/error/off; forms explain the state and block Send until admitted. Error offers Retry; package flag controls packet catalog. |
 | Open files / quote Retry | GET `D/quote?ownerPersonRef=<ref>`, V, no body | `{amountCents,version,paymentRequired,priceReady,payoutReady,paymentsReady}`→amount/free/owner-price and readiness copy. Quote required to send; payment readiness does not itself block create. |
 | Recipient preview / after linking | GET `D/recipient-identity`, F+V, no body/query | `{email,provider:"google.com"}`→receiving account notice. Backend same Firebase UID/vault owner + one Google provider check. Missing→link guidance; other preview error hides notice; Send still verifies. |
 | Send files | POST `D/requests`, F+V, file JSON below;202 | Service retains `{requestId,status,revision}`; caller only uses requestId→success/View request. Purpose/date summary uses local submitted terms. No payment/owner review mounted here. |
@@ -1175,7 +1177,7 @@ caller**, excluding optional Chat-draft and owner-only APIs.
 | Card initial read / polling / Refresh | GET `D/queries/<requestId>`, V, no body/query | Query view→current status/question/answer. Failure clears actionable snapshot. |
 | Cancel question | POST `D/queries/<requestId>/cancel`, V, `{revision}` | Query view→cancelled. Revision race triggers GET recovery; progressed server state wins. Already-cancelled retry returns same state. No confirmation dialog. |
 | Scope availability / Try again | GET `/api/one/answer-requests/availability`, F, no body/query | `{enabled,requests,payments,payouts}`; client reads strict booleans and intake checks `requests` only. Active-connection trigger remains visible during checking/off/error. |
-| Send scope question | POST `/api/one/answer-requests`, F, exactly `{personRef,question}` | `{requestId}`→success/View request. Backend queues semantic resolver. No period fields (undefined omitted), no client idempotency key; UI single-flight is not backend retry deduplication. |
+| Send scope question | POST `/api/one/answer-requests`, F, `{personRef,question,clientRequestId}` | `{requestId}`→success/View request. Backend queues semantic resolver; unchanged retry UUID returns the original request without duplicate Feed/lifecycle writes. No period fields (undefined omitted). Uncertain response offers Check request status. |
 | Card Send: recover receiving key | GET `/api/one/location/state`, V, no body/query | Consumes only `myRecipientKey:{keyId,publicKeyJwk?,keyAlgorithm,encryptedPrivateKeyJwk?,keyRegisteredAt?}`. Recovers receiving key, does not display Location state or read a card. Strict failure stops create. |
 | Card Send: register key | POST `/api/one/location/recipient-keys`, V, `{keyId,publicKeyJwk,algorithm,encryptedPrivateKeyJwk?}` | `{recipientKey}`; validate requester UID/public key before card request. Existing idempotent key registration, no Location grant. |
 | Send card request | POST `/api/one/wallet/card-access/requests`, F+V, `{personRef,requestId:<client UUID>}` | Parsed `{id,status,role,requesterPersonRef,requesterName,ownerName,createdAt,expiresAt}`→close dialog, disabled Card request sent. Server id differs from client operation id; new request expires7days and emits message/Feed marker, no card credentials read. |
@@ -1237,7 +1239,7 @@ Sources: [packet service](../../lib/services/drive-packet-service.ts),
 | Information bundle | Same unchanged draft UUID; backend fingerprint/reconciliation;45-second abort | Closing allowed during send; no rollback of prepared connector/accepted create. |
 | File create | Same normalized terms+quote UUID; quote/terms change gives new key; price_changed refreshes quote | Cancel during verification discards late result; POST dismissal refused. |
 | Drive question create | Same owner/question UUID; changed words give new key; conflicting reused key rejected | Cancel/X closes only when idle. Cancel question is explicit revision-checked server mutation. |
-| Scope question | No create idempotency key/dedupe contract found; component prevents concurrent sends | Cancel clears local entry, disabled while busy; uncertain retry must not promise exactly-once create. |
+| Scope question | Same owner/question UUID on unchanged uncertain retry; the existing request PK deduplicates matching creates | Cancel clears local entry and is disabled while busy; dismissal retains the uncertain operation identity. Acknowledged success clears it for another intentional question. |
 | Card create | Same client operation ID; server resumes matching requester/key/target, rejects changed target or another pending request | Busy rejects cancel/dismiss; lock/person/visibility resets transient UI. |
 | Packet Buy | Version+listing retry key survives close/reopen; backend locks/resumes equivalent active purchase | Closing allowed while busy; suppresses late UI, not proof server cancelled. |
 
@@ -1286,7 +1288,7 @@ URL state.
 | Review can close while information send continues | Dismissal is not cancellation. Other forms have different busy guards. |
 | History Details lacks token feedback | Locked Details does not automatically unlock; Withdraw has a toast. |
 | Quote copy and payment lanes differ | Do not turn an estimate into a frozen price or certify all checkout rules from requester copy. |
-| Scope-question create has no client idempotency key | UI single-flight does not make an uncertain retry exactly-once. File/query/card/packet retry contracts cannot be copied onto this flow. |
+| Scope-question retry identity is optional for legacy callers | The Profile flow sends a UUID and exact replays return the original request without reopening lifecycle state or duplicating Feed events. Callers omitting it retain legacy create behavior. |
 | Secure export GET records EXPORT_READ | A read can write an audit record; it does not create a new consent grant. |
 | Information Send may prepare connector/key first | Closing review does not roll back an encrypted connector write or a later accepted bundle. |
 
@@ -1355,3 +1357,14 @@ Profile v16 implementation checks, 21 October 2026:
   production profile page, module CSS, hero, layout spec and fixture. Its
   scheduling regression fails before the selector fix. Hosted browser/native
   and release evidence remain separate gates.
+
+### Profile refresh continuity
+
+Account/auth-session changes retire the workflow owner. Same-person background
+refresh retains all four workflow owners and drafts/accepted receipts; current
+permission uncertainty gates new dispatch, not an already accepted response.
+Cached catalog/history labels are display only. Contact/shared-value reads remain
+current-authority gated. A same-revision first-page refresh retains loaded catalog
+pages and selection; a changed revision or pagination reset revalidates choices.
+Feature credential renewal rechecks readiness without remounting the composer.
+No short client timeout rejects an otherwise current slow API result.

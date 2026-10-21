@@ -34,7 +34,7 @@ def _names(job: dict) -> list[str]:
 def test_provenance_check_runs_in_the_ubuntu_preflight_after_the_sha_resolves() -> None:
     preflight = _jobs()["preflight"]
     assert str(preflight["runs-on"]).startswith("ubuntu"), preflight["runs-on"]
-    assert preflight.get("environment") == "uat"
+    assert preflight.get("environment") == {"name": "uat", "deployment": False}
     names = _names(preflight)
     assert CHECK in names, f"{CHECK!r} left the preflight job"
     check_at = names.index(CHECK)

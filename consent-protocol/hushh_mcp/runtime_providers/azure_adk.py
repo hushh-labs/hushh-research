@@ -7,6 +7,7 @@ select tools, retry requests, or grant invocation/data/action authority.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any
@@ -27,6 +28,8 @@ class AzureAuthenticationError(RuntimeError):
 _SIGNATURE_PREFIX = b"azure-responses-v1:"
 _MAX_SIGNATURE_BYTES = 256 * 1024
 _MAX_ARGUMENT_BYTES = 256 * 1024
+_MAX_MEDIA_BYTES = 25 * 1024 * 1024
+_MAX_REQUEST_MEDIA_BYTES = 50 * 1024 * 1024
 
 
 def _value(obj: Any, name: str, default=None):
@@ -73,13 +76,14 @@ def _schema(value: Any, *, strict: bool) -> dict:
             result["type"] = result["type"].lower()
         if "const" in result:
             result["enum"] = [result.pop("const")]
-        if result.pop("nullable", False):
-            return {"anyOf": [result, {"type": "null"}]}
+        nullable = result.pop("nullable", False)
         if strict and result.get("type") == "object":
             if result.get("additionalProperties") not in (None, False):
                 raise ValueError("Azure strict output cannot represent open object fields")
             result["additionalProperties"] = False
             result["required"] = list(result.get("properties", {}))
+        if nullable:
+            return {"anyOf": [result, {"type": "null"}]}
         return result
 
     converted = visit(value)
@@ -124,15 +128,58 @@ def _reasoning_part(item: Any) -> types.Part | None:
     return types.Part(thought=True, thought_signature=signature)
 
 
+def _inline_media(part: types.Part) -> dict:
+    """Translate already-admitted bytes; never fetch URLs or persist provider files."""
+    blob = part.inline_data
+    if (
+        blob is None
+        or not isinstance(blob.data, bytes)
+        or not 0 < len(blob.data) <= _MAX_MEDIA_BYTES
+    ):
+        raise ValueError("Azure inline media exceeds supported bounds")
+    data, mime = blob.data, blob.mime_type
+    if mime == "text/csv":
+        return {"type": "input_text", "text": data.decode("utf-8-sig", errors="strict")}
+    if mime == "application/pdf":
+        if not data.startswith(b"%PDF-") or b"%%EOF" not in data[-1024:]:
+            raise ValueError("Invalid Azure inline PDF")
+        return {
+            "type": "input_file",
+            "filename": "document.pdf",
+            "file_data": "data:application/pdf;base64," + base64.b64encode(data).decode("ascii"),
+        }
+    signatures = {
+        "image/png": data.startswith(b"\x89PNG\r\n\x1a\n"),
+        "image/jpeg": data.startswith(b"\xff\xd8\xff"),
+        "image/gif": data.startswith((b"GIF87a", b"GIF89a")),
+        "image/webp": data.startswith(b"RIFF") and data[8:12] == b"WEBP",
+    }
+    if not signatures.get(mime or "", False):
+        raise ValueError("Unsupported or invalid Azure inline media")
+    return {
+        "type": "input_image",
+        "image_url": f"data:{mime};base64," + base64.b64encode(data).decode("ascii"),
+    }
+
+
 def _history(contents: list[types.Content]) -> list[dict]:
     output, pending, seen = [], {}, set()
+    media_bytes = 0
     for content in contents:
         if content.role not in {"user", "model"}:
             raise ValueError("Unsupported Azure history role")
         role = "assistant" if content.role == "model" else "user"
         text: list[str] = []
+        rich: list[dict] = []
 
-        def flush(text=text, role=role):
+        def flush(text=text, role=role, rich=rich):
+            if rich:
+                if text:
+                    rich.append({"type": "input_text", "text": "".join(text)})
+                    text.clear()
+                output.append({"role": role, "content": list(rich)})
+                rich.clear()
+                return
             if text:
                 output.append({"role": role, "content": "".join(text)})
                 text.clear()
@@ -145,8 +192,20 @@ def _history(contents: list[types.Content]) -> list[dict]:
                 "thought_signature",
                 "function_call",
                 "function_response",
+                "inline_data",
             }:
                 raise ValueError("Azure text adapter does not support native media parts")
+            if part.inline_data is not None:
+                if role != "user" or fields != {"inline_data"}:
+                    raise ValueError("Azure inline media must be a distinct user input part")
+                media_bytes += len(part.inline_data.data or b"")
+                if media_bytes > _MAX_REQUEST_MEDIA_BYTES:
+                    raise ValueError("Azure request media exceeds supported bounds")
+                if text:
+                    rich.append({"type": "input_text", "text": "".join(text)})
+                    text.clear()
+                rich.append(_inline_media(part))
+                continue
             if part.thought_signature and part.thought_signature.startswith(_SIGNATURE_PREFIX):
                 if role != "assistant" or len(part.thought_signature) > _MAX_SIGNATURE_BYTES:
                     raise ValueError("Invalid Azure reasoning history")
@@ -205,12 +264,23 @@ def _history(contents: list[types.Content]) -> list[dict]:
     return output
 
 
-def _tools(config: types.GenerateContentConfig) -> tuple[list[dict], str]:
-    tools, names = [], set()
+def _tools(
+    config: types.GenerateContentConfig, *, allow_web_search: bool = False
+) -> tuple[list[dict], str]:
+    tools: list[dict] = []
+    names: set[str] = set()
     for tool in config.tools or []:
         if not isinstance(tool, types.Tool):
             raise ValueError("Unsupported Azure tool declaration")
-        if set(tool.model_dump(exclude_none=True)) - {"function_declarations"}:
+        fields = set(tool.model_dump(exclude_none=True))
+        if allow_web_search and fields == {"google_search"}:
+            if tool.google_search is None or tool.google_search.model_dump(exclude_none=True):
+                raise ValueError("Unsupported Azure search constraints")
+            if any(item["type"] == "web_search" for item in tools):
+                raise ValueError("Duplicate Azure search declaration")
+            tools.append({"type": "web_search", "external_web_access": False})
+            continue
+        if fields - {"function_declarations"}:
             raise ValueError("Azure adapter cannot execute provider-native tools")
         for function in tool.function_declarations or []:
             if (
@@ -245,13 +315,13 @@ def _tools(config: types.GenerateContentConfig) -> tuple[list[dict], str]:
     if allowed:
         if not set(allowed) <= names:
             raise ValueError("Unknown Azure allowed function name")
-        tools = [tool for tool in tools if tool["name"] in allowed]
+        tools = [tool for tool in tools if tool.get("name") in allowed]
     if mode == "ANY" and not tools:
         raise ValueError("Required Azure function call needs a declared tool")
     return tools, choices[mode]
 
 
-def _request(request: LlmRequest, deployment: str) -> dict:
+def _request(request: LlmRequest, deployment: str, *, allow_web_search: bool = False) -> dict:
     config = request.config or types.GenerateContentConfig()
     if (
         config.cached_content
@@ -261,7 +331,7 @@ def _request(request: LlmRequest, deployment: str) -> dict:
         and any(str(getattr(x, "value", x)) != "TEXT" for x in config.response_modalities)
     ):
         raise ValueError("Unsupported Azure generation contract")
-    tools, choice = _tools(config)
+    tools, choice = _tools(config, allow_web_search=allow_web_search)
     kwargs: dict[str, Any] = {
         "model": deployment,
         "input": _history(request.contents),
@@ -273,6 +343,8 @@ def _request(request: LlmRequest, deployment: str) -> dict:
         kwargs["instructions"] = instruction
     if tools:
         kwargs.update(tools=tools, tool_choice=choice)
+        if any(item["type"] == "web_search" for item in tools):
+            kwargs["include"].append("web_search_call.action.sources")
     if config.max_output_tokens is not None:
         kwargs["max_output_tokens"] = config.max_output_tokens
     for field in ("temperature", "top_p"):
@@ -292,7 +364,14 @@ def _request(request: LlmRequest, deployment: str) -> dict:
     if config.thinking_config and config.thinking_config.include_thoughts:
         kwargs.setdefault("reasoning", {})["summary"] = "auto"
     schema = config.response_json_schema or config.response_schema
-    if schema is not None:
+    if schema is dict:
+        # Existing untyped-JSON genes intentionally accept arbitrary keys.
+        # Keep that contract instead of inventing a closed schema for them.
+        kwargs["text"] = {"format": {"type": "json_object"}}
+        kwargs["instructions"] = (
+            kwargs.get("instructions", "") + "\nReturn a JSON object."
+        ).strip()
+    elif schema is not None:
         kwargs["text"] = {
             "format": {
                 "type": "json_schema",
@@ -306,7 +385,9 @@ def _request(request: LlmRequest, deployment: str) -> dict:
     return kwargs
 
 
-def _response(response: Any, *, allowed_names: set[str]) -> LlmResponse:
+def _response(
+    response: Any, *, allowed_names: set[str], allow_web_search: bool = False
+) -> LlmResponse:
     if _value(response, "status") != "completed" or _value(response, "incomplete_details"):
         raise ValueError("Azure model response did not complete")
     parts, ids = [], set()
@@ -348,6 +429,8 @@ def _response(response: Any, *, allowed_names: set[str]) -> LlmResponse:
             parts.append(
                 types.Part(function_call=types.FunctionCall(id=identity, name=name, args=args))
             )
+        elif kind == "web_search_call" and allow_web_search:
+            continue  # Only receipt validation below may admit search evidence.
         else:
             raise ValueError("Unsupported Azure native output tool")
     if not any(part.text is not None or part.function_call is not None for part in parts):
@@ -355,10 +438,34 @@ def _response(response: Any, *, allowed_names: set[str]) -> LlmResponse:
     usage = _value(response, "usage")
     metadata = None
     if usage is not None:
+        cached = _value(_value(usage, "input_tokens_details"), "cached_tokens")
+        reasoning = _value(_value(usage, "output_tokens_details"), "reasoning_tokens")
         metadata = types.GenerateContentResponseUsageMetadata(
             prompt_token_count=_value(usage, "input_tokens"),
             candidates_token_count=_value(usage, "output_tokens"),
             total_token_count=_value(usage, "total_tokens"),
+            cached_content_token_count=cached,
+            thoughts_token_count=reasoning,
+        )
+    grounding = None
+    if allow_web_search and any(
+        _value(item, "type") == "web_search_call" for item in _value(response, "output", [])
+    ):
+        from hushh_mcp.one_adk.azure_web_receipts import extract_azure_web_receipts
+
+        raw = response.model_dump(mode="json") if hasattr(response, "model_dump") else response
+        if not isinstance(raw, dict):
+            raise ValueError("Azure search requires a complete provider receipt")
+        receipts = extract_azure_web_receipts(raw)
+        if not receipts.observed:
+            raise ValueError("Azure search returned no verified citations")
+        grounding = types.GroundingMetadata(
+            grounding_chunks=[
+                types.GroundingChunk(
+                    web=types.GroundingChunkWeb(uri=source.url, title=source.title)
+                )
+                for source in receipts.sources
+            ],
         )
     return LlmResponse(
         content=types.Content(role="model", parts=parts),
@@ -367,6 +474,7 @@ def _response(response: Any, *, allowed_names: set[str]) -> LlmResponse:
         finish_reason=types.FinishReason.STOP,
         model_version=_value(response, "model"),
         usage_metadata=metadata,
+        grounding_metadata=grounding,
     )
 
 
@@ -386,6 +494,7 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
     )
     timeout_seconds: float = Field(default=60, gt=0, le=120)
     client_factory: Callable[..., Any] | None = Field(default=None, exclude=True, repr=False)
+    allow_web_search: bool = False
 
     @field_validator("endpoint")
     @classmethod
@@ -437,9 +546,9 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
     async def generate_content_async(
         self, llm_request: LlmRequest, stream: bool = False
     ) -> AsyncGenerator[LlmResponse, None]:
-        kwargs = _request(llm_request, self.model)  # Reject unsupported input before auth/network.
+        kwargs = _request(llm_request, self.model, allow_web_search=self.allow_web_search)
         allowed = (
-            {tool["name"] for tool in kwargs.get("tools", [])}
+            {tool["name"] for tool in kwargs.get("tools", []) if tool["type"] == "function"}
             if kwargs.get("tool_choice") != "none"
             else set()
         )
@@ -460,10 +569,15 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
                 await self.require_current()
             if not stream:
                 response = await client.responses.create(**kwargs)
-                yield _response(response, allowed_names=allowed)
+                if self.require_current is not None:
+                    await self.require_current()
+                yield _response(
+                    response, allowed_names=allowed, allow_web_search=self.allow_web_search
+                )
                 return
             events = await client.responses.create(**kwargs, stream=True)
             completed = False
+            observed_text = False
             try:
                 async for event in events:
                     kind = _value(event, "type")
@@ -475,6 +589,9 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
                         if not isinstance(delta, str):
                             raise ValueError("Invalid Azure streaming text")
                         if delta:
+                            if not observed_text and self.require_current is not None:
+                                await self.require_current()
+                            observed_text = True
                             yield LlmResponse(
                                 content=types.Content(
                                     role="model",
@@ -490,7 +607,13 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
                                 partial=True,
                             )
                     elif kind == "response.completed":
-                        final = _response(_value(event, "response"), allowed_names=allowed)
+                        if self.require_current is not None:
+                            await self.require_current()
+                        final = _response(
+                            _value(event, "response"),
+                            allowed_names=allowed,
+                            allow_web_search=self.allow_web_search,
+                        )
                         completed = True
                         yield final
                         return

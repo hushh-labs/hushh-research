@@ -53,6 +53,7 @@ import {
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { connectPersonName } from "@/lib/connections/person-label";
+import { MAX_CUSTOM_CIRCLE_TYPES, MAX_CIRCLE_TYPE_LABEL_LENGTH, normalizeCircleTypeLabel } from "@/lib/one-location/circle-types";
 import {
   buildDirectMessageRoute,
   buildPersonProfileRoute,
@@ -617,7 +618,9 @@ const CIRCLE_KIND_OPTIONS: {
 export type CreateCircleFlowProps = {
   active?: boolean;
   busy: boolean;
-  onSubmit: (name: string, kind: OneLocationCircleKind, existingCircleId?: string) => Promise<OneLocationCircleDetail>;
+  onSubmit: (name: string, kind: OneLocationCircleKind, existingCircleId?: string, customTypeLabel?: string) => Promise<OneLocationCircleDetail>;
+  customTypes?: readonly string[];
+  customTypesSupported?: boolean;
   /** Location hides the choice and retains the existing family default. */
   showCircleType?: boolean;
   onLoadPeople: CirclePeoplePageLoader;
@@ -633,6 +636,8 @@ export function useCreateCircleFlow({
   busy,
   onSubmit,
   showCircleType = true,
+  customTypes = [],
+  customTypesSupported = false,
   onLoadPeople,
   onAddPeople,
   onComplete,
@@ -643,27 +648,41 @@ export function useCreateCircleFlow({
   const [nameRequirementActive, setNameRequirementActive] = useState(false);
   const [nameFocused, setNameFocused] = useState(false);
   const [kind, setKind] = useState<OneLocationCircleKind>("family");
+  const [customTypeLabel, setCustomTypeLabel] = useState("");
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const [step, setStep] = useState<"details" | "people">("details");
   const [savedCircle, setSavedCircle] = useState<OneLocationCircleDetail | null>(null);
   const [saving, setSaving] = useState(false);
   const [addingPeople, setAddingPeople] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const input = useRef({ name: "", kind: "family" as OneLocationCircleKind, revision: 0 });
+  const input = useRef({ name: "", kind: "family" as OneLocationCircleKind, customTypeLabel: "", revision: 0 });
   const inputRevision = useCallback(() => input.current.revision, []);
-  const changeDraft = useCallback((draft: { name: string; kind: OneLocationCircleKind }, expectedRevision?: number) => {
+  const changeDraft = useCallback((draft: { name: string; kind: OneLocationCircleKind; customTypeLabel?: string }, expectedRevision?: number) => {
     if (!mounted.current || submittingRef.current || expectedRevision !== undefined && input.current.revision !== expectedRevision ||
       draft.name.length > 80 || !["family", "friends", "other"].includes(draft.kind)) return false;
-    if (input.current.name === draft.name && input.current.kind === draft.kind) return true;
-    input.current = { ...draft, revision: input.current.revision + 1 };
-    setName(draft.name); setKind(draft.kind); if (draft.name.trim()) setNameRequirementActive(false);
+    const nextType = draft.kind === "other" ? (draft.customTypeLabel ?? input.current.customTypeLabel) : "";
+    if (nextType.length > MAX_CIRCLE_TYPE_LABEL_LENGTH) return false;
+    if (input.current.name === draft.name && input.current.kind === draft.kind && input.current.customTypeLabel === nextType) return true;
+    input.current = { ...draft, customTypeLabel: nextType, revision: input.current.revision + 1 };
+    setName(draft.name); setKind(draft.kind); setCustomTypeLabel(nextType); if (draft.name.trim()) setNameRequirementActive(false);
     return true;
   }, []);
   // One typed character is a name. Requiring two silently withheld the button
   // from anyone naming a circle "A", with nothing on screen saying why.
   const trimmedName = name.trim();
   const nameMissing = trimmedName.length < 1;
-  const canSubmit = !nameMissing && !busy && !saving;
+  const normalizedType = normalizeCircleTypeLabel(customTypeLabel);
+  const existingType = customTypes.find(label => label.toLocaleLowerCase() === normalizedType.toLocaleLowerCase());
+  const typeError = kind === "other" && normalizedType && customTypesSupported
+    ? normalizedType.length > MAX_CIRCLE_TYPE_LABEL_LENGTH
+      ? "Use up to 32 characters for the type name."
+      : ["family", "friends", "other"].includes(normalizedType.toLocaleLowerCase())
+      ? "Choose Family or Friends above, or use another type name."
+      : !savedCircle && !existingType && customTypes.length >= MAX_CUSTOM_CIRCLE_TYPES
+        ? "You can keep up to 3 custom types. Delete a type before adding another."
+        : null
+    : null;
+  const canSubmit = !nameMissing && !typeError && !busy && !saving;
   const nameHelpId = "one-location-create-circle-name-help";
   const showNameError = nameRequirementActive && nameMissing;
   const showNameCount = nameFocused && !showNameError && name.length >= 64;
@@ -695,14 +714,17 @@ export function useCreateCircleFlow({
   stepRef.current = step; addingRef.current = addingPeople;
   useEffect(() => {
     if (active) return;
-    input.current = { name: "", kind: "family", revision: input.current.revision + 1 };
-    submittingRef.current = false; setName(""); setKind("family"); setNameRequirementActive(false); setNameFocused(false);
+    input.current = { name: "", kind: "family", customTypeLabel: "", revision: input.current.revision + 1 };
+    submittingRef.current = false; setName(""); setKind("family"); setCustomTypeLabel(""); setNameRequirementActive(false); setNameFocused(false);
     setStep("details"); setSavedCircle(null); setSaving(false); setAddingPeople(false);
     setError(null);
   }, [active]);
   const prepare = async (draft = input.current) => {
     if (!mounted.current || submittingRef.current || busy || saving) return false;
     const nextName = draft.name.trim();
+    const enteredType = draft.kind === "other" && customTypesSupported ? normalizeCircleTypeLabel(draft.customTypeLabel) : "";
+    const nextType = customTypes.find(label => label.toLocaleLowerCase() === enteredType.toLocaleLowerCase()) ?? enteredType;
+    if (typeError) return false;
     if (nextName.length < 1 || draft.name.length > 80) {
       setNameRequirementActive(true);
       window.requestAnimationFrame(() => nameInputRef.current?.focus());
@@ -711,11 +733,14 @@ export function useCreateCircleFlow({
     submittingRef.current = true;
     setSaving(true); setError(null);
     try {
-      const circle = savedCircle && savedCircle.name === nextName && savedCircle.kind === draft.kind
+      const circle = savedCircle && savedCircle.name === nextName && savedCircle.kind === draft.kind && (savedCircle.customTypeLabel ?? "") === nextType
         ? savedCircle
-        : await onSubmit(nextName, draft.kind, savedCircle?.id);
+        : await (nextType ? onSubmit(nextName, draft.kind, savedCircle?.id, nextType) : onSubmit(nextName, draft.kind, savedCircle?.id));
       if (!mounted.current) return false;
       setSavedCircle(circle);
+      if (nextType && circle.customTypeLabel !== nextType) {
+        throw new Error("Could not save the Circle type. Please try again.");
+      }
       try {
         if (!savedCircle) trackEvent("one_location_circle_created", {
           route_id: "one_location",
@@ -741,6 +766,7 @@ export function useCreateCircleFlow({
   const people = useCreateCirclePeopleModel(peopleProps);
   return { name, setName: (name: string) => changeDraft({ ...input.current, name }), nameRequirementActive, setNameRequirementActive, nameFocused, setNameFocused,
     kind, setKind: (kind: OneLocationCircleKind) => changeDraft({ ...input.current, kind }), inputRevision, changeDraft,
+    customTypeLabel, setCustomTypeLabel: (label: string) => changeDraft({ ...input.current, customTypeLabel: label }), customTypes, customTypesSupported, typeError,
     nameInputRef, step, savedCircle, saving, addingPeople, nameMissing, canSubmit, nameHelpId, showNameError, nameHelpText,
     backToDetails, submit, prepare, advance, people, peopleProps, current, mutationPending, busy, showCircleType, error };
 }
@@ -750,8 +776,19 @@ export function CreateCircleFlow(props: CreateCircleFlowProps) {
   return <CreateCircleFlowBody model={useCreateCircleFlow(props)} />;
 }
 export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }) {
-  const { name, setName, setNameRequirementActive, setNameFocused, kind, setKind, nameInputRef, step, savedCircle,
+  const { name, setName, setNameRequirementActive, setNameFocused, kind, nameInputRef, step, savedCircle,
     saving, nameMissing, canSubmit, nameHelpId, showNameError, nameHelpText, submit, people, peopleProps, busy, showCircleType } = model;
+  const kindOptions = [...CIRCLE_KIND_OPTIONS.slice(0, 2),
+    ...(model.customTypesSupported ? model.customTypes.slice(0, MAX_CUSTOM_CIRCLE_TYPES).map((label, index) => ({ value: `custom-${index}`, label })) : []),
+    ...CIRCLE_KIND_OPTIONS.slice(2)];
+  const selectedKind = kind !== "other" ? kind : kindOptions.find(option => option.value.startsWith("custom-") && option.label.toLocaleLowerCase() === normalizeCircleTypeLabel(model.customTypeLabel).toLocaleLowerCase())?.value ?? "other";
+  const chooseKind = (option: { value: string; label: string }) => {
+    if (option.value.startsWith("custom-")) {
+      model.changeDraft({ name, kind: "other", customTypeLabel: option.label });
+    } else {
+      model.changeDraft({ name, kind: option.value as OneLocationCircleKind, customTypeLabel: "" });
+    }
+  };
 
   const inTaskSurface = useTaskSurfacePresentation();
   const Body = inTaskSurface ? TaskSurfaceBody : "div";
@@ -822,16 +859,16 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
           <div
             role="radiogroup"
             aria-labelledby="one-location-create-circle-kind-label"
-            className={inTaskSurface ? "grid grid-cols-1 gap-2" : "grid grid-cols-1 gap-2 min-[360px]:grid-cols-3"}
+            className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-3"
             onKeyDown={(event) => {
-              const currentIndex = CIRCLE_KIND_OPTIONS.findIndex(
-                (option) => option.value === kind,
+              const currentIndex = kindOptions.findIndex(
+                (option) => option.value === selectedKind,
               );
               const move = (nextIndex: number) => {
                 event.preventDefault();
-                const next = CIRCLE_KIND_OPTIONS[nextIndex];
+                const next = kindOptions[nextIndex];
                 if (next) {
-                  setKind(next.value);
+                  chooseKind(next);
                   event.currentTarget.querySelector<HTMLButtonElement>(
                     `[data-testid="one-location-circle-kind-${next.value}"]`,
                   )?.focus();
@@ -839,21 +876,20 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
                 }
               };
               if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-                move((currentIndex + 1) % CIRCLE_KIND_OPTIONS.length);
+                move((currentIndex + 1) % kindOptions.length);
               } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
                 move(
-                  (currentIndex - 1 + CIRCLE_KIND_OPTIONS.length) %
-                    CIRCLE_KIND_OPTIONS.length,
+                  (currentIndex - 1 + kindOptions.length) % kindOptions.length,
                 );
               } else if (event.key === "Home") {
                 move(0);
               } else if (event.key === "End") {
-                move(CIRCLE_KIND_OPTIONS.length - 1);
+                move(kindOptions.length - 1);
               }
             }}
           >
-            {CIRCLE_KIND_OPTIONS.map((option) => {
-              const selected = kind === option.value;
+            {kindOptions.map((option) => {
+              const selected = selectedKind === option.value;
               return (
                 <button
                   key={option.value}
@@ -863,7 +899,7 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
                   tabIndex={selected ? 0 : -1}
                   data-testid={`one-location-circle-kind-${option.value}`}
                   onClick={() => {
-                    setKind(option.value);
+                    chooseKind(option);
                     if (nameMissing) setNameRequirementActive(true);
                   }}
                   className={cn(
@@ -879,6 +915,17 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
               );
             })}
           </div>
+          {model.customTypesSupported && kind === "other" ? (
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-semibold">Type name (optional)</span>
+              <input aria-label="Type name (optional)" className={INPUT_CLASSNAME} value={model.customTypeLabel} maxLength={MAX_CIRCLE_TYPE_LABEL_LENGTH}
+                placeholder="For example, Finance" onChange={event => model.setCustomTypeLabel(event.target.value)}
+                aria-invalid={Boolean(model.typeError)} aria-describedby="circle-custom-type-help" />
+              <span id="circle-custom-type-help" className={cn("text-xs", model.typeError ? "text-destructive" : "text-muted-foreground")}>
+                {model.typeError || "Reuse this type for other circles. You can keep up to 3 custom types."}
+              </span>
+            </label>
+          ) : null}
         </div>
       ) : null}
 

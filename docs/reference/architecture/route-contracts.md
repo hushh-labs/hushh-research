@@ -152,7 +152,8 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/ria/picks`
 - `/ria/requests`
 - `/ria/settings`
-- `/one/kai?tab=market`
+- `/one/kai?tab=market` — market overview, news, sectors, and movers. Sector rotation starts with the three highest and three lowest returns for the selected period; All sectors restores the full available list. Tap, Search, and voice use the same period and list-size controls.
+- `/one/kai?tab=analysis` — displayed as **Stocks**, with company browsing and the existing analysis workflow; the query value remains `analysis` for compatibility
 - `/one/kai/news`
 - `/one/kai/import`
 - `/one/kai/plaid/oauth/return`

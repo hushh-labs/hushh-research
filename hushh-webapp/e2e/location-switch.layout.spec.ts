@@ -200,7 +200,7 @@ for (const width of [320, 393, 430, 1440]) {
     await page.setContent(`<html><head><style>${css}</style></head><body data-compact="true"><div id="root"></div></body></html>`);
     await page.addScriptTag({ content: script });
     const toggle = page.getByRole("switch");
-    await expect(toggle).toHaveCSS("width", "60px");
+    await expect(toggle).toHaveCSS("width", "54px");
     await expect(toggle).toHaveCSS("height", "24px");
     await expect(toggle.locator('[data-slot="switch-thumb"]')).toHaveCSS("width", "20px");
     await expect(toggle.locator('[data-slot="switch-thumb"]')).toHaveCSS("height", "20px");
@@ -230,7 +230,7 @@ for (const width of [320, 393, 430, 1440]) {
     await expect(toggle).not.toBeChecked();
     // Width, thumb size and travel must scale together with browser text size.
     await page.locator("html").evaluate(node => { node.style.fontSize = "20px"; });
-    await expect(toggle).toHaveCSS("width", "75px");
+    await expect(toggle).toHaveCSS("width", "67.5px");
     for (const checked of [true, false]) {
       await toggle.click();
       await expect(toggle).toHaveAttribute("aria-checked", String(checked));

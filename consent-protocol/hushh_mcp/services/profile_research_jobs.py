@@ -351,14 +351,19 @@ class ProfileResearchJobs:
             return {"status": "disabled", "pkm_written": False}
         context = await self.job_context(user_id, consent_token)
         state = self.prepare_start_state(await self.store.get(user_id))
+        carried, same_inputs = self.prepare_inputs(state, inputs, refresh_completed)
         same_context = all((state or {}).get(key) == value for key, value in context.items())
         fresh_discovery = bool(
             refresh_completed
             and state
             and same_context
-            and (state["status"] in {"offered", "low_confidence"} or self.exhausted(state))
+            and (
+                not same_inputs
+                or state["status"] in {"offered", "low_confidence"}
+                or self.exhausted(state)
+            )
         )
-        if state and same_context and self.reusable(state) and not fresh_discovery:
+        if state and same_context and same_inputs and self.reusable(state) and not fresh_discovery:
             if state["status"] == "pending":
                 self.decision("start", "reused_pending", None, state)
                 return pending()
@@ -401,6 +406,7 @@ class ProfileResearchJobs:
             and not fresh_discovery
             and state
             and same_context
+            and same_inputs
             and state.get("status") == "unavailable"
             and state.get("result", {}).get("reason") == "provider_throttled"
             and self.clock() - state.get("discovery_started_at", state["started_at"]) < TTL_SECONDS
@@ -469,6 +475,7 @@ class ProfileResearchJobs:
             self.progressive
             and not fresh_discovery
             and same_context
+            and same_inputs
             and state
             and (
                 self.clock() - state.get("discovery_started_at", state["started_at"]) < TTL_SECONDS
@@ -478,9 +485,8 @@ class ProfileResearchJobs:
             next_state["work"] = state.get("work", {})
             next_state["job_id"] = state["job_id"]
             resumed = state["status"] in {"pending", "paused"} or throttle_resume
-        # Caller-supplied model inputs stay sealed with the job and carry across
-        # resumes; they never change the reuse context above.
-        carried = (state or {}).get("inputs") if inputs is None else inputs
+        # Feature-specific public inputs may bind discovery; private decisions
+        # remain sealed, nonbinding model context.
         if carried:
             next_state["inputs"] = carried
         # Reserve before the awaited CAS, including contenders for other owners.
@@ -540,6 +546,9 @@ class ProfileResearchJobs:
 
     async def job_context(self, user_id, consent_token):
         return {}
+
+    def prepare_inputs(self, state, inputs, refresh_completed):
+        return ((state or {}).get("inputs") if inputs is None else inputs), True
 
     def prepare_start_state(self, state: dict[str, Any] | None) -> dict[str, Any] | None:
         """Allow a feature to translate an older checkpoint before budget validation.

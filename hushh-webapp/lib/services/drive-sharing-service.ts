@@ -353,6 +353,7 @@ function parseRequestSetup(value: Record<string, unknown>): DocumentRequestSetup
 }
 export type SharingDelivery = {
   status: string;
+  noChargeReason?: "existing_access";
   accessStopStatus?: "pending" | "removed" | "needs_attention" | null;
   canStopAccess?: boolean;
   files: SharingDeliveryFile[];
@@ -543,7 +544,7 @@ function unimplemented(error: unknown): boolean {
   );
 }
 type RecordValue = Record<string, unknown>;
-export type SharingSessionGuard = () => void;
+export type SharingSessionGuard = (() => void) & { canDispatch?: () => boolean };
 function record(value: unknown): RecordValue {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new DriveSharingError("invalid_response");
@@ -1201,7 +1202,7 @@ export class DriveSharingService {
       {
         isEffectCurrent: () => {
           guard();
-          return true;
+          return guard.canDispatch?.() !== false;
         },
         method: body === undefined ? "GET" : "POST",
         cache: "no-store",
@@ -1702,6 +1703,7 @@ export class DriveSharingService {
       throw new DriveSharingError("invalid_response");
     return {
       status: string(result.status, 80),
+      ...(result.noChargeReason === "existing_access" ? { noChargeReason: "existing_access" as const } : {}),
       ...(result.accessStopStatus == null ? {} : {
         accessStopStatus: accessStopStatus(result.accessStopStatus),
       }),

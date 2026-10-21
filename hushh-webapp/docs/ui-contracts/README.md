@@ -7,6 +7,8 @@ flowchart LR
   index["Product UI contracts"] --> connect["Connect: Connections and Circles"]
   index --> profile["Profile and nested management"]
   index --> feed["Feed and decisions"]
+  index --> mail["Mail: setup, Overview, KYC and Receipts"]
+  index --> calendar["Calendar: setup, Schedule, Invitations and Insights"]
   index --> nav["Shared navigation and typography"]
   connect --> person["Person profile and requests"]
   profile --> memory["Memory and World Model"]
@@ -31,6 +33,9 @@ owning implementation.
 | Profile Connectors | [Connectors](./profile-connectors.md): provider details, Drive files/packets/trust, custom tools, OAuth returns and legacy Mail/local CRM boundaries |
 | Referrals | [Referrals](./referrals.md): You, individual/Circle rankings, reward claims, every Circle Wars enrollment/create step, rules, native differences |
 | Feed | [Feed](./feed.md): history, every actionable family, payment/file-access sheets, briefing, notification controls and downstream destinations |
+| Mail | [Mail subagent](./mail.md): setup and OAuth, Overview/KYC/Receipts, exact copy and every CTA branch, private drafts and reviewed Send, mailbox/voice handoffs, API and response-field provenance, encrypted device snapshots, phone/desktop geometry and typography |
+| Calendar | [Calendar subagent](./calendar.md): onboarding and OAuth, Schedule/Invitations/Insights, every authored CTA and response branch, API fields and authority, conversation and recipient handoffs, phone/desktop geometry and fonts |
+| Drive | [Drive connector and private-agent tools](./drive.md): first connection and OAuth, every mounted connector/nested page and CTA, selected files, preparation, packets, trust, conversations, sharing and payment handoffs, exact copy, API fields, phone/desktop geometry and fonts |
 | Navigation | [Shared navigation](./navigation.md): top bar, bottom tabs, contextual rails, Profile entry, Back and native admission |
 | Font schema | [Typography](./typography.md): when to use each semantic role, Profile home/detail scale, nav and Feed differences, CSS precedence and native limits |
 
@@ -130,3 +135,21 @@ Those files were left unchanged. The clean publication worktree subsequently
 passed the **full** documentation verification, including shareable-links and
 encryption compliance preflight/smoke.
 No implementation, API schema, permission, deployment or account was changed.
+
+The Mail contract is independently inspected at
+`5a894a2adf3e80b5a6d20acb46a4d97eccf54b75` on 21 October 2026. Its coverage and
+verification limits are recorded in that contract; it does not restamp the
+other contracts or certify live provider/device behavior.
+
+The Calendar contract is independently inspected at
+`49b175bdc4bf636ede1b2353f4c493496a94c9cc` on 21 October 2026. Its entry,
+CTA/copy, API/authority, responsive-layout and typography evidence has its own
+verification section; this addition does not restamp the other contracts.
+
+The Drive contract is independently inspected at
+`477864ae8d2925a7cdc5b21d8ca6e91b3f22955e` on 21 October 2026. It follows the
+connector, Documents specialist, packet/trust and sharing/payment interaction
+paths, with its own exact-copy inventory, API fields, spatial/type tables and
+QA/evidence ledger. It does not introduce a Drive route or restamp the other
+contracts. Its verification section distinguishes source review, clean publication
+checks and unverified live acceptance.

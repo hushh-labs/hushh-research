@@ -460,8 +460,11 @@ def _workflow_change_is_additive(
         return False
     if "catalog_capability_ids" in new.get("knowledge_package", {}):
         new["knowledge_package"]["catalog_capability_ids"] = old_catalog
-    # A newly discovered, authenticated GET is documentation for the brain,
-    # not a new workflow executor. Preserve every existing endpoint exactly.
+    # Discovered endpoints have no executor binding. A new owner-authenticated
+    # DELETE is inventory metadata just like an authenticated GET: the compiler
+    # excludes it from the model's selectable capabilities. Preserve every
+    # existing endpoint and the complete executable plan exactly; admitting a
+    # bound endpoint or changing an existing authority still requires migration.
     before_endpoints = {item["capability_id"]: item for item in old.get("api_endpoints", [])}
     after_endpoints = {item["capability_id"]: item for item in new.get("api_endpoints", [])}
     if any(after_endpoints.get(key) != value for key, value in before_endpoints.items()):
@@ -476,8 +479,12 @@ def _workflow_change_is_additive(
     }
     allowed_read_authorities = {"vault_owner"} | ({"firebase_auth"} & existing_read_authorities)
     if any(
-        value.get("method") != "GET"
-        or value.get("authorization") not in allowed_read_authorities
+        not (
+            value.get("method") == "GET"
+            and value.get("authorization") in allowed_read_authorities
+            or value.get("method") == "DELETE"
+            and value.get("authorization") == "vault_owner"
+        )
         or value.get("binding_status") != "discovered_unbound"
         for value in endpoint_additions
     ):

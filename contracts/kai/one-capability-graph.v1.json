@@ -4245,7 +4245,10 @@
       "aliases": [
         "Open Analysis Surface",
         "open analysis",
-        "go to analysis"
+        "go to analysis",
+        "open stocks",
+        "go to stocks",
+        "company facts"
       ],
       "authorization": {
         "guard_ids": [],
@@ -21774,6 +21777,163 @@
     },
     {
       "aliases": [
+        "Research your public profiles"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.world_model.public_profiles",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Explicitly choose public profile links for Azure and Bing research. Links are owner assertions, not identity verification; review findings before saving.",
+      "execution": {
+        "binding_ref": "render:profile.world_model.public_profiles",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.world_model.public_profiles",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Research your public profiles",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Back to Agents",
         "back to agents"
       ],
@@ -36238,6 +36398,592 @@
     },
     {
       "aliases": [
+        "Show 1 day sector performance",
+        "show sector performance for 1 day",
+        "show daily sectors"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.sectors.show_day",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Selects daily sector ETF price returns on the active Market screen, with observed period dates and an explicit unavailable state.",
+      "execution": {
+        "binding_ref": "semantic_action:kai_market_sector_period",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "kai_market_sector_period"
+        }
+      },
+      "goal_id": "goal.market.sectors.show_day",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Show 1 day sector performance",
+      "navigation": {
+        "fallback": "kai_market_sector_period",
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "sector performance",
+        "sector rotation",
+        "1 day"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Show 1 week sector performance",
+        "show sector performance for 1 week",
+        "show weekly sectors"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.sectors.show_week",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Selects five-trading-session sector ETF price returns on the active Market screen, with observed period dates and an explicit unavailable state.",
+      "execution": {
+        "binding_ref": "semantic_action:kai_market_sector_period",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "kai_market_sector_period"
+        }
+      },
+      "goal_id": "goal.market.sectors.show_week",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Show 1 week sector performance",
+      "navigation": {
+        "fallback": "kai_market_sector_period",
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "sector performance",
+        "sector rotation",
+        "1 week"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Show all sectors",
+        "all sectors",
+        "expand sector rotation"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.sectors.show_all",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Expands sector rotation to every available sector for the selected return period.",
+      "execution": {
+        "binding_ref": "semantic_action:kai_market_sector_scope",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "kai_market_sector_scope"
+        }
+      },
+      "goal_id": "goal.market.sectors.show_all",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Show all sectors",
+      "navigation": {
+        "fallback": "kai_market_sector_scope",
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "all sectors",
+        "sector rotation"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Show sector highlights",
+        "sector highlights",
+        "shorten sector rotation"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.sectors.show_highlights",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Shows the three highest and three lowest available sector returns for the selected period, or every sector when six or fewer are available.",
+      "execution": {
+        "binding_ref": "semantic_action:kai_market_sector_scope",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "kai_market_sector_scope"
+        }
+      },
+      "goal_id": "goal.market.sectors.show_highlights",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Show sector highlights",
+      "navigation": {
+        "fallback": "kai_market_sector_scope",
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "sector highlights",
+        "sector rotation"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Choose your AI",
         "choose my ai",
         "set up AI access",
@@ -39797,7 +40543,7 @@
   "mcp_compatible": true,
   "model_projections": {
     "location": {
-      "brain_revision": "6b5d5cba5d004a489d67a601",
+      "brain_revision": "3967766bea6b662174e3b5cb",
       "capabilities": [
         {
           "candidate_id": "location.accept_circle_invite",
@@ -42667,7 +43413,7 @@
           "label": "Location backend inventory"
         }
       ],
-      "known_unbound_implementation_count": 76,
+      "known_unbound_implementation_count": 77,
       "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
       "package_id": "location.brain",
       "package_version": 2,
@@ -42733,7 +43479,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "78c4ee54535af5d413d55582c7b7c33f8d274173ec73f863248e094bf008d1bf",
+      "projection_digest": "3de6db2847f3279c499aed99693ce38c86d9d302ea76f7077aaa2cc6be282cfa",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42744,15 +43490,15 @@
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
         "capability_graph_evolution": "15e25c4335dfbf911e16cd03c0e2036a932977ac204f1c6ae127f3083a65d74f",
-        "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
+        "capability_runtime_compiler": "69638086287c46cf6f52c0e73a5e19dd3e427880de170572b97e2ebe4a8967fb",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-        "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
+        "location_agent_manifest": "c09e8987cf11a0c73a23a2bb39fe93edeca9235ac3f1a9ddd1af8f0f42dd612e",
         "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
+        "service_knowledge_packages": "5a80a782231a34ec765bde7e8dbef1a4a09ebbcac3463cbb2e63ad9cc9be3a1c"
       },
-      "source_revision": "b883582b09e1be66",
+      "source_revision": "84be89d1ef3db994",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -44270,7 +45016,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "b883582b09e1be66",
+    "source_revision": "84be89d1ef3db994",
     "web": {
       "actions": [
         {
@@ -44313,7 +45059,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "165a0411b28c4b93602e1136798811b7c0c538a4a932937aae5371dec230eeaa",
+      "projection_digest": "9c95a07a7898e40a1305fea09c58440efa0f2f4fb99e0168c91677c2e4a4b37e",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -44324,15 +45070,15 @@
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
         "capability_graph_evolution": "15e25c4335dfbf911e16cd03c0e2036a932977ac204f1c6ae127f3083a65d74f",
-        "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
+        "capability_runtime_compiler": "69638086287c46cf6f52c0e73a5e19dd3e427880de170572b97e2ebe4a8967fb",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-        "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
+        "location_agent_manifest": "c09e8987cf11a0c73a23a2bb39fe93edeca9235ac3f1a9ddd1af8f0f42dd612e",
         "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
+        "service_knowledge_packages": "5a80a782231a34ec765bde7e8dbef1a4a09ebbcac3463cbb2e63ad9cc9be3a1c"
       },
-      "source_revision": "b883582b09e1be66",
+      "source_revision": "84be89d1ef3db994",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -45889,7 +46635,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "b883582b09e1be66",
+  "revision": "84be89d1ef3db994",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -46358,6 +47104,11 @@
         "analysis.open_detailed_tab",
         "analysis.open_summary_tab",
         "analysis.resume_active",
+        "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.back",
         "route.kai_home"
       ],
@@ -46522,6 +47273,10 @@
         "analysis.open_summary_tab",
         "analysis.resume_active",
         "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -46544,6 +47299,10 @@
         "analysis.open_summary_tab",
         "analysis.resume_active",
         "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -46566,6 +47325,10 @@
         "analysis.open_summary_tab",
         "analysis.resume_active",
         "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -46587,6 +47350,11 @@
         "analysis.open_detailed_tab",
         "analysis.open_summary_tab",
         "analysis.resume_active",
+        "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.back",
         "route.kai_home"
       ],
@@ -47771,7 +48539,7 @@
     "changed": [],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "0ed573b111c33adc",
+    "from_revision": "be499da2762f573e",
     "migrated": [],
     "removed": []
   },
@@ -48693,6 +49461,16 @@
         {
           "authorization": "vault_owner",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.location.delete.delete_named_location_circle_type",
+          "kind": "backend_api_endpoint",
+          "method": "DELETE",
+          "operation_name": "delete_named_location_circle_type",
+          "path": "/api/one/location/circle-types",
+          "service_id": "location"
+        },
+        {
+          "authorization": "vault_owner",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.location.get.list_named_location_circles",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -49608,7 +50386,7 @@
       "capability_id": "service.location",
       "catalog_coverage": {
         "all_discovered_capabilities_classified": true,
-        "blocked_endpoint_count": 76,
+        "blocked_endpoint_count": 77,
         "declared_capability_count": 73
       },
       "completion": {
@@ -49620,7 +50398,7 @@
       "executor_hierarchy": [
         {
           "action_ids": [],
-          "discovered_endpoint_count": 76,
+          "discovered_endpoint_count": 77,
           "kind": "backend_api",
           "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
           "status": "adapter_required"
@@ -49719,7 +50497,7 @@
       ],
       "kind": "service",
       "knowledge_package": {
-        "brain_revision": "6b5d5cba5d004a489d67a601",
+        "brain_revision": "3967766bea6b662174e3b5cb",
         "catalog_status": "complete_and_compiled",
         "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "package_id": "location.brain",
@@ -50009,20 +50787,20 @@
   ],
   "source_digests": {
     "capability_graph_evolution": "15e25c4335dfbf911e16cd03c0e2036a932977ac204f1c6ae127f3083a65d74f",
-    "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
+    "capability_runtime_compiler": "69638086287c46cf6f52c0e73a5e19dd3e427880de170572b97e2ebe4a8967fb",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "b6f231c66a4338f4acb6433be0a1c45e85cd16fe544e6973803a9a31f5e4a84e",
-    "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
+    "kai_action_gateway": "5cbc66280438a4b7a17dc5012714277093cd98dca57c9352c01eccce58d535d6",
+    "location_agent_manifest": "c09e8987cf11a0c73a23a2bb39fe93edeca9235ac3f1a9ddd1af8f0f42dd612e",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "e25643ad6e87284d55a07d33c53a4a0abcaec437d5214be8a9d1ed5b71654b00",
-    "route_orchestration_index": "eb37a8bb7a3a30b196366cc330aafb5810c39efb8a411f39970d63652fb49733",
-    "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
+    "product_agent_registry": "df7664b1bf7c77337f99df69d6fb10d8b46bc8716ce7dae4f06d45dd00a41cf2",
+    "route_orchestration_index": "06406725caa658a1c91e6b471ecf5004020b0994a4b3b5ac6a0a42b00dcd084c",
+    "service_knowledge_packages": "5a80a782231a34ec765bde7e8dbef1a4a09ebbcac3463cbb2e63ad9cc9be3a1c"
   },
-  "source_revision": "b883582b09e1be66",
+  "source_revision": "84be89d1ef3db994",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "b883582b09e1be66",
+    "current_graph_revision": "84be89d1ef3db994",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -50113,6 +50891,7 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6ef509dcda1fb0a3",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
@@ -50133,6 +50912,7 @@
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
           "8845cf8eae4a24fb",
+          "88e824b5f2a3a37d",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
@@ -50143,6 +50923,7 @@
           "9195b95c1e25685f",
           "934f53f787f43981",
           "94e751d14ffa29a9",
+          "9503b7156b53ae3c",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "982f6c71300d5430",
@@ -50177,11 +50958,13 @@
           "afa3f4237cc584d1",
           "b514b1fb5e99b5bf",
           "b81f3be586a45c6a",
+          "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bae648fb1e85fb89",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
+          "be499da2762f573e",
           "bec5fd5f0ffddc6c",
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
@@ -50205,6 +50988,7 @@
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
+          "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
@@ -50344,6 +51128,7 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6ef509dcda1fb0a3",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
@@ -50364,6 +51149,7 @@
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
           "8845cf8eae4a24fb",
+          "88e824b5f2a3a37d",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
@@ -50374,6 +51160,7 @@
           "9195b95c1e25685f",
           "934f53f787f43981",
           "94e751d14ffa29a9",
+          "9503b7156b53ae3c",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "982f6c71300d5430",
@@ -50408,11 +51195,13 @@
           "afa3f4237cc584d1",
           "b514b1fb5e99b5bf",
           "b81f3be586a45c6a",
+          "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bae648fb1e85fb89",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
+          "be499da2762f573e",
           "bec5fd5f0ffddc6c",
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
@@ -50436,6 +51225,7 @@
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
+          "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
@@ -50550,6 +51340,7 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6ef509dcda1fb0a3",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
@@ -50565,6 +51356,7 @@
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
           "8845cf8eae4a24fb",
+          "88e824b5f2a3a37d",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
@@ -50572,6 +51364,7 @@
           "8eced9f041d6ab65",
           "90de2a8d40819efe",
           "934f53f787f43981",
+          "9503b7156b53ae3c",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "985f269cad82aa7c",
@@ -50595,9 +51388,11 @@
           "afa3f4237cc584d1",
           "b514b1fb5e99b5bf",
           "b81f3be586a45c6a",
+          "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bae648fb1e85fb89",
+          "be499da2762f573e",
           "bec5fd5f0ffddc6c",
           "c32bec5a75d64734",
           "c4365d405790f94d",
@@ -50608,6 +51403,7 @@
           "d01f9a7a5198c5c9",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
+          "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d5b3ec7b095aadab",
           "d82abfd03561cb0a",
@@ -50806,6 +51602,7 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6ef509dcda1fb0a3",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
@@ -50826,6 +51623,7 @@
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
           "8845cf8eae4a24fb",
+          "88e824b5f2a3a37d",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
@@ -50836,6 +51634,7 @@
           "9195b95c1e25685f",
           "934f53f787f43981",
           "94e751d14ffa29a9",
+          "9503b7156b53ae3c",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "982f6c71300d5430",
@@ -50870,11 +51669,13 @@
           "afa3f4237cc584d1",
           "b514b1fb5e99b5bf",
           "b81f3be586a45c6a",
+          "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bae648fb1e85fb89",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
+          "be499da2762f573e",
           "bec5fd5f0ffddc6c",
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
@@ -50898,6 +51699,7 @@
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
+          "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
@@ -51037,6 +51839,7 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6ef509dcda1fb0a3",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
@@ -51057,6 +51860,7 @@
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
           "8845cf8eae4a24fb",
+          "88e824b5f2a3a37d",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
@@ -51067,6 +51871,7 @@
           "9195b95c1e25685f",
           "934f53f787f43981",
           "94e751d14ffa29a9",
+          "9503b7156b53ae3c",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "982f6c71300d5430",
@@ -51101,11 +51906,13 @@
           "afa3f4237cc584d1",
           "b514b1fb5e99b5bf",
           "b81f3be586a45c6a",
+          "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bae648fb1e85fb89",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
+          "be499da2762f573e",
           "bec5fd5f0ffddc6c",
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
@@ -51129,6 +51936,7 @@
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
+          "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
@@ -51268,6 +52076,7 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6ef509dcda1fb0a3",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
@@ -51288,6 +52097,7 @@
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
           "8845cf8eae4a24fb",
+          "88e824b5f2a3a37d",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
@@ -51298,6 +52108,7 @@
           "9195b95c1e25685f",
           "934f53f787f43981",
           "94e751d14ffa29a9",
+          "9503b7156b53ae3c",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "982f6c71300d5430",
@@ -51332,11 +52143,13 @@
           "afa3f4237cc584d1",
           "b514b1fb5e99b5bf",
           "b81f3be586a45c6a",
+          "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bae648fb1e85fb89",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
+          "be499da2762f573e",
           "bec5fd5f0ffddc6c",
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
@@ -51360,6 +52173,7 @@
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
+          "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
@@ -51407,7 +52221,7 @@
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "66407f6994814d614757572e20b4c068c439c5afedbb410cd9ce3604da95a410",
+        "workflow_digest": "0771acb921eb2e35924fdb845b87c93ff4919bd3dd6092ae95d9c760aeab61c9",
         "workflow_id": "workflow.setup.location",
         "workflow_version": 2
       },
@@ -51499,6 +52313,7 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6ef509dcda1fb0a3",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
@@ -51519,6 +52334,7 @@
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
           "8845cf8eae4a24fb",
+          "88e824b5f2a3a37d",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
@@ -51529,6 +52345,7 @@
           "9195b95c1e25685f",
           "934f53f787f43981",
           "94e751d14ffa29a9",
+          "9503b7156b53ae3c",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "982f6c71300d5430",
@@ -51563,11 +52380,13 @@
           "afa3f4237cc584d1",
           "b514b1fb5e99b5bf",
           "b81f3be586a45c6a",
+          "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bae648fb1e85fb89",
           "bda0bffda4ed0335",
           "be22fe6e0fa3f322",
+          "be499da2762f573e",
           "bec5fd5f0ffddc6c",
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
@@ -51591,6 +52410,7 @@
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
+          "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
@@ -52831,6 +53651,16 @@
           "method": "POST",
           "operation_name": "decline_named_circle_member_invite",
           "path": "/api/one/location/circle-member-invites/{invite_id}/decline",
+          "service_id": "location"
+        },
+        {
+          "authorization": "vault_owner",
+          "binding_status": "discovered_unbound",
+          "capability_id": "api.location.delete.delete_named_location_circle_type",
+          "kind": "backend_api_endpoint",
+          "method": "DELETE",
+          "operation_name": "delete_named_location_circle_type",
+          "path": "/api/one/location/circle-types",
           "service_id": "location"
         },
         {
@@ -55159,7 +55989,7 @@
         "executor_hierarchy": [
           {
             "action_ids": [],
-            "discovered_endpoint_count": 76,
+            "discovered_endpoint_count": 77,
             "kind": "backend_api",
             "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
             "status": "adapter_required"

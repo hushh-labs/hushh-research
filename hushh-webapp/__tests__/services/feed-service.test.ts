@@ -10,6 +10,7 @@ import { FeedService } from "@/lib/services/feed-service";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { bumpFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -27,6 +28,26 @@ describe("FeedService", () => {
   });
 
   afterEach(() => cache.clear());
+
+  it("does not dispatch after token acquisition outlives its owner session", async () => {
+    await expect(FeedService.list({ idToken: "old-token", userId: "user-1", isEffectCurrent: () => false })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockApiFetch).not.toHaveBeenCalled();
+    expect(cache.get(CACHE_KEYS.FEED_LIST("user-1"))).toBeNull();
+  });
+
+  it("returns a delayed response without refilling purged memory after sign-out", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    let resolve!: (response: Response) => void;
+    mockApiFetch.mockReturnValue(new Promise<Response>((done) => { resolve = done; }));
+    const request = FeedService.list({ idToken: "old-token", userId: "user-1" });
+    await Promise.resolve();
+    publishValidatedAuthSessionOwner(null);
+    cache.invalidateUser("user-1");
+    resolve(jsonResponse({ items: [], next_cursor: null, unread_count: 3 }));
+    await expect(request).resolves.toMatchObject({ unread_count: 3 });
+    expect(cache.get(CACHE_KEYS.FEED_LIST("user-1"))).toBeNull();
+    expect(cache.get(CACHE_KEYS.FEED_UNREAD_COUNT("user-1"))).toBeNull();
+  });
 
   it("seeds the unread badge from the same first-page snapshot", async () => {
     mockApiFetch.mockResolvedValue(

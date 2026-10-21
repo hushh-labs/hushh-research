@@ -14,6 +14,15 @@ test("research request admission survives diagnostic stages and keeps save autho
     const options = { phase, appOrigin: origin, researchPosts: 0, emailPreference: false };
     assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", { refresh: true }), options), true);
     assert.equal(admitPwmResearch(request("/api/one/world-model/ensure", {}), options), true);
+    const profiles = { urls: ["https://github.com/public-example"], permitted_public_sources: true };
+    const seeded = { refresh: true, public_profiles: profiles };
+    assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", seeded), options), false);
+    const selected = { ...options, publicProfile: profiles.urls[0] };
+    assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", { refresh: true }), selected), false);
+    assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", seeded), selected), true);
+    assert.equal(admitPwmResearch(request("/api/one/world-model/ensure", seeded), selected), false);
+    for (const altered of [{ ...profiles, permitted_public_sources: false }, { ...profiles, urls: ["https://github.com/other"] }, { ...profiles, hidden: true }])
+      assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", { refresh: true, public_profiles: altered }), selected), false);
     assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", {}), options), false);
     assert.equal(admitPwmResearch(request("/api/one/world-model/ensure", { refresh: true }), options), false);
     assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", { refresh: true }), { ...options, researchPosts: 20 }), false);
@@ -254,6 +263,95 @@ test("actual reader distinguishes chunked progress from a buffered final respons
     await window.fetch("/api/one/world-model/jobs/stream");
     for (let i = 0; i < 100 && !proof.streamProof()[0]?.events.some(item => item.event === "result"); i++) await new Promise(resolve => setTimeout(resolve, 2));
     assert.equal(hasIncrementalPwmStream(proof.streamProof()), chunked);
+  }
+});
+
+test("resume preserves acknowledged research and real stream receipts; explicit refresh clears them", async () => {
+  let jobs = 0;
+  const { window, proof } = fixture(async (url, options) => {
+    if (String(url).endsWith("/jobs/stream")) return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('event: progress\ndata: {}\n\n'));
+        setTimeout(() => {
+          controller.enqueue(new TextEncoder().encode('event: result\ndata: {"status":"paused"}\n\n'));
+          controller.close();
+        }, 10);
+      },
+    }), { headers: { "content-type": "text/event-stream" } });
+    if (String(url).endsWith("/ensure")) return new Response('{"status":"offered","draft_id":"fresh"}');
+    if (options?.method === "POST") { jobs++; return new Response('{"status":"pending"}'); }
+    return new Response('{"status":"offered","draft_id":"baseline"}');
+  });
+  await window.fetch("/api/one/world-model/jobs");
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(proof.beginResearch(), true);
+  await window.fetch("/api/one/world-model/jobs", { method: "POST" });
+  await window.fetch("/api/one/world-model/jobs/stream");
+  for (let i = 0; i < 100 && !proof.streamProof()[0]?.events.some(item => item.event === "result"); i++) await new Promise(resolve => setTimeout(resolve, 2));
+  assert.equal(hasIncrementalPwmStream(proof.streamProof()), true);
+  await window.fetch("/api/one/world-model/ensure", { method: "POST" });
+  for (let i = 0; i < 100 && !proof.researchSettled(); i++) await new Promise(resolve => setTimeout(resolve, 1));
+  assert.equal(proof.researchState().fresh_acknowledged, true);
+  assert.equal(proof.publicResult()?.draft_id, "fresh");
+  assert.equal(hasIncrementalPwmStream(proof.streamProof()), true);
+  assert.equal(proof.researchPosts(), 2);
+  await window.fetch("/api/one/world-model/jobs", { method: "POST" });
+  assert.equal(proof.publicResult(), null);
+  assert.equal(proof.streamProof().length, 0);
+  assert.equal(proof.researchSettled(), false);
+  assert.equal(jobs, 2);
+});
+
+test("resume fences delayed pre-resume reads without inheriting a cached baseline draft", async () => {
+  let finishOld, reads = 0;
+  const { window, proof } = fixture(async (url, options) => {
+    if (options?.method === "POST") return new Response('{"status":"pending"}');
+    if (++reads === 2) return new Promise(resolve => { finishOld = resolve; });
+    return new Response(JSON.stringify({ status: "offered", draft_id: reads < 4 ? "baseline" : "fresh" }));
+  });
+  await window.fetch("/api/one/world-model/jobs");
+  await new Promise(resolve => setTimeout(resolve, 5));
+  proof.beginResearch();
+  await window.fetch("/api/one/world-model/jobs", { method: "POST" });
+  await new Promise(resolve => setTimeout(resolve, 5));
+  const old = window.fetch("/api/one/world-model/jobs");
+  await window.fetch("/api/one/world-model/ensure", { method: "POST" });
+  await new Promise(resolve => setTimeout(resolve, 5));
+  finishOld(new Response('{"status":"offered","draft_id":"stale-pre-resume"}')); await old;
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(proof.researchState().status, "pending");
+  assert.equal(proof.publicResult(), null);
+  await window.fetch("/api/one/world-model/jobs");
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(proof.publicResult(), null);
+  await window.fetch("/api/one/world-model/jobs");
+  for (let i = 0; i < 100 && !proof.publicResult(); i++) await new Promise(resolve => setTimeout(resolve, 1));
+  assert.equal(proof.publicResult()?.draft_id, "fresh");
+});
+
+test("a resumed terminal outcome cannot retain an incompatible offered report or usage", async () => {
+  for (const status of ["unavailable", "disabled", "saved", "offered"]) {
+    let reads = 0;
+    const { window, proof } = fixture(async (url, options) => {
+      if (String(url).includes("draft_id=")) return new Response("{}", { headers: { "X-Hussh-PWM-Usage": '{"model_calls":2,"recorded_calls":2}' } });
+      if (String(url).endsWith("/ensure")) return new Response(JSON.stringify({ status, draft_id: "baseline" }));
+      if (options?.method === "POST") return new Response('{"status":"pending"}');
+      return new Response(JSON.stringify({ status: "offered", draft_id: ++reads === 1 ? "baseline" : "fresh" }));
+    });
+    await window.fetch("/api/one/world-model/jobs");
+    await new Promise(resolve => setTimeout(resolve, 5));
+    proof.beginResearch();
+    await window.fetch("/api/one/world-model/jobs", { method: "POST", headers: { Authorization: "Bearer synthetic-test-token" } });
+    await window.fetch("/api/one/world-model/jobs");
+    for (let i = 0; i < 100 && !proof.publicResult(); i++) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.equal(proof.publicResult()?.draft_id, "fresh");
+    assert.equal(await proof.refreshUsage(), true);
+    await window.fetch("/api/one/world-model/ensure", { method: "POST" });
+    for (let i = 0; i < 100 && !proof.researchSettled(); i++) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.equal(proof.researchState().status, status);
+    assert.equal(proof.publicResult(), null);
+    assert.equal(proof.usage(), null);
+    assert.equal(proof.researchState().fresh_acknowledged, true);
   }
 });
 

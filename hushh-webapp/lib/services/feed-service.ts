@@ -1,5 +1,6 @@
 import { ApiService } from "@/lib/services/api-service";
-import { currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
+import { bumpFeedPresentationRevision, currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   CACHE_KEYS,
@@ -129,6 +130,8 @@ export type FeedListResponse = {
   items: FeedItem[];
   next_cursor: string | null;
   unread_count: number;
+  /** Opaque owner received-message deletion revision; absent on older backends. */
+  history_revision?: string | null;
 };
 
 /** A removal the server stored for this account. */
@@ -168,6 +171,7 @@ export class FeedService {
     userId: string;
     path: string;
     body?: Record<string, string>;
+    isEffectCurrent?: () => boolean;
   }): Promise<T> {
     const response = await ApiService.apiFetch(options.path, {
       method: "POST",
@@ -176,6 +180,7 @@ export class FeedService {
         ...(options.body ? { "Content-Type": "application/json" } : {}),
       },
       ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+      isEffectCurrent: options.isEffectCurrent,
     });
     const payload = (await response.json().catch(() => ({}))) as T &
       ErrorPayload;
@@ -185,6 +190,8 @@ export class FeedService {
     // Also advances the Feed epoch: an older in-flight list/count response
     // cannot refill the cache after this server mutation has settled.
     CacheSyncService.onFeedChanged(options.userId);
+    bumpFeedPresentationRevision(options.userId);
+    CacheService.getInstance().invalidate(CACHE_KEYS.FEED_PRESENTATION(options.userId));
     return payload as T;
   }
 
@@ -192,6 +199,7 @@ export class FeedService {
     idToken: string;
     userId: string;
     itemId: string;
+    isEffectCurrent?: () => boolean;
   }): Promise<FeedDismissal | null> {
     const result = await this.postMutation<{
       dismissal_token?: unknown;
@@ -216,6 +224,7 @@ export class FeedService {
     userId: string;
     itemId: string;
     dismissalToken: string;
+    isEffectCurrent?: () => boolean;
   }): Promise<boolean> {
     const result = await this.postMutation<{ restored?: unknown }>({
       ...options,
@@ -229,10 +238,12 @@ export class FeedService {
     idToken: string;
     userId: string;
     upToId: string;
+    isEffectCurrent?: () => boolean;
   }): Promise<void> {
     await this.postMutation<{ status: string }>({
       idToken: options.idToken,
       userId: options.userId,
+      isEffectCurrent: options.isEffectCurrent,
       path: "/api/one/feed/clear",
       // Preserve the full Postgres bigint on the wire.
       body: { up_to_id: options.upToId },
@@ -282,7 +293,12 @@ export class FeedService {
     cursor?: string | null;
     limit?: number;
     force?: boolean;
+    isEffectCurrent?: () => boolean;
   }): Promise<FeedListResponse> {
+    const generation = getAuthSessionGeneration();
+    const isCurrent = () => getAuthSessionGeneration() === generation
+      && (options.isEffectCurrent?.() ?? true);
+    if (!isCurrent()) throw new DOMException("The Feed session changed.", "AbortError");
     const isFirstPage = !options.cursor;
     const firstPageUserId = isFirstPage ? options.userId : undefined;
     const cacheKey = firstPageUserId
@@ -306,6 +322,7 @@ export class FeedService {
       {
         method: "GET",
         headers: await authHeader(options.idToken),
+        isEffectCurrent: isCurrent,
       },
     );
     const payload = (await response
@@ -315,7 +332,7 @@ export class FeedService {
       throw feedRequestError(payload, response.status);
     }
     if (
-      cacheKey &&
+      isCurrent() && cacheKey &&
       firstPageUserId &&
       epoch === currentFeedInvalidationEpoch(firstPageUserId)
     ) {
@@ -363,6 +380,7 @@ export class FeedService {
   static async markRead(options: {
     idToken: string;
     upToId: string;
+    isEffectCurrent?: () => boolean;
   }): Promise<void> {
     const response = await ApiService.apiFetch("/api/one/feed/read", {
       method: "POST",
@@ -375,6 +393,7 @@ export class FeedService {
         // validates/coerces the request without crossing Number's 53-bit limit.
         up_to_id: options.upToId,
       }),
+      isEffectCurrent: options.isEffectCurrent,
     });
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as ErrorPayload;

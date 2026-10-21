@@ -16,6 +16,7 @@ import {
   CircleDetailFlow,
   CirclesSection,
   CreateCircleFlow,
+  useCreateCircleFlow,
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { CIRCLE_MEMBER_MENU_CLASSNAME } from "@/components/one-location/redesign/circles/circle-member-row-layout";
@@ -107,6 +108,61 @@ function detailProps(
 }
 
 describe("named Circle flows", () => {
+  it("retains the created ID if the server drops a custom type, then updates it on retry", async () => {
+    const props = createProps();
+    const saved = { ...circle("new-circle", "Investments"), kind: "other" as const };
+    const onSubmit = vi.fn().mockResolvedValueOnce(saved).mockResolvedValueOnce({ ...saved, customTypeLabel: "Finance" });
+    const { result } = renderHook(() => useCreateCircleFlow({ ...props, onSubmit, customTypesSupported: true }));
+    act(() => { result.current.changeDraft({ name: "Investments", kind: "other", customTypeLabel: "Finance" }); });
+    await act(async () => { expect(await result.current.prepare()).toBe(false); });
+    expect(result.current.savedCircle?.id).toBe("new-circle");
+    await act(async () => { expect(await result.current.prepare()).toBe(true); });
+    expect(onSubmit).toHaveBeenLastCalledWith("Investments", "other", "new-circle", "Finance");
+  });
+
+  it("allows changing a saved Circle's type after the refreshed list reaches the cap", async () => {
+    const props = createProps();
+    const onSubmit = vi.fn().mockImplementation(async (name: string, _kind: string, _id?: string, label?: string) => ({ ...circle("new-circle", name), kind: "other", customTypeLabel: label }));
+    const { result, rerender } = renderHook(({ types }) => useCreateCircleFlow({ ...props, onSubmit, customTypesSupported: true, customTypes: types }), { initialProps: { types: ["Finance", "Sports"] } });
+    act(() => { result.current.changeDraft({ name: "Trips", kind: "other", customTypeLabel: "Travel" }); });
+    await act(async () => { expect(await result.current.prepare()).toBe(true); });
+    act(() => result.current.backToDetails());
+    rerender({ types: ["Finance", "Sports", "Travel"] });
+    act(() => { result.current.setCustomTypeLabel("Work"); });
+    expect(result.current.canSubmit).toBe(true);
+    await act(async () => { expect(await result.current.prepare()).toBe(true); });
+    expect(onSubmit).toHaveBeenLastCalledWith("Trips", "other", "new-circle", "Work");
+  });
+  it("offers saved custom types and saves a different Circle name under that type", async () => {
+    const props = createProps();
+    props.onSubmit.mockResolvedValue({ ...circle("new-circle", "Investments"), kind: "other", customTypeLabel: "Finance" });
+    render(<CreateCircleFlow {...props} customTypesSupported customTypes={["Finance"]} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Investments" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Finance", exact: true }));
+    expect(screen.getByRole("textbox", { name: "Type name (optional)" })).toHaveValue("Finance");
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(props.onSubmit).toHaveBeenCalledWith("Investments", "other", undefined, "Finance"));
+    await screen.findByRole("button", { name: "Add people later" });
+  });
+
+  it("bounds new custom types while allowing an existing type to be reused", () => {
+    render(<CreateCircleFlow {...createProps()} customTypesSupported customTypes={["Finance", "Sports", "Travel"]} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Project team" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Other", exact: true }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Type name (optional)" }), { target: { value: "Work" } });
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    expect(screen.getByText(/Delete a type before adding another/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Finance", exact: true }));
+    expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
+    expect(screen.getAllByRole("radio")).toHaveLength(6);
+  });
+
+  it("does not expose custom-type controls without backend support", () => {
+    render(<CreateCircleFlow {...createProps()} customTypes={["Finance"]} />);
+    fireEvent.click(screen.getByRole("radio", { name: "Other", exact: true }));
+    expect(screen.queryByRole("radio", { name: "Finance" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Type name (optional)" })).not.toBeInTheDocument();
+  });
   afterEach(() => {
     vi.clearAllMocks();
   });

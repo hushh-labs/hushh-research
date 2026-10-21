@@ -43,7 +43,8 @@ describe("canonical workspace hierarchy", () => {
     const finance = read("components/kai/kai-market-hub-page.tsx");
 
     expect(finance).toContain('width="agent"');
-    expect(finance).toContain('className="relative"');
+    expect(finance).toContain("<AppPageHeaderRegion");
+    expect(finance).toContain("<AppPageContentRegion>");
     expect(finance).toContain('title="Finance"');
     expect(finance).toContain('titleRole="agent"');
     expect(finance).not.toContain(

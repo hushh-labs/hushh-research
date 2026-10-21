@@ -93,12 +93,27 @@
 .circleSearch input {
   min-height: 48px;
   height: 48px;
-  border: 0;
+  border: 1px solid var(--app-label);
   border-radius: 12px;
   background: var(--app-secondary-fill);
   font-size: 14px;
   font-weight: 400;
   line-height: 22px;
+}
+/* One neutral perimeter in every state; no separate focus ring or outline. */
+.workspace :global([data-testid="connect-search-row"] input),
+.workspace :global(input[type="search"]:not([data-slot="input-group-control"])),
+.workspace :global([data-slot="input-group"]:has(input[type="search"])) {
+  border: 1px solid var(--app-label);
+  box-shadow: none;
+}
+.workspace :global([data-testid="connect-search-row"] input:focus),
+.workspace :global(input[type="search"]:not([data-slot="input-group-control"]):focus),
+.workspace :global([data-slot="input-group"]:has(input[type="search"]):focus-within) {
+  border-color: var(--app-label);
+  outline: 0 none transparent;
+  outline-offset: 0;
+  box-shadow: none;
 }
 .workspace :global([data-testid="connect-search-row"]) {
   padding-bottom: 18px;

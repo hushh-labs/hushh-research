@@ -643,6 +643,56 @@ def test_decline_requires_reason_and_mail_never_follows_failed_rsvp(monkeypatch)
     assert not mail.sends
 
 
+def test_mail_only_retry_requires_current_decline_and_never_changes_attendance(monkeypatch):
+    service, calendar, _, mail = _service(monkeypatch)
+    calendar.event["attendees"][1]["responseStatus"] = "declined"
+    review = asyncio.run(
+        service.review(
+            user_id="owner",
+            event_id="event/id",
+            send_message=True,
+            mail_only_retry=True,
+            message="I cannot attend.",
+        )
+    )
+    assert _confirm(service, review) == {
+        "calendar": "declined",
+        "email": "sent",
+        "calendar_error": None,
+        "email_error": None,
+    }
+    assert not any(request["method"] == "PATCH" for request in calendar.requests)
+    assert len(mail.sends) == 1
+
+    calendar.event["attendees"][1]["responseStatus"] = "accepted"
+    with pytest.raises(GoogleConnectionError) as failure:
+        asyncio.run(
+            service.review(
+                user_id="owner",
+                event_id="event/id",
+                send_message=True,
+                mail_only_retry=True,
+                message="I cannot attend.",
+            )
+        )
+    assert failure.value.status_code == 409
+
+    calendar.event["attendees"][1]["responseStatus"] = "declined"
+    stale = asyncio.run(
+        service.review(
+            user_id="owner",
+            event_id="event/id",
+            send_message=True,
+            mail_only_retry=True,
+            message="I cannot attend.",
+        )
+    )
+    calendar.event["attendees"][1]["responseStatus"] = "tentative"
+    assert _confirm(service, stale)["calendar"] == "failed"
+    assert len(mail.sends) == 1
+    assert not any(request["method"] == "PATCH" for request in calendar.requests)
+
+
 def test_exact_proposal_preserves_midnight_and_fails_closed_on_unreadable_calendar(monkeypatch):
     service, calendar, _, mail = _service(monkeypatch)
 

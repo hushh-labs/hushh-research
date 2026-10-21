@@ -7,7 +7,7 @@ import {
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
-import { bumpFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
+import { bumpFeedInvalidationEpoch, bumpFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { noteConsentMutated } from "@/lib/cache/consent-read-after-write";
 import {
@@ -664,6 +664,7 @@ export class CacheSyncService {
     // Reads right after this change must not take the web proxy's hot copy
     // from before it (see consent-read-after-write.ts).
     noteConsentMutated(userId);
+    this.onFeedChanged(userId);
     // Consent changes alter which lifecycle cards and safe descriptors are
     // authoritative. The Chat-history owner clears its own snapshot without
     // making this cache owner import native-capacitor modules.
@@ -753,6 +754,14 @@ export class CacheSyncService {
   /** Server activity invalidates both projections and fences older in-flight reads. */
   static onFeedChanged(userId: string): void {
     this.onFeedReadFailed(userId);
+  }
+
+  /** Removed history must not return through saved pages or a later unmount. */
+  static onFeedHistoryMutated(userId: string): void {
+    if (!userId) return;
+    bumpFeedPresentationRevision(userId);
+    CacheService.getInstance().invalidate(CACHE_KEYS.FEED_PRESENTATION(userId));
+    this.onFeedChanged(userId);
   }
 
   /**

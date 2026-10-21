@@ -20,6 +20,28 @@ Submission is not publication. Manual release remains the default; an explicitly
 `--submit --ack-blockers --release-after-approval` also selects Apple's `AFTER_APPROVAL`
 release type. Report Apple review and public availability as separate states.
 
+The authorized [automatic release cadence](../../reference/operations/ci.md#automatic-native-release-cadence)
+uses the same pipeline after every fourth distinct healthy UAT deployment
+(TestFlight qualifies every second). It pins
+one green `main` commit, overlaps the production deployment with archive work,
+joins the exact healthy production run before upload, submits for Apple review
+and selects publication after approval. While an existing version awaits review,
+Ubuntu admission defers the latest candidate without allocating a Mac; the hourly
+observer revisits it. Privacy/export attestations and configured production App
+Review sign-in information remain required. New automatic releases yield to
+queued/running UAT and only one release bundle runs at a time; production
+deploy/archive remain a parallel pair. Pending releases stay outside runners and
+retry when UAT finishes, even after a failed UAT run. Existing releases are never
+cancelled. This reduces shared-pool contention but cannot reserve GitHub-hosted
+runner slots. Manual invocation defaults are unchanged.
+
+GitHub-native monitoring runs inside the existing cadence observer and reports to
+the bot-owned `UAT release monitor` issue. It works while developer computers are
+off and adds no UAT dependency or separate monitoring job. The existing certified
+counter survives the 4/8 to 2/4 transition; already issued requests keep their
+original source and authority. See the CI reference for transition and alert
+semantics.
+
 > **Why is UAT the default?** It preserves the historical UAT-backed release path. For a
 > production-backed release, explicitly select `backend_target=production`, verify that backend's
 > deployed SHA, and distribute the *same uploaded build* through `resume-ios-testflight.yml`.

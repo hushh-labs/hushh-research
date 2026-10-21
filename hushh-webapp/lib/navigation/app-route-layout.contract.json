@@ -2838,7 +2838,7 @@
       "playbookId": "route.one.kai",
       "purpose": "Help the person understand and use the kai screen through its generated controls.",
       "screen": "kai_market",
-      "entryCue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
+      "entryCue": "Use Market, Portfolio, or Stocks to choose the active finance view.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_home",
       "happyPathActionIds": [
@@ -2981,7 +2981,7 @@
     "exemptionReason": "Compatibility route only redirects to the canonical /one/kai Finance Market tab.",
     "voicePlaybook": {
       "playbookId": "route.one.kai.market",
-      "purpose": "Help the person move between Market, Portfolio, and Analysis through the shared Finance workspace.",
+      "purpose": "Help the person move between Market, Portfolio, and Stocks through the shared Finance workspace.",
       "screen": "kai_market",
       "entryCue": "",
       "proactivity": "ambient",
@@ -7339,6 +7339,14 @@
         {
           "href": "/people/sample",
           "expected": null
+        },
+        {
+          "href": "/people/sample?from=%2Fone%2Fmessages",
+          "expected": {
+            "href": "/one/messages",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
       "kind": "root",

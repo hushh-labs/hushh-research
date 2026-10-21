@@ -101,7 +101,7 @@ export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, o
   if (!available) return null;
   if (view === "closed") return (
     <AuthProviderButton label="Continue with email"
-      icon={<Mail className="size-6" aria-hidden="true" />}
+      icon={<Mail className={cn("size-6", styles.emailProviderIcon)} aria-hidden="true" />}
       className={styles.providerButton} disabled={disabled} onClick={() => setView("email")} />
   );
 

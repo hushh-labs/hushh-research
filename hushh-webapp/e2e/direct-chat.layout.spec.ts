@@ -36,6 +36,7 @@ test.beforeAll(async () => {
       } }], resolve: { alias: [
         { find: "@/hooks/use-auth", replacement: path.join(root, "e2e/fixtures/direct-chat-auth.ts") },
         { find: "@/lib/services/direct-messages-service", replacement: path.join(root, "e2e/fixtures/direct-chat-boundary.ts") },
+        { find: "@/lib/services/person-profile-service", replacement: path.join(root, "e2e/fixtures/direct-chat-connections.ts") },
         { find: "@/lib/services/connections-service", replacement: path.join(root, "e2e/fixtures/direct-chat-connections.ts") },
         { find: "@/components/vault/vault-unlock-dialog", replacement: path.join(root, "e2e/fixtures/wallet-workspace-boundaries.tsx") },
         ...["@/lib/one-location/service", "@/lib/vault/vault-context"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/direct-chat-circles.ts") })),
@@ -205,7 +206,7 @@ for (const width of [768, 820, 1024]) {
     await expect(input).toBeVisible();
     await input.fill("friendly");
     const thread = (await page.locator('[data-direct-message-page] > main').boundingBox())!;
-    for (const control of [input, page.getByRole("button", { name: "Close message search" }), page.getByRole("button", { name: "Contact info", exact: true })]) {
+    for (const control of [input, page.getByRole("button", { name: "Close message search" })]) {
       const box = (await control.boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(thread.x);
       expect(box.x + box.width).toBeLessThanOrEqual(thread.x + thread.width);
@@ -637,8 +638,18 @@ for (const scrollAway of [false, true]) test(`a delayed inline photo preserves $
     await expect(page.getByRole("button", { name: "Go to latest messages" })).toBeVisible();
   }
   const before = await list.evaluate(node => node.scrollTop);
+  await list.evaluate(node => {
+    const beforePhotoLoad = (event: Event) => {
+      if (!(event.target instanceof HTMLImageElement) || event.target.alt !== "Photo") return;
+      // Some browsers deliver an anchoring scroll after layout, before React's
+      // image-load callback. Preserve that ordering deterministically.
+      node.dispatchEvent(new Event("scroll"));
+      node.removeEventListener("load", beforePhotoLoad, true);
+    };
+    node.addEventListener("load", beforePhotoLoad, true);
+  });
   await fixture(page, "fixture.releasePhotos()");
-  const image = page.getByRole("img", { name: "Photo.png" });
+  const image = page.getByRole("img", { name: "Photo", exact: true });
   await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(400);
   if (scrollAway) await expect.poll(() => list.evaluate(node => node.scrollTop)).toBe(before);
   else await expect.poll(() => list.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThanOrEqual(1);
@@ -676,8 +687,8 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   await expect(bubble.getByRole("button", { name: "Message options" })).toBeVisible();
   const other = page.locator('[data-message-role="user"]').first();
   await other.hover();
-  await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(1);
-  await expect(other).toHaveAttribute("data-actions-visible", "true");
+  await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(touchActions ? 0 : 1);
+  if (!touchActions) await expect(other).toHaveAttribute("data-actions-visible", "true");
   await bubble.hover();
   const after = await bubble.boundingBox();
   expect(Math.abs(after!.height - before!.height)).toBeLessThanOrEqual(1);
@@ -791,6 +802,95 @@ test("hidden encrypted selections survive browser history and refresh", async ({
   await expect(page.getByRole("textbox", { name: /Message Arjun/ })).toBeVisible();
   expect(page.url()).toBe("http://localhost/one/messages");
 });
+for (const width of [320, 1440]) {
+  test(`whole chat deletion uses the ${width < 768 ? "phone hold" : "web menu"} and confirmation at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page, false, false, true);
+    const chat = page.getByRole("group", { name: "Maya Rao chat" });
+    const row = chat.getByRole("button").first();
+    const options = chat.getByRole("button", { name: "Chat options" });
+    await chat.hover();
+    const box = (await options.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(await chat.locator("button button").count()).toBe(0);
+    if (width < 768) {
+      // A moving touch is a scroll, while a stationary hold opens chat actions.
+      await row.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0, clientX: 30, clientY: 50 });
+      await row.dispatchEvent("pointermove", { pointerType: "touch", clientX: 55, clientY: 50 });
+      await page.waitForTimeout(1050);
+      await expect(page.getByRole("menu")).toHaveCount(0);
+      await row.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0, clientX: 30, clientY: 50 });
+      await expect(page.getByRole("menuitem", { name: "Delete chat" })).toBeVisible();
+      await row.dispatchEvent("pointerup", { pointerType: "touch", button: 0 });
+      await row.dispatchEvent("click", { detail: 1 });
+      await expect(page.getByRole("searchbox", { name: "Search conversations" })).toBeVisible();
+    } else {
+      await options.click();
+    }
+    await page.getByRole("menuitem", { name: "Delete chat" }).click();
+    await expect(page.getByRole("alertdialog")).toContainText("The other person keeps their copy");
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(chat).toBeVisible();
+    if (width < 768) {
+      // Native context menus can precede the hold timer and synthesize a click.
+      await row.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 2, button: 0, clientX: 30, clientY: 50 });
+      await row.dispatchEvent("contextmenu");
+      await row.dispatchEvent("pointerup", { pointerType: "touch", button: 0 });
+      await row.dispatchEvent("click", { detail: 1 });
+      await expect(page.getByRole("searchbox", { name: "Search conversations" })).toBeVisible();
+    } else {
+      await options.click();
+    }
+    await page.getByRole("menuitem", { name: "Delete chat" }).click();
+    await page.getByRole("button", { name: "Delete chat", exact: true }).click();
+    await expect(chat).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toBeVisible();
+    await fixture(page, "fixture.incoming('maya')");
+    await expect(chat).toBeVisible();
+    await row.click();
+    await expect(transcript(page).locator("[data-chat-message]")).toHaveCount(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
+for (const width of [320, 1440]) {
+  test(`header opens contact info and peer profile links keep accessible targets at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page);
+    const name = "View Maya Rao's profile";
+    const identity = page.locator("main > header").getByRole("button", { name: "Contact info", exact: true });
+    const messageLink = transcript(page).getByRole("link", { name }).last();
+    await expect(identity).toContainText("Maya Rao");
+    await identity.focus();
+    await expect(identity).toBeFocused();
+    await expect(identity).toHaveCSS("outline-style", "solid");
+    const identityBox = (await identity.boundingBox())!;
+    expect(identityBox.width).toBeGreaterThanOrEqual(44);
+    expect(identityBox.height).toBeGreaterThanOrEqual(44);
+    await identity.click();
+    const contact = page.getByRole("dialog", { name: "Contact info", exact: true });
+    await expect(contact).toBeVisible();
+    const contactProfile = contact.getByRole("link", { name });
+    for (const link of [contactProfile, messageLink]) {
+      await expect(link).toHaveAttribute("href", "/people/person-maya?from=%2Fone%2Fmessages");
+      const box = (await link.boundingBox())!;
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    await page.keyboard.press("Escape");
+    await expect(contact).toHaveCount(0);
+    // An avatar gesture belongs to the profile link, never the message hold menu.
+    await messageLink.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0 });
+    await page.waitForTimeout(650);
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await messageLink.dispatchEvent("pointerup", { pointerType: "touch", button: 0 });
+    await page.route("http://localhost/people/**", route => route.fulfill({ contentType: "text/html", body: "<main>Profile route reached</main>" }));
+    await messageLink.click();
+    await expect(page).toHaveURL("http://localhost/people/person-maya?from=%2Fone%2Fmessages");
+  });
+}
+
 test("returning to Messages restores the last People thread until Back closes it", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await mount(page);
@@ -886,8 +986,8 @@ for (const width of [320, 393, 1440]) {
     test(`message menu is action-only and full reactions fit at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
       await page.setViewportSize({ width, height: width === 320 ? 568 : 900 });
       const errors = await mount(page, dark);
-      await fixture(page, "fixture.remoteChange('maya-79', 'Choose any reaction')");
-      const message = page.locator('[data-chat-message="maya-79"]');
+      await fixture(page, "fixture.remoteChange('maya-78', 'Choose any reaction')");
+      const message = page.locator('[data-chat-message="maya-78"]');
       await expect(message).toContainText("Choose any reaction");
       await holdMessage(page, message);
       const menu = page.getByRole("menu");
@@ -898,11 +998,19 @@ for (const width of [320, 393, 1440]) {
       await page.keyboard.press("Escape");
       const draft = page.locator("[data-direct-message-composer-input]");
       await draft.fill("Keep this draft");
+      const avatarOffset = async () => {
+        const avatar = (await message.getByRole("link", { name: "View Maya Rao's profile" }).boundingBox())!;
+        const bubble = (await message.locator("[data-chat-bubble]").boundingBox())!;
+        return avatar.y + avatar.height - bubble.y - bubble.height;
+      };
+      const originalAvatarOffset = await avatarOffset();
       const useMenu = await page.evaluate(() => matchMedia("(max-width: 767px), (hover: none)").matches);
       for (const emoji of ["🐱", "👩🏽‍💻", "🇮🇳"]) {
         if (useMenu) {
           await holdMessage(page, message);
-          await page.getByRole("menuitem", { name: "React", exact: true }).click();
+          await expect(page.getByRole("menuitem", { name: "React", exact: true })).toHaveCount(0);
+          await page.keyboard.press("Escape");
+          await message.getByRole("button", { name: "React to message", exact: true }).click();
         } else {
           await message.hover();
           await message.getByRole("button", { name: "React to message", exact: true }).click();
@@ -917,17 +1025,22 @@ for (const width of [320, 393, 1440]) {
         expect(box.y + box.height).toBeLessThanOrEqual(width === 320 ? 568 : 900);
         await picker.getByPlaceholder("Search emoji").fill(emoji);
         if (emoji === "🐱") {
-          await fixture(page, "fixture.remoteChange('maya-79', 'Choose any reaction')");
+          await fixture(page, "fixture.remoteChange('maya-78', 'Choose any reaction')");
           await expect(picker).toBeVisible();
         }
         await picker.getByRole("button", { name: `Use ${emoji}`, exact: true }).click();
         await expect(picker).toHaveCount(0);
         await expect(message.getByRole("button", { name: `${emoji} reaction, 1`, exact: true })).toBeVisible();
         await expect(draft).toHaveValue("Keep this draft");
+        expect(Math.abs(await avatarOffset() - originalAvatarOffset)).toBeLessThan(1);
+        await message.getByRole("button", { name: `${emoji} reaction, 1`, exact: true }).click();
+        await expect(message.getByRole("button", { name: `${emoji} reaction, 1`, exact: true })).toHaveCount(0);
+        expect(Math.abs(await avatarOffset() - originalAvatarOffset)).toBeLessThan(1);
       }
       expect(await page.evaluate(() => (window as any).directChatFixture.sends.length)).toBe(0);
       await holdMessage(page, message);
-      await page.getByRole("menuitem", { name: "React", exact: true }).click();
+      await page.keyboard.press("Escape");
+      await message.getByRole("button", { name: "React to message", exact: true }).click();
       await expect(page.getByRole("dialog", { name: "Emoji picker", exact: true })).toBeVisible();
       await page.screenshot({ path: test.info().outputPath(`full-reactions-${width}-${dark ? "dark" : "light"}.png`), animations: "disabled" });
       await fixture(page, "fixture.changeOwner()");
@@ -967,7 +1080,8 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   await holdMessage(page, edited);
   await fixture(page, "fixture.holdReaction()");
   await expect(page.getByRole("group", { name: "Quick reactions" })).toHaveCount(0);
-  await page.getByRole("menuitem", { name: "React", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await edited.getByRole("button", { name: "React to message", exact: true }).click();
   await page.getByPlaceholder("Search emoji").fill("heart");
   await page.getByRole("button", { name: "Use ❤️", exact: true }).click();
   await expect(edited.getByRole("button", { name: "❤️ reaction, 1", exact: true })).toBeVisible();
@@ -1020,3 +1134,38 @@ test("cold route resolution completes an already pending inbox request", async (
   await fixture(page, "fixture.releaseInbox()");
   await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toBeVisible();
 });
+
+for (const width of [320, 393, 1440]) {
+  test(`selected and sent photos stay image-only at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const errors = await mount(page);
+    const photo = fs.readFileSync(path.join(process.cwd(), "public/one-location/onboarding/orbit-office.webp"));
+    await page.locator('input[accept="image/jpeg,image/png,image/webp"]').setInputFiles({ name: "private-photo.webp", mimeType: "image/webp", buffer: photo });
+    const preview = page.getByRole("img", { name: "Photo ready to send", exact: true });
+    await expect(preview).toBeVisible();
+    await expect(page.getByText("private-photo.webp", { exact: true })).toHaveCount(0);
+    const box = (await preview.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    const inputBox = (await page.locator("[data-direct-message-composer-input]").boundingBox())!;
+    const sendBox = (await page.getByRole("button", { name: "Send message", exact: true }).boundingBox())!;
+    expect(inputBox.width).toBeGreaterThanOrEqual(80);
+    // A long recipient placeholder may use two lines on a narrow phone.
+    expect(inputBox.height).toBeLessThanOrEqual(80);
+    expect(inputBox.y).toBeGreaterThanOrEqual(box.y + box.height);
+    expect(Math.abs(inputBox.y + inputBox.height / 2 - sendBox.y - sendBox.height / 2)).toBeLessThan(2);
+    await page.screenshot({ path: test.info().outputPath(`selected-photo-${width}.png`), animations: "disabled" });
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await expect(preview).toHaveCount(0);
+    const sent = page.locator('[data-message-role="user"]').filter({ has: page.getByRole("button", { name: "Open photo", exact: true }) });
+    await expect(sent.getByRole("img", { name: "Photo", exact: true })).toBeVisible();
+    await expect(sent).not.toContainText("private-photo.webp");
+    await expect(sent).not.toContainText("MB");
+    await page.screenshot({ path: test.info().outputPath(`sent-photo-${width}.png`), animations: "disabled" });
+    await sent.getByRole("button", { name: "Open photo", exact: true }).click();
+    await expect(page.getByRole("img", { name: "Shared photo", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("img", { name: "Shared photo", exact: true })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+}

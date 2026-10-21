@@ -56,6 +56,15 @@ describe("requester document payment boundary", () => {
       .rejects.toMatchObject({ code: "invalid_response" });
   });
 
+  it("accepts a request-bound no-charge completion and rejects a mismatched one", async () => {
+    fetcher.mockResolvedValueOnce(reply({ requestId, existingAccess: true }));
+    await expect(DriveRequestPaymentService.checkout("firebase", requestId))
+      .resolves.toEqual({ requestId, existingAccess: true });
+    fetcher.mockResolvedValueOnce(reply({ requestId: documentId, existingAccess: true }));
+    await expect(DriveRequestPaymentService.checkout("firebase", requestId))
+      .rejects.toThrow("Invalid checkout response");
+  });
+
   it("uses Firebase auth and accepts only the fixed Stripe checkout host", async () => {
     fetcher.mockResolvedValueOnce(reply({ status: "awaiting_payment", amountCents: 1000, currency: "usd" }));
     expect(await DriveRequestPaymentService.status("firebase", requestId)).toMatchObject({ status: "awaiting_payment" });

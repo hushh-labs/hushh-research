@@ -10,7 +10,13 @@ import {
 } from "./fixtures/product-font";
 let script: string;
 let css: string;
+let outDir: string;
 test.beforeEach(async ({ page }) => {
+  page.on("pageerror", (error) => { throw error; });
+  await page.route("**/onboarding/intro-v2/*-poster.png", route => route.fulfill({
+    contentType: "image/png",
+    body: fs.readFileSync(path.join(process.cwd(), "public/onboarding/intro-v2", path.basename(route.request().url()))),
+  }));
   await page.route("**/api/one/answer-requests/availability", (route) =>
     route.fulfill({ contentType: "application/json", body: '{"enabled":true,"requests":true,"payments":true,"payouts":true}' }),
   );
@@ -51,11 +57,12 @@ test.beforeAll(async () => {
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
   const candidates = new Set<string>();
-  const outDir = fs.mkdtempSync(
+  outDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "document-share-review-"),
   );
   await build({
     configFile: false,
+    publicDir: false,
     logLevel: "error",
     oxc: { jsx: { runtime: "automatic" } },
     plugins: [
@@ -78,6 +85,7 @@ test.beforeAll(async () => {
           "@/lib/services/api-service",
           "@/lib/services/auth-service",
           "@/lib/cache/cache-sync-service",
+          "@/components/vault/vault-flow",
           "next/link",
         ].map((find) => ({
           find,
@@ -136,11 +144,12 @@ test.beforeAll(async () => {
   // `translate: none` into `transform`, so the dialog kept its -50% centering
   // shift and rendered half off the left edge on UAT.
   const { optimize } = await import("@tailwindcss/node");
-  css =
-    stripAppFontFaces(
-      optimize(compiler.build([...candidates]), { minify: true }).code,
-    ) + productFontStyle();
+  const modules = fs.readdirSync(outDir).filter(name => name.endsWith(".css"))
+    .map(name => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
+  css = stripAppFontFaces(optimize(compiler.build([...candidates]) + modules, { minify: true }).code) + productFontStyle();
 });
+
+test.afterAll(() => { if (outDir) fs.rmSync(outDir, { recursive: true, force: true }); });
 
 test("relative standup request asks for exact dates before sending", async ({ page }) => {
   const submissions: Record<string, unknown>[] = [];
@@ -165,10 +174,11 @@ test("relative standup request asks for exact dates before sending", async ({ pa
   await page.goto("http://localhost/document-request-fixture");
   await page.addScriptTag({ content: script });
   await page.getByRole("button", { name: "Request files", exact: true }).click();
-  const panel = page.getByRole("dialog", { name: "Request files", exact: true });
+  const panel = page.locator('[data-request-dialog="files"]');
+  await expect(panel).toHaveAccessibleName("Request files");
   await expect(panel.getByText("About $10. You pay only if files are found.")).toBeVisible();
-  await panel.getByLabel("What do you need?").fill("last 3 days standup notes");
-  await expect(panel.getByText("Choose a start and end date.")).toBeVisible();
+  await panel.getByLabel("Which files do you need?").fill("last 3 days standup notes");
+  await expect(panel.getByRole("group", { name: "Dates covered" })).toHaveAccessibleDescription("Start and end dates are required.");
   await expect(panel.getByRole("button", { name: "Send request" })).toBeDisabled();
   expect(submissions).toHaveLength(0);
   await page.screenshot({ path: "/tmp/agentone-date-clarification.png" });
@@ -230,10 +240,7 @@ for (const width of [320, 390, 768, 1440])
     await page
       .getByRole("button", { name: "Request files", exact: true })
       .click();
-    const panel = page.getByRole("dialog", {
-      name: "Request files",
-      exact: true,
-    });
+    const panel = page.locator('[data-request-dialog="files"]');
     if (width === 320) {
       await page.evaluate(() => {
         document.documentElement.style.setProperty("--kb-height", "240px");
@@ -251,7 +258,7 @@ for (const width of [320, 390, 768, 1440])
       });
     }
     const purpose = `${"UntrustedLongPurpose".repeat(20)} <script>text only</script>`;
-    await panel.getByLabel("What do you need?").fill(purpose);
+    await panel.getByLabel("Which files do you need?").fill(purpose);
     if (width < 640) {
       await panel.getByRole("button", { name: "Start date: Choose date" }).click();
       const calendar = panel.getByRole("group", { name: "Choose start date" });
@@ -283,7 +290,7 @@ for (const width of [320, 390, 768, 1440])
     }
     expect(submissions).toHaveLength(0);
     for (const control of [
-      panel.getByLabel("What do you need?"),
+      panel.getByLabel("Which files do you need?"),
       ...(width < 640
         ? [
             panel.getByRole("button", { name: "Start date: Jan 1, 2026" }),
@@ -355,7 +362,7 @@ for (const [width, height] of [
     await page
       .getByRole("button", { name: "Request files", exact: true })
       .click();
-    const panel = page.getByRole("dialog", { name: "Request files", exact: true });
+    const panel = page.locator('[data-request-dialog="files"]');
     await expect(panel).toBeVisible();
     // Wait out the open animation so the box is the settled geometry.
     await expect
@@ -377,9 +384,9 @@ for (const [width, height] of [
       return box;
     };
     const box = await expectInside(0);
-    if (width >= 640) {
-      // Desktop keeps the centered sm:max-w-md card.
-      expect(box.width).toBeLessThanOrEqual(448 + 1);
+    if (width >= 768) {
+      // The illustrated request family keeps its 480px desktop measure.
+      expect(box.width).toBeLessThanOrEqual(480 + 1);
       expect(Math.abs(box.y + box.height / 2 - height / 2)).toBeLessThanOrEqual(1);
       return;
     }
@@ -395,11 +402,14 @@ for (const [width, height] of [
       })
       .toBeLessThanOrEqual(height - 300 + 1);
     await expectInside(300);
-    expect(
-      await panel.evaluate((node) => getComputedStyle(node).overflowY),
-    ).toBe("auto");
+    const scrollOwner = await panel.evaluate(node => {
+      const frame = node.querySelector('[data-task-scroll="frame"]');
+      const owner = frame ? node : node.querySelector('[data-task-region="body"]')!;
+      return getComputedStyle(owner).overflowY;
+    });
+    expect(scrollOwner).toBe("auto");
     for (const control of [
-      panel.getByLabel("What do you need?"),
+      panel.getByLabel("Which files do you need?"),
       panel.getByRole("button", { name: "Start date: Choose date" }),
       panel.getByRole("button", { name: "Send request" }),
       panel.getByRole("button", { name: "Cancel" }),
@@ -478,17 +488,15 @@ for (const width of [320, 390, 768, 1440])
     await page
       .getByRole("button", { name: "Ask about files", exact: true })
       .click();
-    const panel = page.getByRole("dialog", {
-      name: "Ask about their Drive",
-      exact: true,
-    });
+    const panel = page.locator('[data-request-dialog="drive"]');
     const question = `${"UntrustedLongQuestion".repeat(20)} <script>text only</script>`;
-    await expect(panel.getByRole("button", { name: "Send" })).toBeDisabled();
+    await expect(panel).toHaveAccessibleName("Ask about files");
+    await expect(panel.getByRole("button", { name: "Send request", exact: true })).toBeDisabled();
     await panel.getByLabel("Your question").fill(question);
     expect(submissions).toHaveLength(0);
     for (const control of [
       panel.getByLabel("Your question"),
-      panel.getByRole("button", { name: "Send" }),
+      panel.getByRole("button", { name: "Send request", exact: true }),
       panel.getByRole("button", { name: "Cancel" }),
     ]) {
       await control.scrollIntoViewIfNeeded();
@@ -500,7 +508,7 @@ for (const width of [320, 390, 768, 1440])
     expect(
       await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
     ).toBe(true);
-    const submit = panel.getByRole("button", { name: "Send" });
+    const submit = panel.getByRole("button", { name: "Send request", exact: true });
     await submit.focus();
     await page.keyboard.press("Enter");
     await expect(panel.getByText("Waiting for A to allow")).toBeVisible();
@@ -1169,10 +1177,11 @@ for (const width of [320, 390, 1440]) {
     await page.addScriptTag({ content: script });
     await awaitProductFont(page);
     await page.getByRole("button", { name: "Request scope", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "Request scope" });
-    const question = dialog.getByLabel("Question");
+    const dialog = page.locator('[data-request-dialog="question"]');
+    const question = dialog.getByLabel("Your question");
+    await expect(dialog).toHaveAccessibleName("Ask a question");
     await expect(question).toBeVisible();
-    await expect(question).toHaveAttribute("placeholder", "E.g. What is your age?");
+    await expect(question).toHaveAttribute("placeholder", "What is the best way to contact you?");
     await expect(dialog.getByText("To Asha", { exact: true })).toBeVisible();
     await expect(dialog.locator('input[type="date"], input[type="checkbox"]')).toHaveCount(0);
     await expect(dialog.getByText(/Period|Start date|End date|Request files|Drive/)).toHaveCount(0);
@@ -1200,8 +1209,13 @@ for (const width of [320, 390, 1440]) {
       await dialog.screenshot({ path: path.join(process.env.REQUEST_SCOPE_SCREENSHOT_DIR, `request-scope-${width}.png`) });
     }
     await send.click();
+    await expect(dialog).toHaveAccessibleName("Question sent");
     await expect(dialog.getByText(/Request sent/)).toBeVisible();
-    expect(submissions).toEqual([{ personRef: "33333333-3333-4333-8333-333333333333", question: value }]);
+    expect(submissions).toEqual([{
+      personRef: "33333333-3333-4333-8333-333333333333",
+      question: value,
+      clientRequestId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
+    }]);
     await expect(dialog.getByRole("link", { name: "View request" })).toBeVisible();
     expect(errors).toEqual([]);
   });

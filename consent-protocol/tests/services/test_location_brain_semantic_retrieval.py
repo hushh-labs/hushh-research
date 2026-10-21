@@ -36,6 +36,27 @@ def _legacy_alias_tokens(graph: dict[str, object]) -> set[str]:
     return tokens
 
 
+def test_circle_type_delete_inventory_has_no_model_or_server_execution_binding() -> None:
+    graph = runtime.load_capability_graph()
+    workflow = next(
+        item for item in graph["workflows"] if item["capability_id"] == "workflow.setup.location"
+    )
+    endpoint = next(
+        item
+        for item in workflow["api_endpoints"]
+        if item["path"] == "/api/one/location/circle-types"
+    )
+    assert endpoint["method"] == "DELETE"
+    assert endpoint["authorization"] == "vault_owner"
+    assert endpoint["binding_status"] == "discovered_unbound"
+    assert runtime.get_capability(endpoint["capability_id"]) is None
+    assert not runtime.is_server_direct_capability(endpoint["capability_id"])
+    catalog = runtime._location_brain_catalog_from_graph(graph)
+    cards = runtime._location_brain_index_cards(catalog)
+    assert all(card["candidate_id"] != endpoint["capability_id"] for card in cards)
+    assert all(card.get("kind") != "endpoint_inventory" for card in cards)
+
+
 def test_location_semantic_retrieval_ignores_legacy_aliases_and_routes_held_out_phrase(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -157,3 +178,54 @@ def test_service_brain_facade_never_uses_legacy_lexical_retrieval(
 
     assert result["retrieval_status"] == "ASK"
     assert result["service_brain_registry"]["service_ids"] == ["location"]
+
+
+def test_same_dimension_cache_cannot_cross_embedding_provider_or_generation(monkeypatch):
+    profile = {"value": "azure-deployment-version-generation"}
+    monkeypatch.setattr(runtime, "_location_brain_embedding_profile", lambda: profile["value"])
+    monkeypatch.setattr(
+        runtime,
+        "_LOCATION_BRAIN_SEMANTIC_CACHE",
+        {
+            "graph_revision": "graph",
+            "brain_revision": "brain",
+            "candidate_ids": ("candidate",),
+            "vectors": (tuple(_unit_vector(0)),),
+            "embedding_model": runtime.LOCATION_BRAIN_EMBEDDING_MODEL,
+            "dimensions": 768,
+            "embedding_profile": profile["value"],
+        },
+    )
+    params = {"graph_revision": "graph", "brain_revision": "brain", "candidate_ids": ("candidate",)}
+    assert runtime._location_brain_cache_matches(**params)
+    profile["value"] = "vertex-model-same-768-dimensions"
+    assert not runtime._location_brain_cache_matches(**params)
+    profile["value"] = "azure-different-generation"
+    assert not runtime._location_brain_cache_matches(**params)
+
+
+def test_location_embedding_uses_azure_port_and_preserves_normalization_without_vertex(monkeypatch):
+    from hushh_mcp.runtime_providers import managed_azure
+
+    binding = object()
+    calls = []
+    monkeypatch.setattr(managed_azure.ManagedAzureBinding, "from_environment", lambda: binding)
+    monkeypatch.setattr(runtime, "_location_brain_embedding_profile", lambda: "azure-profile")
+    monkeypatch.setattr(runtime, "_location_brain_embedding_circuit_allows_request", lambda: True)
+
+    async def embed(actual, texts, *, timeout):
+        assert actual is binding
+        calls.append((texts, timeout))
+        return [[2.0] + [0.0] * 767]
+
+    monkeypatch.setattr(managed_azure, "embed_texts", embed)
+
+    def unexpected_vertex():
+        raise AssertionError("Azure selection must not initialize Vertex")
+
+    monkeypatch.setattr(runtime, "_location_brain_embedding_client", unexpected_vertex)
+    result = runtime._embed_location_brain_texts(
+        ["synthetic redacted query"], task_type="RETRIEVAL_QUERY", timeout_ms=900
+    )
+    assert result == [_unit_vector(0)]
+    assert calls == [(["synthetic redacted query"], 0.9)]

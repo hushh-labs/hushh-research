@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import json
 import time
 import uuid
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedSessionCheckpointStore
 from hushh_mcp.one_adk.profile_research import ProfileReport, ProfileSourceRef
+from hushh_mcp.one_adk.public_sources import public_source_urls
 from hushh_mcp.one_adk.world_model import POLICY, manifest
 from hushh_mcp.runtime_settings import one_profile_research_enabled
 from hushh_mcp.services.world_model_preferences import checkpoint_before_write
@@ -54,31 +53,7 @@ class SourceReviewInput(BaseModel):
     @field_validator("urls")
     @classmethod
     def public_urls(cls, values):
-        if len(set(values)) != len(values):
-            raise ValueError("Supply distinct sources")
-        for value in values:
-            parsed = urlsplit(value)
-            host = parsed.hostname or ""
-            if (
-                len(value) > 2048
-                or parsed.scheme != "https"
-                or not host
-                or "." not in host
-                or parsed.username
-                or parsed.password
-                or parsed.query
-                or parsed.fragment
-                or parsed.port not in {None, 443}
-                or host.endswith((".localhost", ".local", ".internal"))
-            ):
-                raise ValueError("Supply public HTTPS pages without query strings or credentials")
-            try:
-                ipaddress.ip_address(host)
-            except ValueError:
-                pass
-            else:
-                raise ValueError("IP-address sources are not accepted")
-        return values
+        return public_source_urls(values)
 
 
 async def require_owner(user_id, token):
@@ -141,17 +116,45 @@ async def prepare(user_id, token, body: SourceReviewInput):
         model_name = resolve_fleet_model_name(task.model.name)
         source_instruction = task.system_instruction.split("OWNER-SUPPLIED SOURCE REVIEW\n", 1)[1]
         async with asyncio.timeout(150):
-            response = await build_managed_runtime_client("gemini").aio.models.generate_content(
-                model=model_name,
-                contents=json.dumps(body.model_dump()),
-                config=types.GenerateContentConfig(
-                    system_instruction=source_instruction,
-                    tools=[types.Tool(url_context=types.UrlContext())],
-                    max_output_tokens=8192,
-                ),
-            )
+            from hushh_mcp.managed_ai_config import load_managed_runtime_policy
+
+            runtime_policy = load_managed_runtime_policy()
+            if runtime_policy is not None:
+                from hushh_mcp.one_adk.public_source_fetch import retrieve_public_sources
+
+                async def current():
+                    current_policy = load_managed_runtime_policy()
+                    if (
+                        current_policy is None
+                        or current_policy["generation"] != runtime_policy["generation"]
+                    ):
+                        raise PermissionError("Source-review processor selection changed")
+                    await require_owner(user_id, token)
+
+                retrieved = await retrieve_public_sources(body.urls, require_current=current)
+                sources = {item.ref: item.url for item in retrieved}
+                parts = [types.Part(text=json.dumps(body.model_dump()))]
+                parts.extend(part for item in retrieved for part in item.parts)
+                response = await build_managed_runtime_client("gemini").aio.models.generate_content(
+                    model=model_name,
+                    contents=types.Content(role="user", parts=parts),
+                    config=types.GenerateContentConfig(
+                        system_instruction=source_instruction,
+                        max_output_tokens=8192,
+                    ),
+                )
+            else:
+                response = await build_managed_runtime_client("gemini").aio.models.generate_content(
+                    model=model_name,
+                    contents=json.dumps(body.model_dump()),
+                    config=types.GenerateContentConfig(
+                        system_instruction=source_instruction,
+                        tools=[types.Tool(url_context=types.UrlContext())],
+                        max_output_tokens=8192,
+                    ),
+                )
+                sources = successful_sources(response, body.urls)
             await require_owner(user_id, token)
-            sources = successful_sources(response, body.urls)
             agent = LlmAgent(
                 name=task.id,
                 model=build_managed_regional_gemini_adk_model(model_name),

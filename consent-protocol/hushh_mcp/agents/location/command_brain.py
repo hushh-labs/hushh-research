@@ -150,8 +150,10 @@ class LocationCommandBrain:
         from hushh_mcp.hushh_adk.manifest import ManifestLoader
         from hushh_mcp.runtime_providers import build_managed_runtime_client
         from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+        from hushh_mcp.runtime_providers.managed_azure_text import ManagedAzureTextClient
 
         self.manifest = manifest or ManifestLoader.load(str(Path(__file__).with_name("agent.yaml")))
+        self._managed_client = client is None or isinstance(client, ManagedAzureTextClient)
         self.client = client or build_managed_runtime_client(runtime_provider="gemini")
         self.model = resolve_fleet_model_name(self.manifest.model_config_for_runtime().name)
         self.adk_model = adk_model
@@ -181,6 +183,27 @@ class LocationCommandBrain:
         # transcript hallucinate a command from an empty microphone signal.
         if not any(pcm):
             return ""
+
+        if self._managed_client:
+            from hushh_mcp.runtime_providers.managed_azure import (
+                ManagedAzureBinding,
+                transcribe_wav,
+            )
+
+            binding = ManagedAzureBinding.from_environment()
+            if binding is not None:
+                gene = _load_transcriber_gene()
+                try:
+                    return await transcribe_wav(
+                        binding,
+                        audio,
+                        instruction=gene.system_instruction,
+                        timeout=30,
+                    )
+                except Exception as exc:
+                    raise TimeoutError(
+                        "Location transcription is temporarily unavailable."
+                    ) from exc
 
         # Production managed clients use the manifest-owned single-turn gene.
         # Lightweight test clients retain the direct seam and never acquire

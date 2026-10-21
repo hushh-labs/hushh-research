@@ -486,6 +486,23 @@ export class DirectMessagesService {
     return message;
   }
 
+  static async deleteConversation(input: {
+    idToken: string;
+    conversationId: string;
+  }): Promise<{ conversationId: string; deleted: true; scope: "me" }> {
+    const conversationId = String(input.conversationId || "").trim();
+    if (!conversationId) throw new Error("This chat is no longer available.");
+    const response = await ApiService.apiFetch(
+      `/api/one/messages/conversations/${encodeURIComponent(conversationId)}`,
+      { method: "DELETE", headers: authHeaders(input.idToken), cache: "no-store" },
+    );
+    const result = await jsonOrThrow<{ conversationId?: unknown; deleted?: unknown; scope?: unknown }>(response);
+    if (result.conversationId !== conversationId || result.deleted !== true || result.scope !== "me") {
+      throw new Error("The deleted chat could not be verified.");
+    }
+    return { conversationId, deleted: true, scope: "me" };
+  }
+
   static async deleteMessage(input: {
     idToken: string;
     conversationId: string;

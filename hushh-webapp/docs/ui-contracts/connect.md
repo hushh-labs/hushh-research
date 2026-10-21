@@ -340,7 +340,8 @@ and [its people step](../../components/one-location/redesign/circles/create-circ
 | Step or CTA | State and effect |
 | --- | --- |
 | Details: **Circle name** | Required trimmed name, 1–80 characters. |
-| **Circle type** | Family, Friends, Other; default Family. These are not the six starter labels. |
+| **Circle type** | Family, Friends and up to three reusable custom types; Other accepts an optional type name of 1–32 normalized characters. Default Family. These are independent from Circle names and the six starter ideas. Custom choices are shown only when the backend advertises `customTypePolicy.version=1,maxTypes=3`. |
+| Custom type groups | Owned ordinary Circles with the same normalized type label appear under that label above Circle ideas. Joined and system Circles do not populate the owner's reusable choices. Deleting a type requires confirmation and moves its Circles to Other without removing members or Circles. A type disappears once no active owned Circle uses it. |
 | **Next / Saving…** | Persists the circle, then opens the people step. Failure keeps the form available for retry. |
 | People: **Search people** | Searches eligible existing connections; selection survives paging. |
 | Person **Add / selected toggle** | Changes the local batch, bounded by remaining capacity and at most 20 per mutation. |
@@ -544,7 +545,7 @@ prove that a pending invitation, location share or notification was created.
 | --- | --- | --- |
 | First unlocked Circles load | POST `/api/one/location/circles/trusted?summaryOnly=true`, then GET `/api/one/location/circles` | Ensures empty Trusted container only; does not bulk-copy connections. Lists/counts derive from current owner/membership, not the six optional ideas. |
 | Open detail | GET `/circles/<id>/overview` and GET `/circles/<id>/members?page=1&limit=50`, optional `query`, under `/api/one/location` | Overview `circle` projects name/photo/count/role/system kind/active code/rotation/capabilities. Members `items,page,hasMore,totalCount` feed rows. Search250ms; current-query fences; paginate dedupe user ID. |
-| Create → Next | POST `/api/one/location/circles`, `{name,kind}`→`circle` | Circle **already saved before Add people**. No caller idempotency key. Closing later does not delete it. Back then changed Next PATCHes same saved ID; unchanged details make no call. |
+| Create → Next | POST `/api/one/location/circles`, `{name,kind,customTypeLabel?}`→`circle` | Custom labels use `kind=other`; at most three distinct active owned labels are enforced under the owner lock. Circle **already saved before Add people**. No caller idempotency key. Closing later does not delete it. Back then changed Next PATCHes same saved ID; unchanged details make no call. Custom-type echo failure retains the saved ID for recovery. |
 | Rename → Save | PATCH `/api/one/location/circles/<id>`, `{name}`→`circle` | Valid changed name1–80; Cancel restores draft/no PATCH. Create details update can send `{name,kind}`. |
 | Add people load/search/page | GET `/api/one/location/circles/<id>/eligible-connections?page=1&limit=50[&query=…]` | `eligibleConnections,pendingInvites,remainingCapacity,page,hasMore,totalCount`; controlled query and selected map retain off-page selection. All connections / Selected switches are local. Limit min20/capacity. |
 | Add people → confirm | POST `/api/one/location/circle-member-invites`, `{circleId,inviteeUserIds}` | `added,skipped,skippedReasons,invites:[]`: current implementation adds direct memberships despite endpoint name. Busy blocks close; failure reconciles stale eligibility. `Added to the Circle.` / `{N} people added to the Circle.`; `Could not add them.` |
@@ -714,6 +715,7 @@ not a live measurement of that account.
 | --- | --- | --- |
 | Connect workspace | `AppPageShell` and workspace are the same element. Reading shell consumes local `--app-shell-reading:728px`; workspace also max728 (the generic utility says720 but is not final CSS). Inner side24,20 at≤620,16 at≤350. Focused Create/Join cap560. | Current root `data-connect-type-scale="page"`, not Profile opt-in. Local roles resolve row14/21/550, description12/18, group14/22. |
 | Sticky hierarchy | Hub top shell mask; tabs top hub measured height; section +48; search +92 | z20/12/11/10. Disabled height≤560 or width≤280. These are measured layout dependencies, not fixed screen Y. |
+| Directory, Connections and Circles search | Height48, radius12; font14/22/400,16px≤620. One 1px primary-label border stays visible at rest, on hover and during focus. | No second outline, shadow or accent ring. Dark appearance uses the light primary label. Connect search groups apply the border to their outer shell. |
 | Person row | One column; min72,70≤620; avatar36,32≤350; identity flexible then action siblings | Relationship target44high/min-width88→78≤620→72≤350. Message/Options44, glyph22/20. Long names wrap; buttons do not overlap identity. |
 | People/accepted Options |224wide/p4 | Portal aligned end, offset4, z10100; item anchors own trigger; opening no API. |
 | Directory selector | Web184wide,max viewport−24,radius18,p6 | Bottom/start offset6,collision16; native/local absolute left0/top100%+4,z30,radius14,p4. |
@@ -781,3 +783,36 @@ Documentation-only changes require `./bin/hushh docs verify` from the repo root.
 Protected live rehearsal uses the existing reviewer workflow and same-session
 client navigation; fixture counts never establish the current person's circle
 memberships.
+
+## Direct Messages handoff
+
+The Messages subagent retains its existing theme and viewport-centered composer
+and dock. Its name/photo opens Contact info (see the
+[person profile contract](./person-profile.md)); there is no duplicate icon beside calling.
+The existing call capability remains gated.
+
+The message-options menu contains Reply, eligible Edit, and the existing delete
+choices. Reactions use the separate smiley picker, including after a touch hold;
+there is no duplicate React menu row. Reaction chips occupy their own row below
+the bubble and do not move the received-message avatar away from its bubble.
+Selected JPEG/PNG/WebP photos show a local image preview in the composer. Sent
+photos render as images, without document filename, size or MIME metadata; tap
+opens the shared dialog and Escape/overlay Back closes it. Document cards retain
+their filename/download behavior. Photo reads remain authenticated and lazy;
+failed loads can retry, retired visits cannot project bytes, and blob URLs are
+released on replacement, removal or unmount. A delayed photo retains an existing
+bottom pin when layout grows; a reader who has scrolled up keeps that position.
+Inline photos decode before display and reserve their bounded dimensions before
+paint, including in WebKit. Failed decoding remains retryable; retiring the
+conversation releases pending preview URLs immediately.
+
+Finishing a validated voice recording sends it through the existing send owner
+without a second attachment-approval step. Cancel/background/retired capture
+still discards it. While delivery is pending or uncertain, the draft, reply and
+attachment are frozen; Retry reuses the same file and client message ID, even
+when the text is empty. Remote edits update a selected reply quote; deletion
+clears that quote without inferring deletion merely from an unloaded history page.
+
+Source: [Messages](../../components/direct-messages/direct-messages-page.tsx),
+[voice recorder](../../components/direct-messages/direct-message-voice-recorder.tsx),
+[layout](../../components/direct-messages/direct-messages-page.module.css).

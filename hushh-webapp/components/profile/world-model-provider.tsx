@@ -48,6 +48,7 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
     owner: string;
     key: string;
     token: string;
+    publicProfileUrls?: readonly string[];
   } | null>(null);
   const retryIntent = useRef<{
     owner: string;
@@ -79,6 +80,13 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
   // Layout effects, so a reader never paints a value for a previous owner,
   // key or token. Attach runs first: the authority effect needs the handle.
   useLayoutEffect(() => {
+    const queueRefresh = (publicProfileUrls?: readonly string[]) => {
+      const state = current.current;
+      refreshIntent.current = state.ready && state.owner && state.key && state.token
+        ? { owner: state.owner, key: state.key, token: state.token,
+            ...(publicProfileUrls ? { publicProfileUrls: [...publicProfileUrls] } : {}) } : null;
+      setRevision(value => value + 1);
+    };
     const handle = worldModelResearchStore.attach({
       reload: (confirmed?: PwmPreferences) => {
         refreshIntent.current = null;
@@ -109,14 +117,8 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
           );
         setRevision((value) => value + 1);
       },
-      refresh: () => {
-        const state = current.current;
-        refreshIntent.current =
-          state.ready && state.owner && state.key && state.token
-            ? { owner: state.owner, key: state.key, token: state.token }
-            : null;
-        setRevision((value) => value + 1);
-      },
+      refresh: () => queueRefresh(),
+      researchPublicProfiles: urls => queueRefresh(urls),
     });
     writer.current = handle;
     return () => {
@@ -251,6 +253,7 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
         ownerId: owner,
         ownerDecisions,
         refresh: explicitRefresh,
+        publicProfileUrls: explicitRefresh ? intent.publicProfileUrls : undefined,
         // Keep read warming, but do not enroll or resume research on fixture
         // unlock. Explicit UI actions retain the rehearsal's admission guard.
         readOnly: shouldSkipReviewerBackgroundWritesForAutomation() && !explicitRefresh && !explicitRetry,

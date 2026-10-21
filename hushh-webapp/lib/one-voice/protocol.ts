@@ -98,6 +98,7 @@ export type UiSettledFrame = {
   status?: "opened" | "failed" | "ignored";
 };
 export type InterruptFrame = { type: "interrupt" };
+export type PlaybackFrame = { type: "audio.playback"; turn_id: string; item_id: string; played_ms: number };
 /** Optional, content-free device timing. The relay validates the same bounds. */
 export type PerfFrame = {
   type: "perf";
@@ -136,6 +137,7 @@ export type ClientFrame =
   | MailDraftChangedFrame
   | UiSettledFrame
   | InterruptFrame
+  | PlaybackFrame
   | PerfFrame
   | PingFrame
   | EndFrame
@@ -238,6 +240,8 @@ export type AudioOutFrame = {
   turn_id: string;
   /** The user turn that owns this audio; narration has its own playback ID. */
   origin_turn_id?: string;
+  /** Opaque provider item, correlated by the relay; absent on narration. */
+  item_id?: string;
   /**
    * Audio this server synthesized, not audio the Live model produced.
    *

@@ -1156,6 +1156,14 @@ holds labels and field names only. History restores it as the structured
 experience `one.shared_with_me_card.v1` with content `{cards: [...]}`, each card
 re-validated field by field.
 
+`GET /api/one/people/{person_ref}/relationship` requires Firebase authentication
+and returns `{personRef, relationship}` through the existing relationship owner.
+Self, missing, or inactive profiles return 404. The private/no-store read omits
+internal subject IDs, contacts, catalogs, grants and history. It establishes
+current presentation eligibility independently of slower full-profile assembly;
+mutations still recheck current server authority. The complete viewer response
+remains unchanged and can establish eligibility if the narrow read fails.
+
 `GET /api/one/people/{person_ref}/request-history` requires the authenticated
 Firebase user. It reads only bundles that user requested from the active person
 profile named by `person_ref`; the profile URL alone grants no access. A self
@@ -1214,6 +1222,20 @@ Pending work coalesces and paused/unavailable work retains its existing resume
 and cooldown behavior. Ordinary starts keep their idempotent reuse behavior;
 `/ensure` rejects the refresh field and never implicitly buys a new discovery.
 
+An explicit jobs refresh may include `public_profiles:{urls:[...],permitted_public_sources:true}`
+with one to three owner-chosen public HTTPS profile URLs. The same public-page
+validator rejects credentials, queries, fragments, IP addresses and private host
+suffixes. This requires current Azure/Bing consent and never verifies identity.
+Azure retrieves these leads through its normal charged web tool and assesses
+received citations before presenting candidate findings. Private owner decisions
+and Memory never become search seeds. Omitted profiles carry through resumes;
+reordered URLs reuse the same scope. A changed set requires explicit refresh,
+returns 409 while a pending lease is live, and starts a new work generation while
+retaining hourly starts and the CAS fence. Automatic `/ensure` rejects this field.
+The existing Pages you choose form offers a separate Azure research action; its
+Gemini page-review action retains its meaning. No research occurs on typing or
+opening the form, and every save still requires owner review.
+
 `POST /api/one/world-model/ensure` starts/resumes the existing owner-bound research
 job after setup and unlock. The backend resolves fresh authenticated name,
 verified email and canonical verified phone when available; at least one verified
@@ -1252,17 +1274,24 @@ changes the owner receipt's `enabled`, `accepted_at`, `revoked_at` or CAS genera
 The old PUT remains a historical personal receipt operation; it cannot choose the
 managed UAT processor. Updated clients expose read-only processing information.
 
-All UAT users use the administrator Azure-primary policy for managed One text
-chat and semantic document requests. `/api/one/models/preference` projects the
+All UAT users use the administrator managed-text policy for One text chat
+and semantic document requests. Candidate readiness prefers Azure and selects
+Vertex when only Vertex passes; either or both complete application bundles
+satisfy provider admission. Partial text-only readiness does not certify Voice,
+media or other capabilities. `/api/one/models/preference` projects the
 central deployment as effective, with `source:administrator_policy`; old saved
 choices remain visible as history. Selection writes return `MODEL_MANAGED_BY_POLICY`.
-The generic Gemini-name resolver remains unchanged for unrelated callers and BYOK.
+Managed UAT fleet aliases resolve through the selected Azure compatibility port;
+responses and telemetry retain the actual model/provider. BYOK remains explicit.
 
 New semantic bindings seal `authorization_basis:uat_policy` and the current policy
 generation. Existing eligible pending bindings move only through an atomic,
 recorded processor migration that preserves results and effect history. The shared
-provider contract always attempts Azure first and permits a bounded Gemini fallback
-only for classified transient model failures before any output. Current file access,
+provider contract attempts the verified provider first and permits one bounded
+alternate-provider call only for classified transient failures before any output.
+The authenticated managed readiness response identifies the actual `provider`,
+`model`, nullable `location`, and `fallback_used`; successful caching is keyed by
+policy generation and configuration. BYOK validation remains separate. Current file access,
 owner/request authority, source versions, payment and sharing gates remain required.
 See [UAT policy and recovery](../iam/rollout-and-environments.md#uat-managed-text-processing-policy).
 
@@ -1959,24 +1988,28 @@ separate work; a static export or native compile is not sign-in proof.
 | ------ | ------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | POST | `/api/one/google/connect/complete` | Firebase Bearer | Complete the owner-bound Google attempt; return connection status and authoritative service. No caller-supplied service is accepted. |
 | POST   | `/api/one/calendar/connect/start`     | Firebase Bearer    | Start incremental Google Calendar read or manage authorization; returns only an OAuth authorization URL and expiry. |
+| POST | `/api/one/calendar/connect/start` | Firebase Bearer | `additional:true` starts an owner-bound additional Calendar authorization through the existing connect endpoint, optionally bound to one existing `account_id` for reconnect. A verified Google subject cannot occupy two active account slots; the owner can retain at most three slots. |
 | POST   | `/api/one/calendar/connect/complete`  | Firebase Bearer    | Redeem a one-time, PKCE-bound OAuth callback and persist the encrypted provider credential and Calendar grant.      |
 | POST   | `/api/one/calendar/connect/native/start` | Firebase Bearer | Create an owner-bound, generation-fenced native attempt; return public client settings and opaque state. |
 | POST   | `/api/one/calendar/connect/native/complete` | Firebase Bearer | Exchange the native code only with the matching state, owner, service and permission; missing state is rejected. |
-| GET    | `/api/one/calendar/status/{user_id}`  | Firebase Bearer    | Return non-sensitive Calendar connection and permission state.                                                      |
-| POST   | `/api/one/calendar/disconnect`        | Firebase Bearer    | Disable Calendar locally and delete pending actions without revoking sibling Google services.                       |
+| GET    | `/api/one/calendar/status/{user_id}`  | Firebase Bearer    | Return non-sensitive Calendar connection and permission state, including each owner-bound Calendar account ID/status and a three-account limit. |
+| POST   | `/api/one/calendar/disconnect`        | Firebase Bearer    | Disable the selected Calendar `account_id`; the default preserves sibling Google services, while an additional Calendar-only credential is erased and its provider token revoked best-effort. |
 | POST   | `/api/one/calendar/events`            | VAULT_OWNER Bearer | Read bounded primary-calendar events in a supplied ISO-8601 time range.                                             |
 | POST   | `/api/one/calendar/availability`      | VAULT_OWNER Bearer | Read free/busy blocks for up to twenty requested calendars.                                                         |
 | POST   | `/api/one/calendar/proposals`         | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google.                     |
 | POST   | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed.                         |
 | POST | `/api/one/calendar/schedule/today` | Firebase Bearer + active owner-bound Calendar OAuth grant | Resolve `date` in `time_zone`, page the subscribed calendar inventory and all readable calendar events, including recurring instances and civil all-day dates. Fail on incomplete reads; report calendars that share only busy times separately. |
 | POST | `/api/one/calendar/schedule/availability` | Firebase Bearer + active owner-bound Calendar OAuth grant | Check every subscribed calendar and return up to three maximal free `windows` plus exact `full_count`, filtering by requested 15/30/60-minute duration. Missing permission or any unavailable calendar fails closed. |
+| POST | `/api/one/calendar/board/day` | Firebase Bearer + each account's active Calendar OAuth grant | Return all paged events, hidden invitations and full-day free windows for up to three distinct accounts, with source coverage, cross-account overlaps and exact shared free-time intersection. A missing or changing account marks the result incomplete; no shared opening is offered. Per-account calendar-inclusion overrides affect availability only. |
 | POST | `/api/one/calendar/invitations` | Firebase Bearer | No-store, owner-bound upcoming received invitations across subscribed event-readable calendars (default 90 days, maximum 93), all pages and recurring instances; organizer-owned events excluded. Includes pending count, RSVP, attendees, provider link and conflicts. Reports free/busy-only calendars explicitly. |
-| POST | `/api/one/calendar/attendance/review` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Verify equal owners and the connected primary attendee; prepare a ten-minute encrypted review of decline and optionally the editable organizer email with checked alternatives. No meeting changes. |
-| POST | `/api/one/calendar/attendance/confirm` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Atomically claim `review_id`, validate `review_token`, current account/grant and ETag, patch only the connected attendee response. Return separate `calendar` and `email` outcomes, replay completed outcomes without sending twice. |
+| POST | `/api/one/calendar/attendance/review` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Verify equal owners and the selected account's attendee; prepare a ten-minute encrypted review of a response and optional editable organizer email. No meeting changes. `account_id` defaults to the legacy connection. |
+| POST | `/api/one/calendar/attendance/confirm` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Atomically claim `review_id`, validate `review_token`, current selected account/grant and ETag, patch only that attendee response. Return separate `calendar` and `email` outcomes, replay completed outcomes without sending twice. |
+| POST | `/api/one/calendar/conflicts/review` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Prepare a ten-minute, owner/account-bound keep-one/decline-selected plan. All account reads and conflict coverage must be complete; each Calendar response and exact canonical-Mail sender, recipient and note is previewed without mutation. |
+| POST | `/api/one/calendar/conflicts/confirm` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Preflight account grants and event versions, accept the kept pending invitation if needed, then claim each selected decline and reviewed organizer note. Provider operations are not atomic; child ledgers prevent duplicate effects, and separate outcomes disclose partial or unknown results. |
 | POST | `/api/one/calendar/rescheduling/options` | Expiring encrypted capability in POST body | Recipient browser reads only previously offered times after live free/busy recheck and grant binding; ten requests/minute using configured shared limiter. No event-read, booking or mutation authority. |
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
 
-Connected `/one/calendar` defaults to Schedule → Today. Invitations shows Pending, Responded and All received invitations; Insights shows the live weekly overview and meeting library. Today loads every event-readable subscribed calendar with
+Connected `/one/calendar` shows an account board when Calendar account status is available, with one to three accounts, per-account Events/Free time, cross-account conflict review and shared openings. Invitations remains available per account and Insights retains the default account's weekly overview. An inline decline/email flow keeps the person on Calendar; Mail enablement and retry of a known failed organizer note also stay in the review. Provider-side accept/decline and Mail send cannot be rolled back together. The legacy single-account workspace remains a compatibility surface during a newly verified connection before account status refresh. Today loads every event-readable subscribed calendar with
 source names/colors and real Meet/Zoom/Teams links. Free time checks up to 100
 subscribed calendars in batches of twenty, merges busy periods and clips elapsed
 time before counting matching windows. Overlaps and civil-day/DST boundaries
@@ -2071,7 +2104,7 @@ The Request scope dialog contains a recipient, one labelled question field and C
 | Method | Path under `/api/one/answer-requests` | Contract |
 | --- | --- | --- |
 | GET | `/availability` | Three independent gates: `requests` admits intake and owner review, `payments` admits checkout and additionally requires usable answer credentials, `payouts` reports owner payout reachability. Legacy `payments`-meaning `enabled` is retained so an older client fails closed. Each field is absent-is-false; a surface whose gate is off opens an explanation instead of a control, and a check that could not be made is reported as retryable rather than as a disabled lane. |
-| POST | `/` | Create a connected-person question and resolve eligible scopes through the existing resolver. `periodStart` and `periodEnd` may be omitted or null; a supplied range must contain two real ISO calendar dates in order. |
+| POST | `/` | Create a connected-person question and resolve eligible scopes through the existing resolver. Optional UUID `clientRequestId` replays the same requester/owner/canonical question/dates without reopening lifecycle state or duplicating Feed events; conflicts return generic 409, invalid IDs 422. Omission preserves legacy UUID generation. Participant `/{id}/state` supports uncertain-submit recovery. `periodStart` and `periodEnd` may be omitted or null; a supplied range must contain two real ISO calendar dates in order. |
 | GET | `/inbox`, `/{id}/state` | Owner review queue or exact participant state; unrelated users cannot read the question. |
 | POST | `/{id}/approve`, `/{id}/decline`, `/{id}/cancel` | Exact terms and model-processing consent, refusal or withdrawal; paid cancellation owes a full refund. Approval is admitted by the request gate and records a price without charging; with payments paused the requester sees that price and no pay control. |
 | GET / POST | `/{id}/payment`, `/{id}/payment/checkout` | Quote/status and mode-bound hosted Checkout with durable overlapping-session recovery. |
@@ -2201,6 +2234,7 @@ connection ended.
 | --- | --- | --- |
 | POST | `/api/one/messages/route-token` | Mint with exactly one of `{conversationId, personRef}`, or restore with `{token}`. Firebase authenticated, participant checked on both mint and restore, and private/no-store. Returns `{token, kind, ref}`; business identifiers remain in memory and API bodies. |
 | GET | `/api/one/messages/conversations` | Participant-only inbox with latest decrypted message projection, timestamp, unread count, peer-safe profile projection, and `canSend`. |
+| DELETE | `/api/one/messages/conversations/{conversationId}` | Hide the entire chat for the authenticated participant using existing per-message deletion timestamps. Returns `{conversationId, deleted:true, scope:"me"}`; preserves the other participant's history and the connection. |
 | GET | `/api/one/messages/with/person/{personRef}` | Open the viewer's existing conversation with an opaque public person reference, or return a no-conversation draft state. Internal `/with/{userId}` compatibility remains Firebase-authenticated and is never exposed as a profile route. |
 | POST | `/api/one/messages` | Send `{recipientPersonRef|recipientUserId, content, replyToMessageId?, clientMessageId?}`. Optional UUID makes a retry return the original message without another Feed/push event. A reused ID with different normalized text, reply target, conversation or sender returns the same generic 409. Every replay rechecks the active connection and block gate. Creates the canonical pair conversation on first message; empty text, self-send, unconnected pair, and a block fail closed. | A reply must reference a message in the same participant conversation.
 | GET | `/api/one/messages/conversations/{conversationId}/messages?before=&limit=` | Participant-only chronological history page; `before` is an opaque message id and `limit` is bounded. |
@@ -2226,6 +2260,25 @@ including legacy read rows. Send acceptance and push hints do not establish
 recipient delivery. Inbox body previews and authenticated history can be
 acknowledged without marking them read; the existing visibility/read boundary
 remains separate.
+
+Whole-chat deletion requires confirmation from the inbox row menu on web or a
+stationary long press on phone. It serializes with sends on the conversation
+row: messages committed before deletion are hidden for the caller, while a new
+message after deletion starts visible history again. Empty hidden conversations
+are excluded before inbox pagination; unread counts, attachment access, reply,
+edit, reaction, send retry, and derived Feed previews respect the caller's
+deletion flags. Metadata-only `conversation_deleted` and `feed_changed`
+doorbells notify only that caller. The general Feed frame permits only the
+exact `{reason:"history_mutated"}` metadata hint, which invalidates saved Feed
+pagination and fences stale unmount saves. A fresh authoritative read replaces
+loaded history after deletion; ordinary arrivals preserve the reading position.
+Feed list responses also carry an opaque owner-scoped `history_revision` derived
+from received-message deletion flags across all source rows. It is read before
+the page so a racing deletion cannot label stale rows with a newer revision.
+This repairs missed hints and fences older pagination completions; older
+backends without the optional field retain compatibility behavior.
+Clients invalidate owner-scoped inbox and Feed reads before refreshing. No schema migration or new history store is
+introduced.
 
 The send route also accepts `attachment: {name, mimeType, data}` with canonical
 unpadded base64url bytes and a 5 MB bound. Voice notes use the existing encrypted
@@ -2328,8 +2381,9 @@ not the product owner for live location.
 | GET | `/api/one/location/circle-invites/{public_token}` | Public | Resolve safe owner label, status, duration, expiry, and optional owner message for an Invite to One link |
 | POST | `/api/one/location/circle-invites/{public_token}/claim` | VAULT_OWNER Bearer | Claim an Invite to One link after sign-in, phone verification, and vault unlock; creates a one-way trusted edge in `trusted_connections` (claimer→inviter) so SOS and check-in have recipients |
 | DELETE | `/api/one/location/circle-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active Invite to One link |
-| GET | `/api/one/location/circles` | VAULT_OWNER Bearer | List the authenticated user's active Circles and membership role, including the manually curated Trusted default Circle |
-| POST | `/api/one/location/circles` | VAULT_OWNER Bearer | Create a bounded named Circle and its owner membership atomically |
+| GET | `/api/one/location/circles` | VAULT_OWNER Bearer | List the authenticated user's active Circles and membership role, including the manually curated Trusted default Circle. Wrapper advertises `customTypePolicy:{version:1,maxTypes:3}`; owner-only summaries may include `customTypeLabel`. |
+| POST | `/api/one/location/circles` | VAULT_OWNER Bearer | Create a bounded named Circle and its owner membership atomically. Optional `customTypeLabel` requires `kind=other`, normalizes whitespace/Unicode, is at most 32 characters, and enforces three distinct active owned types under the existing owner lock. This descriptive metadata grants no access. |
+| DELETE | `/api/one/location/circle-types` | VAULT_OWNER Bearer | `{customTypeLabel}` removes only the authenticated owner's custom category from matching ordinary active Circles, returning `{updatedCircleCount}`. Circles, members, invitations and grants stay intact. |
 | GET | `/api/one/location/circles/{circle_id}` | VAULT_OWNER Bearer | Return Circle metadata, viewer capabilities, the safe active-member roster, and the current shared invite code to an active member under `Cache-Control: private, no-store`; recipient public keys support explicit Circle expansion, while no private key, coordinates, grant, or SMS authority is returned |
 | GET | `/api/one/location/circles/{circle_id}/overview` | VAULT_OWNER Bearer | Return Circle metadata, invite-code metadata, and viewer capabilities without a `members` field. This distinct shape lets large Circle screens load safely without pretending a partial roster is complete. |
 | GET | `/api/one/location/circles/{circle_id}/members` | VAULT_OWNER Bearer | Return a searchable active-member page as `{items,page,hasMore,totalCount}` with `limit<=100`, stable visible-label/user ordering, page-local relationship/contact provenance annotations, and recipient public-key readiness. Search is limited to the displayed safe name or email handle, never a hidden email domain or phone. The complete legacy detail route remains unchanged for authority-sensitive callers. |
@@ -2898,6 +2952,12 @@ delivery does not establish exhaustive search coverage or authorize unverified
 candidates. The proxy and native HTTP transport pass these additive fields;
 older servers safely omit them.
 
+Current no-charge Drive completion adds the boolean
+`current_existing_access_nocharge` from participant-scoped live receipts. It is
+injected after final metadata sanitation; persisted Feed metadata cannot assert
+it. The field lets history describe already-accessible files without reviving a
+payment instruction, and carries no file/provider details.
+
 
 ### SSE (Server-Sent Events)
 
@@ -2989,6 +3049,58 @@ Backward-compatible sections remain present while migration is active:
 - `market_overview`
 - `spotlights`
 - `themes`
+
+The Market benchmark strip uses index levels: S&P 500 (`^GSPC`), NASDAQ
+Composite (`^IXIC`), Dow Jones (`^DJI`) and Russell 2000 (`^RUT`). Volatility
+uses `^VIX`. These symbols use the public Yahoo chart adapter; an unavailable
+index never falls through to Finnhub/FMP equity plans or affects their cooldowns.
+
+Each benchmark row includes `symbol`, `as_of` (provider quote time, nullable),
+`retrieved_at`, `is_delayed`, optional `quote_delay_minutes`, and `market_state`
+(`open`, `closed`, or null). Retrieval time does not imply a live quote.
+`delta_pct` stays null when the previous close is missing. Unknown delay stays
+null; a delay flag may also reflect a quote over ten minutes old during its
+reported regular session. Closed sessions are labeled separately. Index
+sparklines use the same response's observed intraday closes; missing history
+remains unavailable. Cached levels retain their original quote time and are
+labeled as cached. Server home v5, macro v2 and client market-home v5 cache
+names exclude earlier ETF snapshots. Web and native use the same response
+contract through `ApiService`.
+
+### Market company facts and sector periods
+
+Stock browsing now lives in Finance's **Stocks** tab (`/one/kai?tab=analysis`),
+alongside the existing research preview and saved analysis. Market keeps indices,
+news, sectors, and movers. Both tabs share one resource/source-selection owner;
+the stock list is absent from active debates and saved-result drill-ins.
+Public browsing and company facts remain available while Vault is locked;
+saved analysis and starting a debate retain their existing unlock requirements.
+Stock facts load separately through
+`GET /api/kai/market/company-facts/{user_id}?symbols=AAPL,MSFT`. Firebase
+authentication must match the path owner. At most eight validated symbols are
+accepted per request, with four provider calls in flight; the existing
+`ApiService` splits visible stock pages into bounded batches on web/native.
+Public company facts use a separate six-hour fresh/24-hour stale cache, so a
+price-only quote cache cannot suppress market cap, P/E (TTM), P/B, total
+debt/equity, or the provider company description. Unknown ratios are null.
+Debt/equity is a multiple (Yahoo's reported percentage divided by 100).
+Provider retrieval time and financial period end remain separate.
+
+Sector rows now include `change_1w_pct`, `period_start_1d`, `period_start_1w`,
+`period_end` and `basis`. Both periods use observed sector ETF closes; one
+week spans five trading-session returns. Missing weekly observations stay
+unavailable. Daily fallback feeds do not acquire a synthetic weekly value.
+`sectors:v2:us` excludes prior daily-only snapshots. News rows preserve an
+optional HTTPS `image_url`; unavailable or broken images use a neutral cover.
+
+Market news preserves NewsAPI article images. When Finnhub supplies a Yahoo
+publisher logo, fixed-host Yahoo search and RSS metadata enrich exact matching
+article URLs, UUIDs, or Finnhub publisher-URL digests. Headlines, source, ordering
+and story links stay unchanged; no title matching or article HTML scraping is
+used. `image_url` carries the original photo and optional `image_thumbnail_url`
+carries its smaller provider resolution for compact mobile rows. Unmatched
+articles keep an empty image rather than a channel logo. Home/news/feed v5
+cache names exclude earlier image-less snapshots.
 
 ### Kai Market News Feed (Cursor Snapshot)
 
@@ -3083,6 +3195,12 @@ fragments; transport-time public-address validation is a separate required bound
 Registration neither authenticates a provider nor grants tool execution permission.
 The response is a safe connector summary with `registrationKind=private` and
 `status=not_connected`, never endpoint or credential configuration.
+
+`GET /api/connectors/features` is a private/no-store Vault Owner read of
+`{features, driveAgentPackagesEnabled}` using the same rollout predicates as the
+complete overview, without registry, OAuth, or provider-status reads. These flags
+do not certify provider readiness or authorize a mutation. Deploy support before
+first-party callers; the existing overview and its complete payload remain unchanged.
 
 `GET /api/connectors` lists the operator-curated registry and the authenticated
 owner's connection statuses; custom definitions are loaded separately from the
@@ -3309,6 +3427,7 @@ routes remain default-off and do **not** enable chat reads or indexing.
 
 | Route | Authority | Contract |
 | --- | --- | --- |
+| `GET /api/connectors/features` | Vault Owner | Lightweight `{features,driveAgentPackagesEnabled}` rollout projection; private/no-store, no provider or registry reads. |
 | `GET /api/connectors` | Vault Owner | Existing catalog/status plus redacted validation/revocation state, `available`, and computed rollout flags; deactivated Drive and a curated OAuth connector with an existing owner grant keep a recovery row with `available=false`. No endpoints, scopes, raw policy, provider subject or credentials. |
 | `POST /api/connectors/google_drive/connect/oauth/start` | Vault Owner + UAT admission/connection flag | Registered `redirectUri`, optional `flow=web\|native`; returns authorization URL, opaque `attemptId`, connector and ten-minute expiry. |
 | `POST /api/connectors/{connector_id}/connect/oauth/start` | Vault Owner + active operator registry row + provider OAuth secrets present | For a reviewed curated OAuth MCP connector, requires its exact registered web return URI and returns only a provider authorization URL, opaque attempt ID, connector ID and expiry. |
@@ -4263,6 +4382,25 @@ Reconnect sends a reset, and scheduled workers recover missed wakes. Migration
 Feed reset after an earning's status changes. Price selection, setup completion,
 a browser return and a stream notification never prove payment or delivery.
 
+For ordinary automatic requests, a completed, nonincomplete final selection of
+at most 120 discovered matches can finish without payment when fresh Drive ACL checks prove
+the requester already has access to every file. Current Allow/Trusted authority,
+connection generation, source versions and exact recipient are revalidated.
+`POST /api/connectors/google_drive/sharing/requests/{id}/payment/checkout`
+then returns `{requestId,existingAccess:true}` (HTTP 200) instead of a Stripe URL.
+Both checkout callers refresh the current request; they do not redirect or show
+an error. Delivery adds `noChargeReason:"existing_access"`. Normal outcome events
+and unmanaged `preexisting` receipts expose all original links in the current
+request and Feed; this does not create new Google permissions.
+
+An existing bound Stripe checkout must first be proven expired and unpaid.
+Allocated-but-unbound attempts, paid or uncertain provider outcomes cannot waive
+payment. Session/attempt IDs remain retained; a durable obligation waiver marker
+allows signed late money to be refunded once, including after account erasure.
+No completed payment or sharing history is rewritten. The normal paid streaming
+flow remains available before the final set is known; already-paid requests do
+not retroactively become free.
+
 The delivery-confirmed owner settlement and proportional-refund rules are in
 [Drive request payment gate](../operations/drive-request-stripe-paywall.md).
 
@@ -4271,7 +4409,10 @@ The delivery-confirmed owner settlement and proportional-refund rules are in
 
 `attendance/review` adds `response_status` (`accepted`, `declined`, or `tentative`,
 default `declined` for existing Schedule callers), exact `calendar_id`, and optional
-`expected_account_email`. The review seals source calendar, event instance, response,
+`expected_account_email`. `mail_only_retry:true` is limited to an already-declined
+invitation and one reviewed organizer note. Preparation and confirmation both
+verify the current declined attendance; confirmation never patches Calendar and
+refuses a changed invitation before Mail delivery. The review seals source calendar, event instance, response,
 ETag and current owner/account/grant binding; organizer events, recurrence masters,
 omitted/ambiguous attendees and cross-account selections fail closed. Accept reviews
 include all-calendar overlaps, and confirmation rejects newly observed conflicts.

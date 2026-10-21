@@ -107,6 +107,7 @@ async def run_world_model(
     work=None,
     on_progress=None,
     owner_decisions=None,
+    owner_public_profiles=None,
 ):
     """Run a resumable research slice, with no PKM or messaging authority.
 
@@ -129,6 +130,13 @@ async def run_world_model(
     if on_attempts_start is None:
         raise ValueError("Durable provider budget is required")
     decisions = OwnerDecisions.model_validate(owner_decisions or {}).model_dump()
+    from hushh_mcp.one_adk.public_sources import OwnerPublicProfiles
+
+    public_profiles = (
+        OwnerPublicProfiles.model_validate(owner_public_profiles).urls
+        if owner_public_profiles is not None
+        else []
+    )
     task = manifest()
     model_name = resolve_fleet_model_name(task.model.name)
     model = build_managed_regional_gemini_adk_model(model_name)
@@ -217,6 +225,7 @@ async def run_world_model(
         ):
             raise ValueError("Resolve the candidate before expanding research")
         request = {
+            **({"owner_selected_public_profiles": public_profiles} if public_profiles else {}),
             "exact_owner_fields": {field: identity[field] for field in sorted(plan.seed_fields)},
             "evidenced_anchors": [anchors[ref].model_dump() for ref in sorted(plan.anchor_ids)],
             "research_question": plan.question,
@@ -444,6 +453,7 @@ async def run_world_model(
                     ),
                     "topics": TOPICS,
                     "owner_decisions": decisions,
+                    "owner_selected_public_profiles": public_profiles,
                     "requested_by": "consenting_verified_owner",
                     "searches_remaining": MAX_SEARCHES
                     - len(used & set(range(1, MAX_SEARCHES + 1))),

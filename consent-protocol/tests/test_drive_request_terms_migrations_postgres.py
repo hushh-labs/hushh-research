@@ -1,4 +1,4 @@
-"""Migrations 320 (requester estimate) and 321 (review asks) on real PostgreSQL.
+"""Drive request terms and no-charge quote replay on real PostgreSQL.
 
 UAT replays every migration on every deploy with a short lock timeout, so a
 replay must change nothing and never wait behind live writers. 321 widens the
@@ -16,6 +16,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from psycopg2.errors import CheckViolation
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -226,3 +227,97 @@ async def test_replaying_288_after_321_keeps_review_asks(feed, sharing):
     [entry] = build_manifest_entries(MIGRATIONS, ["288_drive_request_feed_stream.sql"])
     _execute(sharing, _replay_sql(entry))
     assert REVIEW_EVENT in _event_types(sharing)
+
+
+def _nocharge_state(sharing):
+    with sharing.db.engine.connect() as connection:
+        rows = connection.execute(
+            text("""SELECT request_id,status,payment_required,quoted_amount_cents,
+              quote_version,existing_access_waived_at FROM drive_share_requests
+              ORDER BY request_id""")
+        ).all()
+        checks = connection.execute(
+            text("""SELECT conname,pg_get_constraintdef(oid),convalidated
+              FROM pg_constraint WHERE conrelid='drive_share_requests'::regclass
+                AND conname IN ('drive_share_requests_locked_quote_check',
+                  'drive_request_existing_access_waiver_check') ORDER BY conname""")
+        ).all()
+    return rows, checks
+
+
+async def _completed_nocharge_quote(sharing):
+    request_id = (await request(sharing))["requestId"]
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET status='completed',
+              payment_required=FALSE,quoted_amount_cents=50,quote_version=0,
+              existing_access_waived_at=clock_timestamp() WHERE request_id=:id"""),
+            {"id": request_id},
+        )
+
+
+@pytest.mark.asyncio
+async def test_cent_price_replay_preserves_completed_nocharge_quotes(sharing):
+    await _completed_nocharge_quote(sharing)
+    before = _nocharge_state(sharing)
+    [entry] = build_manifest_entries(MIGRATIONS, ["329_drive_request_cent_prices.sql"])
+    # Negative control: the published predecessor rejects a real retained quote
+    # before 368 can run. Its immutable source must not be rewritten to fix replay.
+    with pytest.raises(CheckViolation):
+        _execute(sharing, entry.sql)
+    assert _nocharge_state(sharing) == before
+    for _ in range(2):
+        _while_writers_hold_rows(sharing, _replay_sql(entry))
+    assert _nocharge_state(sharing) == before
+    # Replaying the successor too keeps the same record and money rules.
+    _execute(sharing, _sql("368_drive_existing_access_nocharge.sql"))
+    _execute(sharing, _replay_sql(entry))
+    assert _nocharge_state(sharing) == before
+    for update in (
+        "existing_access_waived_at=NULL",
+        "payment_required=TRUE",
+        "quoted_amount_cents=49",
+        "quote_version=-1",
+    ):
+        with pytest.raises(IntegrityError), sharing.db.engine.begin() as connection:
+            connection.exec_driver_sql(f"UPDATE drive_share_requests SET {update}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drift", ["grouping", "unvalidated", "column_type", "default"])
+async def test_cent_price_replay_refuses_unreviewed_waiver_successors(sharing, drift):
+    await _completed_nocharge_quote(sharing)
+    if drift == "grouping":
+        # Same tokens after stripping parentheses, different Boolean meaning.
+        _execute(
+            sharing,
+            "ALTER TABLE drive_share_requests DROP CONSTRAINT drive_share_requests_locked_quote_check;"
+            "ALTER TABLE drive_share_requests ADD CONSTRAINT drive_share_requests_locked_quote_check"
+            " CHECK (quoted_amount_cents IS NULL AND quote_version IS NULL OR"
+            " payment_required=TRUE OR existing_access_waived_at IS NOT NULL AND"
+            " quoted_amount_cents BETWEEN 50 AND 50000 AND quote_version>=0);",
+        )
+    elif drift == "unvalidated":
+        _execute(
+            sharing,
+            "ALTER TABLE drive_share_requests DROP CONSTRAINT drive_request_existing_access_waiver_check;"
+            "ALTER TABLE drive_share_requests ADD CONSTRAINT drive_request_existing_access_waiver_check"
+            " CHECK (existing_access_waived_at IS NULL OR payment_required=FALSE) NOT VALID;",
+        )
+    elif drift == "column_type":
+        _execute(
+            sharing,
+            "ALTER TABLE drive_share_requests ALTER COLUMN existing_access_waived_at"
+            " TYPE TEXT USING existing_access_waived_at::text;",
+        )
+    else:
+        _execute(
+            sharing,
+            "ALTER TABLE drive_share_requests ALTER COLUMN existing_access_waived_at"
+            " SET DEFAULT clock_timestamp();",
+        )
+    before = _nocharge_state(sharing)
+    [entry] = build_manifest_entries(MIGRATIONS, ["329_drive_request_cent_prices.sql"])
+    with pytest.raises(CheckViolation):
+        _execute(sharing, _replay_sql(entry))
+    assert _nocharge_state(sharing) == before

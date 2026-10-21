@@ -56,6 +56,151 @@ Canonical pre-PR command:
 
 This command runs the same blocking local CI surface that feeds GitHub `PR Validation` and `CI Status Gate`. Use `./bin/hushh codex pre-pr --include-advisory` only when you intentionally want the wider non-blocking readiness lane too.
 
+## Automatic native release cadence
+
+`UAT Release Cadence` observes completed `Deploy to UAT` runs in a separate
+workflow. UAT never waits for that observer, a native build, production deployment,
+or Apple processing. The observer has its own short accounting lock; UAT and
+production retain their existing independent mutation locks.
+
+Native jobs read their governed environment configuration with `deployment: false`,
+so they do not create hosted UAT/production deployment records. The UAT target
+selector also excludes historical native records from its hosted baseline;
+rollback, rehearsal and unknown mutation records retain their fail-closed checks.
+
+The counter starts with the commit that introduces `config/release-cadence.json`.
+Every second distinct, healthy deployed source commit qualifies for a UAT-backed
+TestFlight build. Every fourth also qualifies for a production backend/frontend
+deployment and a production-backed iOS build. Failed, rolled-back and NO_OP runs,
+retries, repeated SHAs and pre-policy sources do not advance the counter. A
+frontend-only healthy receipt counts even when it inherits an older backend.
+The receipt's `sha` is authoritative; a dispatch's workflow HEAD is not its
+deployed source.
+
+Each milestone pins one green `main` SHA. Production deploy and archive are
+dispatched together. Before upload, the iOS job joins the exact recorded production
+run, requires its healthy same-SHA receipt, then rechecks live production backend
+provenance. Production builds explicitly select `backend_target=production`.
+The authorized cadence submits qualifying production builds to Apple and selects
+automatic publication after approval. Existing manual dispatches keep their
+prepare-only defaults. Automatic submission requires the existing privacy/export
+compliance attestations and configured production App Review contact/sign-in
+information; missing prerequisites block submission rather than weakening gates.
+
+Only macOS build/upload jobs share `ios-build-and-upload`, preventing build-number
+races across TestFlight and App Store. Apple processing, group assignment and
+App Store preparation run on Ubuntu. Signed archives, IPAs, keychains, credentials
+and raw build logs never pass through Actions artifacts. Newer pending milestones
+replace older work that has not started; active deployments and uploads are never
+cancelled by the observer. UAT may advance while a pinned binary finishes, so
+supported app/backend compatibility remains a release requirement. The shared
+GitHub-hosted runner limit can still cause scheduling delays; separate locks do
+not reserve runner capacity.
+
+Automatic release admission gives UAT precedence: queued, requested, pending,
+waiting or running UAT workflows defer new releases in the ledger. The observer
+exits immediately instead of sleeping on a runner, then retries on every terminal
+UAT result (including failure/cancellation), release completion or the hourly
+fallback. Failed UAT runs never advance the counter. Only one automatic release
+bundle is admitted at a time: either TestFlight, or production deploy plus its
+parallel App Store archive. Existing recorded starts keep a continuous stream of
+production candidates from starving TestFlight. The two production dispatches each recheck UAT;
+an intervening UAT request leaves a recoverable half-pair, without redispatching
+production. Active deployments, uploads and Apple processing finish normally.
+Manual release dispatches retain their existing operator contract.
+
+This is best-effort priority, not a runner reservation. The admission snapshot
+can race a new UAT request, an already admitted release may still occupy a slot,
+and other repositories share the organization quota. GitHub's standard hosted
+pool has no workflow priority or preemption setting; strict isolation requires
+dedicated UAT runner capacity.
+
+Accounting persists in the state-only `automation/release-cadence-state` branch.
+Fast-forward-only updates reject concurrent writers. A tiny immutable
+`release-cadence-authority` artifact certifies the ledger commit and state hash
+from each protected-main controller run. Both reconciliation and bot authorization
+require the newest certified checkpoint, rejecting forged or replayed branch
+state. The bot is not a member of either human dispatch cohort; each child is
+authorized only for its recorded run ID, workflow, milestone, source and complete
+input set. `config/ci-governance.json` owns the permitted controller for each
+surface. The cadence policy is a protected pipeline file.
+
+The 2/4 policy preserves the existing counter and certified sources. A one-time
+certified transition makes the latest newly eligible TestFlight milestone pending
+(count 2 when adoption occurs at count 2 or 3), without replaying older milestones.
+Already issued 4/8 requests retain their original lanes and authority; the new
+policy begins after any such request at the transition boundary. Recovery checks
+both policy periods. Missing transition metadata means the original 4/8 policy.
+
+Monitoring runs in GitHub inside the same observer job, after checkpoint
+publication. It adds no workflow, runner job, polling loop or UAT dependency.
+Completion events report failures and verified milestones promptly; the existing
+hourly schedule catches missed observations and long UAT queues. GitHub can delay
+scheduled runs. The monitor uses only standard-library code and the existing
+repository token, with `issues: write` added for one bot-owned `UAT release monitor`
+issue assigned to `monitor_issue_assignee` in the policy. Notification delivery
+follows that person's GitHub notification settings.
+
+The issue keeps a bounded observation journal separate from the certified release
+ledger and links exact runs. Repeated unchanged results stay quiet. Notification
+transport failures remain visible in Actions and do not prevent already authorized
+children from running or change UAT's result. TestFlight reports prove upload and
+internal distribution; external Beta App Review may remain pending. App Store
+deferral is reported as deferral, and accepted review submission with
+`AFTER_APPROVAL` is distinct from later public publication. Only existing redacted
+receipts are read; monitoring needs no Apple or cloud credentials.
+
+UAT/release overlap reports use observed workflow/job timestamps. A UAT start
+during a release demonstrates progress for that sample; it does not prove reserved
+capacity or that every later job avoided queuing. A UAT with no started job after
+10 minutes during release activity raises a possible-contention warning. UAT's
+own concurrency and other organization jobs can also explain that delay. The
+monitor observes and reports; it never dispatches, cancels, retries or repairs a
+release.
+
+Every dispatch records intent first, then the exact run ID returned by the
+versioned REST API. A controller interrupted after dispatch reconciles the unique
+cadence marker instead of blindly posting again. A partial production pair resumes
+its pending app build without redispatching the deployment. Ambiguous dispatches,
+missing receipts, altered state and failed releases stop that release lane and
+remain visible in the Actions summary; they do not change UAT's result.
+
+The observer also runs a weekly full reconciliation for missed completion events
+and old successful reruns. While a public version is under review, Ubuntu
+preflight records a deferred receipt and allocates no Mac. An hourly observer
+revisits the latest deferred candidate without redeploying production; newer
+milestones supersede older deferred app candidates. TestFlight uses an independent
+beta version train and continues while public review is pending. History queries split before GitHub's filtered-query
+limit, and no historical build storm is created. To reconcile explicitly, a
+governed production operator may run:
+
+```bash
+gh workflow run release-cadence.yml --ref main -f full_reconcile=true
+```
+
+For an interrupted upload, use the existing `Resume TestFlight Distribution`
+workflow with the recorded upload run ID; do not build another binary just to
+retry Apple processing. For an ambiguous dispatch, first inspect its exact
+`Cadence <ordinal> <lane> · <origin-run-id>` marker and the latest certified
+checkpoint. Never reset or delete the state branch to restart the counter. A
+missing/expired checkpoint or a mismatch requires operator inspection before
+restoring certified state. If the trusted controller was interrupted after its
+Git update but before checkpoint publication, a production operator must inspect
+that controller's job, the current ledger diff and every dispatch marker first.
+After reviewing the exact state commit, recover through the protected controller:
+
+```bash
+gh api repos/hushh-labs/hushh-research/git/ref/heads/automation/release-cadence-state --jq .object.sha
+gh workflow run release-cadence.yml --ref main -f recover_checkpoint_sha=<reviewed-ledger-commit>
+```
+
+Recovery requires that exact head, independently rereads each successful UAT
+receipt, checks contiguous source counts and every milestone/child identity, then
+publishes a new certified checkpoint. It never blindly redispatches an uncertain
+request. Missing or expired source evidence blocks recertification. Set the
+policy's `enabled` switch to false to stop new
+automatic releases; existing manual workflows remain available.
+
 ## Monitoring Rule
 
 After any merge to `main`, bypass merge, deploy trigger, or manual workflow dispatch, keep monitoring the resulting GitHub workflow chain until it reaches a terminal state.
@@ -231,7 +376,16 @@ select an otherwise-skipped lane or authorize mutations, and records requested
 and completed pass counts in the release receipt. A failed pass stops that
 rehearsal; it does not change the existing advisory rollback policy.
 
-Live Gemini/Vertex candidate checks are opt-in, not ordinary CI gates. UAT
+UAT backend provider admission runs Azure and Vertex synthetic checks in parallel.
+Either complete application capability bundle (or both) may pass; neither
+passing blocks. The bundle includes streamed structured text, images, PDFs,
+public search/source receipts, Location transcription/semantics, narration, Live
+audio with a function round trip, and application-compatible embeddings. Explicit
+PWM attribution/schema failures still block independently. Receipts bind the exact
+candidate image, runtime identity, provider generation and configuration. See
+[the deployment contract](../../../deploy/README.md) for capability and compatibility boundaries.
+
+Additional Gemini/Vertex candidate evaluations are opt-in, not ordinary CI gates. UAT
 dispatches default `run_live_model_checks=false`; explicitly setting it to
 `true` selects candidate-model readiness and synthetic PKM evaluation for a
 backend deployment, plus the live RIA Stage-1 semantic probe. Both semantic

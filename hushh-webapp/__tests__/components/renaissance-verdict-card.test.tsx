@@ -29,38 +29,19 @@ function makeRow(
 }
 
 describe("RenaissanceVerdictCard", () => {
-  it("frames constructive bias as a market signal instead of a buy instruction", () => {
-    const { container } = render(<RenaissanceVerdictCard row={makeRow()} />);
-
-    expect(screen.getByText("Constructive signal")).toBeTruthy();
-    expect(container.textContent).toContain(
-      "Constructive bias on the active advisor list.",
-    );
-    expect(container.textContent).toContain(
-      "One presents this as market context, not a personalized instruction.",
-    );
-    expect(container.textContent).not.toContain("Investment thesis");
-    expect(container.textContent).not.toContain("Key signals");
-    expect(container.textContent).not.toMatch(
-      /\bBuy\b|Do not buy|before adding/i,
-    );
+  it("shows the provider summary without manufacturing a conviction signal", () => {
+    render(<RenaissanceVerdictCard row={makeRow({ company_facts: {
+      symbol: "NVDA", summary: "Nvidia designs graphics processors.",
+    } })} />);
+    expect(screen.getByRole("heading", { name: "Summary" })).toBeTruthy();
+    expect(screen.getByText("Nvidia designs graphics processors.")).toBeTruthy();
+    expect(screen.queryByText(/Constructive signal|Caution signal/)).toBeNull();
   });
 
-  it("uses caution language for reduce or sell bias without telling the user what to trade", () => {
-    const { container } = render(
-      <RenaissanceVerdictCard
-        row={makeRow({
-          recommendation_bias: "SELL",
-          degraded: true,
-        })}
-      />,
-    );
-
-    expect(screen.getByText("Caution signal")).toBeTruthy();
-    expect(container.textContent).toContain("lower-confidence context");
-    expect(container.textContent).toContain(
-      "Review the thesis and information quality before acting on the signal.",
-    );
-    expect(container.textContent).not.toMatch(/Do not buy|before adding/i);
+  it("uses the authored list summary when the provider summary is unavailable", () => {
+    render(<RenaissanceVerdictCard row={makeRow({ recommendation_bias: "SELL" })} />);
+    expect(screen.getByText("Accelerated compute demand remains durable.")).toBeTruthy();
+    expect(screen.getByText("Summary from the selected list.")).toBeTruthy();
+    expect(screen.queryByText(/Caution signal/)).toBeNull();
   });
 });

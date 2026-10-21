@@ -229,6 +229,8 @@ function driveFeedLine(
           ? "Some shared files are available"
           : "Document request approved";
     case "document_share_outcome":
+      if (metadata.current_existing_access_nocharge === true)
+        return sharedWithMe ? "Files ready · Already had access · No charge" : "Files delivered · No payment due";
       if (status === "no_files_shared") return "No files were shared";
       if (status === "no_match")
         return sharedWithMe

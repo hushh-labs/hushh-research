@@ -372,6 +372,8 @@ export type OneLocationCircleSummary = {
   photoUrl?: string | null;
   kind: OneLocationCircleKind;
   role: OneLocationCircleRole;
+  /** Owner-authored descriptive type; never changes membership or permissions. */
+  customTypeLabel?: string | null;
   memberCount: number;
   /** `null` is retained for compatibility with older server responses. */
   memberLimit: number | null;

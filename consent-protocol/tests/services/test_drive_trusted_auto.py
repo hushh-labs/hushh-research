@@ -236,7 +236,9 @@ async def test_paid_trusted_batch_bypasses_older_unpaid_reviews(request_bulk, sh
 
 
 @pytest.mark.asyncio
-async def test_unpaid_and_expired_auto_batches_wait_without_order_starvation(request_bulk, sharing):
+async def test_unpaid_and_expired_auto_batches_recover_without_order_starvation(
+    request_bulk, sharing, monkeypatch
+):
     _membership(sharing, "active")
     awaiting, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="awaiting_payment")
     expired, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="expired")
@@ -244,13 +246,21 @@ async def test_unpaid_and_expired_auto_batches_wait_without_order_starvation(req
 
     due = await sharing.due_trusted_batches(limit=3)
 
-    assert [item["request_id"] for item in due] == [without_order]
-    assert {awaiting, expired}.isdisjoint(item["request_id"] for item in due)
+    # Finished unpaid requests must now be eligible for fresh existing-access
+    # recovery, while paid requests still get the scheduler's first priority.
+    assert {item["request_id"] for item in due} == {without_order, awaiting, expired}
+    from hushh_mcp.services.drive_package_access_preflight import DrivePackageAccessPreflight
+
+    monkeypatch.setattr(
+        DrivePackageAccessPreflight,
+        "inspect",
+        AsyncMock(return_value=SimpleNamespace(status="none")),
+    )
     assert (
         await DriveTrustedAutoService(
             sharing=sharing, bulk=request_bulk, wake=AsyncMock()
-        ).continue_batches(max_jobs=1)
-        == 1
+        ).continue_batches(max_jobs=3)
+        == 3
     )
     with sharing.db.engine.connect() as connection:
         assert (

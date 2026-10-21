@@ -165,7 +165,7 @@ def requester_payment_view(
         return result
 
     withdrawn = request_status == "cancelled"
-    if not payment_required:
+    if not payment_required and not (order and order.get("status") in {"paid", "refunded"}):
         return disclosed_view(
             "none", amount_cents=None, request_expires_at=request_expires_at, withdrawn=withdrawn
         )

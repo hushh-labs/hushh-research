@@ -57,6 +57,31 @@ class ResolveIOSBuildNumberTests(unittest.TestCase):
 
 
 class AppStoreReleaseReadbackTests(unittest.TestCase):
+    def test_automatic_packaging_reuses_editable_train_or_advances_released_patch(self):
+        for state, expected in (("PREPARE_FOR_SUBMISSION", "1.4.3"), ("READY_FOR_DISTRIBUTION", "1.4.4")):
+            with self.subTest(state=state), patch.object(RELEASE, "asc_get", return_value={
+                "data": [{"attributes": {"versionString": "1.4.3", "appStoreState": state}}], "links": {}}):
+                self.assertEqual(RELEASE.resolve_packaging_version("token", "app", "1.4.1", "IOS"), expected)
+        for state in ("PENDING_DEVELOPER_RELEASE", "WAITING_FOR_REVIEW", "IN_REVIEW", "UNKNOWN"):
+            with self.subTest(state=state), patch.object(RELEASE, "asc_get", return_value={
+                "data": [{"attributes": {"versionString": "1.4.3", "appStoreState": state}}], "links": {}}):
+                with self.assertRaises(SystemExit):
+                    RELEASE.resolve_packaging_version("token", "app", "1.4.1", "IOS")
+                if state != "UNKNOWN":
+                    self.assertEqual(RELEASE.resolve_packaging_version("token", "app", "1.4.1", "IOS", testflight=True), "1.4.4")
+                    with self.assertRaises(SystemExit) as deferred:
+                        RELEASE.resolve_packaging_version("token", "app", "1.4.1", "IOS", defer_if_review=True)
+                    self.assertEqual(deferred.exception.code, 75)
+
+    def test_public_submission_requires_review_contact_and_sign_in_without_logging_them(self):
+        values = {field: "synthetic" for field in ("contactFirstName", "contactLastName", "contactPhone", "contactEmail", "demoAccountName", "demoAccountPassword")}
+        values["demoAccountRequired"] = True
+        with patch.object(RELEASE, "asc_get", return_value={"data": {"attributes": values}}):
+            RELEASE.verify_reviewer_account("synthetic", "version")
+            values["demoAccountPassword"] = ""
+            with self.assertRaises(SystemExit):
+                RELEASE.verify_reviewer_account("synthetic", "version")
+
     def verify(self, *, build_id="build", state="WAITING_FOR_REVIEW", notes="Notes"):
         responses = [
             {

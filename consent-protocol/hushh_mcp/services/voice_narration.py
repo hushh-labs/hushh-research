@@ -105,6 +105,7 @@ async def narrate_digest(
     binding_factory=None,
     model: str = NARRATION_MODEL,
     location: str = NARRATION_LOCATION,
+    provider: str | None = None,
 ) -> Narration:
     """Render one short digest to PCM the existing player can enqueue.
 
@@ -123,6 +124,7 @@ async def narrate_digest(
         binding_factory=binding_factory,
         model=model,
         location=location,
+        provider=provider,
     ):
         chunks.append(piece.audio)
         mime = piece.mime_type
@@ -145,6 +147,7 @@ async def narrate_digest_stream(
     binding_factory=None,
     model: str = NARRATION_MODEL,
     location: str = NARRATION_LOCATION,
+    provider: str | None = None,
 ) -> AsyncIterator[Narration]:
     """Yield PCM chunks as they arrive, so speech can start before it is finished.
 
@@ -163,6 +166,27 @@ async def narrate_digest_stream(
         raise NarrationUnavailable("empty_digest")
 
     if binding_factory is None:
+        from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding, speech_pcm
+
+        if provider not in {None, "vertex", "azure_openai"}:
+            raise NarrationUnavailable("unsupported_provider")
+        azure_binding = ManagedAzureBinding.from_environment() if provider != "vertex" else None
+        if provider == "azure_openai" and azure_binding is None:
+            raise NarrationUnavailable("processor_changed")
+        if azure_binding is not None:
+            try:
+                async for audio in speech_pcm(azure_binding, spoken, timeout=_timeout_seconds()):
+                    yield Narration(
+                        audio=audio,
+                        mime_type="audio/L16;codec=pcm;rate=24000",
+                        sample_rate=PLAYER_SAMPLE_RATE,
+                        characters=len(spoken),
+                    )
+            except TimeoutError:
+                raise NarrationUnavailable("timeout") from None
+            except Exception:
+                raise NarrationUnavailable("provider_unavailable") from None
+            return
         from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
 
         binding_factory = ManagedGeminiRuntimeBinding.from_environment

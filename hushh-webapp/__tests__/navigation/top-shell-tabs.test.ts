@@ -5,6 +5,7 @@ import {
   resolvePublicKnowledgeTopShellTabSet,
   resolveRiaRouteTabSet,
   resolveTopShellTabSet,
+  TOP_SHELL_TAB_REGISTRY,
 } from "@/lib/navigation/top-shell-tabs";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
 
@@ -20,6 +21,8 @@ describe("top shell contextual tabs", () => {
   });
 
   it("keeps Finance tabs below its route-owned header", () => {
+    expect(TOP_SHELL_TAB_REGISTRY.finance.tabs.map(({ label }) => label)).toEqual(["Market", "Portfolio", "Stocks"]);
+    expect(TOP_SHELL_TAB_REGISTRY.finance.tabs[2].href).toBe("/one/kai?tab=analysis");
     expect(resolveTopShellTabSet("/one/kai")).toBeNull();
     expect(resolveTopShellTabSet("/one/kai?tab=analysis")).toBeNull();
     expect(resolveTopShellTabSet("/one/kai/?tab=portfolio")).toBeNull();

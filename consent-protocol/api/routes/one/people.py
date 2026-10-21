@@ -86,6 +86,26 @@ async def viewer_person_profile(
         raise _not_found(exc) from exc
 
 
+@router.get("/{person_ref}/relationship")
+async def viewer_person_relationship(
+    person_ref: str,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Read action eligibility without waiting for catalog or request history."""
+    response.headers["Cache-Control"] = "private, no-store"
+    public_ref = _validated_ref(person_ref)
+    try:
+        _, relationship = await run_in_threadpool(
+            _service().get_relationship_target,
+            viewer_user_id=firebase_uid,
+            public_person_ref=public_ref,
+        )
+        return {"personRef": public_ref, "relationship": relationship}
+    except Exception as exc:  # noqa: BLE001
+        raise _not_found(exc) from exc
+
+
 @router.get("/{person_ref}/scope-catalog")
 async def viewer_scope_catalog(
     person_ref: str,

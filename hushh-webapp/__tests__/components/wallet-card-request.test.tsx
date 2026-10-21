@@ -7,6 +7,7 @@ import {
   cleanup,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { createRef } from "react";
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
@@ -126,6 +127,45 @@ it("requires confirmation before sending an ask and bootstraps only the requeste
   expect(mocks.state).not.toHaveBeenCalled();
   expect(mocks.encrypt).not.toHaveBeenCalled();
   expect(mocks.share).not.toHaveBeenCalled();
+});
+
+it("keeps the card acknowledgement when relationship refresh starts after dispatch", async () => {
+  let accept!: (value: typeof request) => void;
+  mocks.create.mockReturnValueOnce(new Promise((resolve) => { accept = resolve; }));
+  const view = render(<RequestCardsButton personRef={person} personName="Owner" />);
+  fireEvent.click(screen.getByRole("button", { name: "Request cards" }));
+  fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledOnce());
+  view.rerender(<RequestCardsButton personRef={person} personName="Owner" canRequest={false} />);
+  await act(async () => accept(request));
+  await screen.findByRole("button", { name: "Card request sent" });
+  expect(mocks.create).toHaveBeenCalledOnce();
+});
+
+it("returns focus to Profile when the card opener disappears during review", async () => {
+  const returnFocusRef = createRef<HTMLButtonElement>();
+  const content = (showTrigger: boolean) => <>
+    <button ref={returnFocusRef}>Share profile</button>
+    <RequestCardsButton personRef={person} personName="Owner" showTrigger={showTrigger} canRequest={showTrigger} returnFocusRef={returnFocusRef} />
+  </>;
+  const view = render(content(true));
+  fireEvent.click(screen.getByRole("button", { name: "Request cards" }));
+  view.rerender(content(false));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(returnFocusRef.current).toHaveFocus());
+});
+
+it("stops a fresh card dispatch if eligibility changes during receiving-key preparation", async () => {
+  let finish!: (value: { userId: string; publicKeyJwk: { kty: string } }) => void;
+  mocks.key.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+  const view = render(<RequestCardsButton personRef={person} personName="Owner" />);
+  fireEvent.click(screen.getByRole("button", { name: "Request cards" }));
+  fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+  await waitFor(() => expect(mocks.key).toHaveBeenCalledOnce());
+  view.rerender(<RequestCardsButton personRef={person} personName="Owner" canRequest={false} />);
+  await act(async () => finish({ userId: "owner", publicKeyJwk: { kty: "EC" } }));
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
 });
 
 it("requires card selection and explicit sharing, fixes the recipient, and reuses the response identity on retry", async () => {
