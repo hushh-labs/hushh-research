@@ -520,12 +520,16 @@ class DocumentFeedStreamMachine implements DocumentFeedStreamManager {
     try {
       const token = await this.bounded(this.deps.getToken(refresh), DOCUMENT_FEED_TOKEN_TIMEOUT_MS, attempt);
       if (this.attempt !== attempt) return;
+      if (!this.isCurrent()) {
+        this.stop();
+        return;
+      }
       const pending = this.deps.transport.open({ uid: this.deps.uid, token, signal: attempt.controller.signal });
       // A transport may ignore cancellation; a response that arrives for an
       // abandoned attempt still has its body closed.
       void pending.then(
         (late) => {
-          if (this.attempt !== attempt || attempt.controller.signal.aborted) {
+          if (this.attempt !== attempt || attempt.controller.signal.aborted || !this.isCurrent()) {
             void late.body?.cancel().catch(() => undefined);
           }
         },
@@ -533,6 +537,11 @@ class DocumentFeedStreamMachine implements DocumentFeedStreamManager {
       );
       const result = await this.bounded(pending, DOCUMENT_FEED_HEADERS_TIMEOUT_MS, attempt);
       if (this.attempt !== attempt) {
+        void result.body?.cancel().catch(() => undefined);
+        return;
+      }
+      if (!this.isCurrent()) {
+        this.stop();
         void result.body?.cancel().catch(() => undefined);
         return;
       }
