@@ -20,6 +20,16 @@ Submission is not publication. Manual release remains the default; an explicitly
 `--submit --ack-blockers --release-after-approval` also selects Apple's `AFTER_APPROVAL`
 release type. Report Apple review and public availability as separate states.
 
+The authorized [automatic release cadence](../../reference/operations/ci.md#automatic-native-release-cadence)
+uses the same pipeline after every eighth distinct healthy UAT deployment. It pins
+one green `main` commit, overlaps the production deployment with archive work,
+joins the exact healthy production run before upload, submits for Apple review
+and selects publication after approval. While an existing version awaits review,
+Ubuntu admission defers the latest candidate without allocating a Mac; the hourly
+observer revisits it. Privacy/export attestations and configured production App
+Review sign-in information remain required. Manual invocation defaults are
+unchanged.
+
 > **Why is UAT the default?** It preserves the historical UAT-backed release path. For a
 > production-backed release, explicitly select `backend_target=production`, verify that backend's
 > deployed SHA, and distribute the *same uploaded build* through `resume-ios-testflight.yml`.

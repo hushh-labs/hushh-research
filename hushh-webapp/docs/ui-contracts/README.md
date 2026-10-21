@@ -35,6 +35,7 @@ owning implementation.
 | Feed | [Feed](./feed.md): history, every actionable family, payment/file-access sheets, briefing, notification controls and downstream destinations |
 | Mail | [Mail subagent](./mail.md): setup and OAuth, Overview/KYC/Receipts, exact copy and every CTA branch, private drafts and reviewed Send, mailbox/voice handoffs, API and response-field provenance, encrypted device snapshots, phone/desktop geometry and typography |
 | Calendar | [Calendar subagent](./calendar.md): onboarding and OAuth, Schedule/Invitations/Insights, every authored CTA and response branch, API fields and authority, conversation and recipient handoffs, phone/desktop geometry and fonts |
+| Drive | [Drive connector and private-agent tools](./drive.md): first connection and OAuth, every mounted connector/nested page and CTA, selected files, preparation, packets, trust, conversations, sharing and payment handoffs, exact copy, API fields, phone/desktop geometry and fonts |
 | Navigation | [Shared navigation](./navigation.md): top bar, bottom tabs, contextual rails, Profile entry, Back and native admission |
 | Font schema | [Typography](./typography.md): when to use each semantic role, Profile home/detail scale, nav and Feed differences, CSS precedence and native limits |
 
@@ -144,3 +145,11 @@ The Calendar contract is independently inspected at
 `49b175bdc4bf636ede1b2353f4c493496a94c9cc` on 21 October 2026. Its entry,
 CTA/copy, API/authority, responsive-layout and typography evidence has its own
 verification section; this addition does not restamp the other contracts.
+
+The Drive contract is independently inspected at
+`477864ae8d2925a7cdc5b21d8ca6e91b3f22955e` on 21 October 2026. It follows the
+connector, Documents specialist, packet/trust and sharing/payment interaction
+paths, with its own exact-copy inventory, API fields, spatial/type tables and
+QA/evidence ledger. It does not introduce a Drive route or restamp the other
+contracts. Its verification section distinguishes source review, clean publication
+checks and unverified live acceptance.
