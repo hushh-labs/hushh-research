@@ -6,14 +6,30 @@ from __future__ import annotations
 import io
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import time
 import zipfile
+from pathlib import Path
 
-from release_cadence import (CONTROLLER, WORKFLOWS, UnsafeRelease, account, dispatch_inputs,
-                             marker, new_state, require, source_receipt, state_digest, trusted_run, verified_uat, verify_child)
+from release_cadence import (
+    CONTROLLER,
+    WORKFLOWS,
+    UnsafeRelease,
+    account,
+    adopt_cadence,
+    cadence_at,
+    dispatch_inputs,
+    marker,
+    milestone_lanes,
+    new_state,
+    require,
+    source_receipt,
+    state_digest,
+    trusted_run,
+    verified_uat,
+    verify_child,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -44,7 +60,7 @@ def ancestor(older: str, newer: str) -> bool:
 
 def configuration() -> tuple[dict, dict]:
     policy = json.loads((ROOT / "config/release-cadence.json").read_text())
-    require(policy.get("testflight_every") == 4 and policy.get("production_every") == 8,
+    require(policy.get("testflight_every") == 2 and policy.get("production_every") == 4,
             "Unexpected release cadence policy")
     require(re.fullmatch(r"automation/[a-z0-9-]+", policy.get("state_branch", "")), "Invalid state ref")
     require(all(type(policy.get(k)) is bool for k in ("enabled", "submit_for_review", "release_after_approval")),
@@ -146,8 +162,8 @@ def receipt(repository: str, run_id: int, prefix: str, *, optional: bool = False
 
 
 def runs(repository: str, workflow: str, since: str, *, until: str | None = None) -> list[dict]:
-    from urllib.parse import urlencode
     from datetime import datetime, timezone
+    from urllib.parse import urlencode
     end = until or datetime.now(timezone.utc).isoformat()
     result = []
     for page in range(1, 11):
@@ -246,8 +262,17 @@ def verify_recovery(ledger: Ledger, reviewed_head: str, controller: dict, govern
     require(state["count"] == len(state["sources"]), "Recovery counter does not match its sources")
     require(sorted(s["ordinal"] for s in state["sources"].values()) == list(range(1, state["count"] + 1)),
             "Recovery source ordinals are not contiguous")
-    expected_requests = {str(n) for n in range(4, state["count"] + 1, 4)}
+    cadence_at(state, state["count"] + 1)
+    expected_requests = {str(n) for n in range(1, state["count"] + 1) if milestone_lanes(n, cadence_at(state, n))}
     require(set(state["requests"]) == expected_requests, "Recovery milestones are incomplete")
+    if state.get("cadence"):
+        transition = run_info(ledger.repository, state["cadence"]["origin_run_id"])
+        require(trusted_run(transition, ledger.repository, CONTROLLER) and
+                transition.get("event") in {"workflow_run", "workflow_dispatch", "schedule"},
+                "Recovery cadence transition is untrusted")
+        if transition["event"] == "workflow_dispatch":
+            require(transition["actor"]["login"] in governance["production"]["manual_dispatch_users"],
+                    "Recovery cadence transition actor is not governed")
     for sha, source in state["sources"].items():
         require(ancestor(state["activation_sha"], sha), "Recovery source predates activation")
         observed = run_info(ledger.repository, source["run_id"])
@@ -259,7 +284,7 @@ def verify_recovery(ledger: Ledger, reviewed_head: str, controller: dict, govern
         source = state["sources"].get(request["sha"], {})
         require(source.get("ordinal") == int(ordinal) == request.get("ordinal") and
                 source.get("run_id") == request["uat_run_id"], "Recovery milestone source mismatch")
-        expected_lanes = {"testflight", "deploy", "appstore"} if int(ordinal) % 8 == 0 else {"testflight"}
+        expected_lanes = set(milestone_lanes(int(ordinal), cadence_at(state, int(ordinal))))
         require(set(request["lanes"]) == expected_lanes, "Recovery milestone lane mismatch")
         require(type(request["submit_for_review"]) is bool and type(request["release_after_approval"]) is bool and
                 request["submit_for_review"] <= policy["submit_for_review"] and
@@ -297,6 +322,7 @@ def reconcile(repository: str, controller_id: int, event: dict, full: bool = Fal
         ledger.state = new_state(anchor, activated)
         ledger.save()
     state = ledger.state
+    adopt_cadence(state, controller_id, policy)
     since = state["activated_at"] if full else state.get("scan_after", state["activated_at"])
     inventory = runs(repository, "deploy-uat.yml", since)
     trigger = event.get("workflow_run") or {}
@@ -344,6 +370,7 @@ def reconcile_children(ledger: Ledger, trigger_run_id: int | None = None) -> Non
                     continue
                 run = run_info(ledger.repository, child["run_id"])
                 verify_child(ledger.state, run, ledger.repository, ordinal, str(request["origin_run_id"]))
+                child["run_attempt"] = run.get("run_attempt", 1)
                 child["state"] = run.get("conclusion") if run["status"] == "completed" else "running"
                 if lane == "appstore" and child["state"] == "success":
                     deferred = artifact_json(ledger.repository, run["id"], "ios-appstore-deferred", "ios-appstore-deferred.json", optional=True)
