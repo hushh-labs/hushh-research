@@ -22,6 +22,10 @@ from hushh_mcp.runtime_providers import (
     build_generate_content_config,
     build_managed_runtime_client,
 )
+from hushh_mcp.runtime_providers.managed_azure_text import (
+    ManagedAzureTextClient,
+    adk_model_for_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -165,10 +169,10 @@ class AttributeLearner:
                 from google.adk.models import Gemini
                 from google.genai import Client
 
-                if isinstance(self.client, Client):
+                if isinstance(self.client, (Client, ManagedAzureTextClient)):
                     gene = _load_attribute_gene()
                     model_name = str(gene.model_config_for_runtime().name)
-                    model = Gemini(model=model_name, client=self.client)
+                    model = adk_model_for_client(self.client, model_name, legacy_factory=Gemini)
                     agent = build_single_turn_agent(
                         gene,
                         output_schema=_ATTRIBUTE_SCHEMA,

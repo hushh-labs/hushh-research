@@ -247,26 +247,43 @@ Every hosted deployment must prove:
 
 The UAT expensive-lane selector is
 `scripts/ci/resolve-uat-verification-plan.py`. It alone decides when PKM upgrade
-rehearsal or reviewer BYOK proof is required. Paid candidate evaluation and
-Gemini/Vertex generation probes require UAT's explicit
-`run_live_model_checks=true` dispatch input; changed paths and unknown comparison
-bases never opt in. Backend Cloud Build generation probes also default off for
-production/direct builds (`_VERIFY_MANAGED_VERTEX_RUNTIME=false`). An omitted
-model check is recorded as skipped, not passed. When explicitly selected, the
-structure-agent evaluator is warning-only and does not authorize rollback by
-itself; preservation, provenance, schema, runtime and semantic authority remain
-blocking. Product journeys may still exercise their own model/readiness calls.
+rehearsal or reviewer BYOK proof is required. Paid candidate PKM evaluation and RIA live-model checks retain the explicit
+`run_live_model_checks=true` dispatch input. UAT backend releases always run
+synthetic Azure and Vertex provider checks from the exact candidate image and
+runtime identity, in parallel. A provider passes only when its full application
+capability bundle passes: structured and streamed text, image and PDF inputs,
+public search citations, exact public source retrieval, Location transcription
+and semantics, isolated narration, Live audio with function results and input
+transcription, and compatible embeddings. The required aggregate accepts either
+complete provider (or both), preferring Azure; neither passing blocks promotion.
+The API and both Drive workers must bind the same selected provider. UAT remains
+held until Azure has a verified replacement for every declared capability.
 
-Each selected managed Vertex probe requires a usable provider response. A
-transport timeout or retryable provider status permits one recovery attempt
-against the same model, project and identity, paced by the existing 30-second
-start interval. Permission, schema and billing failures are not retried.
-All targets run before optional recovery. A 330-second sequence budget includes
-the command rehearsal and leaves startup/receipt headroom inside the unchanged
-420-second job limit. A recovery that cannot fit is recorded as not dispatched,
-retaining the original failure. Attempt verdicts and durations remain in the
-redacted diagnostic receipt; exhaustion still fails readiness. Per-call deadlines
-and the release admission rules are unchanged.
+Azure's canonical PWM schema and six-case attribution evaluation remain
+independent safety checks. An explicit identity, attribution or schema violation
+blocks release even when the alternate provider succeeds. The terminal receipt
+carries a closed trust-failure flag so log-ingestion order cannot erase a failure.
+The execution-bound aggregate is uploaded as `uat-managed-provider-readiness.json`.
+Search citations identify received provider sources; they do not imply fresh
+page retrieval. Exact public-page review uses the existing public-network fence.
+
+The selected UAT Azure adapters use workload federation rather than stored keys.
+Live input is resampled from the existing 16 kHz client contract to 24 kHz Azure
+PCM; output remains 24 kHz. Playback acknowledgements come from the player clock
+and fence interrupted context. Older Voice clients use the same selected
+processor. Without playback acknowledgements, an in-flight interruption truncates output
+at zero and may discard already-heard context. Completed generated turns remain
+in conversation history for ordinary follow-ups; completion is not proof of playback.
+No transcript is replayed to another provider. BYOK and non-UAT processor selection retain
+their existing contracts. Local E5 Drive/action embeddings are unchanged. The
+768-dimensional Location prototype separates cache generations by model and
+processor; this migration does not activate it or backfill a production index.
+
+The older SHA-bound one-time exception remains separately guarded. Its legacy
+text-only receipts do not satisfy this release's complete-capability gate.
+Provenance, IAM, authorization, schemas, preservation and candidate health remain
+mandatory. A diagnostic source-overlay job is useful during development, but
+only the immutable candidate image qualifies a release.
 
 ## Read-only operator diagnostics
 

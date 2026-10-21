@@ -783,6 +783,8 @@ class TestSpecialistTurn:
         from hushh_mcp.managed_ai_config import load_profile
 
         monkeypatch.setenv("HUSHH_DEPLOY_ENV", deploy_env)
+        monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+        monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "vertex")
         expected_project = load_profile(deploy_env)["project"]
         from hushh_mcp.runtime_providers import (
             ManagedGeminiRuntimeBinding,

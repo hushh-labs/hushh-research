@@ -19,6 +19,14 @@ from hushh_mcp.managed_ai_config import load_profile
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_backend_cloud_build_uses_valid_secret_flag_combinations():
+    document = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    for step in document["steps"]:
+        for argument in step.get("args", []):
+            if "--set-secrets" in argument:
+                assert "--clear-secrets" not in argument, step.get("id")
+
+
 @pytest.mark.parametrize(
     ("repeat", "fail_at", "expected_calls", "completed"),
     [(False, 0, 1, 1), (True, 0, 2, 2), (True, 1, 1, 0), (True, 2, 2, 1)],
@@ -333,7 +341,7 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         i for i, step in enumerate(steps) if step.get("id") == "verify-managed-vertex-runtime"
     )
     probe = steps[probe_index]["args"][-1]
-    assert "execution_name" in probe and "--clear-secrets" in probe
+    assert "execution_name" in probe and "--set-secrets" in probe
 
     config_path = tmp_path / "consent-protocol/config/managed-ai-runtime.json"
     config_path.parent.mkdir(parents=True)
@@ -374,6 +382,8 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         "_REGION": "us-central1",
         "_CLOUD_RUN_NO_TRAFFIC": "true",
         "_RUNTIME_SERVICE_ACCOUNT": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
+        "_APP_SIGNING_KEY_SECRET": "APP_SIGNING_KEY",
+        "_VAULT_DATA_KEY_SECRET": "VAULT_DATA_KEY",
         "_IMAGE_REFERENCE": digest,
     }
     runtime_identity = base_env["_RUNTIME_SERVICE_ACCOUNT"]
@@ -431,7 +441,11 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
                 "--service-account=consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
                 in invoked
             )
-            assert "--clear-secrets" in invoked
+            assert "--clear-secrets" not in invoked
+            assert (
+                "--set-secrets=APP_SIGNING_KEY=APP_SIGNING_KEY:latest,VAULT_DATA_KEY=VAULT_DATA_KEY:latest"
+                in invoked
+            )
             assert "run.googleapis.com/execution_name" in invoked
             assert "jsonPayload.azure_pwm_runtime_probe_result" in invoked
             if verdict == "delayed":
@@ -1044,10 +1058,14 @@ def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:
     execute_start = backend_build.index('gcloud run jobs execute "${job_name}"')
     readiness_deploy = backend_build[deploy_start:execute_start]
 
-    # The job probes the managed model with synthetic inputs; it must not
-    # retain application secrets, including the retired Live credential.
-    assert "--clear-secrets" in readiness_deploy
-    assert "--set-secrets" not in readiness_deploy
+    # Replacement semantics drop retained secrets. The application adapters
+    # import core security configuration, but need no owner/provider secrets.
+    assert "--clear-secrets" not in readiness_deploy
+    assert (
+        '--set-secrets="APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest"'
+        in readiness_deploy
+    )
+    assert readiness_deploy.count("--set-secrets") == 1
 
 
 def test_managed_vertex_readiness_job_has_cold_start_headroom() -> None:
@@ -1901,3 +1919,543 @@ def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:
         )
         assert "--format='value(status.traffic[0].revisionName)'" not in workflow
         assert "resolve-cloud-run-serving-state.py" in workflow
+
+
+def _managed_provider_gate():
+    spec = importlib.util.spec_from_file_location(
+        "managed_provider_readiness", REPO_ROOT / "scripts/ci/managed_provider_readiness.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _provider_fixture(module, provider):
+    from uuid import UUID, uuid5
+
+    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    expected = module.context(
+        {
+            "READINESS_BUILD_ID": "11111111-1111-4111-8111-111111111111",
+            "READINESS_SOURCE_SHA": "a" * 40,
+            "READINESS_IMAGE": "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "b" * 64,
+            "READINESS_RUNTIME_ACCOUNT": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
+            "READINESS_PROJECT": "hushh-pda-uat",
+            "READINESS_REGION": "us-central1",
+            "READINESS_GITHUB_RUN": "12345",
+            "READINESS_ENVIRONMENT": "uat",
+        }
+    )
+    core = {
+        "schema": "managed_text_probe.v1",
+        "provider": provider,
+        "ready": True,
+        "policy_generation": str(
+            uuid5(
+                UUID(document["private_drive_text_uat"]["policy_id"]),
+                document["private_drive_text_uat"]["version"]
+                + (":vertex" if provider == "vertex" else ""),
+            )
+        ),
+        "config_fingerprint": expected["config_fingerprint"],
+        "scopes": {
+            scope: {
+                "ready": True,
+                "provider": provider,
+                "model": document["pwm_research_uat"]["azure"]["primary_deployment"]
+                if provider == "azure_openai"
+                else document["environments"]["uat"]["text_model"],
+                "location": ""
+                if provider == "azure_openai"
+                else document["environments"]["uat"]["text_locations"][0],
+            }
+            for scope in module.SCOPES
+        },
+    }
+    job = ("azure-pwm-" if provider == "azure_openai" else "genai-ready-") + expected["build_id"]
+    receipt = {
+        "schema": "managed_provider_execution.v1",
+        "provider": provider,
+        "context": expected,
+        "verified": True,
+        "core_ready": True,
+        "core": core,
+        "job": job,
+        "execution": job + "-abc12",
+        "execution_image": expected["image"],
+        "runtime_account": expected["runtime_account"],
+        "execution_terminal": "True",
+        "capabilities": {},
+    }
+    policy = document["managed_runtime_uat"]
+    digest = module.fingerprint({"policy": policy, "azure": document["pwm_research_uat"]["azure"]})
+    capabilities = {
+        name: {"ready": True, "elapsed_ms": 1} for name in policy["required_capabilities"]
+    }
+    for name in ("structured_text", "image_input", "pdf_input"):
+        capabilities[name]["synthetic_content_verified"] = True
+    capabilities["structured_text"]["streaming_observed"] = True
+    capabilities["public_search"].update(cited_sources=1, fresh_page_retrieval_claimed=False)
+    capabilities["public_source"]["http_receipts"] = 1
+    capabilities["location_transcription"]["synthetic_phrase_verified"] = True
+    capabilities["location_semantics"]["steps"] = 1
+    capabilities["narration"].update(audio_bytes=4800, sample_rate=24000, chunks=2)
+    capabilities["live_audio"].update(
+        function_round_trip=True,
+        audio_bytes=4800,
+        sample_rate=24000,
+        input_sample_rate=16000,
+        input_transcription_verified=True,
+    )
+    capabilities["embeddings"]["dimensions"] = 768
+    receipt["capability_proof"] = {
+        "schema": "managed_capabilities_probe.v1",
+        "provider": provider,
+        "config_fingerprint": expected["config_fingerprint"],
+        "policy_generation": str(
+            uuid5(UUID(policy["policy_id"]), policy["version"] + digest + provider)
+        ),
+        "synthetic_only": True,
+        "capabilities": capabilities,
+        "ready": True,
+        "elapsed_ms": 10,
+    }
+    if provider == "azure_openai":
+        receipt.update(
+            pwm_trust="passed",
+            pwm_proof={
+                "azure_pwm_production_contracts": 4,
+                "azure_pwm_attribution_cases": 6,
+                "deployment": document["pwm_research_uat"]["azure"]["primary_deployment"],
+                "policy_sha256": "c" * 64,
+            },
+        )
+        receipt["capabilities"]["pwm_model_contract"] = True
+    return expected, receipt
+
+
+@pytest.mark.parametrize(
+    "azure,vertex,selected",
+    [
+        (True, False, "azure_openai"),
+        (False, True, "vertex"),
+        (True, True, "azure_openai"),
+        (False, False, None),
+    ],
+)
+def test_provider_release_admission_uses_or_and_prefers_azure(azure, vertex, selected):
+    module = _managed_provider_gate()
+    expected, a = _provider_fixture(module, "azure_openai")
+    _, v = _provider_fixture(module, "vertex")
+    result = module.evaluate(
+        {"azure_openai": a if azure else None, "vertex": v if vertex else None}, expected
+    )
+    assert result["ready"] is (selected is not None)
+    assert result["selected_provider"] == selected
+
+
+@pytest.mark.parametrize("provider", ["azure_openai", "vertex"])
+@pytest.mark.parametrize(
+    "defect", ["missing", "failed", "generation", "stream", "extra_body", "bool_count"]
+)
+def test_complete_provider_gate_rejects_missing_or_misbound_capability_proof(provider, defect):
+    module = _managed_provider_gate()
+    expected, receipt = _provider_fixture(module, provider)
+    proof = receipt["capability_proof"]
+    if defect == "missing":
+        proof["capabilities"].pop("live_audio")
+    elif defect == "failed":
+        proof["capabilities"]["image_input"]["ready"] = False
+    elif defect == "generation":
+        proof["policy_generation"] = "stale"
+    elif defect == "stream":
+        proof["capabilities"]["structured_text"]["streaming_observed"] = False
+    elif defect == "extra_body":
+        proof["capabilities"]["structured_text"]["response_body"] = "not admissible"
+    else:
+        proof["capabilities"]["public_source"]["http_receipts"] = True
+    assert module.evaluate({provider: receipt}, expected)["ready"] is False
+
+
+def test_vertex_core_receipt_uses_the_actual_selected_policy_generation(monkeypatch):
+    from hushh_mcp.runtime_providers.managed_text import managed_text_policy
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "vertex")
+    module = _managed_provider_gate()
+    expected, receipt = _provider_fixture(module, "vertex")
+    policy = managed_text_policy()
+    receipt["core"]["policy_generation"] = policy["generation"]
+    assert module.evaluate({"vertex": receipt}, expected)["ready"] is True
+
+
+@pytest.mark.parametrize(
+    "defect",
+    ["image", "context", "scope", "model", "generation", "duplicate_trust", "failed_trust"],
+)
+def test_provider_gate_rejects_stale_partial_or_unsafe_evidence(defect):
+    module = _managed_provider_gate()
+    expected, value = _provider_fixture(module, "azure_openai")
+    if defect == "image":
+        value["execution_image"] = "wrong-image"
+    elif defect == "context":
+        value["context"] = {**expected, "source_sha": "d" * 40}
+    elif defect == "scope":
+        value["core"]["scopes"].pop("drive_document_requests")
+    elif defect == "model":
+        value["core"]["scopes"]["one_text_chat"]["model"] = "another-model"
+    elif defect == "generation":
+        value["core"]["policy_generation"] = "old"
+    elif defect == "duplicate_trust":
+        value["pwm_proof"] = [value["pwm_proof"]] * 2
+    else:
+        value["pwm_trust"] = "failed"
+    assert module.evaluate({"azure_openai": value}, expected)["ready"] is False
+    if defect == "failed_trust":
+        _, alternate = _provider_fixture(module, "vertex")
+        assert (
+            module.evaluate({"azure_openai": value, "vertex": alternate}, expected)["ready"]
+            is False
+        )
+
+
+@pytest.mark.parametrize("contract_failure", [False, True, "terminal_first"])
+def test_collector_waits_for_terminal_and_retains_later_contract_failure(
+    monkeypatch, contract_failure
+):
+    module = _managed_provider_gate()
+    expected, value = _provider_fixture(module, "azure_openai")
+    core_log = {"jsonPayload": {"managed_text_provider_probe": value["core"]}}
+    success = [
+        core_log,
+        {"jsonPayload": value["pwm_proof"]},
+        {"jsonPayload": {"managed_capabilities_probe": value["capability_proof"]}},
+        {"jsonPayload": {"azure_pwm_runtime_probe_result": "ok"}},
+    ]
+    failure = [
+        core_log,
+        {
+            "jsonPayload": {
+                "azure_pwm_probe_failure": "source attribution",
+                "failed_fields": ["namesake"],
+            }
+        },
+        {"jsonPayload": {"azure_pwm_runtime_probe_result": "failed", "error_type": "RuntimeError"}},
+    ]
+    if contract_failure == "terminal_first":
+        # The terminal line carries the trust verdict even if the separate
+        # authored-case marker has not reached Cloud Logging yet.
+        failure = [
+            core_log,
+            {
+                "jsonPayload": {
+                    "azure_pwm_runtime_probe_result": "failed",
+                    "error_type": "AzurePwmTrustError",
+                    "pwm_trust_failure": True,
+                }
+            },
+        ]
+    calls = []
+
+    def cloud(args):
+        if args[:4] == ["run", "jobs", "executions", "list"]:
+            return [{"metadata": {"name": value["execution"]}}]
+        if args[:4] == ["run", "jobs", "executions", "describe"]:
+            return {
+                "metadata": {"ownerReferences": [{"name": value["job"]}]},
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "serviceAccountName": expected["runtime_account"],
+                            "containers": [
+                                {
+                                    "image": expected["image"],
+                                    "command": ["python3"],
+                                    "args": ["scripts/verify_azure_pwm_runtime.py"],
+                                    "env": [
+                                        {"name": "ENVIRONMENT", "value": "uat"},
+                                        {
+                                            "name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER",
+                                            "value": "azure_openai",
+                                        },
+                                        {
+                                            "name": "HUSHH_UAT_MANAGED_AI_PROVIDER",
+                                            "value": "azure_openai",
+                                        },
+                                    ],
+                                }
+                            ],
+                        }
+                    }
+                },
+                "status": {
+                    "conditions": [
+                        {"type": "Completed", "status": "False" if contract_failure else "True"}
+                    ]
+                },
+            }
+        assert args[:2] == ["logging", "read"]
+        calls.append(args)
+        return [core_log] if len(calls) == 1 else failure if contract_failure else success
+
+    monkeypatch.setattr(module, "run_json", cloud)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    collected = module.collect("azure_openai", expected, int(bool(contract_failure)), value["job"])
+    assert len(calls) >= 2
+    assert collected["core_ready"] is (not contract_failure)
+    assert collected["pwm_trust"] == ("failed" if contract_failure else "passed")
+    _, alternate = _provider_fixture(module, "vertex")
+    admitted = module.evaluate({"azure_openai": collected, "vertex": alternate}, expected)
+    assert admitted["ready"] is (not contract_failure)
+
+
+@pytest.mark.parametrize("defect", [None, "already_live", "wrong_sha", "wrong_image"])
+def test_provider_selection_requires_the_exact_unserved_candidate(defect):
+    module = _managed_provider_gate()
+    expected, _ = _provider_fixture(module, "azure_openai")
+    env = {
+        "HUSHH_DEPLOY_SHA": expected["source_sha"],
+        "HUSHH_DEPLOY_RUN_ID": expected["github_run"],
+        "HUSHH_DEPLOY_ENV": "uat",
+        "HUSHH_UAT_MANAGED_TEXT_PROVIDER": "vertex",
+        "HUSHH_UAT_MANAGED_AI_PROVIDER": "vertex",
+    }
+    container = {
+        "image": expected["image"],
+        "env": [{"name": k, "value": v} for k, v in env.items()],
+    }
+    traffic = {"tag": "account-deletion-12345", "revisionName": "candidate", "percent": 0}
+    service = {
+        "spec": {
+            "template": {
+                "spec": {
+                    "serviceAccountName": expected["runtime_account"],
+                    "containers": [container],
+                }
+            }
+        },
+        "status": {
+            "latestCreatedRevisionName": "candidate",
+            "latestReadyRevisionName": "candidate",
+            "traffic": [traffic],
+        },
+    }
+    if defect == "already_live":
+        traffic["percent"] = 100
+    elif defect == "wrong_sha":
+        container["env"][0]["value"] = "d" * 40
+    elif defect == "wrong_image":
+        container["image"] = "wrong"
+    if defect:
+        with pytest.raises(ValueError):
+            module.candidate(service, expected, "account-deletion-12345")
+    else:
+        assert module.candidate(service, expected, "account-deletion-12345") == (
+            "candidate",
+            "vertex",
+        )
+
+
+def test_required_provider_aggregate_cannot_be_allowed_to_fail():
+    steps = {s["id"]: s for s in yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))["steps"]}
+    aggregate = steps["verify-managed-provider-readiness"]
+    assert aggregate.get("allowFailure", False) is False
+    assert set(aggregate["waitFor"]) == {
+        "verify-azure-pwm-runtime",
+        "verify-managed-vertex-runtime",
+    }
+    for provider in ("verify-azure-pwm-runtime", "verify-managed-vertex-runtime"):
+        assert steps[provider]["waitFor"] == ["deploy-backend"]
+        shell = steps[provider]["args"][-1]
+        assert "trap finish_provider_probe EXIT" in shell
+        assert shell.index("managed_provider_readiness.py record") < shell.index(
+            "gcloud run jobs delete"
+        )
+
+
+@pytest.mark.parametrize(
+    "provider,defect",
+    [
+        ("azure_openai", None),
+        ("vertex", None),
+        ("vertex", "sha"),
+        ("vertex", "image"),
+        ("vertex", "provider"),
+        ("vertex", "split"),
+    ],
+)
+def test_drive_worker_inherits_only_exact_promoted_api_binding(monkeypatch, provider, defect):
+    module = _managed_provider_gate()
+    expected, _ = _provider_fixture(module, provider)
+    revision_name = "consent-protocol-01234-abc"
+    service = {"status": {"traffic": [{"revisionName": revision_name, "percent": 100}]}}
+    env = {
+        "HUSHH_DEPLOY_SHA": expected["source_sha"],
+        "HUSHH_DEPLOY_RUN_ID": expected["github_run"],
+        "HUSHH_DEPLOY_ENV": "uat",
+        "HUSHH_UAT_MANAGED_TEXT_PROVIDER": provider,
+        "HUSHH_UAT_MANAGED_AI_PROVIDER": provider,
+    }
+    revision = {
+        "metadata": {"name": revision_name},
+        "spec": {
+            "serviceAccountName": expected["runtime_account"],
+            "containers": [
+                {
+                    "image": expected["image"],
+                    "env": [{"name": k, "value": v} for k, v in env.items()],
+                }
+            ],
+        },
+        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+    }
+    if defect == "sha":
+        revision["spec"]["containers"][0]["env"][0]["value"] = "old"
+    elif defect == "image":
+        revision["spec"]["containers"][0]["image"] = "old"
+    elif defect == "provider":
+        revision["spec"]["containers"][0]["env"] = []
+    elif defect == "split":
+        service["status"]["traffic"][0]["percent"] = 50
+    calls = []
+
+    def cloud(args):
+        calls.append(args)
+        return service if args[:3] == ["run", "services", "describe"] else revision
+
+    monkeypatch.setattr(module, "run_json", cloud)
+    args = (
+        expected["source_sha"],
+        expected["image"],
+        expected["github_run"],
+        expected["runtime_account"],
+    )
+    if defect:
+        with pytest.raises(ValueError):
+            module.worker_provider(*args)
+    else:
+        assert module.worker_provider(*args) == provider
+        assert calls[1][3] == revision_name
+
+
+def test_legacy_provider_receipt_is_accepted_only_in_governed_exception():
+    module = _managed_provider_gate()
+    expected, receipt = _provider_fixture(module, "azure_openai")
+    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    legacy = {
+        "schema": "azure_managed_text_legacy.v1",
+        "scopes": 2,
+        "http_status": 200,
+        "deployment": receipt["pwm_proof"]["deployment"],
+    }
+    assert not module.valid_core(legacy, "azure_openai", expected, document)
+    expected["legacy_exception"] = True
+    assert module.valid_core(legacy, "azure_openai", expected, document)
+    assert not module.valid_core(legacy, "vertex", expected, document)
+
+
+@pytest.mark.parametrize(
+    "classification,allowed",
+    [
+        ("provider_unavailable", True),
+        ("candidate_misconfigured", True),
+        ("application_broken", True),
+    ],
+)
+def test_complete_azure_bundle_does_not_require_a_working_alternate(classification, allowed):
+    module = _managed_provider_gate()
+    expected, azure = _provider_fixture(module, "azure_openai")
+    _, vertex = _provider_fixture(module, "vertex")
+    vertex["capability_classifications"] = {"one_location_semantics:synthetic": classification}
+    result = module.evaluate({"azure_openai": azure, "vertex": vertex}, expected)
+    assert result["ready"] is allowed
+    assert result["providers"]["vertex"]["classifications"] == vertex["capability_classifications"]
+
+
+@pytest.mark.parametrize("selection", ["verified", "missing", "misbound"])
+def test_uploaded_provider_receipt_proves_selection_separately(tmp_path, selection):
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    step = next(
+        s
+        for s in workflow["jobs"]["deploy"]["steps"]
+        if s.get("name") == "Capture managed provider readiness receipt"
+    )
+    context = {"source_sha": "a" * 40, "github_run": "12345"}
+    readiness = {
+        "managed_provider_readiness": {
+            "context": context,
+            "ready": True,
+            "selected_provider": "azure_openai",
+        }
+    }
+    adopted = {
+        "context": context if selection != "misbound" else {},
+        "managed_provider_selection": {
+            "status": "verified",
+            "provider": "azure_openai",
+            "revision": "candidate",
+        },
+    }
+    log = tmp_path / "build.log"
+    report = tmp_path / "result.json"
+    lines = [json.dumps(readiness)] + ([json.dumps(adopted)] if selection != "missing" else [])
+    log.write_text("\n".join("Step #5: " + line for line in lines))
+    command = (
+        step["run"]
+        .replace("/tmp/uat-backend-build.log", str(log))  # noqa: S108 - replace authored CI path with isolated fixture
+        .replace("/tmp/uat-managed-provider-readiness.json", str(report))  # noqa: S108 - isolated fixture
+    )
+    subprocess.run(["bash", "-c", command], check=True, timeout=10)  # noqa: S603 - execute authored workflow with synthetic receipts
+    assert json.loads(report.read_text())["selection_verified"] is (selection == "verified")
+
+
+def test_text_recovery_generation_matches_the_selected_runtime_processor(monkeypatch):
+    path = REPO_ROOT / "scripts/ops/run_uat_text_recovery_job.py"
+    spec = importlib.util.spec_from_file_location("uat_text_recovery_generation", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    # Derive the expectation from the actual producer, not a second test formula.
+    from hushh_mcp.runtime_providers.managed_text import managed_text_policy
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    generations = []
+    for provider in ("azure_openai", "vertex"):
+        monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", provider)
+        monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", provider)
+        job = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "template": {
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "env": [
+                                            {
+                                                "name": "HUSHH_UAT_MANAGED_AI_PROVIDER",
+                                                "value": provider,
+                                            },
+                                            {
+                                                "name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER",
+                                                "value": provider,
+                                            },
+                                        ]
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        actual = module.expected_policy_generation(job)
+        assert actual == managed_text_policy()["generation"]
+        generations.append(actual)
+        job["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]["env"][1]["value"] = (
+            "invalid"
+        )
+        with pytest.raises(ValueError, match="bindings disagree"):
+            module.expected_policy_generation(job)
+    assert generations[0] != generations[1]

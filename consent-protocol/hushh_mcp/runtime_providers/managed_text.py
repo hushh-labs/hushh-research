@@ -11,7 +11,7 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 from contextlib import aclosing
-from typing import Any
+from typing import Any, Literal, TypedDict, cast
 from uuid import UUID, uuid5
 
 from google.adk.agents import LlmAgent
@@ -26,6 +26,14 @@ from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
 
 logger = logging.getLogger(__name__)
 TEXT_SCOPES = frozenset({"one_text_chat", "drive_document_requests"})
+ManagedProvider = Literal["azure_openai", "vertex"]
+
+
+class ManagedTextReceipt(TypedDict):
+    ready: Literal[True]
+    provider: ManagedProvider
+    model: str
+    location: str
 
 
 def managed_text_policy() -> dict | None:
@@ -37,7 +45,17 @@ def managed_text_policy() -> dict | None:
     policy = load_private_drive_text_policy()
     if not policy["enabled"]:
         raise ValueError("UAT managed text processing policy is disabled")
-    return {**policy, "generation": str(uuid5(UUID(policy["policy_id"]), policy["version"]))}
+    from hushh_mcp.managed_ai_config import selected_managed_provider
+
+    selected = selected_managed_provider()
+    if selected not in {policy["provider"], policy["alternate_provider"]}:
+        raise ValueError("Invalid UAT managed text provider")
+    version = policy["version"] + (":vertex" if selected == "vertex" else "")
+    return {
+        **policy,
+        "selected_provider": selected,
+        "generation": str(uuid5(UUID(policy["policy_id"]), version)),
+    }
 
 
 class ManagedTextAuthorityError(PermissionError):
@@ -56,7 +74,9 @@ def fallback_reason(error: Exception) -> str | None:
         return "timeout"
     if isinstance(error, APIConnectionError):
         return "connection"
-    status = getattr(error, "status_code", None)
+    from hushh_mcp.runtime_providers.vertex_failover import _status_code
+
+    status = _status_code(error)
     if status == 429:
         return "quota"
     if status in {500, 502, 503, 504}:
@@ -65,9 +85,15 @@ def fallback_reason(error: Exception) -> str | None:
 
 
 class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
-    """Responses-compatible identity preserves ADK tool-call pairing on replay."""
+    """One provider attempt at a time; never replay observed output or tools."""
 
-    fallback_model: Any = Field(exclude=True, repr=False)
+    fallback_model: Any = Field(default=None, exclude=True, repr=False)
+    fallback_factory: Callable[[], Any] | None = Field(default=None, exclude=True, repr=False)
+    primary_provider: Literal["azure_openai", "vertex"] = "azure_openai"
+    allow_fallback: bool = True
+    completion_observer: Callable[[dict[str, str]], None] | None = Field(
+        default=None, exclude=True, repr=False
+    )
     policy_generation: str
     processing_scope: str
     primary_seconds: float = Field(default=30, gt=0, le=40)
@@ -88,99 +114,100 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
 
         if self.require_current is None:
             raise ManagedTextAuthorityError("Managed text model requires invocation authority")
-        await current()  # Outside provider-error handling: denial cannot select fallback.
-        observed = False
-        completed = False
-        reason = None
-        logger.info(
-            "managed_text.selection scope=%s policy=%s primary=azure_openai",
-            self.processing_scope,
-            self.policy_generation,
-        )
-        try:
-            async with asyncio.timeout(self.primary_seconds) as primary_deadline:
-                primary = self.model_copy(update={"require_current": current})
-                async with aclosing(
-                    AzureOpenAIAdkModel.generate_content_async(primary, llm_request, stream=stream)
-                ) as responses:
-                    async for response in responses:
-                        if stream and not observed:
-                            primary_deadline.reschedule(asyncio.get_running_loop().time() + 60)
-                        observed = True
-                        completed = completed or (
-                            response.partial is not True
-                            and not response.error_code
-                            and response.interrupted is not True
-                        )
-                        yield response
-            if not completed:
-                raise ValueError("Azure model call did not complete")
-            logger.info(
-                "managed_text.outcome scope=%s provider=azure_openai status=completed",
-                self.processing_scope,
-            )
-            return
-        except Exception as error:
-            reason = fallback_reason(error)
-            logger.info(
-                "managed_text.attempt scope=%s provider=azure_openai status=failed reason=%s error_type=%s observed=%s",
-                self.processing_scope,
-                reason or "non_retryable",
-                type(error).__name__,
-                observed,
-            )
-            if observed or reason is None:
-                raise
         await current()
-        logger.info(
-            "managed_text.fallback scope=%s provider=gemini reason=%s",
-            self.processing_scope,
-            reason,
+        providers = (
+            ("azure_openai", "vertex")
+            if self.primary_provider == "azure_openai"
+            else ("vertex", "azure_openai")
         )
-        request = llm_request.model_copy(deep=True)
-        request.model = self.fallback_model.model
-        # Azure encrypted reasoning is provider-private protocol state, not text.
-        for content in request.contents:
-            content.parts = [
-                part
-                for part in content.parts or []
-                if not (part.thought_signature or b"").startswith(b"azure-responses-v1:")
-            ]
-        completed = False
-        try:
-            fallback_observed = False
-            async with asyncio.timeout(self.fallback_seconds) as fallback_deadline:
-                async with aclosing(
-                    self.fallback_model.generate_content_async(request, stream=stream)
-                ) as responses:
-                    async for response in responses:
-                        if stream and not fallback_observed:
-                            fallback_deadline.reschedule(asyncio.get_running_loop().time() + 60)
-                        fallback_observed = True
-                        completed = completed or (
-                            response.partial is not True
-                            and not response.error_code
-                            and response.interrupted is not True
-                        )
-                        yield response
-            if not completed:
-                raise ValueError("Gemini fallback did not complete")
-        except Exception as error:
+        if not self.allow_fallback:
+            providers = providers[:1]
+        for index, provider in enumerate(providers):
+            observed = completed = False
+            request = llm_request
+            model_name, location = self.model, ""
+            if provider == "azure_openai":
+                primary = self.model_copy(update={"require_current": current})
+                source = AzureOpenAIAdkModel.generate_content_async(primary, request, stream=stream)
+                seconds = self.primary_seconds
+            else:
+                vertex = self.fallback_model
+                if vertex is None:
+                    if self.fallback_factory is None:
+                        raise ValueError("Managed Vertex alternate is not configured")
+                    vertex = self.fallback_factory()
+                request = llm_request.model_copy(deep=True)
+                request.model = vertex.model
+                # Provider-private encrypted reasoning cannot cross providers.
+                for content in request.contents:
+                    content.parts = [
+                        part
+                        for part in content.parts or []
+                        if not (part.thought_signature or b"").startswith(b"azure-responses-v1:")
+                    ]
+                source = vertex.generate_content_async(request, stream=stream)
+                model_name = vertex.model
+                from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
+
+                location = ManagedGeminiRuntimeBinding.from_environment().primary_location
+                seconds = self.fallback_seconds
             logger.info(
-                "managed_text.outcome scope=%s provider=gemini status=failed error_type=%s",
+                "managed_text.selection scope=%s policy=%s provider=%s attempt=%s",
                 self.processing_scope,
-                type(error).__name__,
+                self.policy_generation,
+                provider,
+                index + 1,
             )
-            raise
-        logger.info(
-            "managed_text.outcome scope=%s provider=gemini status=completed reason=%s",
-            self.processing_scope,
-            reason,
-        )
+            try:
+                if index:
+                    await current()
+                async with asyncio.timeout(seconds) as deadline:
+                    async with aclosing(source) as responses:
+                        async for response in responses:
+                            terminal = (
+                                response.partial is not True
+                                and not response.error_code
+                                and response.interrupted is not True
+                            )
+                            if not observed or terminal:
+                                await current()
+                            if stream and not observed:
+                                deadline.reschedule(asyncio.get_running_loop().time() + 60)
+                            observed = True
+                            completed = completed or terminal
+                            yield response
+                if not completed:
+                    raise ValueError("Managed model call did not complete")
+                if self.completion_observer is not None:
+                    self.completion_observer(
+                        {"provider": provider, "model": model_name, "location": location}
+                    )
+                logger.info(
+                    "managed_text.outcome scope=%s provider=%s status=completed",
+                    self.processing_scope,
+                    provider,
+                )
+                return
+            except Exception as error:
+                reason = fallback_reason(error)
+                logger.info(
+                    "managed_text.attempt scope=%s provider=%s status=failed reason=%s error_type=%s observed=%s",
+                    self.processing_scope,
+                    provider,
+                    reason or "non_retryable",
+                    type(error).__name__,
+                    observed,
+                )
+                if observed or reason is None or index or not self.allow_fallback:
+                    raise
 
 
 def build_managed_text_model(
-    *, scope: str, require_current: Callable[[], Awaitable[None]] | None = None
+    *,
+    scope: str,
+    require_current: Callable[[], Awaitable[None]] | None = None,
+    provider: Literal["azure_openai", "vertex"] | None = None,
+    completion_observer: Callable[[dict[str, str]], None] | None = None,
 ):
     """Reuse central Azure configuration. No settings/receipt lookup selects a provider."""
     if scope not in TEXT_SCOPES:
@@ -189,12 +216,22 @@ def build_managed_text_model(
     if policy is None:
         raise ValueError("Managed Azure text policy is UAT only")
     from hushh_mcp.one_adk.azure_workload_identity import azure_openai_token_provider
-    from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
+    from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
     from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
-    config = load_pwm_policy(environment="uat")["azure"]
+    config = load_pwm_policy(environment="uat", provider="azure_openai")["azure"]
+
     # One fallback call to the configured Gemini location, no nested regional retries.
-    fallback = build_managed_gemini_adk_model(resolve_fleet_model_name("gemini-default"))
+    def fallback():
+        # Explicit Vertex transport: the default managed factory may now select
+        # Azure, which must never masquerade as the alternate provider.
+        return ManagedGeminiRuntimeBinding.from_environment().build_adk_model(
+            resolve_fleet_model_name("gemini-default")
+        )
+
+    selected = provider or policy["selected_provider"]
+    if selected not in {"azure_openai", "vertex"}:
+        raise ValueError("Invalid UAT managed text provider")
     return ManagedPrimaryTextModel(
         model=config["primary_deployment"],
         endpoint=config["primary_endpoint"],
@@ -202,7 +239,9 @@ def build_managed_text_model(
             tenant_id=config["tenant_id"], client_id=config["client_id"]
         ),
         require_current=require_current,
-        fallback_model=fallback,
+        fallback_factory=fallback,
+        primary_provider=cast(ManagedProvider, selected),
+        completion_observer=completion_observer,
         policy_generation=policy["generation"],
         processing_scope=scope,
         timeout_seconds=10 if scope == "one_text_chat" else 30,
@@ -211,15 +250,95 @@ def build_managed_text_model(
     )
 
 
+async def probe_managed_text_model(
+    *,
+    scope: str,
+    provider: Literal["azure_openai", "vertex"] | None = None,
+    allow_fallback: bool = True,
+) -> ManagedTextReceipt:
+    """Synthetic text only. This proves a transport, never owner access or tools."""
+    import json
+
+    from google.adk.models.llm_request import LlmRequest
+    from google.genai import types
+
+    async def synthetic_authority():
+        return None  # No owner information, history, tools, or persistence is admitted.
+
+    completed: list[dict[str, str]] = []
+    model = build_managed_text_model(
+        scope=scope,
+        require_current=synthetic_authority,
+        provider=provider,
+        completion_observer=completed.append,
+    ).model_copy(update={"allow_fallback": allow_fallback})
+    request = LlmRequest(
+        model=model.model,
+        contents=[
+            types.Content(role="user", parts=[types.Part(text='Return exactly {"ready":true}.')])
+        ],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_json_schema={
+                "type": "object",
+                "properties": {"ready": {"type": "boolean"}},
+                "required": ["ready"],
+                "additionalProperties": False,
+            },
+            max_output_tokens=256,
+            thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW),
+        ),
+    )
+    results = [item async for item in model.generate_content_async(request)]
+    answer = "".join(
+        part.text or ""
+        for item in results
+        for part in (item.content.parts if item.content else [])
+        if not part.thought
+    )
+    value = json.loads(answer)
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"ready"}
+        or value["ready"] is not True
+        or len(completed) != 1
+        or (provider is not None and not allow_fallback and completed[0]["provider"] != provider)
+    ):
+        raise RuntimeError("Managed text provider did not complete its structured contract")
+    return {
+        "ready": True,
+        "provider": cast(ManagedProvider, completed[0]["provider"]),
+        "model": completed[0]["model"],
+        "location": completed[0]["location"],
+    }
+
+
 def managed_text_binding() -> dict:
     policy = managed_text_policy()
     if policy is None:
         raise ValueError("Managed text binding is UAT only")
-    config = load_pwm_policy(environment="uat")["azure"]
+    config = load_pwm_policy(environment="uat", provider="azure_openai")["azure"]
+    provider = policy["selected_provider"]
+    deployment = config["primary_deployment"]
+    fingerprint = profile_hash(config)
+    if provider == "vertex":
+        from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
+        from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+
+        binding = ManagedGeminiRuntimeBinding.from_environment()
+        deployment = resolve_fleet_model_name("gemini-default")
+        fingerprint = profile_hash(
+            {
+                "azure": config,
+                "vertex_project": binding.project,
+                "vertex_location": binding.primary_location,
+                "vertex_model": deployment,
+            }
+        )
     return {
-        "provider": "azure_openai",
-        "deployment": config["primary_deployment"],
-        "config_fingerprint": profile_hash(config),
+        "provider": "gemini" if provider == "vertex" else provider,
+        "deployment": deployment,
+        "config_fingerprint": fingerprint,
         "approval_generation": policy["generation"],
         "authorization_basis": "uat_policy",
     }

@@ -376,7 +376,16 @@ select an otherwise-skipped lane or authorize mutations, and records requested
 and completed pass counts in the release receipt. A failed pass stops that
 rehearsal; it does not change the existing advisory rollback policy.
 
-Live Gemini/Vertex candidate checks are opt-in, not ordinary CI gates. UAT
+UAT backend provider admission runs Azure and Vertex synthetic checks in parallel.
+Either complete application capability bundle (or both) may pass; neither
+passing blocks. The bundle includes streamed structured text, images, PDFs,
+public search/source receipts, Location transcription/semantics, narration, Live
+audio with a function round trip, and application-compatible embeddings. Explicit
+PWM attribution/schema failures still block independently. Receipts bind the exact
+candidate image, runtime identity, provider generation and configuration. See
+[the deployment contract](../../../deploy/README.md) for capability and compatibility boundaries.
+
+Additional Gemini/Vertex candidate evaluations are opt-in, not ordinary CI gates. UAT
 dispatches default `run_live_model_checks=false`; explicitly setting it to
 `true` selects candidate-model readiness and synthetic PKM evaluation for a
 backend deployment, plus the live RIA Stage-1 semantic probe. Both semantic

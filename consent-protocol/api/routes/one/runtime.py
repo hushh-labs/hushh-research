@@ -49,10 +49,13 @@ class GeminiCredentialValidationResponse(BaseModel):
 class ManagedGeminiReadinessResponse(BaseModel):
     status: Literal["ready"]
     model: str
-    location: str
+    location: str | None
+    provider: Literal["azure_openai", "vertex"] = "vertex"
+    fallback_used: bool = False
 
 
 _managed_readiness_cache: tuple[float, ManagedGeminiReadinessResponse] | None = None
+_managed_readiness_binding: tuple[str, str] | None = None
 _MANAGED_READINESS_TTL_SECONDS = 60.0
 
 
@@ -97,14 +100,50 @@ async def managed_gemini_readiness(
     _firebase_uid: str = Depends(require_firebase_auth),
 ) -> ManagedGeminiReadinessResponse:
     """Cached, output-suppressed proof that the attached identity can generate."""
-    global _managed_readiness_cache
+    global _managed_readiness_cache, _managed_readiness_binding
+    from hushh_mcp.runtime_providers.managed_text import (
+        managed_text_binding,
+        managed_text_policy,
+        probe_managed_text_model,
+    )
+
+    try:
+        policy = managed_text_policy()
+        cache_binding = ("vertex", "")
+        if policy is not None:
+            descriptor = managed_text_binding()
+            cache_binding = (policy["generation"], descriptor["config_fingerprint"])
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "MANAGED_GEMINI_NOT_READY",
+                "status": "temporary_unavailable",
+            },
+        ) from None
     now = time.monotonic()
     if (
         _managed_readiness_cache
+        and _managed_readiness_binding == cache_binding
         and now - _managed_readiness_cache[0] <= _MANAGED_READINESS_TTL_SECONDS
     ):
         return _managed_readiness_cache[1]
     try:
+        if policy is not None:
+            receipt = await asyncio.wait_for(
+                probe_managed_text_model(scope="one_text_chat"),
+                timeout=20,
+            )
+            response = ManagedGeminiReadinessResponse(
+                status="ready",
+                provider=receipt["provider"],
+                model=receipt["model"],
+                location=receipt["location"] or None,
+                fallback_used=receipt["provider"] != policy["selected_provider"],
+            )
+            _managed_readiness_cache = (time.monotonic(), response)
+            _managed_readiness_binding = cache_binding
+            return response
         binding = ManagedGeminiRuntimeBinding.from_environment()
         client = binding.build_direct_client(model=_ONE_RUNTIME_MODEL)
         await asyncio.wait_for(
@@ -133,6 +172,7 @@ async def managed_gemini_readiness(
             location=binding.primary_location,
         )
         _managed_readiness_cache = (now, response)
+        _managed_readiness_binding = cache_binding
         return response
     except Exception as exc:  # noqa: BLE001 - expose only typed readiness evidence
         raise HTTPException(

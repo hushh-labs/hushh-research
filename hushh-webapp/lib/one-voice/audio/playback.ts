@@ -54,6 +54,7 @@ type ActiveChunk = {
   node: AudioBufferSourceNode;
   gain: GainNode;
   turnId: string;
+  itemId?: string;
   turnOrder: number;
   startAt: number;
   /** First nonzero PCM sample on the AudioContext clock; null for silence. */
@@ -96,6 +97,8 @@ export class LivePlaybackScheduler {
   private levelListeners = new Set<(level: number) => void>();
   private playbackStartedListeners = new Set<(turnId: string) => void>();
   private playbackStartedTurns = new Set<string>();
+  private playbackProgressListeners = new Set<(turnId: string, itemId: string, playedMs: number) => void>();
+  private playbackItems = new Map<string, { turnId: string; completed: number; reported: number }>();
 
   constructor(options: LivePlaybackSchedulerOptions = {}) {
     this.sampleRate = options.sampleRate ?? OUTPUT_SAMPLE_RATE;
@@ -147,6 +150,11 @@ export class LivePlaybackScheduler {
     return () => this.playbackStartedListeners.delete(callback);
   }
 
+  onPlaybackProgress(callback: (turnId: string, itemId: string, playedMs: number) => void): () => void {
+    this.playbackProgressListeners.add(callback);
+    return () => this.playbackProgressListeners.delete(callback);
+  }
+
   /** The order index of a turn (assigned on first sight). */
   orderOf(turnId: string): number {
     const known = this.turnOrder.get(turnId);
@@ -160,7 +168,7 @@ export class LivePlaybackScheduler {
   // -- scheduling ------------------------------------------------------------
 
   /** Queue one PCM16 chunk. Returns false when it was dropped (fenced/closed). */
-  enqueue(pcm16: Uint8Array, turnId: string): boolean {
+  enqueue(pcm16: Uint8Array, turnId: string, itemId?: string): boolean {
     if (this.closed) return false;
     const order = this.orderOf(turnId);
     if (order <= this.fencedOrder) return false;
@@ -168,6 +176,20 @@ export class LivePlaybackScheduler {
     if (samples.length === 0) return false;
     const context = this.ensureContext();
     if (!context) return false;
+    if (itemId) {
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(itemId)) return false;
+      const known = this.playbackItems.get(itemId);
+      if (known && known.turnId !== turnId) return false;
+      if (!known) {
+        if (this.playbackItems.size >= 128) {
+          const activeIds = new Set([...this.active].map((item) => item.itemId));
+          const expired = [...this.playbackItems.keys()].find((id) => !activeIds.has(id));
+          if (!expired) return false;
+          this.playbackItems.delete(expired);
+        }
+        this.playbackItems.set(itemId, { turnId, completed: 0, reported: -1 });
+      }
+    }
 
     const buffer = context.createBuffer(1, samples.length, this.sampleRate);
     buffer.getChannelData(0).set(samples);
@@ -199,6 +221,7 @@ export class LivePlaybackScheduler {
       node,
       gain,
       turnId,
+      itemId,
       turnOrder: order,
       startAt,
       audibleStartAt: firstSignalSample < 0
@@ -209,7 +232,8 @@ export class LivePlaybackScheduler {
     };
     this.active.add(chunk);
     node.onended = () => {
-      this.active.delete(chunk);
+      this.retireChunk(chunk);
+      this.reportPlayback(true);
       this.refreshSpeaking();
     };
     this.refreshSpeaking();
@@ -256,6 +280,8 @@ export class LivePlaybackScheduler {
     this.levelListeners.clear();
     this.playbackStartedListeners.clear();
     this.playbackStartedTurns.clear();
+    this.playbackProgressListeners.clear();
+    this.playbackItems.clear();
   }
 
   // -- internals -------------------------------------------------------------
@@ -273,7 +299,7 @@ export class LivePlaybackScheduler {
     const context = this.context;
     for (const chunk of Array.from(this.active)) {
       if (!predicate(chunk)) continue;
-      this.active.delete(chunk);
+      this.retireChunk(chunk);
       try {
         if (context) {
           const now = context.currentTime;
@@ -289,6 +315,7 @@ export class LivePlaybackScheduler {
       }
       chunk.node.onended = null;
     }
+    this.reportPlayback(true);
     if (context && this.active.size === 0)
       this.playheadTime = context.currentTime;
     this.refreshSpeaking();
@@ -323,6 +350,7 @@ export class LivePlaybackScheduler {
       return;
     }
     const now = context.currentTime;
+    this.reportPlayback(false);
     let level = 0;
     for (const chunk of this.active) {
       if (now >= chunk.startAt && now < chunk.endAt) {
@@ -344,6 +372,30 @@ export class LivePlaybackScheduler {
       }
     }
     this.emitLevel(level);
+  }
+
+  private playedSeconds(chunk: ActiveChunk): number {
+    if (!this.context) return 0;
+    return Math.max(0, Math.min(this.context.currentTime, chunk.endAt) - chunk.startAt);
+  }
+
+  private retireChunk(chunk: ActiveChunk): void {
+    if (!this.active.delete(chunk) || !chunk.itemId) return;
+    const item = this.playbackItems.get(chunk.itemId);
+    if (item) item.completed += this.playedSeconds(chunk);
+  }
+
+  private reportPlayback(force: boolean): void {
+    for (const [itemId, item] of this.playbackItems) {
+      let seconds = item.completed;
+      for (const chunk of this.active) {
+        if (chunk.itemId === itemId) seconds += this.playedSeconds(chunk);
+      }
+      const playedMs = Math.min(120_000, Math.floor(seconds * 1000));
+      if (playedMs <= item.reported || (!force && playedMs - item.reported < 50)) continue;
+      item.reported = playedMs;
+      for (const listener of this.playbackProgressListeners) listener(item.turnId, itemId, playedMs);
+    }
   }
 
   private emitLevel(level: number): void {

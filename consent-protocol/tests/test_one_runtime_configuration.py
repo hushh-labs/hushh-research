@@ -162,3 +162,68 @@ async def test_vertex_api_key_transport_probes_the_explicit_endpoint(
 
     assert result.status == "ready"
     generate_content.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "selected,actual",
+    [("azure_openai", "azure_openai"), ("vertex", "vertex"), ("azure_openai", "vertex")],
+)
+async def test_uat_readiness_reports_actual_provider_and_invalidates_changed_binding(
+    monkeypatch, selected, actual
+):
+    from hushh_mcp.runtime_providers import managed_text
+
+    policy = {"generation": "first", "selected_provider": selected}
+    probe = AsyncMock(
+        return_value={
+            "provider": actual,
+            "model": "actual-model",
+            "location": "" if actual == "azure_openai" else "global",
+        }
+    )
+    monkeypatch.setattr(managed_text, "managed_text_policy", lambda: policy)
+    monkeypatch.setattr(
+        managed_text, "managed_text_binding", lambda: {"config_fingerprint": "config"}
+    )
+    monkeypatch.setattr(managed_text, "probe_managed_text_model", probe)
+    monkeypatch.setattr(runtime, "_managed_readiness_cache", None)
+    monkeypatch.setattr(
+        runtime.ManagedGeminiRuntimeBinding,
+        "from_environment",
+        lambda: pytest.fail("UAT bypassed selected adapter"),
+    )
+    first = await runtime.managed_gemini_readiness(request=_request(), _firebase_uid="owner")
+    assert first.provider == actual and first.model == "actual-model"
+    assert first.location == (None if actual == "azure_openai" else "global")
+    assert first.fallback_used is (selected != actual)
+    assert (
+        await runtime.managed_gemini_readiness(request=_request(), _firebase_uid="owner") == first
+    )
+    probe.assert_awaited_once_with(scope="one_text_chat")
+    policy["generation"] = "next-provider-generation"
+    await runtime.managed_gemini_readiness(request=_request(), _firebase_uid="owner")
+    assert probe.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_uat_readiness_failure_is_sanitized_and_not_cached(monkeypatch):
+    from hushh_mcp.runtime_providers import managed_text
+
+    probe = AsyncMock(side_effect=RuntimeError("private-provider-details"))
+    monkeypatch.setattr(
+        managed_text,
+        "managed_text_policy",
+        lambda: {"generation": "test", "selected_provider": "azure_openai"},
+    )
+    monkeypatch.setattr(
+        managed_text, "managed_text_binding", lambda: {"config_fingerprint": "config"}
+    )
+    monkeypatch.setattr(managed_text, "probe_managed_text_model", probe)
+    monkeypatch.setattr(runtime, "_managed_readiness_cache", None)
+    for _ in range(2):
+        with pytest.raises(HTTPException) as failure:
+            await runtime.managed_gemini_readiness(request=_request(), _firebase_uid="owner")
+        assert failure.value.status_code == 503
+        assert "private-provider-details" not in str(failure.value.detail)
+    assert probe.await_count == 2

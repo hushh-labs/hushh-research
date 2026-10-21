@@ -1274,17 +1274,24 @@ changes the owner receipt's `enabled`, `accepted_at`, `revoked_at` or CAS genera
 The old PUT remains a historical personal receipt operation; it cannot choose the
 managed UAT processor. Updated clients expose read-only processing information.
 
-All UAT users use the administrator Azure-primary policy for managed One text
-chat and semantic document requests. `/api/one/models/preference` projects the
+All UAT users use the administrator managed-text policy for One text chat
+and semantic document requests. Candidate readiness prefers Azure and selects
+Vertex when only Vertex passes; either or both complete application bundles
+satisfy provider admission. Partial text-only readiness does not certify Voice,
+media or other capabilities. `/api/one/models/preference` projects the
 central deployment as effective, with `source:administrator_policy`; old saved
 choices remain visible as history. Selection writes return `MODEL_MANAGED_BY_POLICY`.
-The generic Gemini-name resolver remains unchanged for unrelated callers and BYOK.
+Managed UAT fleet aliases resolve through the selected Azure compatibility port;
+responses and telemetry retain the actual model/provider. BYOK remains explicit.
 
 New semantic bindings seal `authorization_basis:uat_policy` and the current policy
 generation. Existing eligible pending bindings move only through an atomic,
 recorded processor migration that preserves results and effect history. The shared
-provider contract always attempts Azure first and permits a bounded Gemini fallback
-only for classified transient model failures before any output. Current file access,
+provider contract attempts the verified provider first and permits one bounded
+alternate-provider call only for classified transient failures before any output.
+The authenticated managed readiness response identifies the actual `provider`,
+`model`, nullable `location`, and `fallback_used`; successful caching is keyed by
+policy generation and configuration. BYOK validation remains separate. Current file access,
 owner/request authority, source versions, payment and sharing gates remain required.
 See [UAT policy and recovery](../iam/rollout-and-environments.md#uat-managed-text-processing-policy).
 
