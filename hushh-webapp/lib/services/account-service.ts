@@ -4,6 +4,7 @@ import { HushhAccount } from "@/lib/capacitor";
 import { ApiError, apiJson } from "./api-client";
 import { ApiService } from "./api-service";
 import { trackEvent } from "@/lib/observability/client";
+import { readAccountExportBlob } from "./account-export-blob";
 
 const MAX_NATIVE_ACCOUNT_ERROR_CODE_LENGTH = 128;
 const MAX_NATIVE_ACCOUNT_ERROR_MESSAGE_LENGTH = 512;
@@ -339,6 +340,27 @@ export class AccountServiceImpl {
     } finally {
       clearTimeout(timer);
       reader.releaseLock();
+    }
+  }
+
+  /** Browser bulk-download path: validate bytes without parsing recovery history. */
+  async exportBlob(vaultOwnerToken: string, options: {
+    exclude?: readonly string[]; requireCurrent?: () => void;
+  } = {}): Promise<Blob> {
+    if (!vaultOwnerToken) throw new Error("VAULT_OWNER token required - vault must be unlocked");
+    options.requireCurrent?.();
+    const response = await ApiService.apiFetch("/api/account/export", {
+      method: "GET", cache: "no-store",
+      headers: { Authorization: `Bearer ${vaultOwnerToken}` },
+    });
+    if (response.status !== 200 || !response.body) {
+      await response.body?.cancel();
+      throw new ApiError("The encrypted export could not be fetched.", response.status);
+    }
+    try { return await readAccountExportBlob(response.body, options); }
+    catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      throw new ApiError("The encrypted export did not finish. Try again.", 502);
     }
   }
 

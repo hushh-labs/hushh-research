@@ -1920,6 +1920,7 @@ def test_export_account_data_requires_vault_owner_token():
 def test_export_account_data_returns_service_payload(monkeypatch):
     class Export:
         closed = False
+        produced = False
         remaining_seconds = 240.0
 
         def __iter__(self):
@@ -1927,6 +1928,9 @@ def test_export_account_data_returns_service_payload(monkeypatch):
 
         def close(self):
             self.closed = True
+
+        def confirm_produced(self):
+            self.produced = True
 
     export = Export()
 
@@ -1943,6 +1947,7 @@ def test_export_account_data_returns_service_payload(monkeypatch):
     assert response.headers["cache-control"] == "private, no-store"
     assert response.json()["data"]["actor_profile"]["user_id"] == "user_123"
     assert export.closed
+    assert export.produced
 
 
 def test_export_account_data_maps_failure_to_500(monkeypatch):

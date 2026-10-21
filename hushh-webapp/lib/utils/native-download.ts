@@ -26,6 +26,15 @@ export async function downloadTextFile(
   filename: string,
   isEffectCurrent: () => boolean = () => true,
 ): Promise<boolean> {
+  return downloadFileBlob(new Blob([content], { type: "text/plain" }), filename, isEffectCurrent);
+}
+
+/** Same guarded handoff for byte-composed files; never stringify a bulk backup. */
+export async function downloadFileBlob(
+  content: Blob,
+  filename: string,
+  isEffectCurrent: () => boolean = () => true,
+): Promise<boolean> {
   if (!isEffectCurrent()) return false;
   if (Capacitor.isNativePlatform()) {
     try {
@@ -33,7 +42,7 @@ export async function downloadTextFile(
       // check after asynchronous preparation, and deletion after share/cancel.
       // Do not retain readable exports or recovery material in Documents.
       const { shareFile } = await import("@/lib/share/share-file");
-      await shareFile({ file: new File([content], filename, { type: "text/plain" }),
+      await shareFile({ file: new File([content], filename, { type: content.type }),
         title: "Save your file", isEffectCurrent });
       if (isEffectCurrent()) toast.success("Saved", { duration: 5000 });
       return true;
@@ -48,8 +57,7 @@ export async function downloadTextFile(
   let anchor: HTMLAnchorElement | null = null;
   try {
     if (!isEffectCurrent()) return false;
-    const blob = new Blob([content], { type: "text/plain" });
-    url = URL.createObjectURL(blob);
+    url = URL.createObjectURL(content);
     anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = filename;

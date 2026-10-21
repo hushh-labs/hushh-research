@@ -141,7 +141,7 @@ handoff rather than an unexplained CTA.
 | Add · Review memory | Note up to 50,000 characters; prepares proposed/ignored/unresolved detail cards, without saving. |
 | Retry this section | Retryable preparation failures only. Affected already-shared details need acknowledgment. |
 | Save to Memory | Only explicit save persists reviewed saveable cards. Partial/failed save retains remaining note/review. |
-| Sharing · Download Memory | Readable private export; native share cancellation is distinguished from a saved file. |
+| Sharing · Download Memory | Readable private export plus the encrypted backup when complete. Browser assembly validates the streamed account envelope and EOF, retains encrypted history as Blob parts and excludes consent audit. A readable-only fallback explicitly says the encrypted backup could not be included. Native share cancellation is distinguished from a saved file; native bridge/base64 handling remains buffered. |
 | Bundle switch / Ask for all / Make all private | Immediate expected-manifest-version exposure update; private also revokes matching active grants. |
 | Location memory / selected detail | Existing `/one/pkm/location` and detail selector. Invalid/deleted selection fails closed with return; Retry reloads selected information. |
 

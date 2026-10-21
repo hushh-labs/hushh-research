@@ -350,10 +350,11 @@ async def test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memo
     assert history_rows == 257  # All 256 retained revisions plus the current segment.
     assert metadata_entries == 2000
     assert byte_count > 64 * 1024 * 1024
-    assert max_chunk_bytes <= 16 * 1024
-    assert body_sends < byte_count // (16 * 1024) + 4 * 514 + 100
+    assert max_chunk_bytes <= 256 * 1024
+    assert body_sends <= byte_count // (256 * 1024) + 3
     assert peak < 8 * 1024 * 1024
     assert tail.endswith(b',"success":true}')
+    assert export._completed
     assert all(cursor.closed for cursor in cursors)
     assert engine.pool.checkedout() == 0
     record_property("stream_bytes", byte_count)
@@ -437,3 +438,70 @@ async def test_export_response_deadline_closes_snapshot_even_when_send_is_stalle
             {"type": "http", "asgi": {"spec_version": "2.4"}}, receive, send
         )
     export.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_export_final_send_failure_never_records_complete_even_after_footer(caplog):
+    """A buffered footer is not proof that the final ASGI handoff succeeded."""
+    from api.routes.account import _AccountExportResponse
+    from hushh_mcp.services.account_export_stream import AccountExportStream
+
+    export = AccountExportStream(
+        user_id="synthetic-owner",
+        connection_factory=lambda: _db(MagicMock()),
+        table_exists=lambda *_: False,
+        queries={},
+    ).prepare()
+    sent_footer = False
+
+    async def send(message):
+        nonlocal sent_footer
+        if message["type"] == "http.response.body":
+            sent_footer |= message.get("body", b"").endswith(b',"success":true}')
+            if not message.get("more_body", False):
+                raise RuntimeError("synthetic final handoff failed")
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    with caplog.at_level("INFO"), pytest.raises(RuntimeError, match="Account export interrupted"):
+        await _AccountExportResponse(export)(
+            {"type": "http", "asgi": {"spec_version": "2.4"}}, receive, send
+        )
+    assert sent_footer
+    assert not export._completed
+    assert not export._reserved
+    assert "account_export outcome=incomplete" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_export_asgi23_disconnect_during_terminal_send_is_incomplete():
+    import anyio
+
+    from api.routes.account import _AccountExportResponse
+    from hushh_mcp.services.account_export_stream import AccountExportStream
+
+    export = AccountExportStream(
+        user_id="synthetic-owner",
+        connection_factory=lambda: _db(MagicMock()),
+        table_exists=lambda *_: False,
+        queries={},
+    ).prepare()
+    terminal_started = anyio.Event()
+
+    async def send(message):
+        if message["type"] == "http.response.body" and not message.get("more_body", False):
+            terminal_started.set()
+            await anyio.sleep_forever()
+
+    async def receive():
+        await terminal_started.wait()
+        return {"type": "http.disconnect"}
+
+    with anyio.fail_after(2):
+        await _AccountExportResponse(export)(
+            {"type": "http", "asgi": {"spec_version": "2.3"}}, receive, send
+        )
+    assert export._exhausted
+    assert not export._completed
+    assert not export._reserved
