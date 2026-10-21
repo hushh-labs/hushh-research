@@ -21634,7 +21634,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_managed_runtime_selection.py",
       "symbol": null,
-      "value": 522
+      "value": 524
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -82338,6 +82338,18 @@
         "reviewers": [
           "adk_backend_conflicts",
           "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_managed_runtime_selection.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 522,
+        "after": 524,
+        "source_sha256": "5245134e313f782e5bcaef38581c683824016f8cef38c2263872e59f4e2e809e",
+        "matches_main": false,
+        "review": "Existing successful managed selection parametrized for provider without a Vertex location; public response remains string, never invents region or falls back.",
+        "reviewers": [
           "root"
         ]
       }

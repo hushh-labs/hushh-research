@@ -100,8 +100,8 @@ location paths now retain their typed public contract.
 Governance, package validation, PKM integration (191 frontend and 400 backend cases
 across the initial run and repaired path assertion), 495 Back cases, refreshed UI
 receipts, typecheck, lint and production frontend build pass. Bandit reports zero
-medium/high findings. The final source typecheck and exact-SHA hosted aggregate
-must pass before dispatch. This is local evidence, not installed acceptance.
+medium/high findings. Final typecheck passes all 395 selected source files; the exact-SHA hosted aggregate
+remains required before dispatch. This is local evidence, not installed acceptance.
 
 Component image `sha256:2bfbf9da…dad8db81` now renders both public pages and confirms
 supervisor exit on Cloud Run (startup 6.951 s) and Container Apps (1.719 s).
@@ -145,8 +145,8 @@ paid work; spending thresholds warn without stopping service.
    Files organization, GCP recorded commands/connectors and retained erasure.
    Use three cold and three warm samples only for relevant startup changes;
    historical percentiles remain historical. No model sweep or artificial keepalive.
-3. **Release owner:** finish the final typecheck on the combined candidate, obtain
-   exact-SHA hosted CI, then govern the image-build and qualified-metadata
+3. **Release owner:** use the frozen, locally verified candidate for exact-SHA
+   hosted CI, then govern the image-build and qualified-metadata
    publication runs, then separately approved pod installs. Decide readiness from journey receipts, not source or health flags.
 
 Reuse unchanged Puppy evidence: 320 Chromium/WebKit responsive cases, shared
