@@ -332,7 +332,8 @@
     "365_one_product_activity_observations.sql",
     "366_one_product_activity_correlation.sql",
     "367_one_product_value_receipts.sql",
-    "368_calendar_additional_accounts.sql"
+    "368_drive_existing_access_nocharge.sql",
+    "369_calendar_additional_accounts.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -706,6 +707,7 @@
     "365_one_product_activity_observations.sql": "rollback/365_one_product_activity_observations.rollback.sql",
     "366_one_product_activity_correlation.sql": "rollback/366_one_product_activity_correlation.rollback.sql",
     "367_one_product_value_receipts.sql": "rollback/367_one_product_value_receipts.rollback.sql",
-    "368_calendar_additional_accounts.sql": "rollback/368_calendar_additional_accounts.rollback.sql"
+    "368_drive_existing_access_nocharge.sql": "rollback/368_drive_existing_access_nocharge.rollback.sql",
+    "369_calendar_additional_accounts.sql": "rollback/369_calendar_additional_accounts.rollback.sql"
   }
 }

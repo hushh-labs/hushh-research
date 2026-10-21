@@ -91,6 +91,16 @@ describe("DocumentRequestRequesterPanel recovery row", () => {
     state.token = "vault-token";
   });
 
+  it("shows no charge instead of an old final quote after existing-access completion", () => {
+    render(<DocumentRequestRequesterPanel requestId={REQUEST_ID}
+      status={{ ...STATUS, status: "completed", price: { state: "final", estimateCents: 50, currentCents: 50, finalCents: 50 } }}
+      delivery={{ status: "completed", files: [], noChargeReason: "existing_access", bulkShareId: REQUEST_ID, fileCount: 2, sharedCount: 2 }}
+      context={null} locked={false} surface="sheet" onCancel={vi.fn()} onChanged={vi.fn()} />);
+    expect(screen.getByText("No charge")).toBeInTheDocument();
+    expect(screen.getByText("These files were already available to you. No payment was needed.")).toBeInTheDocument();
+    expect(screen.queryByText("Final price")).toBeNull();
+  });
+
   it("shows the server's approved Viewer term and exact access end in request details", () => {
     const props = { requestId: REQUEST_ID, delivery: undefined, context: null,
       locked: false, surface: "sheet" as const, onCancel: vi.fn(), onChanged: vi.fn() };

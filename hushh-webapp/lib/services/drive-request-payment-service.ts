@@ -108,8 +108,12 @@ export class DriveRequestPaymentService {
     return value as unknown as DriveRequestPayment;
   }
 
-  static async checkout(firebaseIdToken: string, requestId: string): Promise<string> {
+  static async checkout(firebaseIdToken: string, requestId: string): Promise<string | { requestId: string; existingAccess: true }> {
     const value = await paymentRequest(firebaseIdToken, requestId, true);
+    if (value.existingAccess === true && value.requestId === requestId && value.checkoutUrl === undefined) {
+      return { requestId, existingAccess: true };
+    }
+    if (value.existingAccess !== undefined) throw new Error("Invalid checkout response");
     if (typeof value.checkoutUrl !== "string") throw new Error("Invalid checkout response");
     let url: URL;
     try { url = new URL(value.checkoutUrl); } catch { throw new Error("Invalid checkout response"); }

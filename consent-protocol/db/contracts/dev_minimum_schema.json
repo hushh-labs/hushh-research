@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 368,
+  "expected_migration_version": 369,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -987,7 +987,8 @@
       "updated_at",
       "stripe_mode",
       "settlement_method",
-      "v1_statement_search"
+      "v1_statement_search",
+      "existing_access_waived_at"
     ],
     "drive_request_payment_orders": [
       "request_id",
@@ -1124,7 +1125,8 @@
       "review_request_count",
       "agent_package_required",
       "reusable_packet_id",
-      "reusable_packet_version"
+      "reusable_packet_version",
+      "existing_access_waived_at"
     ],
     "drive_share_reviews": [
       "request_id",

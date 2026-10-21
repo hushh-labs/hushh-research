@@ -8,11 +8,13 @@ signed webhook settles it, and the buyer's Drive ACL read is a stub.
 
 # ruff: noqa: F401, F811 -- isolated PostgreSQL fixtures imported from their owners
 
+import asyncio
 import hashlib
 import hmac
 import json
 import logging
 import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -30,7 +32,10 @@ from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_owner_allowed import autoshare_request, owner_allowed_marker
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
-from hushh_mcp.services.drive_package_access_preflight import DrivePackageAccessPreflight
+from hushh_mcp.services.drive_package_access_preflight import (
+    DrivePackageAccessPreflight,
+    PackageAccessResult,
+)
 from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
 from hushh_mcp.services.drive_request_payment_checkout_worker import (
     DriveRequestPaymentCheckoutWorker,
@@ -120,7 +125,23 @@ class Flow:
             context = await preflight.sharing.request_bulk_context(
                 user_id=user_id, request_id=request_id
             )
-            return SimpleNamespace(status=self.access_status, request_revision=context["revision"])
+            return PackageAccessResult(
+                user_id=user_id,
+                request_id=request_id,
+                request_revision=context["revision"],
+                checked_at=datetime.now(UTC),
+                status=self.access_status,
+                recipient={**context["recipient"], "user_id": "recipient"},
+                files=tuple(
+                    {
+                        **f,
+                        "generation": 1,
+                        "access": "present",
+                        "permission": {"id": "anyone-reader", "type": "anyone", "role": "reader"},
+                    }
+                    for f in (files or [])
+                ),
+            )
 
         monkeypatch.setattr(DrivePackageAccessPreflight, "inspect", inspect)
         real_service = DriveRequestBulkService
@@ -351,10 +372,10 @@ class Flow:
             )
         return dict(row) if row is not None else None
 
-    async def pay(self):
+    async def pay(self, *, late=False, settle=True):
         """Stripe's signed checkout.session.completed for the bound session."""
         order = self.order()
-        assert order["status"] == "checkout_open"
+        assert order["status"] in ({"expired", "checkout_open"} if late else {"checkout_open"})
         payer_ref = hashlib.sha256(f"{self.request_id}:recipient".encode()).hexdigest()
         body = json.dumps(
             {
@@ -386,8 +407,12 @@ class Flow:
         signature = hmac.new(
             b"whsec_payment_test_secret", f"{timestamp}.".encode() + body, hashlib.sha256
         ).hexdigest()
-        await self.payment.process_webhook(payload=body, signature=f"t={timestamp},v1={signature}")
-        assert self.order()["status"] == "paid"
+        if settle:
+            await self.payment.process_webhook(
+                payload=body, signature=f"t={timestamp},v1={signature}"
+            )
+            assert self.order()["status"] == "paid"
+        return body, f"t={timestamp},v1={signature}"
 
     # -- delivery ------------------------------------------------------------
 
@@ -624,7 +649,7 @@ async def test_thirty_five_page_unpaid_search_wakes_sharing_at_most_twice(flow, 
     assert flow.wakes.count("sharing") <= 2
     assert flow.wakes.count("sharing") == (1 if trusted else 0)
     assert flow.order()["status"] == "awaiting_payment"
-    assert [batch["file_count"] for batch in flow.batches()] == [1]
+    assert [batch["file_count"] for batch in flow.batches()] == [1, 25, 9]
     assert flow.effect_count() == 0
 
 
@@ -641,7 +666,7 @@ async def test_finished_owner_allowed_search_resumes_held_batch_after_payment(
     await flow.finish()
     assert flow.search_status() == "completed"
     assert flow.request_status() == "pending"
-    assert [batch["file_count"] for batch in flow.batches()] == [25]
+    assert [batch["file_count"] for batch in flow.batches()] == [25, 10]
     assert all(batch["approved_at"] is None for batch in flow.batches())
     assert flow.effect_count() == 0
     if parked:
@@ -655,7 +680,7 @@ async def test_finished_owner_allowed_search_resumes_held_batch_after_payment(
                   WHERE request_id=:request"""),
                 {"request": flow.request_id},
             )
-    assert await flow.auto.continue_batches(max_jobs=2) == 0
+    assert await flow.auto.continue_batches(max_jobs=2) == (0 if parked else 1)
     assert await flow.grant_all() == 0
 
     await flow.checkout()
@@ -775,7 +800,7 @@ async def test_failed_search_refuses_checkout_with_its_own_code(flow, caplog):
         ("unknown", None),
         ("none", None),
         # The existing rule: B already has every file of a final set.
-        ("all_existing", "request_already_accessible"),
+        ("all_existing", "completed"),
     ],
 )
 async def test_existing_access_waives_only_a_final_set_b_fully_has(
@@ -793,8 +818,8 @@ async def test_existing_access_waives_only_a_final_set_b_fully_has(
             )
     flow.access_status = access
     if final_set and expected is not None:
-        with pytest.raises(DriveSharingError, match=expected):
-            await flow.checkout()
+        assert await flow.checkout() == {"requestId": flow.request_id, "existingAccess": True}
+        assert flow.request_status() == "completed"
         assert flow.create_session.call_count == 0
     else:
         assert (await flow.checkout())["checkoutUrl"]
@@ -1211,3 +1236,312 @@ async def test_every_refusal_logs_one_fixed_line_without_identifiers(caplog):
     assert all(
         reason == reason.strip() and " " not in reason for reason in CHECKOUT_REFUSAL_REASONS
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count,trusted", [(2, False), (79, True)])
+async def test_final_existing_files_are_published_free_without_pay_and_repeat_safely(
+    flow, count, trusted
+):
+    await flow.request(trusted=trusted)
+    await flow.start_search()
+    await flow.page(count)
+    flow.access_status = "all_existing"
+    await flow.finish()
+    assert flow.request_status() == "completed"
+    assert flow.effect_count() == count and flow.create_session.call_count == 0
+    expected = {"requestId": flow.request_id, "existingAccess": True}
+    assert await asyncio.gather(flow.checkout(), flow.checkout()) == [expected, expected]
+    assert flow.effect_count() == count
+    with flow.db.engine.connect() as connection:
+        request = (
+            connection.execute(
+                text("SELECT * FROM drive_share_requests WHERE request_id=:r"),
+                {"r": flow.request_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert (
+            request["payment_required"] is False
+            and request["existing_access_waived_at"] is not None
+        )
+        events = (
+            connection.execute(
+                text(
+                    "SELECT user_id FROM drive_share_events WHERE request_id=:r AND event_type='document_share_outcome'"
+                ),
+                {"r": flow.request_id},
+            )
+            .scalars()
+            .all()
+        )
+        assert sorted(events) == ["owner", "recipient"]
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_share_permission_operations WHERE request_id=:r"),
+                {"r": flow.request_id},
+            ).scalar_one()
+            == 0
+        )
+    for batch in flow.batches():
+        page = await flow.bulk.recipient_files(
+            recipient_user_id="recipient",
+            recipient_subject="1234567",
+            recipient_email="b@example.invalid",
+            share_id=str(batch["share_id"]),
+        )
+        assert len(page["files"]) == batch["file_count"]
+        assert all(
+            f["status"] == "preexisting" and f["openUrl"].startswith("https://drive.google.com/")
+            for f in page["files"]
+        )
+    from hushh_mcp.services.drive_sharing_projection_store import DriveSharingProjectionStore
+
+    snapshot = await DriveSharingProjectionStore(db=flow.db).delivery_snapshot(
+        user_id="recipient", request_id=flow.request_id, views=True
+    )
+    assert snapshot["result"]["noChargeReason"] == "existing_access"
+    assert snapshot["result"]["sharedCount"] == count
+    from hushh_mcp.services.feed_service import FeedService
+
+    def execute_raw(sql, params):
+        with flow.db.engine.connect() as connection:
+            return SimpleNamespace(
+                data=[dict(row) for row in connection.execute(text(sql), params).mappings()]
+            )
+
+    feed = FeedService()
+    feed._db = SimpleNamespace(execute_raw=execute_raw)
+    projected = feed._with_drive_payment_status(
+        "recipient",
+        [{"event_type": "document_share_outcome", "metadata": {"request_id": flow.request_id}}],
+    )
+    assert projected[0]["metadata"]["current_existing_access_nocharge"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change", ["stale", "generation", "recipient", "source", "revoked", "stop"]
+)
+async def test_nocharge_commit_rechecks_fresh_exact_authority(flow, change):
+    from hushh_mcp.services.drive_package_existing_access_store import (
+        DrivePackageExistingAccessStore,
+    )
+
+    await flow.request(trusted=True)
+    await flow.start_search()
+    await flow.page(2)
+    with flow.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET status='completed' WHERE job_id=:j"),
+            {"j": flow.job},
+        )
+    files = (
+        await flow.bulk.autoshare_checkout_sources(user_id="owner", request_id=flow.request_id)
+    )["files"]
+    flow.access_status = "all_existing"
+    result = await DrivePackageAccessPreflight(sharing=flow.sharing, bulk=flow.bulk).inspect(
+        user_id="owner", request_id=flow.request_id, files=files, require_current=AsyncMock()
+    )
+    if change == "stale":
+        result = replace(result, checked_at=result.checked_at - timedelta(seconds=61))
+    elif change == "generation":
+        result = replace(result, files=tuple({**f, "generation": 2} for f in result.files))
+    elif change == "recipient":
+        result = replace(
+            result, recipient={**result.recipient, "email": "someone-else@example.invalid"}
+        )
+    elif change == "revoked":
+        result = replace(
+            result, files=tuple({**f, "access": "absent", "permission": None} for f in result.files)
+        )
+    elif change == "source":
+        result = replace(
+            result, files=tuple({**f, "modifiedTime": "2020-01-01T00:00:00Z"} for f in result.files)
+        )
+    else:
+        with flow.db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE drive_share_requests SET access_stop_requested_at=clock_timestamp() WHERE request_id=:r"
+                ),
+                {"r": flow.request_id},
+            )
+    with pytest.raises(DriveSharingError):
+        await DrivePackageExistingAccessStore(db=flow.db).complete_autoshare(
+            user_id="owner", request_id=flow.request_id, result=result
+        )
+    assert flow.request_status() == "pending" and flow.effect_count() == 0
+    assert flow.create_session.call_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_status", ["expired", "paid", "complete", "unknown"])
+async def test_bound_checkout_requires_proven_terminal_unpaid_state(
+    flow, monkeypatch, provider_status
+):
+    await flow.request(trusted=True)
+    await flow.start_search()
+    await flow.page(2)
+    await flow.checkout()
+    original = flow.order()
+    response = {
+        "id": original["stripe_checkout_session_id"],
+        "status": provider_status,
+        "payment_status": "paid" if provider_status == "paid" else "unpaid",
+        "livemode": False,
+    }
+    session = flow.payment.stripe_api.checkout.Session
+    session.expire = Mock(return_value=response)
+    session.retrieve = Mock(return_value=response)
+    flow.access_status = "all_existing"
+    if provider_status == "expired":
+        # A lost final handoff and an already-expired bound checkout reproduce
+        # the incident; the scheduled drain must recover without another Pay.
+        with monkeypatch.context() as missed:
+            missed.setattr(flow.auto, "after_search_slice", AsyncMock(return_value=0))
+            await flow.finish()
+        with flow.db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE drive_request_payment_orders SET status='expired' WHERE request_id=:r"
+                ),
+                {"r": flow.request_id},
+            )
+        assert await flow.auto.continue_batches(max_jobs=1) == 1
+    else:
+        await flow.finish()
+    assert flow.create_session.call_count == 1
+    assert flow.order()["stripe_checkout_session_id"] == original["stripe_checkout_session_id"]
+    assert flow.order()["checkout_attempt_id"] == original["checkout_attempt_id"]
+    if provider_status == "expired":
+        assert flow.request_status() == "completed" and flow.effect_count() == 2
+        assert flow.order()["paid_at"] is None
+    else:
+        assert flow.request_status() == "pending" and flow.effect_count() == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("erased", [False, True])
+async def test_retired_nocharge_late_paid_webhook_is_refunded_once_even_after_erasure(flow, erased):
+    await flow.request(trusted=True)
+    await flow.start_search()
+    await flow.page(2)
+    await flow.checkout()
+    session = flow.payment.stripe_api.checkout.Session
+    session.expire = Mock(
+        return_value={
+            "id": flow.order()["stripe_checkout_session_id"],
+            "status": "expired",
+            "payment_status": "unpaid",
+            "livemode": False,
+        }
+    )
+    flow.access_status = "all_existing"
+    await flow.finish()
+    assert flow.request_status() == "completed"
+    payload, signature = await flow.pay(late=True, settle=False)
+    if erased:
+        from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
+
+        with flow.db.engine.begin() as connection:
+            erase_drive_account_in_transaction(connection, user_id="recipient", permanent=False)
+    await flow.payment.process_webhook(payload=payload, signature=signature)
+    await flow.payment.process_webhook(payload=payload, signature=signature)
+    create = Mock(
+        side_effect=lambda **kw: {
+            "id": "re_nocharge",
+            "payment_intent": kw["payment_intent"],
+            "amount": kw["amount"],
+            "currency": "usd",
+            "status": "succeeded",
+        }
+    )
+    flow.payment.stripe_api.Refund = SimpleNamespace(
+        list=Mock(return_value={"data": [], "has_more": False}), create=create
+    )
+    await flow.payment.reconcile_refunds(max_orders=4)
+    await flow.payment.reconcile_refunds(max_orders=4)
+    assert create.call_count == 1 and create.call_args.kwargs["amount"] == 1000
+    with flow.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT status FROM drive_request_payment_obligations WHERE request_id=:r"),
+                {"r": flow.request_id},
+            ).scalar_one()
+            == "refunded"
+        )
+        assert (
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM drive_request_payment_refunds WHERE request_id=:r AND status='succeeded'"
+                ),
+                {"r": flow.request_id},
+            ).scalar_one()
+            == 1
+        )
+
+
+@pytest.mark.asyncio
+async def test_existing_access_migration_roundtrip_preserves_unwaived_quotes(flow):
+    await flow.request(trusted=True)
+    with flow.db.engine.begin() as connection:
+        before = connection.execute(
+            text(
+                "SELECT quoted_amount_cents,quote_version,payment_required FROM drive_share_requests WHERE request_id=:r"
+            ),
+            {"r": flow.request_id},
+        ).one()
+        connection.exec_driver_sql(
+            (MIGRATIONS / "rollback/368_drive_existing_access_nocharge.rollback.sql").read_text()
+        )
+        connection.exec_driver_sql(
+            (MIGRATIONS / "368_drive_existing_access_nocharge.sql").read_text()
+        )
+        connection.exec_driver_sql(
+            (MIGRATIONS / "368_drive_existing_access_nocharge.sql").read_text()
+        )
+        after = connection.execute(
+            text(
+                "SELECT quoted_amount_cents,quote_version,payment_required FROM drive_share_requests WHERE request_id=:r"
+            ),
+            {"r": flow.request_id},
+        ).one()
+        assert before == after
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["timeout", "retryable", "denied"])
+async def test_completed_first_page_acl_outage_does_not_park_unpriced_request(
+    flow, monkeypatch, failure
+):
+    from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+    await flow.request(trusted=True)
+    await flow.start_search()
+    with monkeypatch.context() as missed:
+        missed.setattr(flow.auto, "after_search_page", AsyncMock(return_value=0))
+        await flow.page(2)
+    assert flow.order() is None
+    with flow.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET status='completed' WHERE job_id=:j"),
+            {"j": flow.job},
+        )
+    error = (
+        TimeoutError()
+        if failure == "timeout"
+        else DriveReadError(
+            "permission_denied" if failure == "denied" else "provider_unavailable",
+            retryable=failure == "retryable",
+        )
+    )
+    monkeypatch.setattr(DrivePackageAccessPreflight, "inspect", AsyncMock(side_effect=error))
+    await flow.auto.after_search_page(user_id="owner", job_id=flow.job)
+    assert flow.effect_count() == 0 and flow.request_status() == "pending"
+    if failure == "denied":
+        assert flow.order() is None
+    else:
+        assert flow.order()["status"] == "awaiting_payment"
+        assert flow.create_session.call_count == 0

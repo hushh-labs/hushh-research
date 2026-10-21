@@ -38,7 +38,7 @@ class DriveRequestPaymentCheckoutWorker:
                 break
             try:
                 async with asyncio.timeout(min(remaining, 8)):
-                    await self.service.checkout(
+                    result = await self.service.checkout(
                         requester_user_id=order["requester_user_id"],
                         request_id=order["request_id"],
                         **({"v1_only": True} if v1_only else {}),
@@ -60,7 +60,9 @@ class DriveRequestPaymentCheckoutWorker:
                 outcomes["unavailable"] += 1
             else:
                 provider_attempts += 1
-                outcomes["ready"] += 1
+                outcomes[
+                    "existing_access" if result.get("existingAccess") is True else "ready"
+                ] += 1
         if not candidates:
             outcomes["not_claimed"] += 1
         return {"outcomes": dict(outcomes)}
