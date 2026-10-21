@@ -247,26 +247,28 @@ Every hosted deployment must prove:
 
 The UAT expensive-lane selector is
 `scripts/ci/resolve-uat-verification-plan.py`. It alone decides when PKM upgrade
-rehearsal or reviewer BYOK proof is required. Paid candidate evaluation and
-Gemini/Vertex generation probes require UAT's explicit
-`run_live_model_checks=true` dispatch input; changed paths and unknown comparison
-bases never opt in. Backend Cloud Build generation probes also default off for
-production/direct builds (`_VERIFY_MANAGED_VERTEX_RUNTIME=false`). An omitted
-model check is recorded as skipped, not passed. When explicitly selected, the
-structure-agent evaluator is warning-only and does not authorize rollback by
-itself; preservation, provenance, schema, runtime and semantic authority remain
-blocking. Product journeys may still exercise their own model/readiness calls.
+rehearsal or reviewer BYOK proof is required. Paid candidate PKM evaluation and RIA live-model checks retain the explicit
+`run_live_model_checks=true` dispatch input. UAT backend releases always run
+synthetic Azure and Vertex provider checks from the exact candidate image and
+runtime identity, in parallel. The required aggregate accepts either usable
+text provider (or both), preferring Azure; neither passing blocks promotion.
+The selected provider covers managed One text chat and semantic Drive requests.
+Both workers inherit the exact promoted API binding before accepting work.
 
-Each selected managed Vertex probe requires a usable provider response. A
-transport timeout or retryable provider status permits one recovery attempt
-against the same model, project and identity, paced by the existing 30-second
-start interval. Permission, schema and billing failures are not retried.
-All targets run before optional recovery. A 330-second sequence budget includes
-the command rehearsal and leaves startup/receipt headroom inside the unchanged
-420-second job limit. A recovery that cannot fit is recorded as not dispatched,
-retaining the original failure. Attempt verdicts and durations remain in the
-redacted diagnostic receipt; exhaustion still fails readiness. Per-call deadlines
-and the release admission rules are unchanged.
+Azure's canonical PWM schema and six-case attribution evaluation remain
+independent safety checks. An explicit identity, attribution or schema violation
+blocks release even when Vertex text succeeds. Provider outages remain distinct
+from a passed contract. Vertex-only voice, audio, media and embedding probes keep
+individual outcomes; text readiness does not certify those capabilities or claim
+an Azure replacement exists for them. The closed execution-bound aggregate is
+uploaded as `uat-managed-provider-readiness.json`.
+
+Other environments retain their original Vertex admission rule and explicit
+probe selection. All targets run before optional recovery, with the existing
+330-second Vertex sequence and 420-second job budget. The governed, SHA-bound
+one-time exception remains separate from ordinary provider admission; legacy
+Azure receipts are accepted only inside that exception. Provenance, IAM,
+authorization, schemas, preservation and candidate health remain mandatory.
 
 ## Read-only operator diagnostics
 

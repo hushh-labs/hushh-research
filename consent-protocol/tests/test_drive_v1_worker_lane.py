@@ -79,6 +79,7 @@ def _revision() -> dict:
                         {"name": "DRIVE_WORKER_V1_ONLY", "value": "true"},
                         {"name": "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "value": "gemini"},
                         {"name": "ENVIRONMENT", "value": "uat"},
+                        {"name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER", "value": "azure_openai"},
                     ],
                 },
                 {"name": "clamav", "image": "clamav/clamav@" + SCANNER},
@@ -305,7 +306,21 @@ with open(os.environ["COMMAND_LOG"], "a") as log:
     log.write(json.dumps(args) + "\\n")
 fixture = json.loads(Path(os.environ["CLOUD_FIXTURE"]).read_text())
 a = [v for v in args if v != "--quiet"]
-if a[:3] == ["iam", "service-accounts", "describe"]:
+if a[:4] == ["run", "services", "describe", "consent-protocol"]:
+    print(json.dumps({"status": {"traffic": [{"revisionName": "consent-protocol-01234-api", "percent": 100}]}}))
+elif a[:4] == ["run", "revisions", "describe", "consent-protocol-01234-api"]:
+    print(json.dumps({
+        "metadata": {"name": "consent-protocol-01234-api"},
+        "spec": {"serviceAccountName": os.environ["RUNTIME_SERVICE_ACCOUNT"], "containers": [{
+            "image": os.environ["IMAGE_REFERENCE"],
+            "env": [{"name": key, "value": value} for key, value in {
+                "HUSHH_DEPLOY_SHA": os.environ["DEPLOY_SHA"],
+                "HUSHH_DEPLOY_RUN_ID": os.environ["RELEASE_RUN_ID"],
+                "HUSHH_DEPLOY_ENV": "uat", "HUSHH_UAT_MANAGED_TEXT_PROVIDER": "azure_openai",
+            }.items()],
+        }]}, "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+    }))
+elif a[:3] == ["iam", "service-accounts", "describe"]:
     print("{}")
 elif a[:2] == ["secrets", "describe"]:
     sys.exit(1)

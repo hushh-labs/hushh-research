@@ -6,7 +6,9 @@
     "version": "uat-managed-text-azure-primary-v2",
     "provider": "azure_openai",
     "authority_basis": "administrator_rollout",
-    "scope": "one_text_chat_and_drive_requests"
+    "scope": "one_text_chat_and_drive_requests",
+    "alternate_provider": "vertex",
+    "readiness": "any_usable_text"
   },
   "environments": {
     "local": {

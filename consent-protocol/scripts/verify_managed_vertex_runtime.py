@@ -432,6 +432,7 @@ async def main() -> dict[str, object]:
             + ",".join(unsupported_models)
         )
 
+    managed_text_receipt = None
     # Keep each target and verdict distinct. Lazy factories arm deadlines only
     # after the preceding request and pacing interval have completed.
     labelled: list[tuple[str, Callable[[], Awaitable[None]]]] = []
@@ -449,7 +450,17 @@ async def main() -> dict[str, object]:
         chat_locations = chat_binding.locations_for_model(chat_model)
 
         async def probe_chat() -> None:
-            await _probe_adk_response(chat_binding.build_regional_adk_model(chat_model), chat_model)
+            nonlocal managed_text_receipt
+            if os.getenv("ENVIRONMENT") == "uat":
+                from scripts.probe_managed_text import probe_managed_text
+                from scripts.verify_azure_pwm_runtime import _initialize_synthetic_runtime
+
+                _initialize_synthetic_runtime()
+                managed_text_receipt = await probe_managed_text("vertex")
+            else:
+                await _probe_adk_response(
+                    chat_binding.build_regional_adk_model(chat_model), chat_model
+                )
 
         labelled.append(
             (
@@ -585,6 +596,7 @@ async def main() -> dict[str, object]:
         "models": list(models),
         "one_chat_project": chat_project or None,
         "one_chat_probe_ok": one_chat_probe_ok,
+        "managed_text_provider_probe": managed_text_receipt,
         "one_voice_probe_ok": one_voice_probe_ok,
         "probes": probes,
         **live_probe_target,

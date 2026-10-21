@@ -68,9 +68,21 @@ def load_private_drive_text_policy(path: Path = PROFILE_PATH) -> dict:
     value = json.loads(path.read_text())["private_drive_text_uat"]
     if (
         not isinstance(value, dict)
-        or set(value) != {"enabled", "policy_id", "version", "provider", "authority_basis", "scope"}
+        or set(value)
+        != {
+            "enabled",
+            "policy_id",
+            "version",
+            "provider",
+            "alternate_provider",
+            "readiness",
+            "authority_basis",
+            "scope",
+        }
         or type(value["enabled"]) is not bool
         or value["provider"] != "azure_openai"
+        or value["alternate_provider"] != "vertex"
+        or value["readiness"] != "any_usable_text"
         or value["authority_basis"] != "administrator_rollout"
         or value["scope"] != "one_text_chat_and_drive_requests"
         or not isinstance(value["version"], str)

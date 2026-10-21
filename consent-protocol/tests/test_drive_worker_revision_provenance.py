@@ -225,3 +225,19 @@ def test_rejects_unverified_candidate(tamper: str) -> None:
 
     with pytest.raises(ValueError):
         _verify(revision)
+
+
+@pytest.mark.parametrize("selected", ["azure_openai", "vertex"])
+def test_worker_preserves_promoted_api_provider_and_rejects_divergence(selected):
+    revision = _deployed_revision()
+    worker = revision["spec"]["containers"][0]
+    worker["env"] = [{"name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER", "value": selected}]
+    _verify(revision, managed_text_provider=selected)
+    with pytest.raises(ValueError, match="managed text provider mismatch"):
+        _verify(
+            revision,
+            managed_text_provider="vertex" if selected == "azure_openai" else "azure_openai",
+        )
+    worker["env"] = []
+    with pytest.raises(ValueError, match="managed text provider mismatch"):
+        _verify(revision, managed_text_provider=selected)

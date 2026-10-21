@@ -332,6 +332,9 @@ steps:
           "RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}"
           "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
         )
+        if [[ "${_DEPLOY_ENV}" == "uat" ]]; then
+          env_vars+=("HUSHH_UAT_MANAGED_TEXT_PROVIDER=azure_openai")
+        fi
         add_env() {
           local env_name="$1"
           local env_value="$2"
@@ -522,6 +525,16 @@ steps:
       - "-c"
       - |
         set -euo pipefail
+        finish_provider_probe() {
+          probe_status=$?
+          trap - EXIT
+          READINESS_STEP_EXIT="${probe_status}" python3 scripts/ci/managed_provider_readiness.py record --provider=azure_openai --job="${job_name:-}" || true
+          if [[ -n "${job_name:-}" ]]; then
+            gcloud run jobs delete "${job_name}" --project="$PROJECT_ID" --region="${_REGION}" --quiet >/dev/null 2>&1 || true
+          fi
+          exit "${probe_status}"
+        }
+        trap finish_provider_probe EXIT
         if [[ "${_DEPLOY_ENV}" != "uat" ]]; then
           exit 0
         fi
@@ -544,7 +557,7 @@ steps:
           exit 1
         fi
         job_name="azure-pwm-${BUILD_ID}"
-        trap 'gcloud run jobs delete "${job_name}" --project="$PROJECT_ID" --region="${_REGION}" --quiet >/dev/null 2>&1 || true' EXIT
+        # The execution-bound collector finalizer owns cleanup.
         gcloud run jobs deploy "${job_name}" \
           --project="$PROJECT_ID" --region="${_REGION}" \
           --image="${_IMAGE_REFERENCE}" \
@@ -629,6 +642,20 @@ steps:
         print(json.dumps({"azure_managed_text_contract": "ok", "scopes": 2}))
         PY
         echo "Azure PWM UAT runtime probe passed."
+    allowFailure: true
+    waitFor: ["deploy-backend"]
+    env:
+      - "READINESS_BUILD_ID=${BUILD_ID}"
+      - "READINESS_SOURCE_SHA=${_DEPLOY_SHA}"
+      - "READINESS_IMAGE=${_IMAGE_REFERENCE}"
+      - "READINESS_RUNTIME_ACCOUNT=${_RUNTIME_SERVICE_ACCOUNT}"
+      - "READINESS_PROJECT=${PROJECT_ID}"
+      - "READINESS_REGION=${_REGION}"
+      - "READINESS_GITHUB_RUN=${_GITHUB_RUN_ID}"
+      - "READINESS_ENVIRONMENT=${_DEPLOY_ENV}"
+      - "READINESS_SERVICE=${_BACKEND_SERVICE}"
+      - "READINESS_TAG=${_CLOUD_RUN_TAG}"
+      - "READINESS_LEGACY_EXCEPTION=${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}"
     id: "verify-azure-pwm-runtime"
 
   # Candidate-image GenAI probe under the exact runtime identity. This runs
@@ -644,6 +671,16 @@ steps:
       - "-c"
       - |
         set -euo pipefail
+        finish_provider_probe() {
+          probe_status=$?
+          trap - EXIT
+          READINESS_STEP_EXIT="${probe_status}" python3 scripts/ci/managed_provider_readiness.py record --provider=vertex --job="${job_name:-}" || true
+          if [[ -n "${job_name:-}" ]]; then
+            gcloud run jobs delete "${job_name}" --project="$PROJECT_ID" --region="${_REGION}" --quiet >/dev/null 2>&1 || true
+          fi
+          exit "${probe_status}"
+        }
+        trap finish_provider_probe EXIT
         if [[ "${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}" == "true" ]]; then
           echo "WARNING: user-authorized one-time UAT Vertex probe skip; managed Chat and Voice are unverified by this release gate."
           exit 0
@@ -671,7 +708,7 @@ steps:
           image_reference="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
         fi
         job_name="genai-ready-${BUILD_ID}"
-        trap 'gcloud run jobs delete "${job_name}" --project="$PROJECT_ID" --region="${_REGION}" --quiet >/dev/null 2>&1 || true' EXIT
+        # The execution-bound collector finalizer owns cleanup.
         gcloud run jobs deploy "${job_name}" \
           --project="$PROJECT_ID" \
           --region="${_REGION}" \
@@ -832,7 +869,48 @@ steps:
           echo "No probe verdict was recoverable from the job logs; treating as blocking." >&2
         fi
         exit 1
+    allowFailure: true
+    waitFor: ["deploy-backend"]
+    env:
+      - "READINESS_BUILD_ID=${BUILD_ID}"
+      - "READINESS_SOURCE_SHA=${_DEPLOY_SHA}"
+      - "READINESS_IMAGE=${_IMAGE_REFERENCE}"
+      - "READINESS_RUNTIME_ACCOUNT=${_RUNTIME_SERVICE_ACCOUNT}"
+      - "READINESS_PROJECT=${PROJECT_ID}"
+      - "READINESS_REGION=${_REGION}"
+      - "READINESS_GITHUB_RUN=${_GITHUB_RUN_ID}"
+      - "READINESS_ENVIRONMENT=${_DEPLOY_ENV}"
+      - "READINESS_SERVICE=${_BACKEND_SERVICE}"
+      - "READINESS_TAG=${_CLOUD_RUN_TAG}"
+      - "READINESS_LEGACY_EXCEPTION=${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}"
     id: "verify-managed-vertex-runtime"
+
+
+  # The required aggregate admits a usable provider; both checks still run.
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        python3 scripts/ci/managed_provider_readiness.py evaluate
+        if [[ "${_DEPLOY_ENV}" == "uat" ]]; then
+          python3 scripts/ci/managed_provider_readiness.py select
+        fi
+    waitFor: ["verify-azure-pwm-runtime", "verify-managed-vertex-runtime"]
+    env:
+      - "READINESS_BUILD_ID=${BUILD_ID}"
+      - "READINESS_SOURCE_SHA=${_DEPLOY_SHA}"
+      - "READINESS_IMAGE=${_IMAGE_REFERENCE}"
+      - "READINESS_RUNTIME_ACCOUNT=${_RUNTIME_SERVICE_ACCOUNT}"
+      - "READINESS_PROJECT=${PROJECT_ID}"
+      - "READINESS_REGION=${_REGION}"
+      - "READINESS_GITHUB_RUN=${_GITHUB_RUN_ID}"
+      - "READINESS_ENVIRONMENT=${_DEPLOY_ENV}"
+      - "READINESS_SERVICE=${_BACKEND_SERVICE}"
+      - "READINESS_TAG=${_CLOUD_RUN_TAG}"
+      - "READINESS_LEGACY_EXCEPTION=${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}"
+    id: "verify-managed-provider-readiness"
 
 # NOTE: no top-level `images:` block — `docker buildx build --push` (Step 1) already
 # pushes every tag. Listing images here would make Cloud Build try to re-push them from

@@ -52,7 +52,7 @@ def assessment_policy_version(model_binding=None):
         )
 
         selected = validate_semantic_model_binding(model_binding)
-        if selected["provider"] != "gemini":
+        if selected["provider"] != "gemini" or selected.get("authorization_basis") == "uat_policy":
             binding = json.dumps(
                 {"legacy_model": configured_model, "semantic_request": selected},
                 sort_keys=True,
@@ -70,7 +70,8 @@ def _package_policy_version(job):
             validate_semantic_model_binding,
         )
 
-        if validate_semantic_model_binding(binding)["provider"] != "gemini":
+        selected = validate_semantic_model_binding(binding)
+        if selected["provider"] != "gemini" or selected.get("authorization_basis") == "uat_policy":
             raise DriveReadError("assessment_policy_changed")
     return assessment_policy_version(binding)
 
