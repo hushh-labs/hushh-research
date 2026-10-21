@@ -7464,6 +7464,7 @@
         "profile.world_model.email",
         "profile.world_model.invite",
         "profile.world_model.open_fact",
+        "profile.world_model.public_profiles",
         "profile.world_model.refresh",
         "profile.world_model.reject",
         "profile.world_model.reject_fact",
@@ -10385,5 +10386,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "25679abf6e32081a2e0dda6ff39527b8c50df361430a6ba8b431b99fa0f846ea"
+  "content_sha256": "03a2d8449a2a54e011cfe6d6b150fc4d1440b407d02c5cc0fd03fa5786e57744"
 }

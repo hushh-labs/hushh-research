@@ -1214,6 +1214,20 @@ Pending work coalesces and paused/unavailable work retains its existing resume
 and cooldown behavior. Ordinary starts keep their idempotent reuse behavior;
 `/ensure` rejects the refresh field and never implicitly buys a new discovery.
 
+An explicit jobs refresh may include `public_profiles:{urls:[...],permitted_public_sources:true}`
+with one to three owner-chosen public HTTPS profile URLs. The same public-page
+validator rejects credentials, queries, fragments, IP addresses and private host
+suffixes. This requires current Azure/Bing consent and never verifies identity.
+Azure retrieves these leads through its normal charged web tool and assesses
+received citations before presenting candidate findings. Private owner decisions
+and Memory never become search seeds. Omitted profiles carry through resumes;
+reordered URLs reuse the same scope. A changed set requires explicit refresh,
+returns 409 while a pending lease is live, and starts a new work generation while
+retaining hourly starts and the CAS fence. Automatic `/ensure` rejects this field.
+The existing Pages you choose form offers a separate Azure research action; its
+Gemini page-review action retains its meaning. No research occurs on typing or
+opening the form, and every save still requires owner review.
+
 `POST /api/one/world-model/ensure` starts/resumes the existing owner-bound research
 job after setup and unlock. The backend resolves fresh authenticated name,
 verified email and canonical verified phone when available; at least one verified

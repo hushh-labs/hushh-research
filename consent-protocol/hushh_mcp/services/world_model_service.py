@@ -153,6 +153,7 @@ async def offer(
             "primary_endpoint": config["primary_endpoint"],
             "primary_deployment": config["primary_deployment"],
             "primary_token_supplier": token_provider,
+            "owner_public_profiles": (inputs or {}).get("public_profiles"),
         }
     result = await runner(
         identity=identity,
@@ -172,6 +173,10 @@ async def offer(
     if original != current:
         raise PermissionError("Owner identity changed")
     return result
+
+
+class PublicProfilesChanged(ValueError):
+    """A different public seed requires an explicit, non-overlapping discovery."""
 
 
 class WorldModelJobs(ProfileResearchJobs):
@@ -334,6 +339,30 @@ class WorldModelJobs(ProfileResearchJobs):
             "consent_generation": str(consent["generation"]),
             "budget_scope": self.budget_scope(),
         }
+
+    def prepare_inputs(self, state, inputs, refresh_completed):
+        from hushh_mcp.one_adk.public_sources import OwnerPublicProfiles
+
+        prior = (state or {}).get("inputs") or {}
+        carried = dict(prior if inputs is None else inputs)
+        for field in ("public_profiles", "owner_decisions"):
+            if field not in carried and field in prior:
+                carried[field] = prior[field]
+        profiles = carried.get("public_profiles")
+        if profiles is not None:
+            if POLICY["provider"] != "azure_openai_web_search":
+                raise PublicProfilesChanged("Public profile discovery requires Azure consent")
+            profiles = OwnerPublicProfiles.model_validate(profiles).model_dump()
+            carried["public_profiles"] = profiles
+        same = sorted((prior.get("public_profiles") or {}).get("urls", [])) == sorted(
+            (profiles or {}).get("urls", [])
+        )
+        if not same and (
+            not refresh_completed
+            or (state and state["status"] == "pending" and self.reusable(state))
+        ):
+            raise PublicProfilesChanged("Public profiles changed")
+        return carried or None, same
 
     async def ensure(self, user_id, consent_token, *, owner_decisions=None):
         # Azure/Bing needs a fresh owner opt-in; existing Vertex preferences

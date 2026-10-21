@@ -848,6 +848,80 @@ async def test_owner_decision_inputs_are_sealed_carried_and_never_change_reuse(m
 
 
 @pytest.mark.asyncio
+async def test_public_profile_scope_carries_coalesces_and_refreshes_without_reusing_work(
+    monkeypatch,
+):
+    from hushh_mcp.services import world_model_service as pwm
+
+    monkeypatch.setitem(pwm.POLICY, "provider", "azure_openai_web_search")
+    monkeypatch.setattr(pwm, "azure_bing_consented", lambda _: True)
+    seen = []
+    gate = asyncio.Event()
+
+    async def research(**kwargs):
+        seen.append(copy.deepcopy(kwargs))
+        if len(seen) == 1:
+            await kwargs["on_attempts_start"]((1, 33))
+            await kwargs["on_progress"]({"evidence": "prior profile"})
+            await gate.wait()
+            return {"status": "paused", "pkm_written": False, "restart_required": True}
+        return RESULT
+
+    instance = pwm_manager(monkeypatch, progressive=True, offer=research)
+    profiles = {
+        "urls": ["https://example.test/me", "https://github.com/example"],
+        "permitted_public_sources": True,
+    }
+    await instance.start(
+        "owner", "token", inputs={"public_profiles": profiles}, refresh_completed=True
+    )
+    await asyncio.sleep(0)
+    original = instance.store.rows["owner"]["job_id"]
+    reordered = {**profiles, "urls": list(reversed(profiles["urls"]))}
+    assert (
+        await instance.start(
+            "owner", "token", inputs={"public_profiles": reordered}, refresh_completed=True
+        )
+        == jobs.pending()
+    )
+    changed = {**profiles, "urls": ["https://example.test/another"]}
+    with pytest.raises(pwm.PublicProfilesChanged):
+        await instance.start(
+            "owner", "token", inputs={"public_profiles": changed}, refresh_completed=True
+        )
+    assert instance.store.rows["owner"]["job_id"] == original
+    gate.set()
+    await settle(instance)
+    decisions = {"owner_decisions": {"confirmed": [], "rejected": ["Not me."]}}
+    await instance.start("owner", "token", inputs=decisions)
+    await settle(instance)
+    assert seen[1]["inputs"] == {**decisions, "public_profiles": profiles}
+    assert seen[1]["work"] == {"evidence": "prior profile"}
+    assert instance.store.rows["owner"]["job_id"] == original
+    with pytest.raises(pwm.PublicProfilesChanged):
+        await instance.start("owner", "token", inputs={"public_profiles": changed})
+    prior_starts = instance.store.rows["owner"]["starts"]
+    await instance.start(
+        "owner", "token", inputs={"public_profiles": changed}, refresh_completed=True
+    )
+    await settle(instance)
+    state = instance.store.rows["owner"]
+    assert state["job_id"] != original
+    assert state["starts"][:-1] == prior_starts
+    assert seen[-1]["work"] == {} and seen[-1]["attempts_used"] == ()
+    assert seen[-1]["inputs"] == {**decisions, "public_profiles": changed}
+    # A changed profile never bypasses the owner-wide hourly paid-start limit.
+    state["starts"] = [instance.clock()] * 3
+    third = {**profiles, "urls": ["https://example.test/third"]}
+    count = len(seen)
+    refused = await instance.start(
+        "owner", "token", inputs={"public_profiles": third}, refresh_completed=True
+    )
+    assert refused["status"] == "unavailable" and refused["retry_after_s"] > 0
+    assert len(seen) == count
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("existing", ["missing", "opted_out", "setup_pending"])
 async def test_ensure_enrolls_default_research_but_never_overrides_opt_out(monkeypatch, existing):
     from hushh_mcp.services import world_model_service as pwm

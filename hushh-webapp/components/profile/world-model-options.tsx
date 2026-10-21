@@ -37,6 +37,7 @@ export function WorldModelOptions({
   onSourcesSaved,
   onUpdatePreferences,
   onCheckForUpdates,
+  onResearchPublicProfiles,
 }: {
   ownerId: string;
   vaultKey: string;
@@ -57,6 +58,7 @@ export function WorldModelOptions({
   onSourcesSaved: () => void;
   onUpdatePreferences: (value: Pick<PwmPreferences, "enabled" | "email_enabled">) => Promise<void>;
   onCheckForUpdates: () => void;
+  onResearchPublicProfiles: (urls: readonly string[]) => void;
 }) {
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [busy, setBusy] = useState(false);
@@ -94,6 +96,8 @@ export function WorldModelOptions({
   return (
     <>
       <SettingsGroup density="compact">
+        <SettingsRow icon={ProfilePaneSearchIcon} iconTone="capability" title="Add a public source"
+          chevron voiceControlId="pwm_public_sources_open" onClick={() => setSheet("sources")} />
         {usable ? (
           <SettingsRow
             icon={ProfilePaneInviteIcon}
@@ -142,6 +146,11 @@ export function WorldModelOptions({
           present={present && open && sheet === "sources"}
           backQuery={backQuery}
           onSaved={onSourcesSaved}
+          onResearchPublicProfiles={azureResearch && preferences?.enabled && canCheckForUpdates ? urls => {
+            if (!present) return;
+            onResearchPublicProfiles(urls);
+            close();
+          } : undefined}
         />
       </SettingsDetailPanel>
       <SettingsDetailPanel

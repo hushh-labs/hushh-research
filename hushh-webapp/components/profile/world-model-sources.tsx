@@ -20,6 +20,7 @@ import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtim
 type WorldModelSourcesProps = {
   ownerId: string; vaultKey: string; vaultOwnerToken: string; name: string;
   embedded?: boolean; present?: boolean; backQuery?: Readonly<Record<string, string>>; onSaved?: () => void;
+  onResearchPublicProfiles?: (urls: readonly string[]) => void;
 };
 
 /** The same source reader/preparer backs the web form and native scene. A
@@ -77,6 +78,7 @@ export function WorldModelSources({
   present = true,
   backQuery,
   onSaved,
+  onResearchPublicProfiles,
 }: WorldModelSourcesProps) {
   const { urls, setUrls, permitted, setPermitted, result, setResult, busy, message, prepare } =
     useWorldModelSources({ ownerId, vaultKey, vaultOwnerToken, name, present });
@@ -121,6 +123,17 @@ export function WorldModelSources({
           >
             {busy ? "Reading pages…" : "Read these pages"}
           </Button>
+          {onResearchPublicProfiles && <>
+            <HelperText>Use these profiles as starting links for GPT-5 mini research. Azure and Bing receive the public links. You review findings before saving.</HelperText>
+            <Button size="compact" data-voice-control-id="pwm_public_profiles_research"
+              disabled={busy || !permitted || !name.trim() || !urls.trim() || !present}
+              onClick={() => {
+                if (present && !busy && permitted && name.trim() && urls.trim())
+                  onResearchPublicProfiles(urls.split("\n").map(value => value.trim()).filter(Boolean));
+              }}>
+              Research these profiles
+            </Button>
+          </>}
           {message && <HelperText role="status">{message}</HelperText>}
         </div>
       </SettingsGroup>

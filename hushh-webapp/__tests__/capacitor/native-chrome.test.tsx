@@ -224,6 +224,7 @@ describe("ordinary private Profile form contract", () => {
   it.each<WorldModelForm>([
     { scene: "world-model-fact-edit", draft: { text: "Public corrected statement" } },
     { scene: "world-model-sources", draft: { urls: "https://public.example/profile", permitted: true } },
+    { scene: "world-model-public-profiles", draft: { urls: "https://public.example/profile", permitted: true } },
     { scene: "world-model-invitation", draft: { name: "Public Example", email: "public@example.com", phone: "" } },
   ])("fences the private $scene form by visit and consumes only its final acknowledged edit", async form => {
     const state: NativeWorldModelProjection = { ...publicNameScene(), ...form, destinationId: "world-model-first-visit" };
