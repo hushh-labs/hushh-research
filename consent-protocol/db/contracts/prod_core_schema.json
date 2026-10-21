@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 367,
+  "expected_migration_version": 368,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -1571,6 +1571,26 @@
       "updated_at",
       "reply_send_action_id"
     ],
+    "google_calendar_additional_accounts": [
+      "user_id",
+      "account_id",
+      "provider_subject",
+      "provider_email",
+      "status",
+      "scope_csv",
+      "access_level",
+      "refresh_token_ciphertext",
+      "refresh_token_iv",
+      "refresh_token_tag",
+      "access_token_ciphertext",
+      "access_token_iv",
+      "access_token_tag",
+      "access_token_expires_at",
+      "connected_at",
+      "revoked_at",
+      "created_at",
+      "updated_at"
+    ],
     "google_calendar_action_proposals": [
       "proposal_id",
       "user_id",
@@ -1611,7 +1631,9 @@
       "verifier_tag",
       "expires_at",
       "consumed_at",
-      "created_at"
+      "created_at",
+      "calendar_additional",
+      "calendar_account_id"
     ],
     "google_provider_connections": [
       "user_id",

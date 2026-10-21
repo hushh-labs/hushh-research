@@ -108,6 +108,10 @@ WITH connected AS (
   WHERE user_id = $1 AND provider = 'google' AND service = 'calendar'
     AND status = 'connected'
   UNION ALL
+  SELECT 'calendar'::TEXT, connected_at
+  FROM google_calendar_additional_accounts
+  WHERE user_id = $1 AND status = 'connected'
+  UNION ALL
   SELECT 'drive'::TEXT, connected_at
   FROM user_external_connector_connections
   WHERE user_id = $1 AND connector_id = 'google_drive' AND status = 'connected'

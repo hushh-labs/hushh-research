@@ -530,15 +530,16 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "google_provider_connections",
+        "google_calendar_additional_accounts",
         "google_service_grants",
         "google_oauth_attempts",
         "google_calendar_action_proposals",
         "calendar_attendance_reviews"
       ],
-      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service and connected Schedule attendance review ledger",
+      "primary_access_path": "Google OAuth connection service, owner/account-scoped additional Calendar credentials, confirmation-bound Calendar live-read/action service, and connected Schedule attendance review ledger",
       "retention_policy": "OAuth attempts expire after ten minutes. Calendar proposals are deleted after execution or failure and are unusable after ten minutes; the next Calendar mutation purges expired proposals. Provider credentials and grants remain only while the user keeps the service connected. Attendance review rows contain only submission metadata and redacted outcomes, expire after ten minutes, and are purged on the next review.",
       "deletion_behavior": "Cascade-delete with the actor profile; service disconnect locally disables the relevant grant and removes its short-lived proposals. Account-level Google revocation is separate because it affects sibling services. Full account deletion snapshots the encrypted refresh token before erasure and, after commit, revokes it at Google best effort (account_deletion_provider_cleanup); a provider failure never rolls back the committed deletion.",
-      "trust_boundary": "AES-GCM encrypted OAuth credential envelopes; no Calendar event cache or PKM projection is written by this v1 service.",
+      "trust_boundary": "AES-GCM encrypted OAuth credential envelopes. The legacy provider row is the default identity; additional Calendar identities have separate account-bound encrypted envelopes and no Mail/Drive grants. No Calendar event cache or PKM projection is written.",
       "plaintext_posture": "encrypted_tokens_and_short_lived_workflow_metadata",
       "expected_row_growth": "low_provider_workflow"
     },
