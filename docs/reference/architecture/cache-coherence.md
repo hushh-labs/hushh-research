@@ -67,6 +67,26 @@ No invitation contents or credentials are persisted to device storage. RSVP revi
 and confirmation, along with explicit invitation requests in chat, continue to
 use live provider requests.
 
+## People message snapshots
+
+`DirectMessagesResourceService` keeps owner-scoped presentation snapshots in
+`CacheService` memory for five minutes: up to 24 selection aliases, 600 messages
+per transcript and 64 verified route-token mappings. No message body or route
+mapping is written to device storage. Cached send permission is always false;
+the existing authenticated history/relationship request checks it on each entry.
+
+Revisits render the matching transcript while revalidation runs. Cold entries
+retain the shell and known contact header without a blocking loading panel or
+premature empty state. Transport failures retain readable history; authoritative
+401/403/404 responses clear it. Focus, resume, polling and message signals use
+the existing bounded history reconciliation, including remote edits/deletions.
+Pending optimistic reactions are excluded from snapshot publication.
+
+`CacheSyncService` invalidates transcript snapshots and outstanding writers on
+received message-change signals and connection changes. Read receipts keep them warm. Sign-out,
+account deletion and cache clear purge snapshots and verified route mappings;
+request-session fences prevent late responses from restoring purged entries.
+
 ## Mail receipt snapshots
 
 Detailed canonical receipt rows belong to Mail's encrypted device snapshot.

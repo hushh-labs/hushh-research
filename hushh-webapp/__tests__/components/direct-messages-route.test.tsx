@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DirectMessagesRoute } from "@/components/direct-messages/direct-messages-route";
 import { writeLastMessagesSelection } from "@/lib/direct-messages/last-selection";
+import { CacheService } from "@/lib/services/cache-service";
 
 const mocks = vi.hoisted(() => ({
   query: "", replace: vi.fn(), routeSelection: vi.fn(), renders: [] as [string, string | null][],
@@ -15,6 +16,7 @@ vi.mock("@/components/system/route-suspense-fallback", () => ({ RouteSuspenseFal
 vi.mock("@/components/direct-messages/direct-messages-page", () => ({ DirectMessagesPage: ({ selection }: { selection: { ref: string } | null }) => { mocks.renders.push([mocks.user.uid, selection?.ref || null]); return <div data-testid="messages">{JSON.stringify(selection)}</div>; } }));
 
 describe("DirectMessagesRoute", () => {
+  beforeEach(() => CacheService.getInstance().clear());
   beforeEach(() => { window.history.replaceState(null, "", "/one/messages"); window.sessionStorage.clear(); mocks.query = ""; mocks.replace.mockReset(); mocks.routeSelection.mockReset(); mocks.user.uid = "viewer"; mocks.renders.length = 0; });
   it("restores the bare inbox", () => {
     render(<DirectMessagesRoute />);
@@ -112,6 +114,18 @@ describe("DirectMessagesRoute", () => {
     render(<DirectMessagesRoute />);
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/one/messages", { scroll: false }));
     expect(screen.getByTestId("messages")).toHaveTextContent("null");
+  });
+  it("restores a verified token immediately on revisit without a second resolution round trip", async () => {
+    mocks.query = "token=dm1.known";
+    mocks.routeSelection.mockResolvedValue({ token: "dm1.known", kind: "conversation", ref: "known-thread" });
+    const view = render(<DirectMessagesRoute />);
+    await waitFor(() => expect(screen.getByTestId("messages")).toHaveTextContent("known-thread"));
+    view.unmount();
+    mocks.renders.length = 0;
+    mocks.routeSelection.mockImplementation(() => new Promise(() => {}));
+    render(<DirectMessagesRoute />);
+    expect(mocks.renders[0]).toEqual(["viewer", "known-thread"]);
+    expect(mocks.routeSelection).toHaveBeenCalledTimes(1);
   });
   it("never paints a prior owner's selection during account switching", async () => {
     mocks.query = "token=dm1.opaque";
