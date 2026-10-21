@@ -246,6 +246,34 @@ def _git(repo: Path, *args: str) -> str:
     ).stdout.strip()
 
 
+@pytest.mark.parametrize("receipt", ["passed", "failed", "missing", "other-build"])
+def test_preserved_readiness_keeps_production_vertex_gate(tmp_path, monkeypatch, receipt):
+    spec = importlib.util.spec_from_file_location(
+        "production_provider_readiness", ROOT / "scripts/ci/managed_provider_readiness.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    build_id = "00000000-0000-4000-8000-000000000001"
+    monkeypatch.setattr(module, "Path", lambda value: tmp_path if value == "/workspace/managed-readiness" else Path(value))
+    monkeypatch.setenv("READINESS_BUILD_ID", build_id)
+    monkeypatch.setenv("READINESS_ENVIRONMENT", "production")
+    monkeypatch.setenv("READINESS_STEP_EXIT", "1" if receipt == "failed" else "0")
+    monkeypatch.setattr(sys, "argv", ["readiness", "record", "--provider", "vertex"])
+    assert module.main() == 0
+    evidence = tmp_path / build_id / "legacy-vertex.json"
+    if receipt == "missing":
+        evidence.unlink()
+    elif receipt == "other-build":
+        evidence.write_text(json.dumps({"build_id": "different-build", "step_exit": 0}))
+    monkeypatch.setattr(sys, "argv", ["readiness", "evaluate"])
+    if receipt == "passed":
+        assert module.main() == 0
+    else:
+        with pytest.raises(SystemExit, match="original Vertex release check"):
+            module.main()
+
+
 def _preflight(tmp_path: Path, scenario: str):
     """Run the real preflight body in a scratch repo with guarded cloud calls."""
     repo = tmp_path / "repo"
