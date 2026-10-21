@@ -150,8 +150,13 @@ vault, source object and image absence are verified. This is neither an owner
 installation nor an application wake measurement; burst-credit metrics remain
 unverified. Exact provenance is in the linked Browser qualification record.
 
-Public-pilot source binds recovery, the native model, exact hub review, sealed
-dispatch and update admission. Joined shutdown fixes cancel/drain/model-completion
+Public-pilot runtime wiring binds recovery, the native model, exact hub review,
+sealed dispatch and update admission. The remaining installation seam must verify
+reviewed image/model/policy qualification against the immutable approved image,
+then bind recovered pod identity and the actual serving incarnation at startup.
+Current qualification configuration requires that incarnation ahead of deployment;
+no governed installer supplies it. Keep both clouds disabled until this is resolved.
+Joined shutdown fixes cancel/drain/model-completion
 races: one terminal checkpoint and private-reference cleanup precede update idle.
 The final focused Browser/ADK and release-contract pass covers **153 cases**, with
 six changed modules typechecked. Image/bootstrap **53** and UI **26** prior checks
