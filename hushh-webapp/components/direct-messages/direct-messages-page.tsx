@@ -61,6 +61,7 @@ import {
   Loader2,
   MessageCircle,
   Mic,
+  MoreHorizontal,
   ChevronDown,
   Pencil,
   PhoneCall,
@@ -144,7 +145,7 @@ function PeerProfileLink({ href, label, className, children }: {
   className?: string;
   children: ReactNode;
 }) {
-  if (!href) return <>{children}</>;
+  if (!href) return <span className={className}>{children}</span>;
   return <Link href={href} prefetch={false} aria-label={`View ${label}'s profile`}
     className={cn(styles.peerProfileLink, className)}
     onPointerDown={(event) => event.stopPropagation()}
@@ -1851,8 +1852,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                   >
                     <ArrowLeft className="h-6 w-6" aria-hidden="true" />
                   </button>
-                  <button type="button" className={styles.threadIdentity} aria-label="Contact info" aria-haspopup="dialog"
-                    disabled={pendingSelection} onClick={() => { setContactDetails(null); setContactInfoOpen(true); }}>
+                  <PeerProfileLink href={pendingSelection ? null : peerProfileHref} label={selectedLabel} className={styles.threadIdentity}>
                     <span className={styles.peerProfileLink}>
                     <ConnectionPersonAvatar
                       label={selectedLabel}
@@ -1865,7 +1865,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       <h2 title={selectedLabel}>{selectedLabel}</h2>
                       <p className={styles.threadStatus}>{pendingSelection ? "Connecting…" : thread.canSend ? "Connected" : "Messaging unavailable"}</p>
                     </div>
-                  </button>
+                  </PeerProfileLink>
                   <div className={styles.threadHeaderActions}>
                     {messageSearchOpen ? (
                       <label className={styles.threadSearchField}>
@@ -1912,6 +1912,17 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     >
                       <PhoneCall className="h-4 w-4" aria-hidden="true" />
                     </button>
+                    <DropdownMenu modal={false}>
+                      <DropdownMenuTrigger asChild>
+                        <button type="button" className={styles.headerAction} aria-label="Conversation options" disabled={pendingSelection}>
+                          <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => { setContactDetails(null); setContactInfoOpen(true); }}>Contact info</DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setMessageSearchOpen(true)}>Search messages</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               </header>
@@ -2065,6 +2076,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                             <div className={styles.messageBubbleWrap}>
                               <OneChatBubble
                                 data-chat-bubble="true"
+                                data-photo-message={!message.deletedForEveryoneAt && message.attachment?.kind === "photo" || undefined}
                                 tone={message.senderIsViewer ? "user" : "assistant"}
                                 className={cn(
                                   styles.messageBubble,
