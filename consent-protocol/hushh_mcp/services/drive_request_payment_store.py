@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -30,6 +31,16 @@ from hushh_mcp.services.drive_request_review_policy import request_requires_owne
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
+
+
+@dataclass(frozen=True)
+class RetiredCheckout:
+    """Server-observed terminal unpaid session; never accepted from a client."""
+
+    session_id: str
+    attempt_id: str
+    stripe_mode: str
+    observed_at: datetime
 
 
 def _request_id(value: object) -> str:
@@ -149,7 +160,7 @@ _V1_APPROVED_BATCH_REQUEST_SQL = text("""SELECT EXISTS (
 
 class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
     @staticmethod
-    def settle_existing_access_nocharge_locked(connection, request) -> None:
+    def settle_existing_access_nocharge_locked(connection, request, retired=None) -> None:
         """Void only provably undispatched money authority in the caller's transaction.
 
         The caller holds graph, frozen-share and request locks and has verified
@@ -178,15 +189,47 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         )
         for name, statement in statements:
             locked[name] = connection.execute(text(statement), identity).mappings().first()
+        now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+        retired_current = isinstance(retired, RetiredCheckout) and (
+            0 <= (now - retired.observed_at).total_seconds() <= 60
+            and retired.stripe_mode == configured_stripe_mode()
+        )
+        if retired is not None and (
+            not retired_current or locked["orders"] is None or locked["obligations"] is None
+        ):
+            raise DriveSharingError("payment_not_ready")
         for name in ("orders", "obligations"):
             row = locked[name]
+            bound_retired = bool(
+                retired_current
+                and row is not None
+                and row["stripe_checkout_session_id"] == retired.session_id
+                and str(row["checkout_attempt_id"]) == retired.attempt_id
+                and row["stripe_mode"] == retired.stripe_mode
+            )
             if row is not None and (
-                row["status"] not in {"awaiting_payment", "expired"}
+                row["status"]
+                not in (
+                    {"awaiting_payment", "checkout_open", "expired"}
+                    if bound_retired
+                    else {"awaiting_payment", "expired"}
+                )
                 or row["paid_at"] is not None
                 or row["checkout_attempt_id"] is not None
+                and not bound_retired
                 or row["stripe_checkout_session_id"] is not None
+                and not bound_retired
                 or row["stripe_payment_intent_id"] is not None
                 or row["reconciliation_required"]
+            ):
+                raise DriveSharingError("payment_not_ready")
+        if retired_current:
+            if any(
+                locked[name] is None
+                or locked[name]["stripe_checkout_session_id"] != retired.session_id
+                or str(locked[name]["checkout_attempt_id"]) != retired.attempt_id
+                or locked[name]["stripe_mode"] != retired.stripe_mode
+                for name in ("orders", "obligations")
             ):
                 raise DriveSharingError("payment_not_ready")
         payout = locked["owner_payouts"]
@@ -203,7 +246,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         connection.execute(
             text("""UPDATE drive_request_payment_orders SET status='expired',
           stripe_checkout_url=NULL,updated_at=clock_timestamp()
-          WHERE request_id=:request AND status='awaiting_payment'"""),
+          WHERE request_id=:request AND status IN ('awaiting_payment','checkout_open','expired')"""),
             identity,
         )
         connection.execute(
@@ -212,6 +255,13 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
           WHERE request_id=:request AND status='awaiting_delivery' AND finalized_at IS NULL"""),
             identity,
         )
+        if retired_current:
+            connection.execute(
+                text("""UPDATE drive_request_payment_obligations
+                SET existing_access_waived_at=clock_timestamp()
+                WHERE request_id=:request"""),
+                identity,
+            )
 
     async def due_checkout_orders(
         self, *, limit: int = 20, v1_only: bool = False
@@ -717,8 +767,6 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             )
             if request is None:
                 raise DriveSharingError("request_unavailable")
-            if not request["payment_required"]:
-                return {"status": "not_required", "amountCents": 0, "currency": "usd"}
             order = self._row(
                 connection,
                 """SELECT o.*,EXISTS(SELECT 1 FROM drive_request_owner_payouts p
@@ -736,6 +784,26 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     "stripe_mode": configured_stripe_mode(),
                 },
             )
+            if not request["payment_required"] and (
+                order is None or order["status"] not in {"paid", "refunded"}
+            ):
+                private = DriveSharingCipher().open(
+                    request["request_envelope"],
+                    user_id=request["user_id"],
+                    resource_id=str(request["request_id"]),
+                    purpose="request",
+                )
+                return {
+                    "status": "not_required",
+                    "amountCents": 0,
+                    "currency": "usd",
+                    **(
+                        {"existingAccess": True}
+                        if request["status"] == "completed"
+                        and private.get("existing_access_delivery")
+                        else {}
+                    ),
+                }
             payout_enrolled = bool(order and order.get("payout_enrolled"))
             request_expired = (
                 request["status"]
@@ -1093,6 +1161,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                             AND reconciliation_required=FALSE"""),
                         {"request": request["request_id"]},
                     )
+
                     repaired += 1
                 else:
                     # Existing updated_at is a durable, indexed enough

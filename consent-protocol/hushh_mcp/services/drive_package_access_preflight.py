@@ -147,6 +147,8 @@ class DrivePackageAccessPreflight:
                 )
                 return {
                     "id": file["id"],
+                    "name": file["name"],
+                    "modifiedTime": file.get("modifiedTime"),
                     "sourceVersion": file.get("sourceVersion"),
                     "contentFingerprint": file.get("contentFingerprint"),
                     "generation": file["generation"],

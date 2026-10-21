@@ -229,7 +229,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             self, max_orders=max_orders, **({"v1_only": True} if v1_only else {})
         )
 
-    def _retire_session(self, session_id: str, key: str) -> str:
+    def _retire_session(self, session_id: str, key: str, *, require_unpaid=False) -> str:
         """Prove a Checkout session can no longer be charged.
 
         Returns ``"dead"``, ``"paid"`` or ``"unknown"``. A failed or timed-out
@@ -244,7 +244,15 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 return None
             if not isinstance(data, dict):
                 return None
-            if data.get("status") == "expired":
+            if data.get("status") == "expired" and (
+                not require_unpaid
+                or (
+                    data.get("id") == session_id
+                    and data.get("payment_status") == "unpaid"
+                    and not data.get("payment_intent")
+                    and data.get("livemode") is key.startswith("sk_live_")
+                )
+            ):
                 return "dead"
             # Only settled funds count. A complete session paid by a delayed
             # method (e.g. ACH debit) is still "unpaid" and may yet fail, so it
@@ -268,6 +276,64 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             except Exception:  # noqa: BLE001
                 logger.info("drive_request.checkout_state_unreadable")
         return verdict or "unknown"
+
+    async def complete_existing_autoshare(self, *, user_id, request_id, result):
+        """Retire only the exact unpaid Checkout, then publish fresh existing ACLs."""
+        from hushh_mcp.services.drive_package_existing_access_store import (
+            DrivePackageExistingAccessStore,
+        )
+        from hushh_mcp.services.drive_request_payment_store import RetiredCheckout
+
+        def read(connection):
+            return self._row(
+                connection,
+                """SELECT * FROM drive_request_payment_orders
+                WHERE request_id=:request AND user_id=:user""",
+                {"request": request_id, "user": user_id},
+            )
+
+        order = await self._transaction(read)
+        retired = None
+        if order is not None and order["stripe_checkout_session_id"] is not None:
+            if (
+                order["paid_at"] is not None
+                or order["status"] in {"paid", "refunded"}
+                or order["reconciliation_required"]
+            ):
+                raise checkout_refusal("already_paid", "payment_already_paid")
+            key, _, _ = _config()
+            if order["stripe_mode"] != configured_stripe_mode():
+                raise checkout_refusal("wrong_mode")
+            try:
+                async with asyncio.timeout(CHECKOUT_RETIRE_TIMEOUT_SECONDS):
+                    verdict = await asyncio.to_thread(
+                        self._retire_session,
+                        order["stripe_checkout_session_id"],
+                        key,
+                        require_unpaid=True,
+                    )
+            except TimeoutError:
+                raise checkout_refusal("provider_unavailable") from None
+            if verdict != "dead":
+                raise checkout_refusal(
+                    "already_paid" if verdict == "paid" else "provider_unavailable"
+                )
+            retired = RetiredCheckout(
+                order["stripe_checkout_session_id"],
+                str(order["checkout_attempt_id"]),
+                order["stripe_mode"],
+                datetime.now(UTC),
+            )
+        completed = await DrivePackageExistingAccessStore(db=self.db).complete_autoshare(
+            user_id=user_id, request_id=request_id, result=result, retired=retired
+        )
+        await wake_drive_work("sharing")
+        logger.info(
+            "drive_request.existing_access completed files=%d retired_checkout=%s",
+            len(result.files),
+            retired is not None,
+        )
+        return completed
 
     async def retire_checkout(self, *, requester_user_id: str, request_id: str) -> str:
         """After a withdrawal commits, make its open Checkout page unpayable.
@@ -487,17 +553,24 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             requester_user_id=requester_user_id, request_id=request_id
         ):
             raise checkout_refusal("v1_not_eligible")
+        request_id = _request_id(request_id)
+        state = await self.payment_state(requester_user_id=requester_user_id, request_id=request_id)
+        if state.get("existingAccess") is True:
+            return {"requestId": request_id, "existingAccess": True}
         try:
             key, _, origin = _config()
         except DriveSharingError:
             raise checkout_refusal("payments_unconfigured", "payment_unavailable") from None
-        request_id = _request_id(request_id)
-        state = await self.payment_state(requester_user_id=requester_user_id, request_id=request_id)
         if state["status"] == "paid":
             raise checkout_refusal("already_paid", "payment_already_paid")
-        if state["status"] == "expired" and state.get("paymentLinkExpired") is True:
+        expired_autoshare = state["status"] == "expired" and state.get("_autoshare_owner_user_id")
+        if (
+            state["status"] == "expired"
+            and state.get("paymentLinkExpired") is True
+            and not expired_autoshare
+        ):
             raise checkout_refusal("link_expired", "payment_checkout_expired")
-        if state["status"] not in {"awaiting_payment", "checkout_open"}:
+        if state["status"] not in {"awaiting_payment", "checkout_open"} and not expired_autoshare:
             raise checkout_refusal(
                 "refunded"
                 if state["status"] == "refunded"
@@ -642,6 +715,10 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 except Exception:
                     access = None
             if access is not None and access.status == "all_existing":
+                if flat_request and not manual_owner:
+                    return await self.complete_existing_autoshare(
+                        user_id=owner, request_id=request_id, result=access
+                    )
                 if package_owner:
                     await DrivePackageExistingAccessStore(db=self.db).complete(
                         user_id=owner, request_id=request_id, result=access
@@ -658,6 +735,9 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 checked_revision = getattr(access, "request_revision", None)
             if files:
                 selected_checkout_ids = frozenset(file["id"] for file in files)
+
+        if expired_autoshare:
+            raise checkout_refusal("link_expired", "payment_checkout_expired")
 
         def reserve(connection):
             request = self._current_checkout_authority(
@@ -1044,6 +1124,18 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 {"request": request_id},
             )
             binding = order if request is not None else obligation
+            retired_nocharge = False
+            if request is not None and order is not None and not request["payment_required"]:
+                private = DriveSharingStore(db=self.db)._open_request(request)
+                delivery = private.get("existing_access_delivery") or {}
+                retired = delivery.get("retired_checkout") or {}
+                retired_nocharge = (
+                    request["status"] == "completed"
+                    and delivery.get("basis") == "ordinary_existing_access_v1"
+                    and retired.get("session_id") == session["id"]
+                    and retired.get("attempt_id") == metadata.get("checkout_attempt_id")
+                    and retired.get("stripe_mode") == configured_stripe_mode()
+                )
             if binding is not None and binding.get("stripe_mode") != configured_stripe_mode():
                 raise DriveSharingError("payment_invalid_event")
             # Stripe can deliver expiration for an older Checkout session after
@@ -1078,7 +1170,12 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             if (
                 binding is None
                 or obligation is None
-                or (request is not None and (order is None or not request["payment_required"]))
+                or (
+                    request is not None
+                    and (
+                        order is None or (not request["payment_required"] and not retired_nocharge)
+                    )
+                )
                 or (request is None and (order is not None or obligation["erased_at"] is None))
                 or (
                     request is not None

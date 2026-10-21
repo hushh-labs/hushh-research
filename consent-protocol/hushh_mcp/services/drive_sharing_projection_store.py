@@ -431,6 +431,15 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                 "result": {
                     **self._summary(summary_row, recipient=recipient),
                     **payment,
+                    **(
+                        {"noChargeReason": "existing_access"}
+                        if private
+                        and private.get("existing_access_delivery")
+                        and request["status"] == "completed"
+                        and not request["payment_required"]
+                        and payment.get("paymentStatus") not in {"paid", "refunded"}
+                        else {}
+                    ),
                     **({"recovery": recovery} if recipient and recovery else {}),
                     **({"reviewRequest": notice} if notice else {}),
                     "accessStopStatus": access_stop_status,
