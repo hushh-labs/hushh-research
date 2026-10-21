@@ -207,8 +207,8 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
         expect(Math.abs(sectorBounds!.y - moverBounds!.y)).toBeLessThanOrEqual(1);
         expect(Math.abs(sectorBounds!.height - moverBounds!.height)).toBeLessThanOrEqual(1);
       }
-      const gainers = await movers.getByRole("heading", { name: "Gainers", exact: true }).boundingBox();
-      const decliners = await movers.getByRole("heading", { name: "Decliners", exact: true }).boundingBox();
+      const gainers = await movers.getByRole("heading", { name: "Movers", exact: true }).boundingBox();
+      const decliners = await movers.getByRole("heading", { name: "Losers", exact: true }).boundingBox();
       expect(Math.abs(gainers!.y - decliners!.y)).toBeLessThanOrEqual(1);
       expect(gainers!.x + gainers!.width).toBeLessThanOrEqual(decliners!.x);
       expect(await movers.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);

@@ -364,7 +364,7 @@ export function OneMarketIndexStrip({
 function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, OneMarketDisplayRow[]> }) {
   return (
     <div className="grid grid-cols-2 gap-4">
-      {([{ key: "gain", title: "Gainers" }, { key: "lose", title: "Decliners" }] as const).map(({ key, title }) => (
+      {([{ key: "gain", title: "Movers" }, { key: "lose", title: "Losers" }] as const).map(({ key, title }) => (
         <div key={key} className="min-w-0">
           <h3 className={marketBriefingStyles.groupLabel}>{title}</h3>
           {groups[key].length ? <div className="divide-y divide-border/50">
@@ -842,7 +842,7 @@ export function KaiMarketPreviewView() {
       {
         id: "market_movers",
         title: "Market movers",
-        purpose: "Shows the available gainers and decliners with quote freshness.",
+        purpose: "Shows the available movers and losers with quote freshness.",
       },
       ...(showConnectPortfolio
         ? [
