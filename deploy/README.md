@@ -244,6 +244,9 @@ that exact deterministic revision. Explicit manual v2 recovery may supersede
 the unresolved v1 only after observing its exact deterministic revision and
 verifying its frozen image, pins, configuration, eight-connection bound, unchanged
 service controls and zero positive traffic. Enabled numeric pins are rechecked.
+The predecessor must remain latest-created, but may be unready while Cloud Run
+keeps the serving revision latest-ready. This observation does not establish
+health; the successor still requires provider readiness and HTTP verification.
 The complete original intent is retained as predecessor evidence, explicitly
 observed unhealthy. Durable successor intent records both identities before
 provider submission; an absent or mismatched predecessor cannot authorize creation.

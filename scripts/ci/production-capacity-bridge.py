@@ -485,18 +485,21 @@ def verify_clone(
     ):
         raise retention.UnsafeState("Bridge changed existing traffic")
     status = service.get("status", {})
-    if (
-        status.get("latestCreatedRevisionName") != expected_name
-        or status.get("latestReadyRevisionName") != expected_name
-    ):
+    if status.get("latestCreatedRevisionName") != expected_name:
+        raise retention.MutationUncertain("Bridge readiness is not yet reconciled")
+    if not probe_health:
+        # Observing an exact, zero-traffic failed predecessor does not prove
+        # readiness. Cloud Run may retain the serving revision as latest-ready.
+        return
+    if status.get("latestReadyRevisionName") != expected_name:
         raise retention.MutationUncertain("Bridge readiness is not yet reconciled")
     if not any(
         row.get("type") == "Ready" and row.get("status") == "True"
         for row in revision.get("status", {}).get("conditions", [])
     ):
         raise retention.MutationUncertain("Bridge is not ready")
-    if previously_verified or not probe_health:
-        return  # Removed health tag, or explicit predecessor observation only.
+    if previously_verified:
+        return  # Ordinary retention may have removed the verified health tag.
     targets = [
         row
         for row in service["status"]["traffic"]

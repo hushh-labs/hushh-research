@@ -162,12 +162,13 @@ class BridgeTests(unittest.TestCase):
         legacy = bridge.clone_template(original, pins(), "consent-protocol-displaced")
         legacy["status"] = {
             "imageDigest": IMAGE,
-            "conditions": [{"type": "Ready", "status": "True"}],
+            "conditions": [{"type": "Ready", "status": "False"}],
         }
         old_name = legacy["metadata"]["name"]
         observed["services"][bridge.SERVICE]["revisions"].append(legacy)
         service["status"].update(
-            latestCreatedRevisionName=old_name, latestReadyRevisionName=old_name
+            latestCreatedRevisionName=old_name,
+            latestReadyRevisionName=original["metadata"]["name"],
         )
         service["status"]["traffic"].append(
             {
@@ -266,6 +267,21 @@ class BridgeTests(unittest.TestCase):
                     bridge.maintain(release, checkpoint, create=True)
                 mutate.assert_not_called()
                 observed["services"][bridge.SERVICE]["revisions"].append(legacy)
+                # Only predecessor observation can accept this unready clone.
+                # A candidate still needs both provider readiness and health.
+                with self.assertRaisesRegex(
+                    bridge.retention.MutationUncertain, "readiness"
+                ):
+                    bridge.verify_clone(
+                        legacy,
+                        bridge.clone_template(
+                            original, pins(), "consent-protocol-displaced"
+                        ),
+                        service,
+                        old_traffic,
+                        json.loads(bridge.budget.DEFAULT_PROFILE.read_text()),
+                        controls,
+                    )
                 with self.assertRaises(bridge.retention.MutationUncertain):
                     bridge.maintain(release, checkpoint, create=True)
                 bridge.maintain(release, checkpoint, create=False)
