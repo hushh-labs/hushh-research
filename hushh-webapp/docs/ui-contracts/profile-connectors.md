@@ -7,6 +7,11 @@ of [Profile](./profile.md). It records existing provider and vault boundaries;
 it does not create another connection registry. Font usage follows
 [Profile nested typography](./typography.md).
 
+The first-class Calendar workspace, setup, Schedule/Invitations/Insights,
+attendance and meeting files have their complete interaction and API reference
+in the [Calendar contract](./calendar.md). The Profile catalog's connector
+confirmation remains a separate caller from Calendar's own disconnect dialog.
+
 ## Visual Map
 
 ```mermaid
