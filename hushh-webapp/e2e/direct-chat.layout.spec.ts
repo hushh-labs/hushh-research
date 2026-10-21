@@ -200,8 +200,8 @@ for (const width of [768, 820, 1024]) {
   test(`message search controls fit the split conversation at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1024 });
     const errors = await mount(page);
-    await page.getByRole("button", { name: "Conversation options", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Search messages", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Conversation options", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Search messages", exact: true }).click();
     const input = page.getByRole("searchbox", { name: "Search messages" });
     await expect(input).toBeVisible();
     await expect(page.getByRole("menu")).toHaveCount(0);
@@ -342,8 +342,7 @@ test("system Back closes message search before returning from a People thread", 
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page);
   const chat = page.locator("[data-direct-message-page]");
-  await page.getByRole("button", { name: "Conversation options", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Search messages", exact: true }).click();
+  await page.getByRole("button", { name: "Search messages", exact: true }).click();
   await expect(page.getByRole("searchbox", { name: "Search messages" })).toBeVisible();
   const systemBack = () => page.evaluate(() => (window as any).directChatUnwindBack());
 
@@ -748,7 +747,7 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
 
 test.describe("compact message layout", () => {
   test.use({ timezoneId: "UTC", locale: "en-US" });
-  for (const width of [320, 393, 768, 1440]) test(`compact message controls keep timestamps below text at ${width}px`, async ({ page }) => {
+  for (const width of [320, 393, 768, 1440]) test(`compact message timestamps sit at the lower right at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await mount(page, width === 393);
@@ -772,7 +771,8 @@ test.describe("compact message layout", () => {
         const meta = element.querySelector('[class*="messageBubbleMeta"]')!.getBoundingClientRect();
         return { textBottom: text.bottom, timeTop: time.top, timeBottom: time.bottom, bubbleBottom: bubble.bottom, rightInset: bubble.right - meta.right, expectedInset: Math.min(14, parseFloat(getComputedStyle(element).paddingRight)), timeSize: parseFloat(getComputedStyle(element.querySelector("time")!).fontSize) };
       });
-      expect(geometry.timeTop, JSON.stringify(geometry)).toBeGreaterThanOrEqual(geometry.textBottom);
+      expect(geometry.timeTop, JSON.stringify(geometry)).toBeLessThan(geometry.textBottom);
+      expect(geometry.timeBottom, JSON.stringify(geometry)).toBeGreaterThanOrEqual(geometry.textBottom);
       expect(geometry.timeBottom).toBeLessThanOrEqual(geometry.bubbleBottom);
       expect(Math.abs(geometry.rightInset - geometry.expectedInset), JSON.stringify(geometry)).toBeLessThanOrEqual(1);
       expect(geometry.timeSize).toBeLessThanOrEqual(11);
@@ -836,7 +836,7 @@ for (const width of [320, 1440]) {
       await options.click();
     }
     await page.getByRole("menuitem", { name: "Delete chat" }).click();
-    await expect(page.getByRole("alertdialog")).toContainText("The other person keeps their copy");
+    await expect(page.getByRole("alertdialog")).toContainText("Deletes this chat for you only.");
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(chat).toBeVisible();
     if (width < 768) {
@@ -1098,6 +1098,25 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
   const deleted = page.getByText("This message was deleted.", { exact: true });
   await expect(deleted).toHaveCount(1);
+  const deletedBubble = deleted.locator("xpath=..");
+  const deletedMeta = deletedBubble.locator('[class*="messageBubbleMeta"]');
+  const deletedGeometry = await deletedBubble.evaluate(element => {
+    const text = element.querySelector(":scope > p")!;
+    const meta = element.querySelector('[class*="messageBubbleMeta"]')!;
+    const time = element.querySelector("time")!;
+    return {
+      textTop: text.getBoundingClientRect().top,
+      textBottom: text.getBoundingClientRect().bottom,
+      timeTop: time.getBoundingClientRect().top,
+      timeBottom: time.getBoundingClientRect().bottom,
+      rightInset: element.getBoundingClientRect().right - meta.getBoundingClientRect().right,
+      expectedInset: parseFloat(getComputedStyle(element).paddingRight) + parseFloat(getComputedStyle(meta).marginRight),
+    };
+  });
+  expect(deletedGeometry.timeTop, JSON.stringify(deletedGeometry)).toBeLessThan(deletedGeometry.textBottom);
+  expect(deletedGeometry.timeBottom, JSON.stringify(deletedGeometry)).toBeGreaterThanOrEqual(deletedGeometry.textBottom);
+  expect(Math.abs(deletedGeometry.rightInset - deletedGeometry.expectedInset), JSON.stringify(deletedGeometry)).toBeLessThanOrEqual(1);
+  await expect(deletedMeta).toHaveCSS("justify-content", "flex-end");
   // Muted ink on the darker pressed fill fell below the text contrast floor.
   await deleted.hover();
   await page.mouse.down();

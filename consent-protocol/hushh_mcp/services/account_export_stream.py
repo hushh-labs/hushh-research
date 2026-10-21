@@ -63,6 +63,8 @@ class AccountExportStream:
         self._started = 0.0
         self._rows = 0
         self._bytes = 0
+        self._chunks = 0
+        self._max_chunk_bytes = 0
         self._completed = False
 
     def prepare(self) -> AccountExportStream:
@@ -86,9 +88,13 @@ class AccountExportStream:
             raise RuntimeError("Export not prepared")
         first, self._first = self._first, None
         self._bytes += len(first)
+        self._chunks += 1
+        self._max_chunk_bytes = max(self._max_chunk_bytes, len(first))
         yield first
         for chunk in self._iterator:
             self._bytes += len(chunk)
+            self._chunks += 1
+            self._max_chunk_bytes = max(self._max_chunk_bytes, len(chunk))
             yield chunk
 
     def close(self) -> None:
@@ -102,11 +108,14 @@ class AccountExportStream:
                 self._reserved = False
                 _EXPORT_SLOTS.release()
                 logger.info(
-                    "account_export outcome=%s rows=%d bytes=%d elapsed_ms=%d",
+                    "account_export outcome=%s rows=%d bytes=%d elapsed_ms=%d "
+                    "chunks=%d max_chunk_bytes=%d",
                     "complete" if self._completed else "incomplete",
                     self._rows,
                     self._bytes,
                     int((time.monotonic() - self._started) * 1000),
+                    self._chunks,
+                    self._max_chunk_bytes,
                 )
 
     @property
@@ -119,11 +128,22 @@ class AccountExportStream:
 
     def _encode(self, value: Any) -> Iterator[bytes]:
         encoder = json.JSONEncoder(ensure_ascii=True, separators=(",", ":"))
+        # Escaped JSON is ASCII, so the character and byte budgets are equal.
+        pending = bytearray()
         for fragment in encoder.iterencode(jsonable_encoder(value)):
-            for offset in range(0, len(fragment), _CHUNK_CHARS):
+            offset = 0
+            while offset < len(fragment):
                 self._check_deadline()
-                chunk = fragment[offset : offset + _CHUNK_CHARS].encode("utf-8")
-                yield chunk
+                end = min(len(fragment), offset + _CHUNK_CHARS - len(pending))
+                pending.extend(fragment[offset:end].encode("ascii"))
+                offset = end
+                if len(pending) == _CHUNK_CHARS:
+                    # One threadpool/ASGI hop per buffer, not per JSON token.
+                    yield bytes(pending)
+                    pending.clear()
+        if pending:
+            self._check_deadline()
+            yield bytes(pending)
 
     def _rows_for(self, conn: Any, key: str) -> Generator[dict[str, Any], None, None]:
         # Options belong to SELECT only: psycopg2 must not wrap SET in a named cursor.

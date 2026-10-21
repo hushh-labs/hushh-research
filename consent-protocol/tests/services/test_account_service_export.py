@@ -204,16 +204,29 @@ async def test_export_route_hides_raw_export_failure(monkeypatch):
     assert exc_info.value.detail == "Account export failed"
 
 
-def test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory(
+@pytest.mark.asyncio
+async def test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory(
     connector_postgres_url,  # noqa: F811
     monkeypatch,
     record_property,
 ):
-    """Real psycopg2 negative control: buffered .all()/ordinary cursors violate this proof."""
+    """Real PostgreSQL/ASGI regression for memory, send budget, snapshot and authority."""
     import hashlib
+    import json
     import tracemalloc
 
+    import anyio
     from sqlalchemy import create_engine, event, text
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    from api.routes.account import _AccountExportResponse
+
+    metadata = {
+        "entries": [
+            {"label": f"source-entry-{n}", "details": {"text": 'r\u00e9sum\u00e9 "quoted"\nline'}}
+            for n in range(2000)
+        ]
+    }
 
     engine = create_engine(connector_postgres_url)
     with engine.begin() as conn:
@@ -254,6 +267,11 @@ def test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory(
               VALUES ('foreign-revision', 'secret', 'foreign-secret');
         """)
         )
+        conn.execute(
+            text("""UPDATE pkm_domain_revisions SET manifest_snapshot=CAST(:metadata AS jsonb)
+                    WHERE revision_id='revision-2'"""),
+            {"metadata": json.dumps(metadata)},
+        )
 
     cursors = []
 
@@ -283,28 +301,65 @@ def test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory(
     digest = hashlib.sha256()
     byte_count = 0
     history_rows = 0
+    metadata_entries = 0
+    body_sends = 0
+    max_chunk_bytes = 0
+    ciphertext_tail = b""
+    metadata_tail = b""
+    safety_tail = b""
     tail = b""
+
+    async def send(message):
+        nonlocal byte_count, history_rows, metadata_entries, body_sends, max_chunk_bytes
+        nonlocal ciphertext_tail, metadata_tail, safety_tail, tail
+        if message["type"] != "http.response.body":
+            return
+        chunk = message.get("body", b"")
+        body_sends += 1
+        max_chunk_bytes = max(max_chunk_bytes, len(chunk))
+        assert b"foreign-secret" not in safety_tail + chunk
+        assert b'"changed"' not in safety_tail + chunk
+        history_rows += (ciphertext_tail + chunk).count(b'"ciphertext"')
+        metadata_entries += (metadata_tail + chunk).count(b"source-entry-")
+        ciphertext_tail = (ciphertext_tail + chunk)[-len(b'"ciphertext"') + 1 :]
+        metadata_tail = (metadata_tail + chunk)[-len(b"source-entry-") + 1 :]
+        safety_tail = (safety_tail + chunk)[-32:]
+        digest.update(chunk)
+        byte_count += len(chunk)
+        tail = (tail + chunk)[-40:]
+
+    async def receive():
+        await anyio.sleep_forever()
+
+    async def passthrough(request, call_next):
+        return await call_next(request)
+
+    # Match the production sync-iterator/threadpool boundary and its two HTTP
+    # middleware hops; direct generator iteration hid the tiny-token send cost.
+    app = BaseHTTPMiddleware(
+        BaseHTTPMiddleware(_AccountExportResponse(export), dispatch=passthrough),
+        dispatch=passthrough,
+    )
     tracemalloc.start()
     try:
-        for chunk in export:
-            assert b"foreign-secret" not in chunk
-            assert b'"changed"' not in chunk
-            history_rows += chunk.count(b'"ciphertext"')
-            digest.update(chunk)
-            byte_count += len(chunk)
-            tail = (tail + chunk)[-40:]
+        await app({"type": "http", "asgi": {"spec_version": "2.4"}}, receive, send)
         _, peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
         export.close()
     assert history_rows == 257  # All 256 retained revisions plus the current segment.
+    assert metadata_entries == 2000
     assert byte_count > 64 * 1024 * 1024
+    assert max_chunk_bytes <= 16 * 1024
+    assert body_sends < byte_count // (16 * 1024) + 4 * 514 + 100
     assert peak < 8 * 1024 * 1024
     assert tail.endswith(b',"success":true}')
     assert all(cursor.closed for cursor in cursors)
     assert engine.pool.checkedout() == 0
     record_property("stream_bytes", byte_count)
     record_property("python_peak_bytes", peak)
+    record_property("asgi_body_sends", body_sends)
+    record_property("max_chunk_bytes", max_chunk_bytes)
     record_property("sha256", digest.hexdigest())
 
     # Disconnect closes the named cursor/transaction without consuming history.
@@ -332,8 +387,6 @@ def test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory(
     finally:
         export.close()
         event.remove(engine, "before_cursor_execute", fail_history)
-    import json
-
     with pytest.raises(json.JSONDecodeError):
         json.loads(partial)
     assert b'"success":true' not in partial

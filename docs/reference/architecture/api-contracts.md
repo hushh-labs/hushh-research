@@ -2794,13 +2794,17 @@ this is the existing account bundle scope, not every table in the system.
 
 The backend uses actual server-side cursors fetching one row at a time. Memory
 scales with the largest row and its JSON encoding, rather than total history.
+The encoder coalesces small JSON tokens into bounded 16 KiB buffers before the
+threadpool/ASGI boundary; rich metadata must not incur a transport send for every
+punctuation mark or scalar. The transport regression includes nested metadata
+and the two HTTP middleware hops, in addition to retained ciphertext history.
 Each process admits two exports, with a 240-second streaming budget, 30-second
 statement timeout, and 60-second idle-transaction timeout. Blocking database work
 can finish its bounded statement before cancellation cleanup. Saturation returns
 503 with `Retry-After: 30`; preparation failures return a sanitized 500.
 Disconnect, stalled sends, and header failures close the cursor and connection.
 No data rows or prompts enter export telemetry: only outcome, row/byte counts,
-and elapsed time are recorded.
+chunk counts, maximum chunk size, and elapsed time are recorded.
 
 The Next proxy forwards JSON bytes with backpressure and cancellation, using
 `private, no-store`; it never buffers/parses/reserializes the encrypted bundle.
