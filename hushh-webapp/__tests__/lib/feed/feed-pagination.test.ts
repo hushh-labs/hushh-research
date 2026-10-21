@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { useFeedHistoryPresentation } from "@/lib/feed/use-feed-history-presentation";
-import { bumpFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
+import { bumpFeedPresentationRevision, currentFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 
@@ -87,6 +88,41 @@ describe("Feed history reading continuity", () => {
     CacheService.getInstance().invalidateUser("reader");
     first.unmount();
     expect(CacheService.getInstance().peek(CACHE_KEYS.FEED_PRESENTATION("reader"))).toBeNull();
+  });
+
+  it("drops deleted chat previews from saved and mounted paginated history", () => {
+    const data = page([5, 4], "4");
+    const first = renderHook(({ value }) => useFeedHistoryPresentation("reader", value), { initialProps: { value: data } });
+    act(() => first.result.current.setPagination((state) => appendFeedPage(state, page([3, 2], "2"), "4")));
+    first.unmount();
+    const second = renderHook(({ value }) => useFeedHistoryPresentation("reader", value), { initialProps: { value: data } });
+    expect(second.result.current.pagination.additionalItems).toHaveLength(2);
+    act(() => CacheSyncService.onFeedHistoryMutated("reader"));
+    expect(CacheService.getInstance().peek(CACHE_KEYS.FEED_PRESENTATION("reader"))).toBeNull();
+    second.rerender({ value: page([5], null) });
+    expect(second.result.current.page!.items.map(row => row.id)).toEqual(["5"]);
+    expect(second.result.current.pagination.additionalItems).toEqual([]);
+    expect(second.result.current.hasNew).toBe(false);
+    second.unmount();
+    const third = renderHook(() => useFeedHistoryPresentation("reader", null));
+    expect(third.result.current.page!.items.map(row => row.id)).toEqual(["5"]);
+    expect(third.result.current.pagination.additionalItems).toEqual([]);
+  });
+
+  it.each(["before", undefined])("repairs a missed deletion hint from the server revision (%s)", (oldRevision) => {
+    const data = { ...page([5, 4], "4"), history_revision: oldRevision };
+    const view = renderHook(({ value }) => useFeedHistoryPresentation("reader", value), { initialProps: { value: data } });
+    act(() => {
+      view.result.current.setPagination(state => appendFeedPage(state, page([3, 2], "2"), "4"));
+      root.scrollTop = 500;
+      root.dispatchEvent(new Event("scroll"));
+    });
+    const before = currentFeedPresentationRevision("reader");
+    view.rerender({ value: { ...page([6, 5], null), history_revision: "after" } });
+    expect(view.result.current.page!.items.map(row => row.id)).toEqual(["6", "5"]);
+    expect(view.result.current.pagination.additionalItems).toEqual([]);
+    expect(view.result.current.hasNew).toBe(false);
+    expect(currentFeedPresentationRevision("reader")).toBeGreaterThan(before);
   });
 
   it.each(["dismiss", "clear", "undo"])("cannot re-save obsolete rows after a confirmed %s", () => {

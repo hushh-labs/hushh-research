@@ -791,6 +791,85 @@ test("hidden encrypted selections survive browser history and refresh", async ({
   await expect(page.getByRole("textbox", { name: /Message Arjun/ })).toBeVisible();
   expect(page.url()).toBe("http://localhost/one/messages");
 });
+for (const width of [320, 1440]) {
+  test(`whole chat deletion uses the ${width < 768 ? "phone hold" : "web menu"} and confirmation at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page, false, false, true);
+    const chat = page.getByRole("group", { name: "Maya Rao chat" });
+    const row = chat.getByRole("button").first();
+    const options = chat.getByRole("button", { name: "Chat options" });
+    await chat.hover();
+    const box = (await options.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(await chat.locator("button button").count()).toBe(0);
+    if (width < 768) {
+      // A moving touch is a scroll, while a stationary hold opens chat actions.
+      await row.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0, clientX: 30, clientY: 50 });
+      await row.dispatchEvent("pointermove", { pointerType: "touch", clientX: 55, clientY: 50 });
+      await page.waitForTimeout(1050);
+      await expect(page.getByRole("menu")).toHaveCount(0);
+      await row.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0, clientX: 30, clientY: 50 });
+      await expect(page.getByRole("menuitem", { name: "Delete chat" })).toBeVisible();
+      await row.dispatchEvent("pointerup", { pointerType: "touch", button: 0 });
+      await row.dispatchEvent("click", { detail: 1 });
+      await expect(page.getByRole("searchbox", { name: "Search conversations" })).toBeVisible();
+    } else {
+      await options.click();
+    }
+    await page.getByRole("menuitem", { name: "Delete chat" }).click();
+    await expect(page.getByRole("alertdialog")).toContainText("The other person keeps their copy");
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(chat).toBeVisible();
+    if (width < 768) {
+      // Native context menus can precede the hold timer and synthesize a click.
+      await row.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 2, button: 0, clientX: 30, clientY: 50 });
+      await row.dispatchEvent("contextmenu");
+      await row.dispatchEvent("pointerup", { pointerType: "touch", button: 0 });
+      await row.dispatchEvent("click", { detail: 1 });
+      await expect(page.getByRole("searchbox", { name: "Search conversations" })).toBeVisible();
+    } else {
+      await options.click();
+    }
+    await page.getByRole("menuitem", { name: "Delete chat" }).click();
+    await page.getByRole("button", { name: "Delete chat", exact: true }).click();
+    await expect(chat).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toBeVisible();
+    await fixture(page, "fixture.incoming('maya')");
+    await expect(chat).toBeVisible();
+    await row.click();
+    await expect(transcript(page).locator("[data-chat-message]")).toHaveCount(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
+for (const width of [320, 1440]) {
+  test(`peer avatars open the person's profile with accessible targets at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page);
+    const name = "View Maya Rao's profile";
+    const headerLink = page.locator("main > header").getByRole("link", { name });
+    const messageLink = transcript(page).getByRole("link", { name }).last();
+    for (const link of [headerLink, messageLink]) {
+      await expect(link).toHaveAttribute("href", "/people/person-maya?from=%2Fone%2Fmessages");
+      const box = (await link.boundingBox())!;
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    await headerLink.focus();
+    await expect(headerLink).toBeFocused();
+    await expect(headerLink).toHaveCSS("outline-style", "solid");
+    // An avatar gesture belongs to the profile link, never the message hold menu.
+    await messageLink.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0 });
+    await page.waitForTimeout(650);
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await messageLink.dispatchEvent("pointerup", { pointerType: "touch", button: 0 });
+    await page.route("http://localhost/people/**", route => route.fulfill({ contentType: "text/html", body: "<main>Profile route reached</main>" }));
+    await messageLink.click();
+    await expect(page).toHaveURL("http://localhost/people/person-maya?from=%2Fone%2Fmessages");
+  });
+}
+
 test("returning to Messages restores the last People thread until Back closes it", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await mount(page);

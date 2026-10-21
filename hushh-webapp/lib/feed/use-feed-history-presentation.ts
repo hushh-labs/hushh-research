@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
 import { getAppScrollRoot, scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
@@ -13,7 +14,7 @@ type HistoryPresentation = { generation: number | null; revision: number; page: 
 /** One bounded, memory-only return position. It never authorizes a Feed action. */
 export function useFeedHistoryPresentation(userId: string | undefined, data: FeedListResponse | null) {
   const generation = getAuthSessionGeneration();
-  const [revision] = useState(() => userId ? currentFeedPresentationRevision(userId) : 0);
+  const [revision, setRevision] = useState(() => userId ? currentFeedPresentationRevision(userId) : 0);
   const [saved] = useState(() => {
     if (!userId) return null;
     const cached = CacheService.getInstance().get<HistoryPresentation>(CACHE_KEYS.FEED_PRESENTATION(userId));
@@ -29,7 +30,24 @@ export function useFeedHistoryPresentation(userId: string | undefined, data: Fee
 
   useEffect(() => {
     if (!data) return;
+    let currentRevision = userId ? currentFeedPresentationRevision(userId) : 0;
     const previous = latest.current.page;
+    if (userId && previous && typeof data.history_revision === "string"
+      && data.history_revision !== previous.history_revision && currentRevision === revision) {
+      // A hidden tab or disconnected stream may have missed the deletion hint.
+      CacheSyncService.onFeedHistoryMutated(userId);
+      currentRevision = currentFeedPresentationRevision(userId);
+    }
+    if (currentRevision !== revision) {
+      // A deletion invalidates omitted/loaded rows; ordinary arrivals retain
+      // the reader's position and continue through the existing new-history path.
+      setRevision(currentRevision);
+      setPage(data);
+      setPending(null);
+      setPagination(reconcileFeedFirstPage(createFeedPaginationState(), data));
+      restoring.current = false;
+      return;
+    }
     const known = new Set(previous?.items.map((item) => item.id));
     if (previous && scrollTop.current > 100 && data.items.some((item) => !known.has(item.id))) {
       setPending(data);
@@ -42,7 +60,7 @@ export function useFeedHistoryPresentation(userId: string | undefined, data: Fee
     setPage(data);
     setPending(null);
     setPagination((current) => reconcileFeedFirstPage(current, data));
-  }, [data]);
+  }, [data, userId, revision]);
 
   useEffect(() => {
     const root = getAppScrollRoot();

@@ -94,7 +94,9 @@ class _QueuedDb:
 
     def execute_raw(self, sql: str, params: dict):
         self.raw_calls.append((sql, params))
-        if sql.startswith("\nWITH keyed"):
+        if "AS history_revision" in sql:
+            data = [{"history_revision": "fixture-history-revision"}]
+        elif sql.startswith("\nWITH keyed"):
             query = self.queries.pop(0)
             data = (
                 [{"unread_count": query.count}]
@@ -177,7 +179,9 @@ def test_list_feed_uses_bounded_keyset_pagination_and_exact_unread_count() -> No
     assert [item["id"] for item in result["items"]] == ["10", "9"]
     assert result["next_cursor"] == "9"
     assert result["unread_count"] == 41
-    sql, params = service._db.raw_calls[0]
+    assert result["history_revision"] == "fixture-history-revision"
+    assert service._db.raw_calls[0][1] == {"user_id": "user-1"}
+    sql, params = service._db.raw_calls[1]
     assert params == {"user_id": "user-1", "cursor": 11, "page_size": 3}
     assert "FROM grouped WHERE" in sql
     assert "row_number() OVER (PARTITION BY thread_key ORDER BY id DESC)" in sql
@@ -1107,7 +1111,7 @@ def test_direct_message_feed_body_is_only_a_recipient_scoped_transient_preview(
     # The Feed row itself remains plaintext-free; only the authenticated DTO
     # acquires the result of opening the message envelope.
     assert list_query.data[0]["metadata"] == {}
-    sql, params = service._db.raw_calls[1]
+    sql, params = service._db.raw_calls[2]
     assert "feed.user_id = :viewer_user_id" in sql
     assert "conversation.participant_a_user_id = message.sender_user_id" in sql
     assert "conversation.participant_b_user_id = message.sender_user_id" in sql
@@ -1223,7 +1227,7 @@ def test_list_feed_enriches_connection_rows_with_counterpart_photo() -> None:
     assert result["items"][0]["metadata"]["counterpart_photo_url"] == (
         "https://cdn.example.test/kushal.jpg"
     )
-    assert "connection_requests" in service._db.raw_calls[1][0]
+    assert "connection_requests" in service._db.raw_calls[2][0]
     assert "counterpart_user_id" not in result["items"][0]["metadata"]
 
 
@@ -1264,7 +1268,7 @@ def test_list_feed_enriches_location_grant_rows_with_counterpart_photo() -> None
     assert result["items"][0]["metadata"]["counterpart_photo_url"] == (
         "https://cdn.example.test/ankit.jpg"
     )
-    assert "one_location_share_grants" in service._db.raw_calls[1][0]
+    assert "one_location_share_grants" in service._db.raw_calls[2][0]
 
 
 def test_durable_identity_gives_same_person_photo_to_mixed_feed_events() -> None:

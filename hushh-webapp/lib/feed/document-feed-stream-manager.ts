@@ -71,7 +71,7 @@ export type FeedStreamRole = "leader" | "follower";
  * `consent` is document consent state, narrowed to `requestId` when one
  * request changed.
  */
-export type FeedChange = { general: boolean; consent: boolean; requestId?: string };
+export type FeedChange = { general: boolean; consent: boolean; requestId?: string; historyMutated?: boolean };
 
 const RELAYED_EVENTS = ["feed_reset", "feed_changed", "payout_changed", "heartbeat"] as const;
 const WAKE_REASONS = ["online", "visible", "focus"] as const;
@@ -199,7 +199,8 @@ function readFeedChange(data: string): FeedChange | null {
   const payload = readObject(data);
   if (!payload) return null;
   // Committed Feed writes in general carry no request; they skip the consent cascade.
-  if (!("request_id" in payload)) return { general: true, consent: false };
+  if (!("request_id" in payload)) return { general: true, consent: false,
+    ...(payload.reason === "history_mutated" ? { historyMutated: true } : {}) };
   const requestId = payload.request_id;
   return typeof requestId === "string" && DOCUMENT_REQUEST_UUID.test(requestId)
     ? { general: false, consent: true, requestId }
@@ -208,6 +209,7 @@ function readFeedChange(data: string): FeedChange | null {
 
 function mergeChange(burst: FeedChange, change: FeedChange): FeedChange {
   const merged: FeedChange = { general: burst.general || change.general, consent: burst.consent || change.consent };
+  if (burst.historyMutated || change.historyMutated) merged.historyMutated = true;
   // A consent reread stays narrowed only while every consent change named the same request.
   const requestId = !change.consent ? burst.requestId
     : !burst.consent ? change.requestId
@@ -902,7 +904,8 @@ class DocumentFeedStreamMachine implements DocumentFeedStreamManager {
 
   private emitFeed(change: FeedChange): void {
     if (!this.isCurrent() || !this.foreground()) return;
-    this.deps.dispatchFeed(change.requestId ? { ...change } : { general: change.general, consent: change.consent });
+    this.deps.dispatchFeed(change.requestId ? { ...change } : { general: change.general, consent: change.consent,
+      ...(change.historyMutated ? { historyMutated: true } : {}) });
     if (!this.burstReset) return;
     this.burstReset = false;
     this.dispatchPayout({ kinds: ALL_PAYOUT_KINDS(), source: "sse_reset" });

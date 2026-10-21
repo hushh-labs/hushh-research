@@ -16,6 +16,34 @@ def _client():
     return TestClient(app)
 
 
+def test_delete_chat_binds_the_authenticated_participant_and_requires_a_valid_id():
+    service = MagicMock()
+    conversation = "11111111-1111-4111-8111-111111111111"
+    service.delete_conversation.return_value = {
+        "conversationId": conversation,
+        "deleted": True,
+        "scope": "me",
+    }
+    with patch("api.routes.one.messages._service", return_value=service):
+        response = _client().delete(f"/api/one/messages/conversations/{conversation}?userId=forged")
+        assert response.status_code == 200
+        assert response.json() == service.delete_conversation.return_value
+        assert response.headers["cache-control"] == "private, no-store"
+        service.delete_conversation.assert_called_once_with("viewer-user", conversation)
+        assert _client().delete("/api/one/messages/conversations/invalid").status_code == 422
+        service.delete_conversation.side_effect = DirectMessagesError(
+            "DIRECT_MESSAGE_CONVERSATION_NOT_FOUND", "Conversation was not found.", status_code=404
+        )
+        assert (
+            _client().delete(f"/api/one/messages/conversations/{conversation}").status_code == 404
+        )
+    app = FastAPI()
+    app.include_router(router)
+    assert (
+        TestClient(app).delete(f"/api/one/messages/conversations/{conversation}").status_code == 401
+    )
+
+
 def test_unread_count_uses_authenticated_owner_and_returns_only_private_count_metadata():
     with patch("api.routes.one.messages.unread_message_count", return_value=137) as count:
         response = _client().get("/api/one/messages/unread-count?userId=another-user")

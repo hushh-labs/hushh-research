@@ -6,8 +6,12 @@ import { writeLastMessagesSelection, type LastMessagesSelection } from "@/lib/di
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
+import { toast } from "sonner";
+import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   FormEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -26,6 +30,7 @@ import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-me
 import { useLongPress } from "@/lib/morphy-ux/hooks/use-long-press";
 import { DirectMessageVoiceRecorder } from "./direct-message-voice-recorder";
 import { DirectMessageVoicePlayer } from "./direct-message-voice-player";
+import { DirectMessageInboxRow } from "./direct-message-inbox-row";
 import { shareFile } from "@/lib/share/share-file";
 import { isShareCancellationError } from "@/lib/share/share-link";
 import { CircleMessagesPane } from "@/components/connect/circles/circle-messages-pane";
@@ -85,6 +90,7 @@ import {
   type DirectMessageConversation,
 } from "@/lib/services/direct-messages-service";
 import {
+  buildPersonProfileRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
 import { requestAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
@@ -130,6 +136,21 @@ const EMPTY_THREAD: ThreadState = {
   disconnectedNotice: null,
   nextBefore: null,
 };
+
+function PeerProfileLink({ href, label, className, children }: {
+  href: string | null;
+  label: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  if (!href) return <>{children}</>;
+  return <Link href={href} prefetch={false} aria-label={`View ${label}'s profile`}
+    className={cn(styles.peerProfileLink, className)}
+    onPointerDown={(event) => event.stopPropagation()}
+    onContextMenu={(event) => event.stopPropagation()}>
+    {children}
+  </Link>;
+}
 
 
 function toggleReaction(message: DirectMessage, emoji: string): DirectMessage {
@@ -415,6 +436,15 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [recordingVoice, setRecordingVoice] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [contactInfoOpen, setContactInfoOpen] = useState(false);
+  const [chatDeleteRequest, setChatDeleteRequest] = useState<{ ownerId: string; conversation: DirectMessageConversation } | null>(null);
+  const [, setChatDeleteRevision] = useState(0);
+  const pendingChatDeletes = useRef(new Set<string>());
+  const chatDeleteToasts = useRef(new Set<string | number>());
+  const chatDeleteLifetime = useRef(true);
+  const chatDeleteSession = useRef({ ownerId: user?.uid, epoch: 0 });
+  if (chatDeleteSession.current.ownerId !== user?.uid) {
+    chatDeleteSession.current = { ownerId: user?.uid, epoch: chatDeleteSession.current.epoch + 1 };
+  }
   const [jumpTarget, setJumpTarget] = useState<string | null>(null);
   const jumping = useRef(false);
   const acknowledged = useRef(new Set<string>());
@@ -470,6 +500,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   // React can render the new owner/selection before effect cleanup runs. Keep
   // the old transcript and send authority concealed during that interval.
   const thread = isCurrentRead ? storedThread : EMPTY_THREAD;
+  const currentThread = useRef(thread); currentThread.current = thread;
   const activeConversationId = thread.conversation?.id ?? null;
   const settleReadScope = useCallback((scope: string | null) => {
     const scopes = scope ? [scope] : [];
@@ -582,12 +613,50 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     invalidateThreadRead();
   }, [invalidateOperations, invalidateThreadRead]);
 
+  useEffect(() => {
+    chatDeleteLifetime.current = true;
+    const handles = chatDeleteToasts.current;
+    return () => {
+      chatDeleteLifetime.current = false;
+      handles.forEach(id => toast.dismiss(id));
+      handles.clear();
+    };
+  }, [user?.uid]);
+
+  const removeDeletedChat = useCallback((conversationId: string, peerPersonRef?: string | null) => {
+    const ownerId = user?.uid;
+    if (!ownerId || readAdmission.current.ownerId !== ownerId) return;
+    invalidateInboxRead();
+    setInbox(current => current?.ownerId === ownerId
+      ? { ...current, items: current.items.filter(item => item.id !== conversationId) } : current);
+    CacheSyncService.onFeedHistoryMutated(ownerId);
+    dispatchFeedStateChanged("action");
+    const peer = peerPersonRef ?? inboxItems.find(item => item.id === conversationId)?.peerPersonRef;
+    const selections = [`conversation:${conversationId}`, ...(peer ? [`person:${peer}`] : [])];
+    for (const selection of selections) {
+      const scope = JSON.stringify([ownerId, selection]);
+      drafts.current.delete(scope); replyDrafts.current.delete(scope);
+      attachmentDrafts.current.delete(scope); sendAttempts.current.delete(scope);
+    }
+    if (readAdmission.current.lane === "people" && (currentThread.current.conversation?.id === conversationId || selections.includes(selectionRef.current))) {
+      invalidateSelection();
+      loadedReadScopes.current = [];
+      setSettledReadScopes([]);
+      setThread(EMPTY_THREAD); setMessages([]); setDraft(""); setAttachment(null); setReplyingTo(null);
+      setUnconfirmedDraft(null); setComposerError(null); setContactInfoOpen(false);
+      replaceMessageHistory(null);
+      writeLastMessagesSelection(ownerId, { lane: "people", token: null });
+      router.replace(ROUTES.ONE_MESSAGES, { scroll: false });
+    }
+  }, [inboxItems, invalidateInboxRead, invalidateSelection, router, user?.uid]);
+
   useLayoutEffect(() => {
     if (ownerRef.current !== user?.uid) {
       // Replicas belong to an account, not merely a matching route.
       drafts.current.clear(); replyDrafts.current.clear();
       attachmentDrafts.current.clear(); sendAttempts.current.clear();
       sendingSelections.current.clear(); reactionPending.current.clear();
+      setChatDeleteRequest(null);
     }
     cancelMessageLongPress();
     ownerRef.current = user?.uid; invalidateSelection();
@@ -598,7 +667,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     const previousAttempt = sendAttempts.current.get(draftScope);
     setUnconfirmedDraft(previousAttempt?.unconfirmed ? previousAttempt.content : null);
     setDraft(drafts.current.get(draftScope) ?? ""); setAttachment(attachmentDrafts.current.get(draftScope) ?? null); setSending(sendingSelections.current.has(draftScope));
-    setReplyingTo(replyDrafts.current.get(draftScope) ?? null); setEditingMessage(null); setEditingContent(""); setDeleteRequest(null);
+    setReplyingTo(replyDrafts.current.get(draftScope) ?? null); setEditingMessage(null); setEditingContent(""); setDeleteRequest(null); setChatDeleteRequest(null);
     setMessageActionError(null); setComposerError(null); setOpenMessageMenu(null); setOpenReactionPicker(null); setActiveMessageActions(null);
     setLoadingOlder(false); setMessages([]); setThread(EMPTY_THREAD);
     settleReadScope(null);
@@ -835,9 +904,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     if (!user?.uid) return;
     return subscribeToDirectMessagesUpdated((detail) => {
       if (detail.userId !== user.uid) return;
+      if (detail.source === "delete" && detail.conversationId) removeDeletedChat(detail.conversationId);
       if (foreground()) refresh();
     });
-  }, [refresh, user?.uid]);
+  }, [refresh, removeDeletedChat, user?.uid]);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -897,7 +967,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
               userId: user.uid,
               conversationId,
               messageId,
-              source: "sse",
+              source: frame.data.action === "conversation_deleted" ? "delete" : "sse",
             });
           }
         }
@@ -1025,6 +1095,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
 
   const selectedLabel =
     thread.peerDisplayName || thread.conversation?.peerDisplayName || "Conversation";
+  const peerProfileHref = thread.peerPersonRef
+    ? buildPersonProfileRoute(thread.peerPersonRef, { from: ROUTES.ONE_MESSAGES })
+    : null;
   const normalizedMessageSearch = messageSearchQuery.trim().toLocaleLowerCase();
   const admittedMessages = isCurrentRead ? messages : [];
   const visibleMessages = normalizedMessageSearch
@@ -1414,6 +1487,38 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     })();
   };
 
+  const confirmDeleteChat = () => {
+    const request = chatDeleteRequest;
+    if (!user || !request || request.ownerId !== user.uid) return;
+    const session = chatDeleteSession.current;
+    const key = `${user.uid}:${session.epoch}:${request.conversation.id}`;
+    if (pendingChatDeletes.current.has(key)) return;
+    pendingChatDeletes.current.add(key);
+    setChatDeleteRevision(value => value + 1);
+    const current = () => chatDeleteLifetime.current && chatDeleteSession.current === session && readAdmission.current.ownerId === request.ownerId;
+    const operation = (async () => {
+      const idToken = await user.getIdToken();
+      if (!current()) return;
+      await DirectMessagesService.deleteConversation({ idToken, conversationId: request.conversation.id });
+      if (!current()) return;
+      removeDeletedChat(request.conversation.id, request.conversation.peerPersonRef);
+      setChatDeleteRequest(value => value === request ? null : value);
+      dispatchDirectMessagesUpdated({ userId: user.uid, conversationId: request.conversation.id, messageId: null, source: "delete" });
+    })();
+    const handle = morphyToast.promise(operation, { isCurrent: current, loading: "Deleting chat…", success: "Chat deleted", error: "Couldn’t delete this chat. Try again." });
+    const toastId = typeof handle === "string" || typeof handle === "number" ? handle : null;
+    if (toastId !== null) chatDeleteToasts.current.add(toastId);
+    void operation.catch(() => {}).finally(() => {
+      pendingChatDeletes.current.delete(key);
+      if (toastId !== null) chatDeleteToasts.current.delete(toastId);
+      if (current()) setChatDeleteRevision(value => value + 1);
+    });
+  };
+
+  const deletingChat = Boolean(chatDeleteRequest && pendingChatDeletes.current.has(
+    `${user?.uid}:${chatDeleteSession.current.epoch}:${chatDeleteRequest.conversation.id}`,
+  ));
+
   if (!user && !authLoading) {
     return (
       <AppPageShell width="agent" fitContent nativeTest={nativeTest}>
@@ -1528,12 +1633,20 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
               const lastMessageAt =
                 conversation.lastMessageAt || conversation.latestMessage?.createdAt;
               return (
-                <button
+                <DirectMessageInboxRow
                   key={conversation.id}
-                  type="button"
-                  className={styles.conversationRow}
-                  data-active={active ? "true" : undefined}
-                  onClick={() => openConversation(conversation)}
+                  label={conversationLabel(conversation)}
+                  active={active}
+                  disabled={pendingChatDeletes.current.has(`${user?.uid}:${chatDeleteSession.current.epoch}:${conversation.id}`)}
+                  onOpen={() => openConversation(conversation)}
+                  onDelete={() => {
+                    if (!user) return;
+                    const scopes = [`conversation:${conversation.id}`, ...(conversation.peerPersonRef ? [`person:${conversation.peerPersonRef}`] : [])];
+                    if (scopes.some(selection => sendingSelections.current.has(JSON.stringify([user.uid, selection])))) {
+                      morphyToast.info("Wait for this message to finish sending."); return;
+                    }
+                    setChatDeleteRequest({ ownerId: user.uid, conversation });
+                  }}
                 >
                   <ConnectionPersonAvatar
                     label={conversationLabel(conversation)}
@@ -1559,7 +1672,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       </span>
                     ) : null}
                   </span>
-                </button>
+                </DirectMessageInboxRow>
               );
             })}
           </nav>
@@ -1585,12 +1698,14 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     <ArrowLeft className="h-6 w-6" aria-hidden="true" />
                   </button>
                   <div className={styles.threadIdentity}>
+                    <PeerProfileLink href={peerProfileHref} label={selectedLabel}>
                     <ConnectionPersonAvatar
                       label={selectedLabel}
                       photoUrl={thread.peerPhotoUrl}
                       size="list"
                       className={styles.threadAvatar}
                     />
+                    </PeerProfileLink>
                     <div className={styles.threadTitle}>
                       <h2 title={selectedLabel}>{selectedLabel}</h2>
                       <p className={styles.threadStatus}>{pendingSelection ? "Connecting…" : thread.canSend ? "Connected" : "Messaging unavailable"}</p>
@@ -1768,12 +1883,14 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                         }}
                       >
                         {!message.senderIsViewer ? (
+                          <PeerProfileLink href={peerProfileHref} label={selectedLabel} className={styles.messageProfileLink}>
                           <ConnectionPersonAvatar
                             label={selectedLabel}
                             photoUrl={thread.peerPhotoUrl}
                             size="list"
                             className={styles.messagePeerAvatar}
                           />
+                          </PeerProfileLink>
                         ) : null}
                         <div
                           className={cn(
@@ -2132,7 +2249,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
               <Dialog open={contactInfoOpen} onOpenChange={setContactInfoOpen}>
                 <DialogContent className={styles.contactInfoDialog}>
                   <DialogHeader><DialogTitle>Contact info</DialogTitle></DialogHeader>
+                  <PeerProfileLink href={peerProfileHref} label={selectedLabel} className={styles.contactProfileLink}>
                   <ConnectionPersonAvatar label={selectedLabel} photoUrl={thread.peerPhotoUrl} size="list" className={styles.contactInfoAvatar} />
+                  </PeerProfileLink>
                   <h3>{selectedLabel}</h3>
                   <DialogDescription>{thread.canSend ? "Connected" : thread.disconnectedNotice || "Messaging unavailable"}</DialogDescription>
                   <Button variant="none" effect="fade" onClick={() => { setContactInfoOpen(false); setMessageSearchOpen(true); }}>
@@ -2204,6 +2323,21 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
           initialCircleId={restoredSelection?.lane === "circles" ? restoredSelection.circleId : null}
           laneSwitcher={laneSwitcher} headerActions={themeToggle} />
       </section>
+      <AlertDialog open={Boolean(chatDeleteRequest && chatDeleteRequest.ownerId === user?.uid)}
+        onOpenChange={open => { if (!open && !deletingChat) setChatDeleteRequest(null); }}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete chat with {chatDeleteRequest ? conversationLabel(chatDeleteRequest.conversation) : "this person"}?</AlertDialogTitle>
+            <AlertDialogDescription>This removes the entire chat history for you. The other person keeps their copy, and your connection stays. New messages can start the chat again.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(deletingChat)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" disabled={Boolean(deletingChat)} onClick={event => { event.preventDefault(); confirmDeleteChat(); }}>
+              {deletingChat ? "Deleting…" : "Delete chat"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Dialog modal open={newChatOpen} onOpenChange={setNewChatOpen}>
         <DialogContent aria-modal="true" className={styles.newChatDialog} srDescription="Choose a connection to message.">
           <DialogHeader><DialogTitle>New chat</DialogTitle></DialogHeader>

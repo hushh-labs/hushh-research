@@ -289,6 +289,31 @@
   height: 2.5rem;
 }
 
+.peerProfileLink {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.peerProfileLink:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+
+.messageProfileLink {
+  margin: -7px;
+}
+
+.contactProfileLink {
+  justify-self: center;
+}
+
 .threadTitle {
   display: grid;
   gap: 0.0625rem;
@@ -1580,6 +1605,29 @@ article[data-message-role="peer"] .messageCluster {
   padding: 10px 11px;
 }
 .conversationRow[data-active="true"] { background: var(--chat-row-active); }
+.conversationItem { position: relative; min-width: 0; }
+.conversationItem .conversationRow { padding-right: 56px; }
+.conversationOptions {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--chat-muted);
+}
+.conversationOptions:hover, .conversationOptions:focus-visible { background: var(--chat-row-active); color: var(--chat-text); }
+.conversationOptions:focus-visible { outline: 2px solid var(--chat-accent); outline-offset: -2px; }
+@media (hover: hover) {
+  .conversationOptions { opacity: 0; }
+  .conversationItem:hover .conversationOptions, .conversationItem:focus-within .conversationOptions { opacity: 1; }
+}
 .conversationName { font-size: 14px; font-weight: 600; color: var(--chat-text); }
 .conversationPreview { font-size: 13px; color: var(--chat-muted); }
 .conversationMeta { font-size: 12px; color: var(--chat-muted); }

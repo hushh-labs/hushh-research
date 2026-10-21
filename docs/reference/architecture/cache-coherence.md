@@ -106,6 +106,20 @@ durable transaction journal. Initial connection, listener recovery, and Feed
 queue overflow send `feed_reset`; authenticated reads recover the current state.
 Legacy consent queues remain separate from Feed-only burst/reset handling.
 
+Deleting a participant chat emits the owner-only `history_mutated` reason on a
+general Feed hint. The stream admits only that exact enum and discards other
+producer fields. `CacheSyncService.onFeedHistoryMutated` advances the Feed
+presentation revision, evicts its saved pages, and invalidates list/count reads.
+The next authoritative page drops previously loaded deleted rows; a stale
+unmount cannot save them again. An opaque `history_revision` from existing
+owner received-message deletion flags repairs missed hints on reread, including
+off-page removals. It is captured before reading the page, so it cannot bless
+older rows with a newer deletion revision. Both local and server revision
+changes fence pending older-page responses. Ordinary arrivals and read receipts
+leave this revision unchanged and retain reading continuity. The indexed
+revision aggregate scans that owner's direct-message Feed sources; it creates
+no new persistence store.
+
 The backend shares its existing LISTEN connection, expires Feed streams after
 120 seconds, rechecks authentication every 30 seconds using the existing verifier
 (including its revocation-cache policy), and bounds a stalled send to 10 seconds.

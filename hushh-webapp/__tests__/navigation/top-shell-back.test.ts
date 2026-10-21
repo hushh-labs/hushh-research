@@ -142,6 +142,20 @@ describe("top shell back action", () => {
     });
   });
 
+  it("returns a chat-opened person profile to Messages with the correct breadcrumb", () => {
+    const pathname = "/people/person-ref-scoped";
+    const searchParams = new URLSearchParams({ from: ROUTES.ONE_MESSAGES });
+    expect(resolveTopShellBackAction({ pathname, searchParams })).toEqual({
+      href: ROUTES.ONE_MESSAGES,
+      mode: "push",
+      transitionMode: "full",
+    });
+    expect(resolveTopShellBreadcrumb(pathname, searchParams)?.items).toEqual([
+      { label: "Messages", href: ROUTES.ONE_MESSAGES },
+      { label: "Profile" },
+    ]);
+  });
+
   it("returns the resolved action to the shared transition owner", () => {
     const navigate = vi.fn();
     expect(

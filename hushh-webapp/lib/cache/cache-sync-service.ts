@@ -7,7 +7,7 @@ import {
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
-import { bumpFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
+import { bumpFeedInvalidationEpoch, bumpFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { noteConsentMutated } from "@/lib/cache/consent-read-after-write";
 import {
@@ -754,6 +754,14 @@ export class CacheSyncService {
   /** Server activity invalidates both projections and fences older in-flight reads. */
   static onFeedChanged(userId: string): void {
     this.onFeedReadFailed(userId);
+  }
+
+  /** Removed history must not return through saved pages or a later unmount. */
+  static onFeedHistoryMutated(userId: string): void {
+    if (!userId) return;
+    bumpFeedPresentationRevision(userId);
+    CacheService.getInstance().invalidate(CACHE_KEYS.FEED_PRESENTATION(userId));
+    this.onFeedChanged(userId);
   }
 
   /**

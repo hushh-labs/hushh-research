@@ -9,6 +9,7 @@ import {
 import type { ReactNode } from "react";
 import type { FeedRow as RealFeedRow } from "@/components/feed/feed-row";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
+import { bumpFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -438,6 +439,20 @@ describe("Feed history interactions", () => {
       expect(mocks.list).toHaveBeenCalledTimes(2);
       view.unmount();
       root.remove();
+    });
+
+    it("discards a pending older page after chat history is invalidated", async () => {
+      let resolvePage!: (value: { items: ReturnType<typeof olderRow>[]; next_cursor: string | null; unread_count: number }) => void;
+      mocks.list.mockImplementationOnce(() => new Promise(resolve => { resolvePage = resolve; }));
+      const view = render(<FeedPage />);
+      await waitFor(() => expect(observers.length).toBeGreaterThan(0));
+      act(() => observers.at(-1)!.notify(true));
+      await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
+      act(() => bumpFeedPresentationRevision(mocks.user.uid));
+      await act(async () => resolvePage({ items: [olderRow("4")], next_cursor: null, unread_count: 0 }));
+      expect(screen.queryByText("row-4")).not.toBeInTheDocument();
+      expect(screen.queryByText("Couldn't load more.")).not.toBeInTheDocument();
+      view.unmount();
     });
 
     it("continues usable history while an unrelated lane is slow", async () => {
