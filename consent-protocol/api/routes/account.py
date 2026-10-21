@@ -2249,9 +2249,19 @@ class _AccountExportResponse(StreamingResponse):
         )
 
     async def __call__(self, scope, receive, send) -> None:
+        terminal_sent = False
+
+        async def tracked_send(message):
+            nonlocal terminal_sent
+            await send(message)
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                terminal_sent = True
+
         try:
             with fail_after(self._export.remaining_seconds):
-                await super().__call__(scope, receive, send)
+                await super().__call__(scope, receive, tracked_send)
+                if terminal_sent:
+                    self._export.confirm_produced()
         except Exception as exc:
             logger.warning("account_export outcome=stream_failed error_type=%s", type(exc).__name__)
             raise RuntimeError("Account export interrupted") from None

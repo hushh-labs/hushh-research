@@ -497,7 +497,7 @@ export function usePkmNaturalModel({
         status: result.saved
           ? `Saved ${result.filename}. It holds ${result.domainCount} ${
               result.domainCount === 1 ? "area" : "areas"
-            } of what One remembers.`
+            } of what One remembers.${result.backupIncluded === false ? " The encrypted backup could not be included." : ""}`
           : "Nothing was saved. You can try again whenever you like.",
       });
     } catch {

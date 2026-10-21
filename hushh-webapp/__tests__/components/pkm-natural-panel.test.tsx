@@ -680,7 +680,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
   });
 
   it("releases an export lock after verification recovery without publishing stale feedback", async () => {
-    let finish!: (value: { saved: boolean; filename: string; domainCount: number }) => void;
+    let finish!: (value: { saved: boolean; filename: string; domainCount: number; backupIncluded: boolean }) => void;
     const download = vi.spyOn(PkmExportService, "downloadMemoryExport").mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const view = render(<PkmNaturalPanel />);
     fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
@@ -688,16 +688,17 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     await waitFor(() => expect(finish).toBeTypeOf("function"));
     authState.sessionVerificationRequired = true;
     view.rerender(<PkmNaturalPanel />);
-    await act(async () => finish({ saved: true, filename: "synthetic-export.json", domainCount: 1 }));
+    await act(async () => finish({ saved: true, filename: "synthetic-export.json", domainCount: 1, backupIncluded: true }));
     expect(screen.queryByText(/Saved synthetic-export/)).toBeNull();
     expect(trackEvent).not.toHaveBeenCalledWith("one_memory_action", expect.objectContaining({ action: "export_saved" }));
     authState.sessionVerificationRequired = false;
     view.rerender(<PkmNaturalPanel />);
     const retry = screen.getByRole("button", { name: "Download Memory" });
     expect(retry).toBeEnabled();
-    download.mockResolvedValueOnce({ saved: true, filename: "current-export.json", domainCount: 1 });
+    download.mockResolvedValueOnce({ saved: true, filename: "current-export.json", domainCount: 1, backupIncluded: false });
     fireEvent.click(retry);
     await screen.findByText(/Saved current-export.json/);
+    expect(screen.getByText(/The encrypted backup could not be included/)).toBeTruthy();
     expect(download).toHaveBeenCalledTimes(2);
   });
 

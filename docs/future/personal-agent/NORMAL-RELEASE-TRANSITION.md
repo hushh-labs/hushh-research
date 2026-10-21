@@ -4,8 +4,9 @@
 infrastructure branch; preserve concurrent work and the active ADK tree. Prior
 main/ADK integration remains preserved. Frozen executable candidate `67a64533ac`
 integrates main through `89516ab01d` and ADK `914e7c044c`. The later metadata
-publication source additionally incorporates operations-only main `ec7c61577f` and
-the focused Shared Files terminal-erasure repair; it reuses the qualified Browser
+publication source additionally incorporates main `f7d80942ed`, preserving its
+bounded account exports and owner-fenced Feed, plus the focused Shared Files
+terminal-erasure repair; it reuses the qualified Browser
 image and original provenance. The latest union preserves main’s responsive Profile header, streamed account exports, dual-principal connector fencing, SOS recovery, Azure playback and exact provider receipts alongside the private-agent authorities. Main's messaging and Azure managed-provider selection is preserved alongside
 private-pod admission, Browser phase history and release publication. Nine peer
 edits and the active ADK worktree remain unchanged.
@@ -71,7 +72,10 @@ resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 
-- Main through `ec7c61577f` is integrated. Its final capacity-recovery changes
+- Main through `f7d80942ed` is integrated. Account exports retain bounded server
+  cursors and browser Blob assembly; retired owners cannot keep Feed streams
+  alive. These are hub/frontend changes, not new pod image provenance. The
+  earlier capacity-recovery changes
   preserve manual authorization and durable predecessor/successor reconciliation;
   they change no pod executable or dependency. The union preserves main’s
   Profile/mobile, consent, deletion, PLG, Calendar and migrations 365–369 alongside
