@@ -108,20 +108,12 @@ WITH connected AS (
   WHERE user_id = $1 AND provider = 'google' AND service = 'calendar'
     AND status = 'connected'
   UNION ALL
-  SELECT 'calendar'::TEXT, connected_at
-  FROM google_calendar_additional_accounts
-  WHERE user_id = $1 AND status = 'connected'
-  UNION ALL
   SELECT 'drive'::TEXT, connected_at
   FROM user_external_connector_connections
   WHERE user_id = $1 AND connector_id = 'google_drive' AND status = 'connected'
-), first_connected AS (
-  SELECT source, MIN(first_connected_at) AS first_connected_at
-  FROM connected
-  GROUP BY source
 )
 SELECT c.source
-FROM first_connected AS c
+FROM connected AS c
 WHERE c.first_connected_at > NOW() - INTERVAL '7 days'
   AND NOT EXISTS (
     SELECT 1 FROM one_attention_ledger AS l
