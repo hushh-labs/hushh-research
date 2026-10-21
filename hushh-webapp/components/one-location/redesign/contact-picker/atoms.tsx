@@ -3,7 +3,6 @@
 import type { ReactNode } from "react";
 import { Loader2 } from "@/components/icons";
 
-import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { cn } from "@/lib/utils";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
@@ -41,17 +40,20 @@ export function ContactAvatar({
   photoUrl,
   className,
   verified = false,
+  fromContacts = false,
 }: {
   label: string;
   photoUrl?: string | null;
   className?: string;
   verified?: boolean;
+  fromContacts?: boolean;
 }) {
   return (
     <ConnectionPersonAvatar
       label={label}
       photoUrl={photoUrl}
       verified={verified}
+      fromContacts={fromContacts}
       className={cn("h-9 w-9 text-[15px]", className)}
     />
   );
@@ -165,13 +167,12 @@ export function ContactRow({
       className="flex min-h-[58px] items-center gap-3 px-3.5 py-2"
       data-testid="contact-picker-row"
     >
-      <ContactAvatar label={label} photoUrl={photoUrl} verified={verified} />
+      <ContactAvatar label={label} photoUrl={photoUrl} verified={verified} fromContacts={fromContacts} />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-start gap-1.5">
           <span className="min-w-0 truncate text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
             {label}
           </span>
-          {fromContacts ? <ContactSourceBadge /> : null}
         </span>
         {subtitle ? (
           <span className="mt-0.5 block truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">

@@ -1,6 +1,11 @@
 # Fundamental blocking backend tests for CI.
 # Keep this list small and stable. Full historical suites remain manual.
 
+# PLG exports are signed, production-only and limited to enrolled task metadata.
+tests/services/test_plg_evidence.py
+tests/services/test_product_activity_postgres.py
+tests/test_plg_deploy_bindings.py
+
 # Store releases must retain the selected track, exact source and private binaries.
 tests/test_native_ship_artifact_workflows.py
 
@@ -86,6 +91,11 @@ tests/services/test_drive_request_package_store_postgres.py
 tests/services/test_drive_agent_package_flow_postgres.py
 tests/services/test_drive_v1_manual_review_postgres.py
 tests/services/test_drive_request_package_service.py
+# Managed UAT text: primary/fallback transport, current owner authority,
+# immutable administrator policy and actual foreground/background ADK entrypoints.
+tests/services/test_azure_adk.py
+tests/test_model_preference_resolution.py
+tests/test_one_adk_text_runtime.py
 tests/services/test_drive_bounded_search_unit.py
 tests/services/test_drive_search_performance_proof.py
 # Search v2: the request flow plans without any model call, and only typed
@@ -222,6 +232,7 @@ tests/test_agent_manifests.py
 tests/test_pass_assets_reach_the_deployed_image.py
 tests/test_hushh_adk_single_turn.py
 tests/services/test_pkm_agent_lab_service.py
+tests/services/test_pkm_preview_outcomes.py
 # A pasted context transfer is kept whole (Phase 4): recorded server answers.
 tests/services/test_context_transfer_is_kept.py
 tests/test_ria_claim_flow.py

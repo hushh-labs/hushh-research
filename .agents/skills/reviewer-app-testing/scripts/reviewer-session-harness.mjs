@@ -1,5 +1,6 @@
 import { resolveReviewerAuthMode, isHumanReviewerAuthenticationRequest } from "../../../../hushh-webapp/lib/testing/reviewer-authentication-policy.mjs";
 import { createReviewerBootstrap } from "./reviewer-session-bootstrap.mjs";
+export { installReviewerBridge } from "./reviewer-session-bootstrap.mjs";
 import { createReviewerArrival } from "./reviewer-session-arrival.mjs";
 import { createExistingReviewerAttachment } from "./reviewer-session-attachment.mjs";
 import { admitPrivateReviewerRequest, requireBoundedConnectorAdmission } from "./reviewer-private-request-admission.mjs";
@@ -16,6 +17,7 @@ function endpointPath(rawUrl) {
 }
 
 const CRITICAL_REVIEWER_API_PATHS = [
+  "/api/account/session-status",
   "/api/vault/bootstrap-state",
   "/api/consent/center/summary",
   "/api/one/connections",
@@ -239,6 +241,7 @@ export async function waitForReviewerVaultAdmission(page, expectedUserId, timeou
   }, expectedUserId, { timeout: timeoutMs });
 }
 
+
 export async function createReviewerSessionHarness({
   repoRoot,
   appOrigin = "https://uat.one.hushh.ai",
@@ -248,6 +251,8 @@ export async function createReviewerSessionHarness({
   admitOwnerPodConnectorOperation = null,
   admitMutation = null,
   admitProviderOAuth = null,
+  configurePage = null,
+  explicitLoginOnly = false,
   reviewerIdentity = /** @type {{ reviewerUid: string, reviewerVaultPassphrase: string } | null} */ (null),
   reviewerTokenProvider = /** @type {((uid: string) => Promise<string>) | null} */ (null),
 }) {
@@ -277,7 +282,7 @@ export async function createReviewerSessionHarness({
   const { installBridge, waitForUnlock } = createReviewerBootstrap({
     reviewerUid, reviewerPassphrase, reviewerAuthMode, allowMemoryPreparation,
     admitMutation, deferLegalAcceptance, timeoutMs,
-    appOrigin: normalizedOrigin, reviewerTokenProvider,
+    appOrigin: normalizedOrigin, reviewerTokenProvider, explicitLoginOnly,
   });
 
   function vaultKeyCommitment(vaultState) {
@@ -464,6 +469,7 @@ export async function createReviewerSessionHarness({
         const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitOwnerPodMemoryPreparation, admitOwnerPodConnectorOperation, admitMutation, admitProviderOAuth, reviewerAuthMode });
         const capture = attachMemoryOnlyCapture(page);
         await installBridge(page, { includePassphrase: requireVaultUnlocked });
+        await configurePage?.(page);
         if (onPageCreated) await onPageCreated(page);
         await page.goto(`${normalizedOrigin}/login?redirect=${encodeURIComponent(redirect)}`, {
           waitUntil: "domcontentloaded",
@@ -505,6 +511,7 @@ export async function createReviewerSessionHarness({
       // not inject or submit the passphrase. This context must prove the app
       // itself presents the locked-vault challenge first.
       await installBridge(page, { includePassphrase: false });
+      await configurePage?.(page);
       await page.goto(`${normalizedOrigin}/login?redirect=${encodeURIComponent(redirect)}`, {
         waitUntil: "domcontentloaded",
       });
@@ -540,9 +547,11 @@ export async function createReviewerSessionHarness({
         unlockHeading: document.body.textContent?.includes("Unlock One") === true,
         inputIds: [...document.querySelectorAll('input')].map(input => input.id).join(','),
         passphraseChoice: document.querySelector('[data-testid="vault-use-passphrase-instead"]') !== null,
+        sessionRecovery: document.querySelector('#session-verification-title') !== null,
+        authenticatedLoader: document.querySelector('[data-boot-stage="workspace"]') !== null,
       }));
       throw new Error(
-        `Visible vault challenge timed out (path=${diagnostics.path}, title=${diagnostics.title || "unknown"}, state=${diagnostics.bootstrapState}, error_class=${diagnostics.bootstrapErrorClass}, opening_chat=${diagnostics.openingChat}, unlock_heading=${diagnostics.unlockHeading}, input_ids=${diagnostics.inputIds}, passphrase_choice=${diagnostics.passphraseChoice}).`
+        `Visible vault challenge timed out (path=${diagnostics.path}, state=${diagnostics.bootstrapState}, error_class=${diagnostics.bootstrapErrorClass}, opening_chat=${diagnostics.openingChat}, unlock_heading=${diagnostics.unlockHeading}, passphrase_choice=${diagnostics.passphraseChoice}, session_recovery=${diagnostics.sessionRecovery}, authenticated_loader=${diagnostics.authenticatedLoader}).`
       );
     } finally {
       await context.close().catch(() => undefined);

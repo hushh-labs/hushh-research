@@ -5,6 +5,7 @@ import { CHANGE_TIME_DURATION_LADDER, SHARE_DURATION_UNTIL_STOP_VALUE } from "..
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Button } from "../../components/ui/button";
 import { CircleInvitePeopleSheet } from "../../components/one-location/redesign/circles/circle-grow-actions";
+import { CreateCirclePeopleStep } from "../../components/one-location/redesign/circles/create-circle-people-step";
 import { ContactRow } from "../../components/one-location/redesign/contact-picker/atoms";
 
 const people = ["Al", "Divya Rajendran", "Jhumma Kumari", "Priyanka Venkataraman-Sundaram"].map((displayName, index) => ({
@@ -19,6 +20,15 @@ function Fixture() {
   const [value, setValue] = useState(current ? "0.5" : "2");
   const [selected, setSelected] = useState<string | null>(null);
   const picker = new URLSearchParams(window.location.search).get("people");
+  if (picker === "create") {
+    return <Dialog modal open><DialogContent className="sm:max-w-2xl [&:has([data-circle-create-step=people])>[data-slot=dialog-header]]:sr-only">
+      <DialogHeader><DialogTitle>Create a Circle</DialogTitle></DialogHeader>
+      <div data-circle-create-step="people" className="flex min-h-0 flex-1 flex-col"><div className="flex min-h-0 flex-1 flex-col">
+      <CreateCirclePeopleStep circleId="new" circleName="Family" active onBack={noop} onSavingChange={noop}
+        onLoad={async () => ({ eligibleConnections: Array.from({ length: 45 }, (_, index) => ({ userId: `person-${index}`, connectionId: `connection-${index}`, displayName: `Person ${index}`, connectedFromContacts: true })), pendingInvites: [], remainingCapacity: 99, hasMore: false, page: 1, totalCount: 45 })}
+        onAdd={noopAsync} onComplete={noop} /></div></div>
+    </DialogContent></Dialog>;
+  }
   if (picker === "invite") {
     return <CircleInvitePeopleSheet open onOpenChange={noop} circleId="circle" circleName="SMS Circle"
       onLoadEligibleConnections={loadPeople} onInviteConnections={noopAsync} onCancelMemberInvite={noopAsync} />;

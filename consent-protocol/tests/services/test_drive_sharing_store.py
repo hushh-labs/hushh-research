@@ -126,6 +126,7 @@ async def sharing(documents, monkeypatch):
             "354_drive_v1_bulk_removals.sql",
             "355_drive_v1_live_request.sql",
             "356_drive_v1_access_period.sql",
+            "368_drive_existing_access_nocharge.sql",
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.
@@ -2015,55 +2016,57 @@ def test_semantic_search_creation_is_uat_only_and_sealed_policy_is_strict(monkey
     assert not semantic_search_enrollment_enabled()
     sealed = {"request_flow": "oct17_autoshare", "semantic_search_policy_version": 1}
     assert semantic_search_request(sealed)
-    for version in (None, True, "1", 0, 2):
+    assert semantic_search_request({**sealed, "semantic_search_policy_version": 2})
+    for version in (None, True, "1", 0, 3):
         assert not semantic_search_request({**sealed, "semantic_search_policy_version": version})
     assert not semantic_search_request({**sealed, "agent_package_required": True})
     assert not semantic_search_request({**sealed, "v1_live_request": True})
     assert not semantic_search_request({**sealed, "request_flow": "older"})
 
 
-def test_azure_semantic_admission_requires_current_owner_approval(monkeypatch):
-    from hushh_mcp.services import drive_request_package_assessment as assessment
+def test_azure_semantic_admission_is_fixed_policy_without_owner_receipt_writes(monkeypatch):
+    from hushh_mcp.runtime_providers.managed_text import managed_text_binding
     from hushh_mcp.services.drive_sharing_store import _new_semantic_model_binding
 
     monkeypatch.setenv("ENVIRONMENT", "uat")
-    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
-    generation = str(uuid4())
-    selected = {"provider": "azure_openai", "approval_generation": generation}
-    resolver = Mock(return_value=selected)
-    monkeypatch.setattr(assessment, "semantic_request_model_binding", resolver)
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
     connection = Mock()
-    connection.execute.return_value.mappings.return_value.first.return_value = {
-        "generation": UUID(generation)
-    }
-    assert _new_semantic_model_binding(connection, owner_user_id="owner") == selected
-    resolver.assert_called_once_with(provider="azure_openai", approval_generation=generation)
-    query = str(connection.execute.call_args.args[0])
-    assert "enabled IS TRUE" in query and "accepted_at IS NOT NULL" in query
-    assert connection.execute.call_args.args[1]["user"] == "owner"
-
-    # A missing approval retains the established Gemini request contract.
-    connection.execute.return_value.mappings.return_value.first.return_value = None
-    resolver.reset_mock()
-    assert _new_semantic_model_binding(connection, owner_user_id="owner") is None
-    resolver.assert_not_called()
-
-    # An unavailable approval store must not be mistaken for an ordinary denial.
-    connection.execute.side_effect = RuntimeError("approval store unavailable")
-    with pytest.raises(RuntimeError, match="approval store unavailable"):
-        _new_semantic_model_binding(connection, owner_user_id="owner")
+    for legacy_selector in ("gemini", "azure_openai"):
+        monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", legacy_selector)
+        binding = _new_semantic_model_binding(connection, owner_user_id="arbitrary-owner")
+        assert binding == managed_text_binding()
+        assert binding["authorization_basis"] == "uat_policy"
+    connection.execute.assert_not_called()  # No fabricated acceptance or preference dependency.
 
 
 @pytest.mark.asyncio
 async def test_new_semantic_request_policy_survives_creation_kill_switch(sharing, monkeypatch):
     live_drive(sharing, monkeypatch)
     monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
+    with sharing.db.engine.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY)")
+        connection.exec_driver_sql("INSERT INTO actor_profiles VALUES ('owner')")
+        connection.exec_driver_sql(
+            (MIGRATIONS / "364_one_private_text_processing_approvals.sql").read_text(),
+            execution_options={"no_parameters": True},
+        )
     monkeypatch.delenv("DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED", raising=False)
     monkeypatch.delenv("DRIVE_AGENT_PACKAGES_ENABLED", raising=False)
     created = await request(sharing)
     identity = created["requestId"]
     _, private = stored_request(sharing, identity)
-    assert private["semantic_search_policy_version"] == 1
+    assert private["semantic_search_policy_version"] == 2
+    assert private["semantic_model_binding"]["provider"] == "azure_openai"
+    assert private["semantic_model_binding"]["authorization_basis"] == "uat_policy"
+    with sharing.db.engine.connect() as connection:
+        assert (
+            connection.exec_driver_sql(
+                "SELECT COUNT(*) FROM one_private_text_processing_approvals"
+            ).scalar_one()
+            == 0
+        )
     assert (await sharing.request_bulk_context(user_id="owner", request_id=identity))[
         "semanticSearch"
     ] is True

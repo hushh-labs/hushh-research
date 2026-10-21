@@ -24,6 +24,7 @@ import {
   reasonMidSentence,
 } from "@/lib/consent/consent-owner-copy";
 import { documentShareNotificationSelection } from "@/lib/consent/document-share-consent";
+import { partialDocumentDeliveryState } from "@/lib/consent/document-request-delivery-state";
 import {
   formatPaymentMoney,
   REQUESTER_PAYMENT_TITLES,
@@ -234,19 +235,15 @@ function driveFeedLine(
           ? "Some shared files are available"
           : "Document request approved";
     case "document_share_outcome":
+      if (metadata.current_existing_access_nocharge === true)
+        return sharedWithMe ? "Files ready · Already had access · No charge" : "Files delivered · No payment due";
       if (status === "no_files_shared") return "No files were shared";
       if (status === "no_match")
         return sharedWithMe
           ? "No files were shared"
           : "No file candidates in this search; nothing was shared";
-      if (sharedWithMe) {
-        return status === "partial"
-          ? "Sharing finished with some files unavailable"
-          : "Drive sharing finished; check file results";
-      }
-      return status === "partial"
-        ? "Could not share all selected files"
-        : "Drive sharing finished; check file results";
+      if (status === "partial") return partialDriveOutcomeLine(metadata);
+      return "Drive sharing finished; check file results";
     case "document_share_revoked":
       return sharedWithMe
         ? "Removed your access to shared files"
@@ -263,6 +260,19 @@ function driveFeedLine(
       return "Declined your Drive question";
     default:
       return "";
+  }
+}
+
+function partialDriveOutcomeLine(metadata: Record<string, unknown>): string {
+  switch (partialDocumentDeliveryState({
+    total: metadata.current_delivery_total_count,
+    available: metadata.current_delivery_confirmed_count,
+    pending: metadata.current_delivery_pending_count,
+  })) {
+    case "available": return "Files shared; request incomplete";
+    case "checking": return "Sharing is still being checked";
+    case "unavailable": return "Some selected files could not be shared";
+    case "unknown": return "Check sharing and search results";
   }
 }
 

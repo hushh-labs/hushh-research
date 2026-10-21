@@ -35,6 +35,7 @@ import {
   MAP_RENDERER_CLASSNAME,
   MAP_SURFACE_CLASSNAME,
 } from "@/components/one-location/map-consent-panel-layout";
+import { MapPersonAvatarMarker } from "@/components/one-location/map-person-avatar-marker";
 import { MapNameLabels } from "@/components/one-location/map-name-labels";
 import { MapRendererAccess } from "@/components/one-location/map-renderer-access";
 import {
@@ -83,6 +84,11 @@ import {
 } from "@/lib/one-location/maps-config";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import { neutralWorldCamera } from "@/lib/one-location/map-world-view";
+import {
+  attachWebPersonAvatarHosts,
+  webPersonMarkerPlaceholder,
+  type WebPersonAvatarBatch,
+} from "@/lib/one-location/web-person-avatar-markers";
 import {
   createWebSelfAvatarOverlay,
   type WebSelfAvatarOverlay,
@@ -250,6 +256,7 @@ type MapCameraEvent = {
 
 type RenderMarker = {
   key: string;
+  avatarUrl?: string | null;
   point: PlainLocationPoint;
   label: string;
   /**
@@ -527,6 +534,9 @@ function markerSignature(markers: RenderMarker[]): string {
     .map((marker) =>
       [
         marker.key,
+        marker.label,
+        marker.shortLabel,
+        marker.avatarUrl ?? "",
         marker.point.latitude.toFixed(6),
         marker.point.longitude.toFixed(6),
         marker.point.capturedAt,
@@ -749,6 +759,9 @@ export function LocationImmersiveMap({
   const [webAvatarOverlay, setWebAvatarOverlay] =
     useState<WebSelfAvatarOverlay | null>(null);
   const webAvatarOverlayRef = useRef<WebSelfAvatarOverlay | null>(null);
+  const webPersonAvatarBatchRef = useRef<WebPersonAvatarBatch | null>(null);
+  const [webPersonAvatarHosts, setWebPersonAvatarHosts] =
+    useState<ReadonlyMap<string, HTMLElement>>(new Map());
   const topControlsRef = useRef<HTMLElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
   // Measures the tray's real rendered pieces -- the toggle header and the
@@ -1456,6 +1469,7 @@ export function LocationImmersiveMap({
                 marker.envelope.id ||
                 `${marker.grant.id}:${marker.envelope.capturedAt}`,
               point,
+              avatarUrl: marker.grant.ownerPhotoUrl ?? null,
               label: displayLabel(marker),
               shortLabel: displayShortLabel(marker),
               kind: "person",
@@ -1996,6 +2010,9 @@ export function LocationImmersiveMap({
       webAvatarOverlayRef.current?.destroy();
       webAvatarOverlayRef.current = null;
       setWebAvatarOverlay(null);
+      webPersonAvatarBatchRef.current?.destroy();
+      webPersonAvatarBatchRef.current = null;
+      setWebPersonAvatarHosts(new Map());
       if (cameraFrameRef.current !== null) {
         window.cancelAnimationFrame(cameraFrameRef.current);
         cameraFrameRef.current = null;
@@ -2309,6 +2326,12 @@ export function LocationImmersiveMap({
    * label bubbles that stand for four people with the name of one.
    */
   const clusteringActive = rendererMarkers.length > 8;
+  const personAvatarMarkers = useMemo(
+    () => isCheckInSurface ? [] : markers.filter(
+      marker => webPersonAvatarHosts.has(marker.key) || !clusteringActive,
+    ),
+    [isCheckInSurface, markers, webPersonAvatarHosts, clusteringActive],
+  );
 
   /**
    * The names floating over the pins.
@@ -2353,6 +2376,14 @@ export function LocationImmersiveMap({
               radiusPx: SELF_AVATAR_MARKER_SIZE_PX / 2,
             }
           : undefined,
+      reservedMarkers: (!clusteringActive && (webPersonAvatarHosts.size > 0 || selfPinDrawnAsAvatar))
+        ? personAvatarMarkers.map(marker => ({
+            key: marker.key,
+            point: marker.point,
+            radiusPx: SELF_AVATAR_MARKER_SIZE_PX / 2,
+            offsetYPx: -SELF_AVATAR_MARKER_SIZE_PX / 2,
+          }))
+        : [],
       minAnchorDistancePx: clusteringActive
         ? MAP_NAME_LABEL_CLUSTERED_ANCHOR_DISTANCE_PX
         : MAP_NAME_LABEL_MIN_ANCHOR_DISTANCE_PX,
@@ -2370,6 +2401,8 @@ export function LocationImmersiveMap({
     status,
     visibleMarkers,
     webAvatarOverlay,
+    webPersonAvatarHosts,
+    personAvatarMarkers,
   ]);
 
   useEffect(() => {
@@ -3004,6 +3037,7 @@ export function LocationImmersiveMap({
       initialFrameCommandRef.current = initialFrameCommand;
     }
     let cancelled = false;
+    const avatarController = new AbortController();
     const enqueue = (command: () => Promise<void>): Promise<void> => {
       const next = markerCommandRef.current
         .catch(() => undefined)
@@ -3012,6 +3046,10 @@ export function LocationImmersiveMap({
       return next;
     };
     void enqueue(async () => {
+      if (cancelled || generation !== markerGenerationRef.current || mapRef.current !== map) return;
+      webPersonAvatarBatchRef.current?.destroy();
+      webPersonAvatarBatchRef.current = null;
+      setWebPersonAvatarHosts(new Map());
       if (markerIdsRef.current.length) {
         const stale = markerIdsRef.current;
         markerIdsRef.current = [];
@@ -3024,6 +3062,11 @@ export function LocationImmersiveMap({
       ) {
         return;
       }
+      const avatarTitles = new Map(rendererMarkers.flatMap(marker =>
+        !isNative() && webAvatarOverlay && marker.kind === "person"
+          ? [[marker.key, `one-private-pin-${crypto.randomUUID()}`] as const]
+          : [],
+      ));
       const mapMarkers: Marker[] = rendererMarkers.map((marker) => {
         // Labels stay in the local HTML tray/search index. The native Google
         // renderer receives coordinates and a generic accessibility title,
@@ -3039,12 +3082,9 @@ export function LocationImmersiveMap({
             lat: marker.point.latitude,
             lng: marker.point.longitude,
           },
-          // `title` is only safe to send on native, where it fills the info
-          // window that opens on tap. The web renderer feeds it to the pin's
-          // *glyph* instead -- a slot meant for one character -- so any real
-          // title is painted across the map beside the pin. A place name plus
-          // its full postal address made a banner of it. Web keeps the plain
-          // coloured pin; the drawer already names both points in HTML.
+          // Native uses generic info-window copy. Web uses an opaque locator
+          // with a neutral icon until local avatar content replaces it. Never
+          // let a real label enter the web pin's single-character glyph slot.
           ...(isNative()
             ? {
                 title,
@@ -3053,7 +3093,13 @@ export function LocationImmersiveMap({
                     ? "Your check-in place"
                     : "Sharing privately now",
               }
-            : {}),
+            : avatarTitles.has(marker.key)
+              ? {
+                  title: avatarTitles.get(marker.key),
+                  iconUrl: webPersonMarkerPlaceholder(isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs)),
+                  iconSize: { width: 44, height: 44 },
+                }
+              : {}),
           // Grey once the position is older than live. tintColor is the only
           // per-pin styling this bridge exposes -- `title` cannot carry it,
           // because the web renderer paints titles across the map as a glyph
@@ -3080,6 +3126,16 @@ export function LocationImmersiveMap({
         if (ids.length) await map.removeMarkers(ids).catch(() => undefined);
         return;
       }
+      const batch = mapElement.current && avatarTitles.size
+        ? await attachWebPersonAvatarHosts(mapElement.current, avatarTitles, avatarController.signal)
+        : null;
+      if (cancelled || generation !== markerGenerationRef.current || !rendererReadyRef.current || mapRef.current !== map) {
+        batch?.destroy();
+        if (ids.length) await map.removeMarkers(ids).catch(() => undefined);
+        return;
+      }
+      webPersonAvatarBatchRef.current = batch;
+      setWebPersonAvatarHosts(batch?.hosts ?? new Map());
       markerIdsRef.current = ids;
       // Indexed against `rendererMarkers`, not `visibleMarkers`: the owner is
       // a separately managed renderer circle and has no marker-click id.
@@ -3145,6 +3201,7 @@ export function LocationImmersiveMap({
     });
     return () => {
       cancelled = true;
+      avatarController.abort();
     };
     // staleClockMs and freshnessSeconds are dependencies because a pin has to
     // change colour while nothing else changes at all. Without them the tint
@@ -3160,6 +3217,7 @@ export function LocationImmersiveMap({
     visibleMarkers,
     freshnessSeconds,
     staleClockMs,
+    webAvatarOverlay,
   ]);
 
   const retryRendererPreparation = useCallback(() => {
@@ -3833,6 +3891,23 @@ export function LocationImmersiveMap({
         keyboard-only control while the separately managed renderer circle
         stays tied to the coordinate.
       */}
+      {rendererReady && mapReady && status !== "unavailable" && !closing
+        ? personAvatarMarkers.map(person => (
+            <MapPersonAvatarMarker
+              key={person.grantId ?? person.key}
+              rendererElement={webPersonAvatarHosts.get(person.key) ?? null}
+              point={person.point}
+              camera={mapCamera}
+              viewport={mapBox}
+              avatarUrl={person.avatarUrl ?? null}
+              displayName={person.label}
+              accessibleLabel={`Location of ${person.label}`}
+              stale={isStaleAt(person.capturedAt, freshnessSeconds, staleClockMs)}
+              showAvatar={selfPinDrawnAsAvatar}
+              onSelect={() => { void focusMarker(person).catch(() => undefined); }}
+            />
+          ))
+        : null}
       {rendererReady &&
       mapSelfMarker &&
       mapReady &&

@@ -30,6 +30,7 @@ from hushh_mcp.services.google_calendar_service import (
     get_google_calendar_service,
 )
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
+from hushh_mcp.services.product_value_receipts import capture_value_epoch, record_calendar_effect
 
 _READABLE_CALENDAR_ROLES = frozenset({"reader", "writer", "owner", "writerWithoutPrivateAccess"})
 _INVENTORY_MAX = 100
@@ -171,7 +172,9 @@ class CalendarScheduleService:
     async def _sql(self, sql, params):
         return await asyncio.to_thread(self.db.execute_raw, sql, params)
 
-    async def today(self, *, user_id: str, date: str, time_zone: str):
+    async def today(
+        self, *, user_id: str, date: str, time_zone: str, include_hidden_invitations: bool = False
+    ):
         start, end = day_window(date, time_zone)
         binding = await self._read_binding(user_id)
         calendars = await self._included_calendars(user_id, binding=binding)
@@ -191,6 +194,7 @@ class CalendarScheduleService:
                     start=start,
                     end=end,
                     binding=binding,
+                    include_hidden_invitations=include_hidden_invitations,
                 )
 
         tasks = [
@@ -237,7 +241,9 @@ class CalendarScheduleService:
             "calendar_options": self._availability_options(calendars),
         }
 
-    async def _day_events(self, *, user_id, calendar, date, start, end, binding):
+    async def _day_events(
+        self, *, user_id, calendar, date, start, end, binding, include_hidden_invitations=False
+    ):
         # Google matches all-day dates using the source calendar's zone. Fetch
         # around both civil days, then apply the selected day's exact contract.
         action_id = "primary" if calendar.get("primary") is True else calendar["id"]
@@ -260,6 +266,7 @@ class CalendarScheduleService:
                 max_results=250,
                 page_token=page,
                 expected_binding=binding,
+                include_hidden_invitations=include_hidden_invitations,
             )
             await self.calendar._check_read_binding(user_id, binding)
             for event in response["events"]:
@@ -275,6 +282,7 @@ class CalendarScheduleService:
                     **event,
                     "calendar_id": action_id,
                     "source_calendar_id": calendar["id"],
+                    "source_time_zone": calendar.get("time_zone"),
                     "calendar_name": calendar["name"],
                     "calendar_color": calendar.get("background_color"),
                     "calendar_foreground_color": calendar.get("foreground_color"),
@@ -500,6 +508,7 @@ class CalendarScheduleService:
         start_time="00:00",
         end_time="24:00",
         calendar_overrides=None,
+        max_windows: int | None = 3,
     ):
         if duration_minutes not in (15, 30, 60):
             raise _error("Choose 15, 30 or 60 minutes.")
@@ -552,7 +561,7 @@ class CalendarScheduleService:
         ]
         await self.calendar._check_read_binding(user_id, binding)
         return {
-            "windows": windows[:3],
+            "windows": windows if max_windows is None else windows[:max_windows],
             "full_count": len(windows),
             "requested_duration_minutes": duration_minutes,
             "calendars": calendars,
@@ -688,9 +697,9 @@ class CalendarScheduleService:
         return base64.urlsafe_b64encode(nonce + encrypted).decode().rstrip("=")
 
     @classmethod
-    def _open(cls, token: str, purpose: str):
+    def _open(cls, token: str, purpose: str, *, max_length: int = 40000):
         try:
-            if not 40 <= len(token) <= 40000:
+            if not 40 <= len(token) <= max_length:
                 raise ValueError()
             raw = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4))
             plan = json.loads(
@@ -821,6 +830,7 @@ class CalendarScheduleService:
         calendar_id: str = "primary",
         offer_times: bool = False,
         send_message: bool = False,
+        mail_only_retry: bool = False,
         exact_time: bool = False,
         message: str = "",
         date: str = "",
@@ -837,6 +847,12 @@ class CalendarScheduleService:
             raise _error("An exact proposed time requires an alternative-time response.")
         if send_message and not message.strip():
             raise _error("Write a reason for declining before sending your email.")
+        if mail_only_retry and (
+            not send_message or offer_times or exact_time or response_status != "declined"
+        ):
+            raise _error(
+                "An email-only retry requires a declined invitation and one reviewed note."
+            )
         binding = await self._read_binding(user_id)
         event, patch, email = await self._event(
             user_id, event_id, calendar_id, binding, response_status
@@ -847,6 +863,17 @@ class CalendarScheduleService:
                 409,
                 "calendar_connection_changed",
             )
+        if mail_only_retry:
+            attendee_email = patch["attendees"][0]["email"].casefold()
+            if not any(
+                str(attendee.get("email") or "").casefold() == attendee_email
+                and attendee.get("responseStatus") == "declined"
+                for attendee in event["attendees"]
+            ):
+                raise _error(
+                    "This invitation is no longer declined. Review it again before sending Mail.",
+                    409,
+                )
         conflicts, unchecked = [], []
         if response_status == "accepted":
             conflicts, unchecked = await self._invitation_conflicts(
@@ -860,11 +887,13 @@ class CalendarScheduleService:
         await self.calendar._check_read_binding(user_id, binding)
         plan = {
             "user_id": user_id,
+            "account_id": getattr(self.calendar.connections, "account_id", "default"),
             "review_id": review_id,
             "expires": (datetime.now(UTC) + timedelta(minutes=10)).timestamp(),
             "event_id": event_id,
             "calendar_id": calendar_id,
             "response_status": response_status,
+            "mail_only_retry": mail_only_retry,
             "conflicts": conflicts,
             "unchecked_calendars": unchecked,
             "time_zone": time_zone,
@@ -923,6 +952,7 @@ class CalendarScheduleService:
                 origin = _recipient_origin(get_app_runtime_settings().app_frontend_origin)
                 public_plan = {
                     "user_id": user_id,
+                    "account_id": getattr(self.calendar.connections, "account_id", "default"),
                     "email": email,
                     "binding": list(binding),
                     "expires": (datetime.now(UTC) + timedelta(days=3)).timestamp(),
@@ -968,6 +998,13 @@ class CalendarScheduleService:
             )
             draft["sender_token"] = mail_review["sender_token"]
             plan["mail"] = {"action_id": mail_review["action_id"], "draft": draft}
+        review_token = self._seal(plan, "calendar-review-v1")
+        if len(review_token) > 40000:
+            raise _error(
+                "The organizer note is too long for this Calendar review. Shorten it and review again.",
+                422,
+                "calendar_review_too_large",
+            )
         await self.calendar._check_read_binding(user_id, binding)
         await self._sql("DELETE FROM calendar_attendance_reviews WHERE expires_at <= NOW()", {})
         await self._sql(
@@ -987,7 +1024,7 @@ class CalendarScheduleService:
             "unchecked_calendars": unchecked,
             "openings": alternatives,
             "exact_time": exact_time,
-            "review_token": self._seal(plan, "calendar-review-v1"),
+            "review_token": review_token,
             "title": event.get("summary") or "Untitled event",
             "recipient": draft["to"] if draft else None,
             "subject": draft["subject"] if draft else None,
@@ -1019,6 +1056,7 @@ class CalendarScheduleService:
                 409,
                 "calendar_confirmation_pending",
             )
+        value_epoch = await capture_value_epoch(user_id)
         patch_attempted = False
         result = {
             "calendar": "failed",
@@ -1067,6 +1105,11 @@ class CalendarScheduleService:
                 for item in current["attendees"]
                 if str(item.get("email") or "").casefold() == attendee_email
             )
+            if plan.get("mail_only_retry") and attendee.get("responseStatus") != "declined":
+                raise _error(
+                    "This invitation is no longer declined. Review it again before sending Mail.",
+                    409,
+                )
             if attendee.get("responseStatus") != target_status:
                 patch_attempted = True
                 response = await self.calendar._request(
@@ -1135,6 +1178,13 @@ class CalendarScheduleService:
             "UPDATE calendar_attendance_reviews SET state = 'complete', result_json = CAST(:result AS jsonb) WHERE review_id = :review_id AND user_id = :user_id",
             {**params, "result": json.dumps(result)},
         )
+        if patch_attempted and result["calendar"] in {"accepted", "declined", "tentative"}:
+            await record_calendar_effect(
+                user_id=user_id,
+                kind="attendance",
+                source_id=params["review_id"],
+                generation=value_epoch,
+            )
         return result
 
     async def public_options(self, *, token: str):

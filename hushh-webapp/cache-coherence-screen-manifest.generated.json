@@ -3122,7 +3122,7 @@
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
-        "cache_sync": false,
+        "cache_sync": true,
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
@@ -5881,16 +5881,14 @@
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": false,
-        "resource_wrapper": false,
+        "resource_wrapper": true,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/wallet",
@@ -7196,5 +7194,5 @@
       ]
     }
   ],
-  "content_sha256": "dcdf42103011f2ed58bc0a73255779e9a8da3aa36f3bddfbb2ac00faa4725bb5"
+  "content_sha256": "3377f62ba4c0ae0dd4a0bf8e834f2587d0c982ff7dda06ae674ddde6f6b296ff"
 }

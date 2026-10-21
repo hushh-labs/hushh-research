@@ -32,13 +32,17 @@ export function NativeAccentChoice({ value, owner, context, eligible }: {
   return <div className="flex min-w-0 items-center justify-end">
     <NativeChatChrome kind="accent" value={value} onValueChange={writeAccent}
       fullTrigger palette={palette} owner={owner} context={context} eligible={eligible && !!palette} focusRef={trigger}
-      className="flex h-11 w-[180px] max-w-full shrink-0 items-center justify-center [&>div]:w-full">
+      className="flex h-11 w-[138px] max-w-full shrink-0 items-center justify-center [&>div]:w-full">
       <Select value={value} onValueChange={(next) => { if (next === "blue" || next === "gold") writeAccent(next); }}>
         <SelectTrigger ref={trigger} aria-label="App accent color"
-          className={cn(SHELL_ICON_BUTTON_CLASSNAME, "h-11 w-full justify-between gap-2 px-3 data-[size=default]:h-11")}>
-          <span aria-hidden className="size-3 shrink-0 rounded-full bg-[color:var(--app-accent)]" />
-          <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
-          <MaterialRipple variant="blue" effect="glass" className="z-10" />
+          className={cn(SHELL_ICON_BUTTON_CLASSNAME, "group/accent h-11 w-full justify-between gap-1 border-0 !bg-transparent px-2 !shadow-none data-[size=default]:h-11 [&>svg]:relative [&>svg]:z-10")}>
+          {/* Match Appearance's 36px visual track inside the same 44px target. */}
+          <span aria-hidden data-slot="accent-control-surface"
+            className={cn(SHELL_ICON_BUTTON_CLASSNAME, "pointer-events-none absolute inset-x-0 inset-y-1 h-auto w-full group-hover/accent:bg-[color:var(--app-shell-surface-bg-hover)]")}>
+            <MaterialRipple variant="blue" effect="glass" className="z-10" />
+          </span>
+          <span aria-hidden className="relative z-10 size-3 shrink-0 rounded-full bg-[color:var(--app-accent)]" />
+          <span className="relative z-10 min-w-0 flex-1 truncate text-xs">{label}</span>
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="blue"><span aria-hidden className="inline-block size-3 shrink-0 rounded-full bg-[color:var(--accent-preview-blue)] ring-1 ring-foreground/40" /> Blue</SelectItem>

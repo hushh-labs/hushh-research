@@ -169,6 +169,113 @@ def _approved_row():
 
 
 @pytest.mark.asyncio
+async def test_uat_drive_default_has_policy_authority_not_fake_owner_acceptance(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
+
+    async def missing(_owner):
+        return None
+
+    monkeypatch.setattr(approval, "_read", missing)
+    for owner in ("existing-account", "new-account"):
+        status = await approval.get_private_text_approval(user_id=owner, include_policy=True)
+        assert status["enabled"] is False
+        assert status["accepted_at"] is None and status["generation"] is None
+        assert status["processing_policy"]["enabled"] is True
+        assert status["processing_policy"]["basis"] == "uat_policy"
+        grant = await approval.require_private_azure_text_approval(
+            owner, scope=approval.DRIVE_DOCUMENT_REQUESTS_SCOPE
+        )
+        assert grant.user_id == owner and grant.authorization_basis == "uat_policy"
+        await approval.private_azure_text_require_current(grant)()
+        # The same absent receipt grants no generic private chat permission.
+        with pytest.raises(approval.PrivateTextApprovalError):
+            await approval.require_private_azure_text_approval(owner)
+        # Old strict clients receive the unchanged owner-receipt shape.
+        assert "processing_policy" not in await approval.get_private_text_approval(user_id=owner)
+
+
+@pytest.mark.asyncio
+async def test_uat_drive_policy_rechecks_revocation_generation_and_environment(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
+    row = None
+
+    async def read(_owner):
+        return row
+
+    monkeypatch.setattr(approval, "_read", read)
+    grant = await approval.require_private_azure_text_approval(
+        "owner", scope=approval.DRIVE_DOCUMENT_REQUESTS_SCOPE
+    )
+    current = approval.private_azure_text_require_current(grant)
+    await current()
+    row = {**_approved_row(), "enabled": False, "revoked_at": datetime.now(UTC)}
+    await current()  # A historical pilot refusal is not this administrator policy.
+    row = None
+    from hushh_mcp import managed_ai_config
+
+    original = managed_ai_config.load_private_drive_text_policy()
+    monkeypatch.setattr(
+        __import__(
+            "hushh_mcp.runtime_providers.managed_text", fromlist=["load_private_drive_text_policy"]
+        ),
+        "load_private_drive_text_policy",
+        lambda: {**original, "version": "rotated-policy-v2"},
+    )
+    with pytest.raises(approval.PrivateTextApprovalError) as changed:
+        await current()
+    assert changed.value.code == "PRIVATE_AZURE_TEXT_APPROVAL_CHANGED"
+    monkeypatch.setattr(
+        __import__(
+            "hushh_mcp.runtime_providers.managed_text", fromlist=["load_private_drive_text_policy"]
+        ),
+        "load_private_drive_text_policy",
+        lambda: original,
+    )
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini")
+    await current()  # Old selector cannot silently choose Gemini.
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
+    for environment in ("production", "development", ""):
+        monkeypatch.setenv("HUSHH_DEPLOY_ENV", environment)
+        if not environment:
+            monkeypatch.setenv("ENVIRONMENT", "")
+        with pytest.raises(approval.PrivateTextApprovalError):
+            await current()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["disabled", "old-version", "no-receipt", "revoked"])
+async def test_uat_admin_policy_does_not_rewrite_a_legacy_pilot_receipt(monkeypatch, state):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
+    row = _approved_row()
+    if state == "disabled":
+        row["enabled"] = False
+    elif state == "old-version":
+        row["disclosure_version"] = "old-version"
+    elif state == "no-receipt":
+        row["accepted_at"] = None
+    else:
+        row["revoked_at"] = datetime.now(UTC)
+
+    async def read(_owner):
+        return row
+
+    monkeypatch.setattr(approval, "_read", read)
+    before = dict(row)
+    for scope in (approval.DRIVE_DOCUMENT_REQUESTS_SCOPE, "one_text_chat"):
+        grant = await approval.require_private_azure_text_approval("owner", scope=scope)
+        assert grant.authorization_basis == "uat_policy"
+    assert row == before
+    with pytest.raises(approval.PrivateTextApprovalError):
+        await approval.require_private_azure_text_approval("owner")
+
+
+@pytest.mark.asyncio
 async def test_private_azure_approval_is_owner_bound_and_rechecked_before_each_send(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
@@ -361,6 +468,21 @@ async def test_private_approval_postgres_replay_revoke_and_generation_fence(monk
         await pool.execute("INSERT INTO actor_profiles VALUES ('owner-a'), ('owner-b')")
         await pool.execute(migration)
         await pool.execute(migration)
+        monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
+        default = await approval.get_private_text_approval(user_id="owner-b", include_policy=True)
+        assert default["processing_policy"]["enabled"] is True
+        assert default["generation"] is None and default["accepted_at"] is None
+        policy_grant = await approval.require_private_azure_text_approval(
+            "owner-b", scope=approval.DRIVE_DOCUMENT_REQUESTS_SCOPE
+        )
+        opted_out = await approval.set_private_text_approval(
+            user_id="owner-b", enabled=False, expected_generation=None, include_policy=True
+        )
+        assert opted_out["accepted_at"] is None
+        assert opted_out["processing_policy"]["enabled"] is True
+        assert opted_out["generation"] != policy_grant.generation
+        await approval.private_azure_text_require_current(policy_grant)()
+        await pool.execute("DELETE FROM actor_profiles WHERE user_id = 'owner-b'")
         assert (await approval.get_private_text_approval(user_id="owner-a"))["enabled"] is False
         first = await approval.set_private_text_approval(
             user_id="owner-a",
@@ -421,3 +543,25 @@ async def test_private_approval_postgres_replay_revoke_and_generation_fence(monk
         await pool.close()
         await connection.execute(f'DROP SCHEMA "{schema}" CASCADE')
         await connection.close()
+
+
+@pytest.mark.asyncio
+async def test_uat_effective_model_is_managed_for_saved_and_missing_choices(monkeypatch):
+    from hushh_mcp.runtime_providers.managed_text import managed_text_binding
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    for selected in (None, "gemini-3.7-flash"):
+
+        async def stored(_owner, choice=selected):
+            return choice
+
+        monkeypatch.setattr(prefs, "_stored_choice", stored)
+        payload = await prefs.get_preference(user_id="arbitrary-owner")
+        assert payload["effective_model"] == managed_text_binding()["deployment"]
+        assert payload["source"] == "administrator_policy"
+        assert payload["selected_model"] == selected
+        assert len(payload["choices"]) == 1
+        with pytest.raises(prefs.ModelPreferenceError) as denied:
+            await prefs.set_preference(user_id="arbitrary-owner", model_id=selected)
+        assert denied.value.code == "MODEL_MANAGED_BY_POLICY"

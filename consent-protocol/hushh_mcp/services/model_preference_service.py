@@ -137,6 +137,25 @@ def _choice_payload(choice: TextModelChoice, effective: str) -> dict[str, Any]:
 async def get_preference(*, user_id: str) -> dict[str, Any]:
     """What this person may choose, what they chose, and what actually runs."""
     resolved = await resolve_text_model(user_id)
+    from hushh_mcp.runtime_providers.managed_text import managed_text_binding, managed_text_policy
+
+    policy = managed_text_policy()
+    if policy is not None:
+        binding = managed_text_binding()
+        return {
+            "user_id": user_id,
+            "selected_model": resolved.selected,
+            "effective_model": binding["deployment"],
+            "source": "administrator_policy",
+            "choices": [
+                {
+                    "model_id": binding["deployment"],
+                    "label": "Azure · managed in UAT",
+                    "is_default": True,
+                    "is_active": True,
+                }
+            ],
+        }
     choices = selectable_text_models()
     return {
         "user_id": user_id,
@@ -149,6 +168,12 @@ async def get_preference(*, user_id: str) -> dict[str, Any]:
 
 async def set_preference(*, user_id: str, model_id: str | None) -> dict[str, Any]:
     """Record this person's choice, or clear it with ``None`` to follow the lane again."""
+    from hushh_mcp.runtime_providers.managed_text import managed_text_policy
+
+    if managed_text_policy() is not None:
+        raise ModelPreferenceError(
+            "The UAT text model is managed by Hussh.", code="MODEL_MANAGED_BY_POLICY"
+        )
     normalized_user = str(user_id or "").strip()
     if not normalized_user:
         raise ModelPreferenceError(

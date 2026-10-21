@@ -1,4 +1,4 @@
-"""Owner approval for the private Azure text pilot, separate from model choice.
+"""Owner approval and scoped UAT Drive rollout, separate from model choice.
 
 This is permission, never rollout or information-access authority. Callers must
 retain their existing owner, vault, connector and request checks. Capture a grant
@@ -14,12 +14,13 @@ import os
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from db.connection import get_pool
 
 PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION = "one-private-azure-text-v1"
 PRIVATE_AZURE_TEXT_PROVIDER = "azure_openai"
+DRIVE_DOCUMENT_REQUESTS_SCOPE = "drive_document_requests"
 _STORE_TIMEOUT_SECONDS = 5.0
 
 
@@ -37,6 +38,35 @@ class PrivateAzureTextApproval:
     user_id: str
     generation: str
     disclosure_version: str = PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION
+    authorization_basis: str = "owner_approval"
+
+
+def private_drive_text_policy() -> dict[str, Any] | None:
+    """The checked-in default grants processor use only, never file access."""
+    _require_uat()
+    from hushh_mcp.runtime_providers.managed_text import managed_text_policy
+
+    try:
+        return managed_text_policy()
+    except Exception:
+        raise _unavailable() from None
+
+
+def resolve_private_text_authority(
+    row: Mapping[str, Any] | None, *, user_id: str, scope: str | None = None
+) -> PrivateAzureTextApproval | None:
+    """Admin policy is processor basis; legacy pilot receipts remain historical."""
+    _require_uat()
+    owner = _owner(user_id)
+    if scope in {DRIVE_DOCUMENT_REQUESTS_SCOPE, "one_text_chat"}:
+        policy = private_drive_text_policy()
+        if policy is not None:
+            return PrivateAzureTextApproval(
+                owner, policy["generation"], policy["version"], "uat_policy"
+            )
+    if row is not None and _approved(row):
+        return PrivateAzureTextApproval(owner, str(row["generation"]))
+    return None
 
 
 def _owner(user_id: str) -> str:
@@ -73,11 +103,14 @@ def _approved(row: Mapping[str, Any] | None) -> bool:
         and row["disclosure_version"] == PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION
         and row["accepted_at"] is not None
         and row["generation"] is not None
+        and row["revoked_at"] is None
     )
 
 
-def _public(row: Mapping[str, Any] | None) -> dict[str, Any]:
-    return {
+def _public(
+    row: Mapping[str, Any] | None, *, user_id: str, include_policy: bool = False
+) -> dict[str, Any]:
+    result = {
         "provider": PRIVATE_AZURE_TEXT_PROVIDER,
         "disclosure_version": PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION,
         "enabled": _approved(row),
@@ -85,6 +118,18 @@ def _public(row: Mapping[str, Any] | None) -> dict[str, Any]:
         "accepted_at": row["accepted_at"].isoformat() if row and row["accepted_at"] else None,
         "revoked_at": row["revoked_at"].isoformat() if row and row["revoked_at"] else None,
     }
+    if include_policy:
+        grant = resolve_private_text_authority(
+            row, user_id=user_id, scope=DRIVE_DOCUMENT_REQUESTS_SCOPE
+        )
+        result["processing_policy"] = {
+            "enabled": grant is not None,
+            "basis": grant.authorization_basis if grant else "disabled",
+            "version": grant.disclosure_version if grant else None,
+            "generation": grant.generation if grant else None,
+            "scope": "one_text_chat_and_drive_requests",
+        }
+    return result
 
 
 async def _read(user_id: str) -> Mapping[str, Any] | None:
@@ -92,18 +137,23 @@ async def _read(user_id: str) -> Mapping[str, Any] | None:
         async with asyncio.timeout(_STORE_TIMEOUT_SECONDS):
             pool = await get_pool()
             async with pool.acquire() as conn:
-                return await conn.fetchrow(
-                    """SELECT enabled, disclosure_version, generation, accepted_at, revoked_at
+                return cast(
+                    Mapping[str, Any] | None,
+                    await conn.fetchrow(
+                        """SELECT enabled, disclosure_version, generation, accepted_at, revoked_at
                     FROM one_private_text_processing_approvals WHERE user_id = $1""",
-                    user_id,
+                        user_id,
+                    ),
                 )
     except Exception:
         raise _unavailable() from None
 
 
-async def get_private_text_approval(*, user_id: str) -> dict[str, Any]:
+async def get_private_text_approval(
+    *, user_id: str, include_policy: bool = False
+) -> dict[str, Any]:
     _require_uat()
-    return _public(await _read(_owner(user_id)))
+    return _public(await _read(_owner(user_id)), user_id=user_id, include_policy=include_policy)
 
 
 async def set_private_text_approval(
@@ -112,6 +162,7 @@ async def set_private_text_approval(
     enabled: bool,
     expected_generation: str | None,
     disclosure_version: str | None = None,
+    include_policy: bool = False,
 ) -> dict[str, Any]:
     _require_uat()
     owner = _owner(user_id)
@@ -180,28 +231,28 @@ async def set_private_text_approval(
             code="PRIVATE_AZURE_TEXT_APPROVAL_CHANGED",
             status_code=409,
         )
-    return _public(row)
+    return _public(row, user_id=user_id, include_policy=include_policy)
 
 
 async def require_private_azure_text_approval(
-    user_id: str, *, expected_generation: str | None = None
+    user_id: str, *, expected_generation: str | None = None, scope: str | None = None
 ) -> PrivateAzureTextApproval:
     """Fail closed before private Azure work; bind retries to this approval generation."""
     _require_uat()
     owner = _owner(user_id)
-    row = await _read(owner)
-    if not _approved(row):
+    row = None if scope in {DRIVE_DOCUMENT_REQUESTS_SCOPE, "one_text_chat"} else await _read(owner)
+    grant = resolve_private_text_authority(row, user_id=owner, scope=scope)
+    if grant is None:
         raise PrivateTextApprovalError(
             "Private Azure text processing needs your current approval.",
             code="PRIVATE_AZURE_TEXT_APPROVAL_REQUIRED",
         )
-    generation = str(row["generation"])
-    if expected_generation is not None and generation != expected_generation:
+    if expected_generation is not None and grant.generation != expected_generation:
         raise PrivateTextApprovalError(
             "Private Azure text approval changed. Start again with the current approval.",
             code="PRIVATE_AZURE_TEXT_APPROVAL_CHANGED",
         )
-    return PrivateAzureTextApproval(owner, generation)
+    return grant
 
 
 def private_azure_text_require_current(
@@ -210,13 +261,23 @@ def private_azure_text_require_current(
     """A request-local guard; never cache a successful check across sends or retries."""
 
     async def require_current() -> None:
-        if approval.disclosure_version != PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION:
+        policy_grant = approval.authorization_basis == "uat_policy"
+        if (
+            not policy_grant
+            and approval.disclosure_version != PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION
+        ):
             raise PrivateTextApprovalError(
                 "Private Azure text disclosure changed.",
                 code="PRIVATE_AZURE_TEXT_APPROVAL_CHANGED",
             )
-        await require_private_azure_text_approval(
-            approval.user_id, expected_generation=approval.generation
+        current = await require_private_azure_text_approval(
+            approval.user_id,
+            expected_generation=approval.generation,
+            **({"scope": DRIVE_DOCUMENT_REQUESTS_SCOPE} if policy_grant else {}),
         )
+        if current.authorization_basis != approval.authorization_basis:
+            raise PrivateTextApprovalError(
+                "Private Azure text authority changed.", code="PRIVATE_AZURE_TEXT_APPROVAL_CHANGED"
+            )
 
     return require_current

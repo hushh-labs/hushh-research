@@ -63,6 +63,24 @@ def profile_hash(value: dict) -> str:
     ).hexdigest()
 
 
+def load_private_drive_text_policy(path: Path = PROFILE_PATH) -> dict:
+    """Versioned administrator rollout; never an owner's acceptance receipt."""
+    value = json.loads(path.read_text())["private_drive_text_uat"]
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"enabled", "policy_id", "version", "provider", "authority_basis", "scope"}
+        or type(value["enabled"]) is not bool
+        or value["provider"] != "azure_openai"
+        or value["authority_basis"] != "administrator_rollout"
+        or value["scope"] != "one_text_chat_and_drive_requests"
+        or not isinstance(value["version"], str)
+        or not re.fullmatch(r"[a-z0-9-]{1,64}", value["version"])
+        or str(UUID(value["policy_id"])) != value["policy_id"]
+    ):
+        raise ValueError("Invalid UAT private Drive text policy")
+    return value
+
+
 def load_pwm_policy(path: Path = PROFILE_PATH, *, environment: str | None = None) -> dict:
     """Research limits and provider are one checked-in runtime contract."""
     document = json.loads(path.read_text())

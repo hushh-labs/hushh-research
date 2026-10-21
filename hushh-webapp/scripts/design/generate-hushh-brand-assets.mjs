@@ -455,6 +455,11 @@ for (const [tab, definition] of Object.entries(navigationIcons)) {
 // layer preserves the account glyphs' app-authoritative accent strokes.
 const profileAssets = [];
 const profileGlyphSize = 28; // Shared SettingsRow glyph, inside its 32-point well.
+// The key's pinpoint is deliberately Blue even when the app accent is Gold.
+// Read that existing authored token; native artwork must not invent a palette.
+const profileStyles = await readFile(resolve(WEB_ROOT, "app/globals.css"), "utf8");
+const keyAccentHex = profileStyles.match(/--accent-preview-blue:\s*(#[0-9a-f]{6})\s*;/i)?.[1];
+if (!keyAccentHex) throw new Error("Missing canonical Blue artwork token");
 const profileLoader = await createServer({
   configFile: false, root: WEB_ROOT, appType: "custom", logLevel: "error",
   resolve: { alias: { "@": WEB_ROOT } },
@@ -464,7 +469,7 @@ const profileLoader = await createServer({
 try {
   const { PROFILE_MENU_GROUPS } = await profileLoader.ssrLoadModule("/components/profile/profile-menu-model.ts");
   const rows = await profileLoader.ssrLoadModule("/components/icons/agents/row-icons.tsx");
-  const accountIcons = await profileLoader.ssrLoadModule("/components/icons/agents/index.ts");
+  const { PROFILE_ICONS } = await profileLoader.ssrLoadModule("/components/icons/profile-icons.ts");
   const payoutInnerIcons = await profileLoader.ssrLoadModule("/components/profile/profile-inner-icons.tsx");
   const payoutSecondaryIcons = await profileLoader.ssrLoadModule("/components/profile/profile-secondary-icons.tsx");
   const { GeminiLogo } = await profileLoader.ssrLoadModule("/components/brand/gemini-logo.tsx");
@@ -474,16 +479,17 @@ try {
     { id: "style-length", icon: rows.ReplyLengthRowIcon },
     { id: "style-language", icon: rows.LanguageRowIcon },
     { id: "style-punctuation", icon: rows.PunctuationRowIcon },
-    { id: "account-mail", icon: accountIcons.GmailAgentIcon },
-    { id: "account-phone", icon: accountIcons.PhoneRowIcon },
-    { id: "account-wallet", icon: accountIcons.WalletAgentIcon },
-    { id: "account-reset", icon: accountIcons.ResetRowIcon },
-    { id: "account-delete", icon: accountIcons.DeleteRowIcon },
-    { id: "appearance", icon: accountIcons.AppearanceRowIcon },
-    { id: "accent", icon: accountIcons.AccentRowIcon },
-    { id: "voice", icon: accountIcons.VoiceRowIcon },
-    { id: "vault-methods", icon: accountIcons.FingerprintProfileIcon },
-    { id: "vault-password", icon: accountIcons.PassphraseRowIcon },
+    { id: "account-name", icon: PROFILE_ICONS.name },
+    { id: "account-mail", icon: PROFILE_ICONS.mail },
+    { id: "account-phone", icon: PROFILE_ICONS.phone },
+    { id: "account-wallet", icon: PROFILE_ICONS.wallet },
+    { id: "account-reset", icon: PROFILE_ICONS.reset },
+    { id: "account-delete", icon: PROFILE_ICONS.delete },
+    { id: "appearance", icon: PROFILE_ICONS.appearance },
+    { id: "accent", icon: PROFILE_ICONS.accent },
+    { id: "voice", icon: PROFILE_ICONS.voice },
+    { id: "vault-methods", icon: PROFILE_ICONS.vault },
+    { id: "vault-password", icon: PROFILE_ICONS.passphrase },
     { id: "payout-receipt", icon: payoutSecondaryIcons.ProfileSecondaryReceiptIcon },
     { id: "payout-warning", icon: payoutInnerIcons.ProfileInnerWarningIcon },
     { id: "payout-progress", icon: payoutInnerIcons.ProfileInnerProgressIcon },
@@ -500,8 +506,16 @@ try {
     const fill = svg.getAttribute("fill");
     const colorHex = /^#[0-9a-f]{6}$/i.test(fill ?? "") ? fill : null;
     const original = entry.original === true;
+    const accentColorHex = svg.querySelector('[fill="var(--app-key-accent)"]') ? keyAccentHex : null;
     const accentFill = fill === "var(--app-accent)";
-    const accentSelector = ".profile-account-icon-accent, .profile-account-icon-accent-fill, .profile-pane-icon-accent, .profile-pane-icon-accent-fill";
+    // Existing key/reset glyphs paint accent geometry through an SVG pattern.
+    // Keep that authored paint server in both masks instead of recolouring or
+    // dropping its combined path. Never replace its vector geometry.
+    for (const paint of svg.querySelectorAll('[fill="var(--app-key-accent)"], [fill="var(--account-accent, var(--app-accent))"]')) {
+      paint.setAttribute("data-profile-native-accent", "true");
+      paint.setAttribute("fill", "#000000");
+    }
+    const accentSelector = ".profile-account-icon-accent, .profile-account-icon-accent-fill, .profile-pane-icon-accent, .profile-pane-icon-accent-fill, [data-profile-native-accent]";
     const hasAccent = accentFill || svg.querySelector(accentSelector) !== null;
     if (!original) {
       svg.setAttribute("style", "color:#000000");
@@ -515,8 +529,10 @@ try {
     for (const layer of hasAccent ? ["base", "accent"] : ["base"]) {
       const artwork = svg.cloneNode(true);
       for (const node of artwork.querySelectorAll("path,circle,rect,ellipse,line,polyline,polygon")) {
-        const accented = accentFill || node.matches(accentSelector);
-        if ((layer === "base" && accented) || (layer === "accent" && !accented)) node.setAttribute("opacity", "0");
+        const accented = accentFill || node.closest(accentSelector) !== null;
+        const paintServer = ["fill", "stroke"].some(attribute =>
+          /^url\(/.test(node.closest(`[${attribute}]`)?.getAttribute(attribute) ?? ""));
+        if (!paintServer && ((layer === "base" && accented) || (layer === "accent" && !accented))) node.setAttribute("opacity", "0");
         if (node.matches(".profile-account-icon-accent-fill, .profile-pane-icon-accent-fill")) node.setAttribute("fill", "#000000");
       }
       const name = `HushhProfile-${entry.id}-${layer}`;
@@ -533,7 +549,7 @@ try {
         properties: { "template-rendering-intent": original ? "original" : "template" },
       }, null, 2) + "\n"));
     }
-    profileAssets.push({ id: entry.id, colorHex, hasAccent, original });
+    profileAssets.push({ id: entry.id, colorHex, accentColorHex, hasAccent, original });
   }
   // The same authored vendor files/crop as ProfileConnectorGlyph. Match its
   // 22-point optical size in the shared 28-point native artwork well.
@@ -564,21 +580,23 @@ enum NativeProfileArtwork {
         let base: UIImage
         let accent: UIImage?
         let colorHex: String?
+        let accentColorHex: String?
     }
     static let ids = [${profileAssets.map(entry => JSON.stringify(entry.id)).join(", ")}]
     static func resolve(_ id: String) -> Artwork? {
         let colorHex: String?
+        let accentColorHex: String?
         let hasAccent: Bool
         let original: Bool
         switch id {
-${profileAssets.map(entry => `        case ${JSON.stringify(entry.id)}: colorHex = ${entry.colorHex ? JSON.stringify(entry.colorHex) : "nil"}; hasAccent = ${entry.hasAccent}; original = ${entry.original}`).join("\n")}
+${profileAssets.map(entry => `        case ${JSON.stringify(entry.id)}: colorHex = ${entry.colorHex ? JSON.stringify(entry.colorHex) : "nil"}; accentColorHex = ${entry.accentColorHex ? JSON.stringify(entry.accentColorHex) : "nil"}; hasAccent = ${entry.hasAccent}; original = ${entry.original}`).join("\n")}
         default: return nil
         }
         guard let base = UIImage(named: "HushhProfile-\\(id)-base") else { return nil }
         let accent = hasAccent ? UIImage(named: "HushhProfile-\\(id)-accent") : nil
         guard !hasAccent || accent != nil else { return nil }
         return Artwork(base: base.withRenderingMode(original ? .alwaysOriginal : .alwaysTemplate),
-                       accent: accent?.withRenderingMode(.alwaysTemplate), colorHex: colorHex)
+                       accent: accent?.withRenderingMode(.alwaysTemplate), colorHex: colorHex, accentColorHex: accentColorHex)
     }
 }
 `));

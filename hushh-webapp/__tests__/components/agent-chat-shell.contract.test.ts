@@ -218,7 +218,7 @@ describe("private-agent chat shell contract", () => {
     expect(brandTileStart).toBeGreaterThan(0);
     expect(brandTile).toContain("<OnePresenceAvatar");
     expect(brandTile).toContain('className="grid h-11 w-11 shrink-0 place-items-center"');
-    expect(brandTile).toContain('className="size-8 shrink-0"');
+    expect(brandTile).toContain('className="size-[var(--one-header-artwork-size,32px)] shrink-0"');
     expect(brandTile).not.toContain("max-sm:hidden");
   });
 
@@ -312,9 +312,7 @@ describe("private-agent chat shell contract", () => {
     expect(shell).toContain("agentBarHidden?: boolean");
     expect(shell).not.toContain("const agentBarVisible = !model.agentBarHidden");
     expect(shell).toContain("<AgentDockVoiceBoundary>");
-    // Puppy owns the retained composer while its mode is active; Cloud must
-    // release that seat rather than create a second destination for the draft.
-    expect(workspace).toContain("<AgentDockPortal enabled={isCanonicalChatRoute && !isPuppySurface}");
+    expect(workspace).toContain("<AgentDockPortal enabled={isCanonicalChatRoute} active={!isPuppySurface}");
     expect(workspace).toContain('<AgentBar layout="slot" />');
     expect(workspace).toContain("<AgentBarSurface");
     expect(workspace).not.toContain("<AgentVoiceWaveInput");

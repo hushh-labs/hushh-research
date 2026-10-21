@@ -1,4 +1,5 @@
-name: "Release iOS to TestFlight"
+name: Ship iOS to TestFlight
+run-name: ${{ inputs.cadence_origin && format('Cadence {0} testflight · {1}', inputs.cadence_ordinal, inputs.cadence_origin) || 'Ship iOS to TestFlight' }}
 
 # This workflow creates a normal UAT-backed TestFlight build only. It never
 # creates an App Store version or submits the app for public App Store review.
@@ -9,8 +10,20 @@ name: "Release iOS to TestFlight"
 on:
   workflow_dispatch:
     inputs:
+      cadence_origin:
+        description: Internal exact-run release cadence authority (leave blank for manual builds)
+        type: string
+        default: ""
+      cadence_ordinal:
+        description: Internal successful UAT deployment ordinal
+        type: string
+        default: ""
       sha:
         description: Exact green main SHA to ship. Blank selects latest main.
+        required: false
+        type: string
+      marketing_version:
+        description: Optional packaging version (x.y.z); does not change the release source or public App Store version.
         required: false
         type: string
       dry_run:
@@ -35,6 +48,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   checks: read
   id-token: write
 
@@ -56,10 +70,13 @@ jobs:
   preflight:
     name: Resolve green UAT release source
     runs-on: ubuntu-latest
-    environment: uat
+    environment:
+      name: uat
+      deployment: false
     timeout-minutes: 15
     outputs:
       release_sha: ${{ steps.resolve.outputs.sha }}
+      marketing_version: ${{ steps.packaging.outputs.marketing_version }}
     steps:
       - name: Refuse non-main dispatches
         shell: bash
@@ -78,6 +95,8 @@ jobs:
 
       - name: Authorize dispatching actor
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
 
       - name: Resolve exact green release SHA
@@ -137,8 +156,17 @@ jobs:
         shell: bash
         env:
           EXPECTED_SHA: ${{ steps.resolve.outputs.sha }}
+          CADENCE_ORIGIN: ${{ inputs.cadence_origin }}
         run: |
           set -euo pipefail
+          # Automated builds are bound to the healthy UAT release receipt by
+          # the exact-run actor gate above. UAT may advance, and frontend-only
+          # deployments intentionally retain an older backend. Never freeze or
+          # redeploy UAT to make its current backend match a queued app build.
+          if [ -n "$CADENCE_ORIGIN" ]; then
+            echo "Using the independently verified cadence receipt and backend lineage."
+            exit 0
+          fi
           resolver="$RUNNER_TEMP/resolve-cloud-run-serving-state.py"
           git show "$EXPECTED_SHA:scripts/ci/resolve-cloud-run-serving-state.py" > "$resolver"
           service_json="$RUNNER_TEMP/one-voice-uat-backend-service.json"
@@ -158,6 +186,30 @@ jobs:
             exit 1
           }
 
+      - name: Materialize automatic packaging credentials
+        if: inputs.cadence_origin != ''
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet pyjwt cryptography
+          bash scripts/ci/materialize-ios-asc-key.sh
+      - name: Resolve automatic packaging before allocating macOS
+        id: packaging
+        if: inputs.cadence_origin != ''
+        env:
+          RELEASE_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # Credentials are passed through a protected runner-local file; only
+          # the public marketing version is a job output.
+          git show "$RELEASE_SHA:$PBXPROJ" > "$RUNNER_TEMP/release.pbxproj"
+          version="$(python3 scripts/ci/submit-appstore-version.py --resolve-marketing-version --testflight \
+            --p8-path "$RUNNER_TEMP/asc.p8" --key-id "$ASC_KEY_ID" --issuer-id "$ASC_ISSUER_ID" \
+            --bundle-id "$IOS_BUNDLE_ID" --pbxproj "$RUNNER_TEMP/release.pbxproj")"
+          echo "marketing_version=$version" >> "$GITHUB_OUTPUT"
+      - name: Remove preflight signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/asc.p8"
+
   hardware-capture:
     name: Prove physical iPhone capture gate
     needs: preflight
@@ -174,9 +226,28 @@ jobs:
       - hardware-capture
     if: ${{ always() && needs.preflight.result == 'success' && (needs.hardware-capture.result == 'success' || needs.hardware-capture.result == 'skipped') }}
     runs-on: macos-15
-    environment: uat
+    concurrency:
+      group: ios-build-and-upload
+      cancel-in-progress: false
+      queue: max
+    environment:
+      name: uat
+      deployment: false
     timeout-minutes: 90
+    outputs:
+      build_number: ${{ steps.build_number.outputs.next_build }}
+      marketing_version: ${{ steps.identity.outputs.marketing_version }}
     steps:
+      - name: Check out current release authority
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Authorize build actor including individual job reruns
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
       - name: Check out exact release SHA
         uses: actions/checkout@v6
         with:
@@ -188,6 +259,26 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ needs.preflight.outputs.release_sha }}"
+
+      - name: Resolve TestFlight marketing version
+        shell: bash
+        env:
+          REQUESTED_MARKETING_VERSION: ${{ inputs.marketing_version || needs.preflight.outputs.marketing_version }}
+        run: |
+          set -euo pipefail
+          version="$(python3 - <<'PY'
+          import os, pathlib, re, sys
+          requested = os.environ.get('REQUESTED_MARKETING_VERSION', '').strip()
+          source = pathlib.Path(os.environ['PBXPROJ']).read_text()
+          match = re.search(r'MARKETING_VERSION\s*=\s*([^;]+)', source)
+          version = requested or (match.group(1).strip() if match else '')
+          if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
+              sys.exit('Marketing version must have three numeric components.')
+          print(version)
+          PY
+          )"
+          echo "IOS_MARKETING_VERSION=$version" >> "$GITHUB_ENV"
+          echo "TestFlight packaging version: $version"
 
       - name: Assert optional physical evidence agrees with source
         if: ${{ inputs.require_hardware == true }}
@@ -350,6 +441,7 @@ jobs:
             --key-id "$ASC_KEY_ID" \
             --issuer-id "$ASC_ISSUER_ID" \
             --bundle-id "$IOS_BUNDLE_ID" \
+            --marketing-version "$IOS_MARKETING_VERSION" \
             --pbxproj "$PBXPROJ")"
           echo "next_build=$next_build" >> "$GITHUB_OUTPUT"
 
@@ -376,8 +468,28 @@ jobs:
             -authenticationKeyPath "$RUNNER_TEMP/asc.p8" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            MARKETING_VERSION="$IOS_MARKETING_VERSION" \
             CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.next_build }}" \
             archive
+
+      - name: Verify archived app and extension versions
+        shell: bash
+        env:
+          EXPECTED_BUILD_NUMBER: ${{ steps.build_number.outputs.next_build }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, plistlib, sys
+          app = pathlib.Path(os.environ['RUNNER_TEMP'], 'App.xcarchive/Products/Applications/App.app')
+          plists = [app / 'Info.plist', *app.glob('PlugIns/*.appex/Info.plist')]
+          for path in plists:
+              with path.open('rb') as handle:
+                  info = plistlib.load(handle)
+              if (info.get('CFBundleShortVersionString') != os.environ['IOS_MARKETING_VERSION'] or
+                  str(info.get('CFBundleVersion')) != os.environ['EXPECTED_BUILD_NUMBER']):
+                  sys.exit(f'Archive version mismatch: {path.relative_to(app)}')
+          print(f'Verified app and {len(plists) - 1} extension version(s).')
+          PY
 
       - name: Verify archive assets, privacy, and own symbols
         shell: bash
@@ -443,8 +555,10 @@ jobs:
           BUILD_NUMBER: ${{ steps.build_number.outputs.next_build }}
         run: |
           python3 - <<'PY'
-          import json, os, pathlib, re
-          version = re.search(r'MARKETING_VERSION\s*=\s*([^;]+)', pathlib.Path(os.environ['PBXPROJ']).read_text()).group(1).strip()
+          import json, os, pathlib, plistlib
+          archive_info = pathlib.Path(os.environ['RUNNER_TEMP'], 'App.xcarchive/Products/Applications/App.app/Info.plist')
+          with archive_info.open('rb') as handle:
+              version = plistlib.load(handle)['CFBundleShortVersionString']
           receipt = dict(source_sha=os.environ['RELEASE_SHA'], build_number=os.environ['BUILD_NUMBER'], marketing_version=version, bundle_id=os.environ['IOS_BUNDLE_ID'])
           pathlib.Path(os.environ['RUNNER_TEMP'], 'testflight-upload-receipt.json').write_text(json.dumps(receipt))
           PY
@@ -458,56 +572,9 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
-      - name: Wait for valid TestFlight processing
-        id: processing
-        if: inputs.dry_run != true
-        shell: bash
-        run: |
-          set -euo pipefail
-          marketing_version="$(grep -m1 -E 'MARKETING_VERSION[[:space:]]*=' "$PBXPROJ" | sed -E 's/.*= *([^;]+);.*/\1/' | tr -d ' ')"
-          test -n "$marketing_version"
-          "$RUNNER_TEMP/asc-venv/bin/python" scripts/ci/wait_for_testflight_build.py \
-            --p8-path "$RUNNER_TEMP/asc.p8" \
-            --key-id "$ASC_KEY_ID" \
-            --issuer-id "$ASC_ISSUER_ID" \
-            --bundle-id "$IOS_BUNDLE_ID" \
-            --marketing-version "$marketing_version" \
-            --build-number "${{ steps.build_number.outputs.next_build }}" \
-            --timeout-seconds 1200 \
-            --poll-interval-seconds 15 \
-            --output-json "$RUNNER_TEMP/testflight-build.json"
-
-      - name: Attach the same valid build to both TestFlight groups
-        id: distribution
-        if: inputs.dry_run != true
-        shell: bash
-        run: |
-          set -euo pipefail
-          marketing_version="$(grep -m1 -E 'MARKETING_VERSION[[:space:]]*=' "$PBXPROJ" | sed -E 's/.*= *([^;]+);.*/\1/' | tr -d ' ')"
-          test -n "$marketing_version"
-          "$RUNNER_TEMP/asc-venv/bin/python" scripts/ci/distribute-testflight-build.py \
-            --p8-path "$RUNNER_TEMP/asc.p8" \
-            --key-id "$ASC_KEY_ID" \
-            --issuer-id "$ASC_ISSUER_ID" \
-            --bundle-id "$IOS_BUNDLE_ID" \
-            --marketing-version "$marketing_version" \
-            --build-number "${{ steps.build_number.outputs.next_build }}" \
-            --build-id-file "$RUNNER_TEMP/testflight-build.json" \
-            --internal-group-id "$ASC_INTERNAL_GROUP_ID" \
-            --external-group-id "$ASC_EXTERNAL_GROUP_ID" \
-            --beta-review-contact-file "$ASC_BETA_REVIEW_CONTACT_PATH" \
-            --beta-review-notes-file "$ASC_BETA_REVIEW_NOTES_PATH" \
-            --output-json "$RUNNER_TEMP/testflight-distribution.json"
-
-      - name: Upload redacted release evidence
-        if: ${{ always() && inputs.dry_run != true }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: one-voice-testflight-evidence-${{ needs.preflight.outputs.release_sha }}
-          retention-days: 14
-          if-no-files-found: error
-          path: |
-            ${{ runner.temp }}/testflight-distribution.json
+      - name: Preserve redacted distribution outputs
+        id: identity
+        run: echo "marketing_version=$IOS_MARKETING_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Remove protected runner files
         if: always()
@@ -533,10 +600,99 @@ jobs:
             echo "| Physical iPhone p95 (ms) | ${{ inputs.require_hardware == true && needs.hardware-capture.outputs.p95_time_to_capture_ms || 'not requested' }} |"
             echo "| Focused App Intent/action gate | ${{ steps.core_tests.outcome }} |"
             echo "| Build number | ${{ steps.build_number.outputs.next_build }} |"
+            echo "| Marketing version | ${IOS_MARKETING_VERSION:-unresolved} |"
             echo "| IPA export / TestFlight upload | ${{ steps.upload.outcome }} |"
             echo "| Private dry-run UAT IPA | ${PRIVATE_ARTIFACT_OUTCOME:-not requested} (14-day bucket retention; receipt only in Actions) |"
-            echo "| Apple processing | ${{ steps.processing.outcome }} |"
-            echo "| TestFlight distribution | ${{ steps.distribution.outcome }} |"
+            echo "| Apple processing | separate Ubuntu distribution job |"
+            echo "| TestFlight distribution | separate Ubuntu distribution job |"
             echo
             echo "The workflow uses TestFlight beta endpoints only. External tester availability is pending until Apple approves TestFlight Beta App Review when required; this workflow never submits an App Store version."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  distribute:
+    name: Process and distribute uploaded TestFlight build
+    needs: [preflight, ship]
+    if: ${{ needs.ship.result == 'success' && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    environment:
+      name: uat
+      deployment: false
+    timeout-minutes: 35
+    env:
+      IOS_MARKETING_VERSION: ${{ needs.ship.outputs.marketing_version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Authorize distribution actor including individual job reruns
+        run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: python3 -m pip install pyjwt cryptography
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Materialize protected distribution configuration
+        run: bash scripts/ci/materialize-ios-testflight-release-config.sh
+
+      - name: Wait for valid TestFlight processing
+        id: processing
+        if: inputs.dry_run != true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/wait_for_testflight_build.py \
+            --p8-path "$RUNNER_TEMP/asc.p8" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer-id "$ASC_ISSUER_ID" \
+            --bundle-id "$IOS_BUNDLE_ID" \
+            --marketing-version "$IOS_MARKETING_VERSION" \
+            --build-number "${{ needs.ship.outputs.build_number }}" \
+            --timeout-seconds 1200 \
+            --poll-interval-seconds 15 \
+            --output-json "$RUNNER_TEMP/testflight-build.json"
+
+      - name: Attach the same valid build to both TestFlight groups
+        id: distribution
+        if: inputs.dry_run != true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/distribute-testflight-build.py \
+            --p8-path "$RUNNER_TEMP/asc.p8" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer-id "$ASC_ISSUER_ID" \
+            --bundle-id "$IOS_BUNDLE_ID" \
+            --marketing-version "$IOS_MARKETING_VERSION" \
+            --build-number "${{ needs.ship.outputs.build_number }}" \
+            --build-id-file "$RUNNER_TEMP/testflight-build.json" \
+            --internal-group-id "$ASC_INTERNAL_GROUP_ID" \
+            --external-group-id "$ASC_EXTERNAL_GROUP_ID" \
+            --beta-review-contact-file "$ASC_BETA_REVIEW_CONTACT_PATH" \
+            --beta-review-notes-file "$ASC_BETA_REVIEW_NOTES_PATH" \
+            --output-json "$RUNNER_TEMP/testflight-distribution.json"
+
+      - name: Upload redacted release evidence
+        if: ${{ always() && inputs.dry_run != true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: one-voice-testflight-evidence-${{ needs.preflight.outputs.release_sha }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/testflight-distribution.json
+
+      - name: Distribution summary
+        if: always()
+        run: |
+          echo "Source: ${{ needs.preflight.outputs.release_sha }}; build: ${{ needs.ship.outputs.build_number }}." >> "$GITHUB_STEP_SUMMARY"
+          echo "Apple processing: ${{ steps.processing.outcome }}; distribution: ${{ steps.distribution.outcome }}. External Beta App Review may remain pending." >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove protected distribution files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/asc.p8" "$RUNNER_TEMP/asc-beta-review-contact.json" "$RUNNER_TEMP/asc-beta-review-notes.txt"

@@ -366,7 +366,7 @@ describe("NearbyCheckInSheet", () => {
     // The list still owns its own scrolling.
     const scroller = document
       .querySelector('[data-testid="one-location-nearby-check-in-sheet"]')
-      ?.querySelector(".overflow-y-auto");
+      ?.querySelector("[data-task-region=body]");
     expect(scroller).toBeTruthy();
   });
 

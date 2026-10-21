@@ -15,6 +15,31 @@
   },
   "actions": [
     {
+      "action_id": "profile.retry_phone_lookup",
+      "label": "Retry phone lookup",
+      "meaning": "Retries reading the signed-in person's saved verified phone. Does not start OTP verification or change the phone.",
+      "aliases": ["retry phone lookup", "reload my saved phone"],
+      "search_keywords": ["phone", "retry", "number unavailable"],
+      "reachability": {
+        "routes": ["/one/profile/account", "/one/profile/account/phone"],
+        "screens": ["profile_account"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": ["Account panel is active and the phone lookup is unavailable"]
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.retry_phone_lookup"
+      },
+      "control_ids": ["profile-phone-retry", "profile-phone-detail-retry"],
+      "state_exposure": [],
+      "docs_references": ["components/profile/profile-workspace-page.tsx"],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "route.profile",
       "label": "Open Profile",
       "meaning": "Navigates to profile landing route.",
@@ -51,6 +76,31 @@
       "docs_references": [
         "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.profile_account",
+      "label": "Open Account",
+      "meaning": "Opens account identity and saved phone management in Profile.",
+      "aliases": ["open account", "open my phone number"],
+      "search_keywords": ["account", "identity", "phone number"],
+      "reachability": {
+        "routes": ["/one/profile/account"],
+        "screens": ["profile_account"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/account"
+      },
+      "control_ids": ["profile_account"],
+      "state_exposure": [],
+      "docs_references": ["components/profile/profile-workspace-page.tsx"],
       "speaker_persona": "one"
     },
     {

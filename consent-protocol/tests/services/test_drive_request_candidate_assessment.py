@@ -433,6 +433,17 @@ async def test_invalid_total_budget_is_rejected_before_private_work(budget):
     work["assessor"].assert_not_awaited()
 
 
+@pytest.mark.parametrize("revision", [-1, True, False, 0.0])
+async def test_invalid_request_revision_is_rejected_before_private_work(revision):
+    work = setup()
+    work["request_revision"] = revision
+    with pytest.raises(CandidateAssessmentError, match="invalid_assessment_request"):
+        await assess_request_candidates(**work)
+    work["require_current"].assert_not_awaited()
+    work["read_candidate"].assert_not_awaited()
+    work["assessor"].assert_not_awaited()
+
+
 async def test_authority_loss_after_model_does_not_return_stale_evidence():
     work = setup()
 
@@ -445,20 +456,23 @@ async def test_authority_loss_after_model_does_not_return_stale_evidence():
         await assess_request_candidates(**work)
 
 
-async def test_stored_evidence_cannot_move_between_revisions_sources_or_plans():
+@pytest.mark.parametrize("revision", [0, 3])
+async def test_stored_evidence_cannot_move_between_revisions_sources_or_plans(revision):
     work = setup()
+    work["request_revision"] = revision
     (evidence,) = await assess_request_candidates(**work)
     binding = dict(
         user_id="owner",
         request_id="request",
-        request_revision=3,
+        request_revision=revision,
         connection_generation=4,
         plan_digest=work["plan_digest"],
         metadata=work["candidates"][0]["metadata"],
         policy_version="test-policy",
     )
+    assert verified_evidence_matches(evidence, **binding)
     for change in (
-        {"request_revision": 4},
+        {"request_revision": revision + 1},
         {"connection_generation": 5},
         {"plan_digest": "a" * 64},
         {"metadata": {**binding["metadata"], "sourceVersion": "8"}},

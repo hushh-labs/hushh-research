@@ -125,13 +125,18 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  const featureCss = fs.readdirSync(outDir).filter(file => file.endsWith(".css"))
+    .map(file => fs.readFileSync(path.join(outDir, file), "utf8")).join("\n");
+  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() + featureCss;
 });
 
 for (const width of [320, 375, 393, 430, 768, 1440]) {
   for (const theme of ["light", "dark"]) {
-    test(`Market news matches Location text and fits at ${width}px in ${theme}`, async ({ page }) => {
+    test(`Market briefing stays readable and fits at ${width}px in ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 932 });
+      await page.route("http://localhost/fonts/Inter/InterVariable.woff2", route => route.fulfill({
+        contentType: "font/woff2", body: fs.readFileSync(path.join(process.cwd(), "public/fonts/Inter/InterVariable.woff2")),
+      }));
       await page.route("http://localhost/finance-market", route => route.fulfill({
         contentType: "text/html",
         body: `<!doctype html><html class="${theme}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><style>html,body{height:auto}</style></head><body><div id="root"></div></body></html>`,
@@ -144,6 +149,7 @@ for (const width of [320, 375, 393, 430, 768, 1440]) {
       });
       await page.addScriptTag({ content: marketScript });
       await awaitProductFont(page);
+      await page.evaluate(async () => { await document.fonts.load('600 15px "Inter"'); await document.fonts.ready; });
       const action = page.getByRole("button", { name: "All news", exact: true });
       await expect(action).toBeVisible();
       const target = await action.boundingBox();
@@ -152,35 +158,27 @@ for (const width of [320, 375, 393, 430, 768, 1440]) {
       const card = page.getByRole("button").filter({ hasText: "A longer market headline" });
       await expect(card).toBeVisible();
       const measurements = await card.evaluate(el => {
-        const reference = document.querySelector("[data-location-type-reference]")!;
-        const style = (root: Element, selector: string) => {
-          const css = getComputedStyle(root.querySelector(selector)!);
-          return [css.fontFamily, css.fontSize, css.lineHeight, css.color];
-        };
-        const content = el.lastElementChild!;
+        const headline = el.querySelector("span > span")!;
+        const metadata = headline.nextElementSibling!;
+        const headlineStyle = getComputedStyle(headline);
+        const metadataStyle = getComputedStyle(metadata);
         return {
-          headline: style(el, ".ui-text-medium-row-label"),
-          row: style(reference, ".ui-text-row-label"),
-          description: style(el, ".ui-text-row-description"),
-          descriptionReference: style(reference, ".ui-text-row-description"),
-          helper: style(el, ".ui-text-helper-text"),
-          helperReference: style(reference, ".ui-text-helper-text"),
-          action: style(el, ".ui-text-trailing-action"),
-          actionReference: style(reference, ".ui-text-trailing-action"),
-          padding: getComputedStyle(content).padding,
+          font: headlineStyle.fontFamily,
+          headline: [headlineStyle.fontSize, headlineStyle.lineHeight, headlineStyle.fontWeight],
+          metadata: [metadataStyle.fontSize, metadataStyle.lineHeight],
+          clamp: headlineStyle.webkitLineClamp,
           cardOverflow: el.scrollWidth > el.clientWidth,
           pageOverflow: document.documentElement.scrollWidth > innerWidth,
           railOverflow: el.parentElement!.scrollWidth > el.parentElement!.clientWidth,
         };
       });
-      expect(measurements.headline).toEqual(measurements.row);
-      expect(measurements.description).toEqual(measurements.descriptionReference);
-      expect(measurements.helper).toEqual(measurements.helperReference);
-      expect(measurements.action).toEqual(measurements.actionReference);
-      expect(measurements.padding).toBe("16px");
+      expect(measurements.font).toMatch(/Inter/);
+      expect(measurements.headline).toEqual(["15px", "22px", "600"]);
+      expect(measurements.metadata).toEqual(["12px", "18px"]);
+      expect(measurements.clamp).toBe("none");
       expect(measurements.cardOverflow).toBe(false);
       expect(measurements.pageOverflow).toBe(false);
-      expect(measurements.railOverflow).toBe(true);
+      expect(measurements.railOverflow).toBe(false);
       await action.click();
       await expect(page.locator("body")).toHaveAttribute("data-navigation-href", "/one/kai/news");
       await card.scrollIntoViewIfNeeded();
@@ -196,6 +194,9 @@ test.afterAll(() => {
 
 async function mount(page: Page, width = 393) {
   await page.setViewportSize({ width, height: 852 });
+  await page.route("http://localhost/fonts/Inter/InterVariable.woff2", route => route.fulfill({
+    contentType: "font/woff2", body: fs.readFileSync(path.join(process.cwd(), "public/fonts/Inter/InterVariable.woff2")),
+  }));
   await page.route("http://localhost/finance-fixture", route => route.fulfill({
     contentType: "text/html",
     body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><style>html,body{height:auto}</style></head><body><div id="root"></div></body></html>`,
@@ -203,6 +204,94 @@ async function mount(page: Page, width = 393) {
   await page.goto("http://localhost/finance-fixture");
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
+  await page.evaluate(async () => { await document.fonts.load('600 15px "Inter"'); await document.fonts.ready; });
+}
+
+for (const width of [375, 393, 430]) {
+  test(`Finance keeps readable Market typography and stocks at iPhone width ${width}`, async ({ page }) => {
+    await page.route("https://images.example.test/**", route => route.fulfill({ contentType: "image/png",
+      body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aC1cAAAAASUVORK5CYII=", "base64") }));
+    await mount(page, width);
+    const news = page.getByTestId("market-news-iphone-fixture");
+    const photos = news.locator("img");
+    await expect(photos).toHaveCount(4);
+    await photos.first().scrollIntoViewIfNeeded();
+    await expect.poll(() => photos.first().evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+    expect(await photos.nth(1).getAttribute("src")).toContain("small.png");
+    expect((await photos.first().boundingBox())!.height).toBeLessThanOrEqual(180);
+    expect((await photos.nth(1).boundingBox())!.width).toBeLessThanOrEqual(64);
+    expect(await news.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    const headline = news.getByRole("button").first().locator("span > span").first();
+    const type = await headline.evaluate(element => {
+      const style = getComputedStyle(element);
+      return { family: style.fontFamily, weight: style.fontWeight, size: parseFloat(style.fontSize), clamp: style.webkitLineClamp, overflow: style.overflow };
+    });
+    expect(type.family).toMatch(/Inter/);
+    expect(Number(type.weight)).toBeGreaterThanOrEqual(600);
+    expect(type.size).toBeGreaterThanOrEqual(15);
+    expect(type.clamp).toBe("none");
+    expect(type.overflow).not.toBe("hidden");
+    const stocks = page.getByTestId("market-iphone-fixture");
+    const row = stocks.getByTestId("market-pick-row").first();
+    const cap = row.getByText("$850B cap", { exact: true });
+    await expect(cap).toBeVisible();
+    const geometry = await cap.evaluate((element) => {
+      const row = element.closest("button")!.getBoundingClientRect();
+      const range = document.createRange(); range.selectNodeContents(element);
+      const rect = range.getBoundingClientRect();
+      return { left: rect.left - row.left, right: row.right - rect.right, height: row.height };
+    });
+    expect(geometry.left).toBeGreaterThanOrEqual(0);
+    expect(geometry.right).toBeGreaterThanOrEqual(0);
+    expect(geometry.height).toBeGreaterThanOrEqual(44);
+    const search = stocks.getByRole("button", { name: "Search list" });
+    await expect(search).toBeVisible();
+    const bounds = await search.boundingBox();
+    expect(bounds!.width).toBeGreaterThanOrEqual(44);
+    expect(bounds!.height).toBeGreaterThanOrEqual(44);
+    await search.click();
+    await expect(stocks.getByPlaceholder("Search symbol, company, sector, or thesis")).toBeVisible();
+    const sectors = page.getByTestId("sector-iphone-fixture");
+    await expect(sectors.locator("ul li")).toHaveCount(6);
+    expect((await sectors.boundingBox())!.height).toBeLessThan(400);
+    expect(await sectors.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await sectors.getByRole("button", { name: "All 11 sectors" }).click();
+    await expect(sectors.locator("ul li")).toHaveCount(11);
+    await sectors.getByRole("button", { name: "Show highlights" }).click();
+    await expect(sectors.locator("ul li")).toHaveCount(6);
+    for (const label of ["S&P 500", "NASDAQ Composite", "Dow Jones", "Russell 2000"]) {
+      await page.getByRole("button", { name: `Open ${label} detail`, exact: true }).click();
+      const detail = page.getByRole("dialog", { name: label, exact: true });
+      await expect(detail).toBeVisible();
+      const title = detail.getByRole("heading", { name: label, exact: true });
+      const headingStyle = await title.evaluate(element => {
+        const style = getComputedStyle(element);
+        return { font: style.fontFamily, size: parseFloat(style.fontSize), clamp: style.webkitLineClamp, overflow: style.overflow };
+      });
+      expect(headingStyle.font).toMatch(/Inter/);
+      expect(headingStyle.size).toBeGreaterThanOrEqual(20);
+      expect(headingStyle.clamp).toBe("none");
+      expect(headingStyle.overflow).not.toBe("hidden");
+      expect(await detail.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      const line = detail.locator("path.recharts-line-curve");
+      await expect(line).toHaveAttribute("d", /^M/);
+      const chart = await line.evaluate(element => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height,
+        stroke: getComputedStyle(element).stroke, color: getComputedStyle(element).color }));
+      expect(chart.width).toBeGreaterThan(100);
+      expect(chart.height).toBeGreaterThan(10);
+      expect(chart.stroke).not.toBe("none");
+      expect(chart.color).not.toBe("rgba(0, 0, 0, 0)");
+      // Measure both positions in one frame while the sheet is entering.
+      expect(await detail.evaluate(element => {
+        const value = [...element.querySelectorAll("p")].find(row => row.textContent === "7,712.57")!;
+        return value.getBoundingClientRect().top < element.querySelector("path.recharts-line-curve")!.getBoundingClientRect().top;
+      })).toBe(true);
+      await expect(detail.getByText("Yahoo Chart (Batch)", { exact: true })).toBeVisible();
+      await expect(detail.getByText("Oct 21, 2:15 AM", { exact: true })).toBeVisible();
+      await detail.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(detail).toHaveCount(0);
+    }
+  });
 }
 
 test("import progress and stream updates retain their layout", async ({ page }) => {

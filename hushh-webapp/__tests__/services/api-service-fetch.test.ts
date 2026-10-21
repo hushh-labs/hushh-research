@@ -84,6 +84,7 @@ vi.mock("@/lib/utils/request-timeouts", () => ({
 import { ApiService } from "@/lib/services/api-service";
 import { GoogleConnectionService } from "@/lib/services/google-connection-service";
 import { AuthService } from "@/lib/services/auth-service";
+
 import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -136,6 +137,24 @@ describe("ApiService.apiFetch", () => {
   });
 
 
+  it("refuses a mismatched Firebase subject before observation admission", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(false);
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(makeUnsignedToken({ sub: "owner-b" }));
+    expect(await ApiService.getFirebaseIdTokenForOwner("owner-a")).toBeUndefined();
+    const matching = makeUnsignedToken({ sub: "owner-a" });
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(matching);
+    expect(await ApiService.getFirebaseIdTokenForOwner("owner-a")).toBe(matching);
+  });
+  it("sends explicit phone finalization as an authenticated body while ordinary refresh stays read-only", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ success: true }));
+    await ApiService.refreshAccountIdentityShadow("fixture-token", { requireSuccess: true, verifiedPhoneNumber: "+919000000001" });
+    const [url, init] = mockFetch.mock.calls.at(-1)!;
+    expect(url).not.toContain("9000000001");
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer fixture-token");
+    expect(JSON.parse(init.body)).toEqual({ verified_phone_number: "+919000000001" });
+    await ApiService.refreshAccountIdentityShadow("fixture-token", { force: true, requireSuccess: true });
+    expect(mockFetch.mock.calls.at(-1)![1].body).toBeUndefined();
+  });
   it.each(["list", "unlink"] as const)("fences trusted-device %s after asynchronous identity acquisition", async operation => {
     let active = true;
     const token = deferred<string | null>();

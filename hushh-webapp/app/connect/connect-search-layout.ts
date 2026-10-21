@@ -20,7 +20,7 @@
  */
 
 /** Two words. The narrowest supported phone has to be able to read all of it. */
-export const CONNECT_SEARCH_PLACEHOLDER = "Search people";
+export const CONNECT_SEARCH_PLACEHOLDER = "Name, email or phone";
 
 /** Left inset clears the search glyph; the right one is conditional. */
 export const CONNECT_SEARCH_INPUT_CLASSNAME = "h-11 pl-11";

@@ -122,7 +122,7 @@ async function buildStylesheet(candidates: string[]): Promise<string> {
 
   // The app's own @font-face rules cannot load over file:// and, sharing a
   // family name with the working one, stop it satisfying fonts.check.
-  return stripAppFontFaces(compiler.build(candidates));
+  return stripAppFontFaces((await import("lightningcss")).transform({ code: Buffer.from(compiler.build(candidates)), minify: true }).code.toString());
 }
 
 /**
@@ -165,6 +165,7 @@ function buildProductionMemberActionsStylesheet(): Promise<string> {
       "components/one-location/redesign/circles/circle-member-row-layout.ts",
       "components/one-location/redesign/location-action-styles.ts",
       "components/connections/connection-person-avatar.tsx",
+      "components/profile/profile-pane-icons.tsx",
       "components/ui/alert-dialog.tsx",
       "components/ui/avatar.tsx",
       "components/ui/button.tsx",
@@ -835,15 +836,26 @@ test.describe("Circle roster row", () => {
       });
       await expect(menu).toHaveAttribute("data-side", "right");
       await expect(menu).toHaveAttribute("data-align", "center");
-      await expect(
-        page.getByTestId("circle-member-actions-menu-context"),
-      ).toHaveText(`Actions for ${fixture.memberName}`);
+      await expect(menu).toHaveAccessibleName(`Actions for ${fixture.memberName}`);
+      await expect(menu).not.toContainText("Actions for");
+      await expect(menu.getByRole("menuitem")).toHaveCount(2);
       await expect(
         page.getByRole("menuitem", { name: "Share location" }),
       ).toBeVisible();
-      await expect(
-        page.getByRole("menuitem", { name: "Remove from Circle" }),
-      ).toBeVisible();
+      const remove = page.getByRole("menuitem", { name: "Remove from Circle" });
+      await expect(remove).toBeVisible();
+      // Dropdowns use the shared destructive text token (a deeper red for
+      // small text); the phone's standalone action uses app-destructive.
+      const destructiveColor = await page.evaluate(() => {
+        const reference = document.createElement("span");
+        reference.style.color = "var(--destructive)";
+        document.body.appendChild(reference);
+        const color = getComputedStyle(reference).color;
+        reference.remove();
+        return color;
+      });
+      await expect(remove).toHaveCSS("color", destructiveColor);
+      await expect(remove.locator("svg")).toHaveCSS("color", destructiveColor);
 
       const [menuBox, triggerBox, selectedRow, selectedIdentity, relationship] =
         await Promise.all([
@@ -917,7 +929,7 @@ test.describe("Circle roster row", () => {
 
   for (const owner of [false, true]) {
     for (const width of [320, 390, 600]) {
-      test(`opens the production phone sheet for ${owner ? "owner" : "member"} at ${width}px`, async ({
+      test(`opens the production phone sheet for ${owner ? "the owner" : "a member"} at ${width}px`, async ({
         page,
       }, testInfo) => {
         const fixture = await startProductionMemberActionsFixture(owner);
@@ -958,30 +970,41 @@ test.describe("Circle roster row", () => {
           } else {
             await expect(remove).toBeVisible();
             await expect(remove).toHaveCSS("color", "rgb(255, 59, 48)");
+            await expect(remove.locator("svg")).toHaveCSS("color", "rgb(255, 59, 48)");
           }
           await expect(sheet).toContainText(owner ? "Owner" : "Connected");
           await expect(sheet).toHaveCSS("background-color", "rgb(255, 255, 255)");
-          await expect(sheet).toHaveCSS("border-top-left-radius", "28px");
-          await expect(sheet).toHaveCSS("border-top-right-radius", "28px");
-          await expect(sheet).toHaveCSS("padding-left", "24px");
-          await expect(sheet).toHaveCSS("padding-right", "24px");
+          await expect(sheet).toHaveCSS("border-top-left-radius", "24px");
+          await expect(sheet).toHaveCSS("border-top-right-radius", "24px");
+          await expect(sheet).toHaveCSS("padding-left", "0px");
+          await expect(sheet).toHaveCSS("padding-right", "0px");
+          await expect(sheet.locator('[data-task-region="body"]')).toHaveCSS("padding-left", "16px");
+          await expect(sheet.locator('[data-task-region="body"]')).toHaveCSS("padding-right", "16px");
           await expect(sheet.locator('[data-slot="avatar"]')).toHaveCSS("width", "48px");
           await expect(sheet.locator('[data-slot="avatar"]')).toHaveCSS("height", "48px");
-          await expect(sheet.locator('[data-slot="drawer-title"]')).toHaveCSS("font-weight", "700");
+          await expect(sheet.locator('[data-slot="drawer-title"]')).toHaveCSS("font-weight", "600");
+          await expect(sheet.locator('[data-slot="drawer-title"]')).toHaveCSS("font-size", "20px");
           const menu = sheet.getByRole("menu");
           await expect(menu).toHaveCSS("border-radius", "20px");
           const share = page.getByRole("menuitem", { name: "Share location" });
           await expect(share).toHaveCSS("height", "52px");
-          const readAccent = () => sheet.evaluate((element) => {
+          const readAccent = (cssVariable = "--app-accent-deep") => sheet.evaluate((element, cssVariable) => {
             const probe = document.createElement("span");
-            probe.style.color = "var(--app-accent-deep)";
+            probe.style.color = `var(${cssVariable})`;
             element.append(probe);
             const color = getComputedStyle(probe).color;
             probe.remove();
             return color;
-          });
+          }, cssVariable);
           const defaultAccent = await readAccent();
-          await expect(share.locator("svg")).toHaveCSS("color", defaultAccent);
+          await expect(share).toHaveCSS("font-size", "17px");
+          const colors = await share.locator("svg").evaluate(svg => ({
+            outline: getComputedStyle(svg.querySelector("path")!).stroke,
+            accent: getComputedStyle(svg.querySelector(".profile-pane-icon-accent")!).stroke,
+          }));
+          expect(colors.outline).not.toBe(colors.accent);
+          expect(colors.accent).not.toBe("none");
+          await expect(share.locator(".profile-pane-icon-accent")).toHaveCSS("stroke", await readAccent("--ios-account-accent"));
           const cancel = sheet.getByRole("button", { name: "Cancel", exact: true });
           await expect(cancel).toHaveCSS("height", "52px");
           if (!owner) {
@@ -994,19 +1017,28 @@ test.describe("Circle roster row", () => {
           await page.evaluate(() => document.documentElement.dataset.accent = "gold");
           const goldAccent = await readAccent();
           expect(goldAccent).not.toBe(defaultAccent);
-          await expect(share.locator("svg")).toHaveCSS("color", goldAccent);
+          await expect(share.locator(".profile-pane-icon-accent")).toHaveCSS("stroke", await readAccent("--ios-account-accent"));
           await expect(cancel).toHaveCSS("color", goldAccent);
           await page.evaluate(() => delete document.documentElement.dataset.accent);
           const sheetGeometry = await sheet.evaluate((element) => {
             const menu = element.querySelector<HTMLElement>('[role="menu"]')!;
+            const body = element.querySelector<HTMLElement>('[data-task-region="body"]')!;
             const cancel = [...element.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === "Cancel")!;
             const handle = element.firstElementChild!;
+            const bodyBox = body.getBoundingClientRect();
+            const bodyStyle = getComputedStyle(body);
             const menuBox = menu.getBoundingClientRect();
             const cancelBox = cancel.getBoundingClientRect();
             return {
               overflow: element.scrollWidth > element.clientWidth,
+              bodyLeft: bodyBox.left,
+              bodyRight: bodyBox.right,
               menuLeft: menuBox.left,
               menuRight: menuBox.right,
+              // Classic scrollbars consume the stable gutter; overlay
+              // scrollbars do not. Controls align within the content seat.
+              contentLeft: bodyBox.left + body.clientLeft + parseFloat(bodyStyle.paddingLeft),
+              contentRight: bodyBox.left + body.clientLeft + body.clientWidth - parseFloat(bodyStyle.paddingRight),
               cancelLeft: cancelBox.left,
               cancelRight: cancelBox.right,
               cancelBottom: cancelBox.bottom,
@@ -1015,12 +1047,15 @@ test.describe("Circle roster row", () => {
             };
           });
           expect(sheetGeometry.overflow).toBe(false);
-          expect(sheetGeometry.menuLeft).toBe(24);
-          expect(sheetGeometry.menuRight).toBe(width - 24);
+          expect(sheetGeometry.bodyLeft).toBe(0);
+          expect(sheetGeometry.bodyRight).toBe(width);
+          expect(sheetGeometry.menuLeft).toBe(sheetGeometry.contentLeft);
+          expect(sheetGeometry.menuRight).toBe(sheetGeometry.contentRight);
           expect(sheetGeometry.cancelRight - sheetGeometry.cancelLeft).toBeCloseTo(244, 0);
-          expect((sheetGeometry.cancelLeft + sheetGeometry.cancelRight) / 2).toBeCloseTo(width / 2, 0);
-          expect(sheetGeometry.cancelBottom).toBeLessThanOrEqual(844 - 24);
-          expect(sheetGeometry.handleHeight).toBe(6);
+          expect((sheetGeometry.cancelLeft + sheetGeometry.cancelRight) / 2)
+            .toBeCloseTo((sheetGeometry.contentLeft + sheetGeometry.contentRight) / 2, 0);
+          expect(sheetGeometry.cancelBottom).toBeLessThanOrEqual(844 - 16);
+          expect(sheetGeometry.handleHeight).toBe(4);
           expect(sheetGeometry.font).toContain("Plus Jakarta Sans");
 
           const sheetBox = (
@@ -1225,7 +1260,7 @@ test.describe("Circle detail responsive layout", () => {
     test(`keeps the complete Circle title and Edit action visible at ${width}px`, async ({
       page,
     }) => {
-      const body = `<div data-detail-header class="${CIRCLE_DETAIL_HEADER_CLASSNAME}">
+      const body = `<div data-profile-type-scale="circles" data-detail-header class="${CIRCLE_DETAIL_HEADER_CLASSNAME}">
   <div class="${CIRCLE_DETAIL_HEADER_COPY_CLASSNAME}">
     <header><h1 data-circle-title class="ui-text-page-title">Trusted Family and Emergency Circle Featherstonehaugh-Rajendran</h1></header>
   </div>
@@ -1263,6 +1298,8 @@ test.describe("Circle detail responsive layout", () => {
         };
       });
 
+      await expect(page.locator('[data-circle-title]')).toHaveCSS("font-size", "20px");
+      await expect(page.locator('[data-edit]')).toHaveCSS("font-size", "12px");
       expect(result.titleScrollWidth).toBeLessThanOrEqual(
         result.titleClientWidth + 1,
       );

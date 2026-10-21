@@ -24,6 +24,10 @@ from hushh_mcp.services.drive_owner_allowed import (
     LEGACY_REQUEST_POLICY,
     automatic_recipient_current,
 )
+from hushh_mcp.services.drive_request_discovery import (
+    discovery_delivery,
+    discovery_evidence_matches,
+)
 from hushh_mcp.services.drive_request_review_policy import (
     autoshare_selection,
     checkpoint_requires_owner_review,
@@ -710,6 +714,184 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
+    async def migrate_request_processor(
+        self, *, user_id, request_id=None, job_id=None, authority_mode="trusted_auto"
+    ):
+        """One recorded admin-policy transition per live request; no external effects.
+
+        Existing observations retain their original provenance. Source versions
+        remain checked by content reads and the paid delivery worker. The
+        connector lock fences old workers; no live lease may be replaced.
+        """
+        from hushh_mcp.runtime_providers.managed_text import (
+            managed_text_binding,
+            managed_text_policy,
+        )
+        from hushh_mcp.services.drive_owner_allowed import semantic_search_request
+        from hushh_mcp.services.drive_request_package_service import assessment_policy_version
+
+        if managed_text_policy() is None:
+            return False
+        target = managed_text_binding()
+        if authority_mode not in {"owner", "trusted_auto"}:
+            raise DriveReadError("invalid_argument")
+        if request_id is None and job_id is None:
+            raise DriveReadError("invalid_argument")
+        request_id = _identity(request_id) if request_id else None
+        job_id = _identity(job_id) if job_id else None
+
+        def operation(connection):
+            self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
+            current = self._access(connection, user_id)
+            row = self._row(
+                connection,
+                """SELECT * FROM drive_owner_search_jobs WHERE user_id=:user
+                   AND ((:job IS NOT NULL AND job_id=CAST(:job AS uuid))
+                     OR (:job IS NULL AND client_request_id=CAST(:request AS uuid)))""",
+                {"user": user_id, "job": job_id, "request": request_id},
+            )
+            now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+            if row is not None and (
+                row["status"] not in {"queued", "failed", "running"}
+                or row["status"] == "running"
+                and row["lease_expires_at"] is not None
+                and row["lease_expires_at"] > now
+            ):
+                # A live lease is not stolen. Completed outputs remain readable.
+                return False
+            origin = str(row["client_request_id"]) if row else request_id
+            if origin is None:
+                return False
+            request = self._row(
+                connection,
+                "SELECT * FROM drive_share_requests WHERE user_id=:user AND request_id=:request FOR UPDATE",
+                {"user": user_id, "request": origin},
+            )
+            if request is None:
+                return False
+            private = self.search_cipher.open(
+                request["request_envelope"], user_id=user_id, resource_id=origin, purpose="request"
+            )
+            if (
+                not semantic_search_request(private)
+                or private.get("semantic_model_binding") == target
+            ):
+                return False
+            now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+            if (
+                request["status"] != "pending"
+                or request["expires_at"] <= now
+                or request["access_stop_requested_at"] is not None
+                or authority_mode != "owner"
+                and private.get("trusted_auto") is not True
+                or authority_mode != "owner"
+                and not automatic_recipient_current(
+                    connection, user_id, request["recipient_user_id"], private, request_id=origin
+                )
+            ):
+                raise DriveReadError("search_superseded")
+            if authority_mode != "owner":
+                self.background_current(
+                    connection, user_id=user_id, generation=current["connection_generation"]
+                )
+            old_binding = private.get("semantic_model_binding")
+            if old_binding is not None and old_binding.get("provider") not in {
+                "gemini",
+                "azure_openai",
+            }:
+                raise DriveReadError("search_superseded")
+            checkpoint = None
+            if row is not None:
+                row = self._owned(connection, user_id, str(row["job_id"]), locked=True)
+                checkpoint = self._checkpoint(row)
+                if (
+                    row["status"] not in {"queued", "failed", "running"}
+                    or row["expires_at"] <= now
+                    or row["lease_expires_at"] is not None
+                    and row["lease_expires_at"] > now
+                    or row["connection_generation"] != current["connection_generation"]
+                    or checkpoint.get("request_origin_id") != origin
+                    or checkpoint.get("request_revision") != request["revision"]
+                    or checkpoint.get("authority_mode")
+                    not in (
+                        {"owner", "trusted_auto"} if authority_mode == "owner" else {"trusted_auto"}
+                    )
+                    or checkpoint.get("semantic_plan") is None
+                    or checkpoint.get("semantic_model_binding") != old_binding
+                    or checkpoint.get("semantic_purpose") != private.get("purpose")
+                ):
+                    raise DriveReadError("search_superseded")
+                from hushh_mcp.services.drive_request_semantic_plan import (
+                    SemanticDrivePlan,
+                    semantic_plan_digest,
+                )
+
+                try:
+                    parsed = SemanticDrivePlan.model_validate(checkpoint["semantic_plan"])
+                    if parsed.status != "ready" or semantic_plan_digest(parsed) != checkpoint.get(
+                        "semantic_plan_digest"
+                    ):
+                        raise ValueError("changed plan")
+                except ValueError:
+                    raise DriveReadError("search_superseded") from None
+                if self._row(
+                    connection,
+                    """SELECT job_id FROM drive_owner_search_jobs WHERE user_id=:user
+                       AND job_id<>:job AND status IN ('queued','running') LIMIT 1""",
+                    {"user": user_id, "job": row["job_id"]},
+                ):
+                    raise DriveReadError("search_in_progress")
+            # A bounded one-way migration; policy changes require a new reviewed recovery.
+            if private.get("processor_migration"):
+                raise DriveReadError("search_superseded")
+            record = {
+                "version": 1,
+                "basis": "administrator_rollout",
+                "operation_id": target["approval_generation"] + ":" + origin,
+                "from_binding": old_binding,
+                "to_binding": target,
+                "at": now.isoformat(),
+                "previous_assessment_policy": checkpoint.get("semantic_assessment_policy")
+                if checkpoint
+                else None,
+                "preserved_plan_digest": checkpoint.get("semantic_plan_digest")
+                if checkpoint
+                else None,
+            }
+            private["semantic_model_binding"] = target
+            private["processor_migration"] = record
+            connection.execute(
+                text("""UPDATE drive_share_requests
+                SET request_envelope=CAST(:envelope AS jsonb),updated_at=clock_timestamp()
+                WHERE request_id=:request AND user_id=:user"""),
+                {
+                    "request": origin,
+                    "user": user_id,
+                    "envelope": self._seal(private, user_id, origin, "request"),
+                },
+            )
+            if checkpoint is not None:
+                checkpoint["semantic_model_binding"] = target
+                checkpoint["semantic_assessment_policy"] = assessment_policy_version(target)
+                checkpoint["processor_migration"] = record
+                connection.execute(
+                    text("""UPDATE drive_owner_search_jobs
+                    SET checkpoint_envelope=CAST(:envelope AS jsonb),status='queued',
+                    error_code=NULL,retry_count=0,lease_id=NULL,lease_expires_at=NULL,
+                    next_at=clock_timestamp(),revision=revision+1,updated_at=clock_timestamp()
+                    WHERE job_id=:job AND user_id=:user"""),
+                    {
+                        "job": row["job_id"],
+                        "user": user_id,
+                        "envelope": self._seal(
+                            checkpoint, user_id, str(row["job_id"]), "owner-search-checkpoint"
+                        ),
+                    },
+                )
+            return True
+
+        return await self._transaction(operation)
+
     async def retry_failed_request(self, *, user_id, request_id, request_revision, authority_mode):
         """Resume a failed request at its committed cursor and stable result positions.
 
@@ -759,6 +941,17 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 and row["evaluation_status"] != "pending"
             ):
                 raise DriveReadError("search_superseded")
+            if authority_mode == "trusted_auto":
+                private = self.search_cipher.open(
+                    request["request_envelope"],
+                    user_id=user_id,
+                    resource_id=client,
+                    purpose="request",
+                )
+                if private.get("trusted_auto") is not True or not automatic_recipient_current(
+                    connection, user_id, request["recipient_user_id"], private, request_id=client
+                ):
+                    raise DriveReadError("search_superseded")
             if authority_mode != "owner":
                 self.background_current(
                     connection,
@@ -1123,6 +1316,12 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
     async def claim(self, *, user_id, job_id):
         identity = _identity(job_id)
+        try:
+            await self.migrate_request_processor(user_id=user_id, job_id=identity)
+        except DriveReadError:
+            # Existing claim/current-authority cleanup owns revoked jobs.
+            # An unmigrated Gemini job cannot dispatch under the UAT policy.
+            pass
 
         def operation(connection):
             self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
@@ -1275,6 +1474,10 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 frozen = self._checkpoint(row)
                 semantic = claimed.get("semantic_plan")
                 _semantic_binding_current(claimed)
+                if (private.get("semantic_search_policy_version") == 2) != discovery_delivery(
+                    claimed
+                ):
+                    raise DriveReadError("search_superseded")
                 if semantic_search_request(private) != (semantic is not None):
                     raise DriveReadError("search_superseded")
                 if semantic is not None:
@@ -1294,6 +1497,9 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                                     "semantic_purpose",
                                     "semantic_assessment_policy",
                                     "semantic_model_binding",
+                                    "discovery_delivery_policy",
+                                    "queries",
+                                    "requested_period",
                                 )
                             )
                         )
@@ -1428,6 +1634,10 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 checkpoint.get("semantic_plan") is not None
             ):
                 raise DriveReadError("search_superseded")
+            if saved_checkpoint.get("discovery_delivery_policy") != checkpoint.get(
+                "discovery_delivery_policy"
+            ):
+                raise DriveReadError("search_superseded")
             if saved_checkpoint.get("semantic_plan") is not None:
                 from hushh_mcp.services.drive_request_candidate_assessment import (
                     verified_evidence_matches,
@@ -1444,9 +1654,12 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                             "semantic_purpose",
                             "request_origin_id",
                             "request_revision",
+                            "queries",
+                            "requested_period",
                         )
                     )
                     or done
+                    and not discovery_delivery(saved_checkpoint)
                     and (
                         checkpoint.get("semantic_pending")
                         or checkpoint.get("semantic_discovery_done") is not True
@@ -1454,6 +1667,15 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 ):
                     raise DriveReadError("search_superseded")
                 for item in files:
+                    if discovery_delivery(saved_checkpoint):
+                        if not discovery_evidence_matches(
+                            item,
+                            user_id=job["user_id"],
+                            generation=job["generation"],
+                            checkpoint=saved_checkpoint,
+                        ):
+                            raise DriveReadError("provider_response_invalid")
+                        continue
                     if item.get("contentVerified") is not True or not verified_evidence_matches(
                         item.get("requestEvidence"),
                         user_id=job["user_id"],
@@ -1567,6 +1789,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                             ),
                         },
                     )
+            if discovery_delivery(saved_checkpoint):
+                checkpoint.setdefault("coverage_counts", {})["uniqueCandidateCount"] = count
             limited = limited or selection is None and count == MAX_RESULTS and not done
             is_incomplete = incomplete or row["incomplete_search"] or limited
             if selection is not None:

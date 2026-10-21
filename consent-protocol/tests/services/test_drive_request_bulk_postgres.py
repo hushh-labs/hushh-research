@@ -4844,3 +4844,126 @@ async def test_unpaid_full_review_batch_skipped_while_still_payable_keeps_its_ou
             ).scalar_one()
             == 2
         )
+
+
+@pytest.mark.asyncio
+async def test_discovery_79_files_deliver_in_four_batches_without_duplicate_effects(
+    request_bulk, sharing
+):
+    from hushh_mcp.services.drive_request_discovery import discovery_evidence
+    from tests.services.test_drive_request_search_unit import _discovery_checkpoint
+
+    request = await _request(sharing, purpose_text="Files containing Cedar Rook")
+    identity = request["requestId"]
+    search = _search(request_bulk, request_id=identity, count=79, selection=FILE_ACTIVITY_SELECTION)
+    checkpoint = _discovery_checkpoint()
+    checkpoint.update(request_origin_id=identity, request_revision=request["revision"])
+    with request_bulk.db.engine.connect() as connection:
+        row = sharing._row(
+            connection,
+            "SELECT * FROM drive_share_requests WHERE request_id=:request",
+            {"request": identity},
+        )
+        purpose = sharing._open_request(row)["purpose"]
+    checkpoint["requested_period"] = {
+        "start": purpose["periodStart"],
+        "end": purpose["periodEnd"],
+        "timezone": "UTC",
+    }
+    with request_bulk.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+            (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+            VALUES ('test',:request,'owner','recipient','paid',clock_timestamp())"""),
+            {"request": identity},
+        )
+        rows = (
+            connection.execute(
+                text(
+                    "SELECT position,metadata_envelope FROM drive_owner_search_results WHERE job_id=:job"
+                ),
+                {"job": search},
+            )
+            .mappings()
+            .all()
+        )
+        for row in rows:
+            file = request_bulk._open(
+                row["metadata_envelope"],
+                user_id="owner",
+                resource_id=f"{search}:{row['position']}",
+                purpose="owner-search-result",
+            )
+            file["mimeType"] = "video/mp4" if row["position"] % 2 else "application/pdf"
+            file["sourceVersion"] = "9"
+            file["discoveryEvidence"] = discovery_evidence(
+                checkpoint, user_id="owner", generation=1, metadata=file
+            )
+            connection.execute(
+                text(
+                    "UPDATE drive_owner_search_results SET metadata_envelope=CAST(:envelope AS jsonb) WHERE job_id=:job AND position=:position"
+                ),
+                {
+                    "job": search,
+                    "position": row["position"],
+                    "envelope": request_bulk._seal(
+                        file,
+                        user_id="owner",
+                        resource_id=f"{search}:{row['position']}",
+                        purpose="owner-search-result",
+                    ),
+                },
+            )
+    shares = []
+    for start in range(1, 80, 25):
+        positions = list(range(start, min(start + 25, 80)))
+        review = await request_bulk.create_review(
+            user_id="owner",
+            search_job_id=search,
+            client_request_id=str(uuid4()),
+            recipients=[_recipient("recipient", "b@example.invalid")],
+            excluded=[],
+            origin_request_id=identity,
+            selected_positions=positions,
+        )
+        await request_bulk.approve(
+            user_id="owner",
+            share_id=review["shareId"],
+            revision=review["revision"],
+            review_digest=review["reviewDigest"],
+        )
+        shares.append(review["shareId"])
+    worker, adapter = _grant_worker(request_bulk)
+    worker._pace = AsyncMock()
+    for share_id in shares:
+        for due in await request_bulk.due(limit=400):
+            if str(due["share_id"]) != share_id:
+                continue
+            job = await request_bulk.claim(
+                user_id="owner",
+                share_id=share_id,
+                position=due["position"],
+                recipient_user_id="recipient",
+            )
+            assert job is not None
+            assert await worker._grant(job) == "succeeded"
+    assert adapter.create_reader.await_count == 79
+    assert all(call.kwargs["metadata_only"] for call in adapter.inspect_shareable.await_args_list)
+    assert (await worker.run(max_jobs=400, deadline_seconds=80))["outcomes"] == {}
+    assert adapter.create_reader.await_count == 79
+    with request_bulk.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_request_payment_orders WHERE request_id=:request"),
+                {"request": identity},
+            ).scalar_one()
+            == 1
+        )
+        counts = connection.execute(
+            text(
+                "SELECT b.file_count,count(e.*) FROM drive_bulk_shares b JOIN drive_bulk_share_effects e ON e.share_id=b.share_id WHERE b.origin_request_id=:request AND e.state='succeeded' GROUP BY b.share_id,b.file_count"
+            ),
+            {"request": identity},
+        ).all()
+        assert sorted(size for size, count in counts) == [4, 25, 25, 25]
+        assert sum(count for size, count in counts) == 79

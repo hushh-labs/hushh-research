@@ -245,6 +245,13 @@ def _runtime_model(
         # Mirror the existing managed Agent Chat transport: Vertex mode with
         # the platform-managed key, held only by this turn-local model object.
         raise ValueError("Managed Vertex cannot be constructed from an API key")
+    from hushh_mcp.runtime_providers.managed_text import (
+        build_managed_text_model,
+        managed_text_policy,
+    )
+
+    if managed_text_policy() is not None:
+        return build_managed_text_model(scope="one_text_chat")
     return build_managed_gemini_adk_model(model, vertex_location=managed_location)
 
 
@@ -586,6 +593,8 @@ async def _stream_one_text_turn_once(
     session_key = str(session_owner_id or "").strip() or clean_user_id
 
     session_service = InMemorySessionService()
+    from hushh_mcp.hushh_adk.product_activity import product_activity_plugins
+
     memory_service = _resolve_pod_memory_service()
     # Built once and shared: the memory review (catch-up below) runs on the SAME
     # model object as the conversation, never on a credential path of its own.
@@ -603,6 +612,7 @@ async def _stream_one_text_turn_once(
     )
     runner = Runner(
         app_name=ONE_APP_NAME,
+        plugins=product_activity_plugins("agent_one"),
         agent=build_one_text_agent(model=model_object),
         session_service=session_service,
         # The pod's ONLY turn path runs through here, and this argument was absent --
@@ -831,7 +841,7 @@ async def _stream_one_text_turn_once(
         )
 
     logger.info(
-        "one_text_turn_complete model=%s first_visible_ms=%s elapsed_ms=%s directives=%s "
+        "one_text_turn_complete configured_model=%s first_visible_ms=%s elapsed_ms=%s directives=%s "
         "catch_up=%s",
         runtime_model,
         (round((first_visible_at - started_at) * 1000) if first_visible_at is not None else None),
@@ -972,7 +982,9 @@ async def stream_one_text_turn(
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run One with same-model regional failover before any observable event."""
     locations: tuple[str | None, ...] = (None,)
-    if runtime_mode == "hushh_managed_vertex":
+    from hushh_mcp.runtime_providers.managed_text import managed_text_policy
+
+    if runtime_mode == "hushh_managed_vertex" and managed_text_policy() is None:
         binding = ManagedGeminiRuntimeBinding.from_environment()
         locations = tuple(binding.locations_for_model(runtime_model))
 

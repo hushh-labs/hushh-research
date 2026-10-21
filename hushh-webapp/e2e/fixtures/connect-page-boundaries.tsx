@@ -194,12 +194,24 @@ export function ConnectCirclesTab({
     );
     return () => window.clearTimeout(timer);
   }, [onStateChange]);
+  if (document.documentElement.dataset.realCircles === "1") {
+    return <ProductionCirclesTab createDialogOpen={createDialogOpen} onCreateDialogOpenChange={onCreateDialogOpenChange} />;
+  }
   return createDialogOpen ? <ProductionCirclesTab createDialogOpen onCreateDialogOpenChange={onCreateDialogOpenChange} /> : <div data-fixture-circles-tab="">Circles</div>;
 }
 export const NearbyDirectories = () => null;
+let fixtureTypeDeleted = false;
+function fixtureCircles() {
+  if (document.documentElement.dataset.customCircles !== "1") return [];
+  return [{ id: "fixture-investments", name: "Investments", kind: "other", role: "owner", memberCount: 1, memberLimit: 20,
+    ...(fixtureTypeDeleted ? {} : { customTypeLabel: "Finance" }),
+    viewerCapabilities: { canDeleteCircle: true, canLeaveCircle: false, canManageCircle: true } }];
+}
 export const OneLocationService = {
   ensureTrustedSystemCircle: async () => ({}),
-  listCircles: async () => [],
+  listCircles: async () => fixtureCircles(),
+  listCircleWorkspace: async () => ({ circles: fixtureCircles(), customTypePolicy: { version: 1, maxTypes: 3 } }),
+  deleteCircleType: async () => { fixtureTypeDeleted = true; return { updatedCircleCount: 1 }; },
   listCircleMembersPage: async () => ({ items: [] }),
 };
 

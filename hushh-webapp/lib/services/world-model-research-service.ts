@@ -116,7 +116,7 @@ export const pwmReportSchema = z
     const facts = value.sections.flatMap((section) => section.facts);
     return (
       new Set(value.sections.map((section) => section.kind)).size === value.sections.length &&
-      (value.match_status === "no_match") === (facts.length === 0) &&
+      (value.match_status !== "no_match" || facts.length === 0) &&
       facts.length <= 269 &&
       new Set(facts.map((fact) => fact.statement.trim().replace(/\s+/g, " ").toLowerCase())).size === facts.length
     );
@@ -126,7 +126,7 @@ const azureGroundedCitationSchema = z
   .object({
     start_index: z.number().int().min(0),
     end_index: z.number().int().positive(),
-    title: z.string().min(1).max(1024),
+    title: z.string().max(1024),
     url: z.string().url().max(2048).refine((value) => {
       const parsed = new URL(value);
       return parsed.protocol === "https:" && !parsed.username && !parsed.password;
@@ -430,6 +430,7 @@ type Observation = PwmAuthority & {
   /** A read or stream failed; the service keeps retrying on its own. */
   onInterrupted?: () => void;
   ownerDecisions?: PwmOwnerDecisions;
+  publicProfileUrls?: readonly string[];
 };
 type Session = {
   next: Step;
@@ -597,8 +598,12 @@ async function step(
         input,
         path,
         method,
-        method === "POST" && input.ownerDecisions
-          ? { owner_decisions: input.ownerDecisions }
+        method === "POST" && (input.ownerDecisions || path === "jobs")
+          ? { ...(input.ownerDecisions ? { owner_decisions: input.ownerDecisions } : {}),
+              ...(path === "jobs" ? { refresh: true,
+                ...(input.publicProfileUrls ? { public_profiles: {
+                  urls: input.publicProfileUrls, permitted_public_sources: true,
+                } } : {}) } : {}) }
           : undefined,
       ),
     );

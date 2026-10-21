@@ -116,4 +116,5 @@ gha-creds-*.json
 !deploy/drive/verify_hashcoin_config.sh
 !deploy/sso/bind_workos.sh
 !deploy/email-auth/bind_secrets.sh
+!deploy/plg/bind_secrets.sh
 !scripts/deploy/resolve-google-sign-in-client.sh

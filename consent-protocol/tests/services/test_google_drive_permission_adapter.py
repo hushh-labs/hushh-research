@@ -698,6 +698,21 @@ async def test_metadata_only_video_share_binds_identity_not_version_and_rechecks
         "end_time": "2026-09-24T00:00:00Z",
     }
     await adapter.inspect_shareable(**arguments(), **metadata_only)
+    # New query-match delivery rechecks the real filename-first date policy,
+    # rather than the worker's historical all-time metadata bounds.
+    selected = {
+        "start": "2026-09-22",
+        "end": "2026-09-24",
+        "timezone": "UTC",
+        "date_basis": "title_created_modified",
+    }
+    await adapter.inspect_shareable(**arguments(), **metadata_only, metadata_period=selected)
+    with pytest.raises(acl.DrivePermissionError, match="source_changed"):
+        await adapter.inspect_shareable(
+            **arguments(),
+            **metadata_only,
+            metadata_period={**selected, "start": "2024-01-01", "end": "2024-01-02"},
+        )
     # Granting the same file to an earlier recipient bumps its version. It is
     # still the file the owner picked, so the next recipient's grant proceeds.
     adapter._exchange.return_value = {**payload, "version": "2"}

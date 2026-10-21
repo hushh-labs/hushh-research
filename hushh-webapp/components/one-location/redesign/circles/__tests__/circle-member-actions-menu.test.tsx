@@ -12,7 +12,7 @@
  *     opens names the member it belongs to;
  *   - the destructive step never stacks a second modal over the first;
  *   - at 640px and up the anchored menu opens outside the selected row,
- *     carries both visible and accessible member-specific context, and closes
+ *     carries accessible member-specific context, and closes
  *     when the confirm takes over rather than being left open behind it.
  *
  * `__tests__/setup.ts` stubs `matchMedia` as permanently non-matching, which
@@ -37,7 +37,6 @@ vi.mock("@/lib/direct-messages/navigate-direct-message", () => ({
 
 import {
   CircleMemberActionsMenu,
-  MEMBER_ACTIONS_MENU_CONTEXT_TESTID,
   MEMBER_ACTIONS_MENU_TESTID,
   MEMBER_ACTIONS_SHEET_CTA_CLASSNAME,
   MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME,
@@ -96,6 +95,44 @@ function renderMenu(
 }
 
 const triggerName = `Actions for ${MEMBER_NAME}`;
+
+describe.each(["phone", "desktop"] as const)("a share-only Circle row on %s", (viewport) => {
+  beforeEach(() => setViewport(viewport));
+
+  it("keeps the three-dot menu even when sharing is the only action", async () => {
+    const { onShare } = renderMenu({ canRemove: false });
+    const trigger = screen.getByRole("button", { name: triggerName });
+    expect(onShare).not.toHaveBeenCalled();
+    if (viewport === "phone") fireEvent.click(trigger);
+    else fireEvent.keyDown(trigger, { key: "Enter" });
+    const share = await screen.findByRole("menuitem", { name: "Share location" });
+    expect(share.querySelector("svg.profile-pane-icon")).toBeTruthy();
+    expect(share.querySelector(".profile-pane-icon-accent")).toBeTruthy();
+    expect(screen.queryByText("Remove from Circle")).toBeNull();
+    fireEvent.click(share);
+    expect(onShare).toHaveBeenCalledTimes(1);
+    if (viewport === "phone") {
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      expect(screen.getByTestId(MEMBER_ACTIONS_SHEET_TESTID)).toHaveAttribute("data-state", "closed");
+    } else {
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    }
+  });
+
+  it("blocks sharing while the Circle is busy", () => {
+    const { onShare } = renderMenu({ canRemove: false, busy: true });
+    const trigger = screen.getByRole("button", { name: triggerName });
+    expect(trigger).toBeDisabled();
+    fireEvent.click(trigger);
+    expect(onShare).not.toHaveBeenCalled();
+  });
+
+  it("keeps profile access in the existing multi-action surface", () => {
+    renderMenu({ canRemove: false, profileHref: "/person/member" });
+    expect(screen.getByRole("button", { name: triggerName })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: `Share location with ${MEMBER_NAME}` })).toBeNull();
+  });
+});
 
 describe("CircleMemberActionsMenu on a phone", () => {
   beforeEach(() => {
@@ -296,9 +333,8 @@ describe("CircleMemberActionsMenu on a pointer device", () => {
     expect(CIRCLE_MEMBER_ACTIONS_MENU_ALIGN).toBe("center");
     expect(CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX).toBe(22);
     expect(CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX).toBe(12);
-    expect(
-      within(menu).getByTestId(MEMBER_ACTIONS_MENU_CONTEXT_TESTID),
-    ).toHaveTextContent(`Actions for ${MEMBER_NAME}`);
+    expect(menu).not.toHaveTextContent("Actions for");
+    expect(within(menu).getAllByRole("menuitem")).toHaveLength(2);
     const share = within(menu).getByRole("menuitem", {
       name: /Share location/i,
     });

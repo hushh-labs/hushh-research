@@ -35,9 +35,9 @@ function progressState(metadata: Record<string, unknown>): ProgressState {
 }
 
 function progressTitle(state: ProgressState): string {
-  if (state === "searching") return "One is finding documents";
-  if (state === "checking") return "One is checking documents";
-  if (state === "sharing") return "One is sharing documents";
+  if (state === "searching") return "Finding documents";
+  if (state === "checking") return "Checking documents";
+  if (state === "sharing") return "Sharing documents";
   // Nothing runs yet; never claim work, and never "paused".
   return state === "delayed" ? "Taking longer than usual" : "Waiting to start";
 }
@@ -46,9 +46,7 @@ function progressTitle(state: ProgressState): string {
 function progressDescription(direction: "incoming" | "outgoing", ownerAllowed: boolean, state: ProgressState): string {
   if (state === "checking") return "One is checking the documents for this request.";
   if (state === "delayed") {
-    return direction === "incoming"
-      ? "This request is saved and continues automatically."
-      : "Your request is saved and continues automatically.";
+    return "Saved · continues automatically";
   }
   if (state === "queued") {
     return ownerAllowed
@@ -119,10 +117,10 @@ export function projectFeedDriveProgress(
       description: [
         quote,
         unavailable
-          ? "One couldn't verify the documents for this request."
+          ? "Couldn't verify documents"
           : automatic
           ? progressDescription(direction, metadata.owner_allowed === true, state)
-          : "Waiting for the owner to review your request.",
+          : "Awaiting review",
       ].filter(Boolean).join(" · "),
       ...(waiting ? { waiting: true, queuedAt } : {}),
       href: buildConsentCenterHref(active ? "active" : "pending", {

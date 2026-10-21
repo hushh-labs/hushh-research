@@ -141,7 +141,9 @@ final class AppUITests: XCTestCase {
 
     private func printPrivacyAdmission(_ app: XCUIApplication) {
         let cover = app.otherElements["session-privacy-shield"].firstMatch
-        guard cover.exists, let value = cover.value as? String,
+        // The cover can retire between queries. Read one fallible snapshot;
+        // optional diagnostics must not fail an otherwise admitted session.
+        guard let snapshot = try? cover.snapshot(), let value = snapshot.value as? String,
               value.range(of: #"^NATIVE_PRIVACY_STATE shielded=(true|false) lifecycle_active=(true|false) application_active=(true|false) recovery_visible=(true|false) recovery_scheduled=(true|false) retirement_pending=(true|false)$"#,
                 options: .regularExpression) != nil else { return }
         print(value) // No identity, document, credential or private body.

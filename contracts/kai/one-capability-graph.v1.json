@@ -1772,11 +1772,10 @@
     },
     {
       "aliases": [
-        "Open Connect people",
+        "Open Find people",
         "people tab",
         "connect people",
-        "my connections",
-        "who am i connected to"
+        "open find people"
       ],
       "authorization": {
         "guard_ids": [
@@ -1803,7 +1802,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Shows the People tab, which lists your connections and lets you search everyone you could connect with.",
+      "description": "Shows Find people in Connect, where you can search the people directory. My connections is a separate adjacent view for accepted relationships.",
       "execution": {
         "binding_ref": "semantic_action:connect.open_people",
         "executor": {
@@ -1836,7 +1835,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Open Connect people",
+      "label": "Open Find people",
       "navigation": {
         "fallback": "connect.open_people",
         "routes": [
@@ -1896,6 +1895,157 @@
         "people",
         "connections",
         "directory"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Open My connections",
+        "my connections",
+        "who am i connected to",
+        "show saved connections",
+        "open saved connections",
+        "show accepted connections"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "connect.open_connections",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Shows My connections in Connect, with accepted relationships, their separate search, refresh, Message and confirmed removal controls. It does not send a request or sync contacts.",
+      "execution": {
+        "binding_ref": "semantic_action:connect.open_connections",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "connect.open_connections"
+        }
+      },
+      "goal_id": "goal.connect.open_connections",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open My connections",
+      "navigation": {
+        "fallback": "connect.open_connections",
+        "routes": [
+          "/one/connect"
+        ],
+        "screens": [
+          "connect"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "connections",
+        "accepted",
+        "saved",
+        "people"
       ],
       "settlement_proof": "directive_ledger_settlement",
       "side_effect": {
@@ -4243,7 +4393,10 @@
       "aliases": [
         "Open Analysis Surface",
         "open analysis",
-        "go to analysis"
+        "go to analysis",
+        "open stocks",
+        "go to stocks",
+        "company facts"
       ],
       "authorization": {
         "guard_ids": [],
@@ -16951,6 +17104,154 @@
     },
     {
       "aliases": [
+        "Retry phone lookup",
+        "retry phone lookup",
+        "reload my saved phone"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.retry_phone_lookup",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Retries reading the signed-in person's saved verified phone. Does not start OTP verification or change the phone.",
+      "execution": {
+        "binding_ref": "semantic_action:profile.retry_phone_lookup",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "profile.retry_phone_lookup"
+        }
+      },
+      "goal_id": "goal.profile.retry_phone_lookup",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Retry phone lookup",
+      "navigation": {
+        "fallback": "profile.retry_phone_lookup",
+        "routes": [
+          "/one/profile/account",
+          "/one/profile/account/phone"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "retry",
+        "number unavailable"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Profile",
         "open profile",
         "go to profile"
@@ -17064,6 +17365,153 @@
       "search_keywords": [
         "profile",
         "account"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Open Account",
+        "open account",
+        "open my phone number"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.profile_account",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens account identity and saved phone management in Profile.",
+      "execution": {
+        "binding_ref": "route:/one/profile/account",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/profile/account"
+        }
+      },
+      "goal_id": "goal.route.profile_account",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open Account",
+      "navigation": {
+        "fallback": "/one/profile/account",
+        "routes": [
+          "/one/profile/account"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "account",
+        "identity",
+        "phone number"
       ],
       "settlement_proof": "validated_route_settlement",
       "side_effect": {
@@ -21978,6 +22426,163 @@
       },
       "kind": "action",
       "label": "Decline invitation",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Research your public profiles"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.world_model.public_profiles",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Explicitly choose public profile links for Azure and Bing research. Links are owner assertions, not identity verification; review findings before saving.",
+      "execution": {
+        "binding_ref": "render:profile.world_model.public_profiles",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.world_model.public_profiles",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Research your public profiles",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -36679,6 +37284,592 @@
     },
     {
       "aliases": [
+        "Show 1 day sector performance",
+        "show sector performance for 1 day",
+        "show daily sectors"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.sectors.show_day",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Selects daily sector ETF price returns on the active Market screen, with observed period dates and an explicit unavailable state.",
+      "execution": {
+        "binding_ref": "semantic_action:kai_market_sector_period",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "kai_market_sector_period"
+        }
+      },
+      "goal_id": "goal.market.sectors.show_day",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Show 1 day sector performance",
+      "navigation": {
+        "fallback": "kai_market_sector_period",
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "sector performance",
+        "sector rotation",
+        "1 day"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Show 1 week sector performance",
+        "show sector performance for 1 week",
+        "show weekly sectors"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.sectors.show_week",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Selects five-trading-session sector ETF price returns on the active Market screen, with observed period dates and an explicit unavailable state.",
+      "execution": {
+        "binding_ref": "semantic_action:kai_market_sector_period",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "kai_market_sector_period"
+        }
+      },
+      "goal_id": "goal.market.sectors.show_week",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Show 1 week sector performance",
+      "navigation": {
+        "fallback": "kai_market_sector_period",
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "sector performance",
+        "sector rotation",
+        "1 week"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Show all sectors",
+        "all sectors",
+        "expand sector rotation"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.sectors.show_all",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Expands sector rotation to every available sector for the selected return period.",
+      "execution": {
+        "binding_ref": "semantic_action:kai_market_sector_scope",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "kai_market_sector_scope"
+        }
+      },
+      "goal_id": "goal.market.sectors.show_all",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Show all sectors",
+      "navigation": {
+        "fallback": "kai_market_sector_scope",
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "all sectors",
+        "sector rotation"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Show sector highlights",
+        "sector highlights",
+        "shorten sector rotation"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.sectors.show_highlights",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Shows the three highest and three lowest available sector returns for the selected period, or every sector when six or fewer are available.",
+      "execution": {
+        "binding_ref": "semantic_action:kai_market_sector_scope",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "kai_market_sector_scope"
+        }
+      },
+      "goal_id": "goal.market.sectors.show_highlights",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Show sector highlights",
+      "navigation": {
+        "fallback": "kai_market_sector_scope",
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "sector highlights",
+        "sector rotation"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Set up your private agent",
         "set up my cloud",
         "connect my cloud",
@@ -40390,7 +41581,7 @@
   "mcp_compatible": true,
   "model_projections": {
     "location": {
-      "brain_revision": "6b5d5cba5d004a489d67a601",
+      "brain_revision": "3967766bea6b662174e3b5cb",
       "capabilities": [
         {
           "candidate_id": "location.accept_circle_invite",
@@ -43260,7 +44451,7 @@
           "label": "Location backend inventory"
         }
       ],
-      "known_unbound_implementation_count": 76,
+      "known_unbound_implementation_count": 77,
       "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
       "package_id": "location.brain",
       "package_version": 2,
@@ -43326,7 +44517,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "780a6bdaa8428531fcbbc31fb3f35875e1baf5d99392727def41b368a6bb4956",
+      "projection_digest": "73761272a48dabdf14c51283aa29de6c2005b812b55892eace7bfc0abfe06a69",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -43336,7 +44527,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "bc14079abfdd6cd58e1afd1e5652ad88e025205013f6732a43823edea42728cb",
+        "capability_graph_evolution": "614a1d0d954720cee48ddf1b479842ab445530faa5a5f1dbb0d2e3ea1ada4af2",
         "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "a9a0e97fde714e059ccde820b0976f69d7793ab5e7b8b4998e355982f001c6ba",
@@ -43345,7 +44536,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "1133c558fabf79a77d64b9227d6834c4c5d948b37e51ac2240caf7d50f2771e7"
       },
-      "source_revision": "6889f5062bd36428",
+      "source_revision": "bac83e877a340d9d",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -44863,7 +46054,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "6889f5062bd36428",
+    "source_revision": "bac83e877a340d9d",
     "web": {
       "actions": [
         {
@@ -44906,7 +46097,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "b632d94801709a7989ba1c251a929c1c05fee4956ad5fc2264f3c6568fb0dd10",
+      "projection_digest": "52017dfedd55ad3b6dd4bcbc2e15145c7396d8ff3847269d231552c6396ac3a3",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -44916,7 +46107,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "bc14079abfdd6cd58e1afd1e5652ad88e025205013f6732a43823edea42728cb",
+        "capability_graph_evolution": "614a1d0d954720cee48ddf1b479842ab445530faa5a5f1dbb0d2e3ea1ada4af2",
         "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "a9a0e97fde714e059ccde820b0976f69d7793ab5e7b8b4998e355982f001c6ba",
@@ -44925,7 +46116,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "1133c558fabf79a77d64b9227d6834c4c5d948b37e51ac2240caf7d50f2771e7"
       },
-      "source_revision": "6889f5062bd36428",
+      "source_revision": "bac83e877a340d9d",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -46482,7 +47673,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "6889f5062bd36428",
+  "revision": "bac83e877a340d9d",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -46848,6 +48039,7 @@
       "action_ids": [
         "connect.accept_request",
         "connect.cancel_request",
+        "connect.open_connections",
         "connect.open_nearby",
         "connect.open_people",
         "connect.reject_request",
@@ -46962,6 +48154,11 @@
         "analysis.open_detailed_tab",
         "analysis.open_summary_tab",
         "analysis.resume_active",
+        "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.back",
         "route.kai_home"
       ],
@@ -47126,6 +48323,10 @@
         "analysis.open_summary_tab",
         "analysis.resume_active",
         "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -47148,6 +48349,10 @@
         "analysis.open_summary_tab",
         "analysis.resume_active",
         "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -47170,6 +48375,10 @@
         "analysis.open_summary_tab",
         "analysis.resume_active",
         "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -47191,6 +48400,11 @@
         "analysis.open_detailed_tab",
         "analysis.open_summary_tab",
         "analysis.resume_active",
+        "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.back",
         "route.kai_home"
       ],
@@ -47416,6 +48630,7 @@
         "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
+        "profile.retry_phone_lookup",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -47423,6 +48638,7 @@
         "route.back",
         "route.profile",
         "route.profile_access_panel",
+        "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
         "route.profile_payouts",
@@ -47468,6 +48684,7 @@
         "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
+        "profile.retry_phone_lookup",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -47475,6 +48692,7 @@
         "route.back",
         "route.profile",
         "route.profile_access_panel",
+        "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
         "route.profile_payouts",
@@ -47502,6 +48720,7 @@
         "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
+        "profile.retry_phone_lookup",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -47509,6 +48728,7 @@
         "route.back",
         "route.profile",
         "route.profile_access_panel",
+        "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
         "route.profile_payouts",
@@ -48418,11 +49638,19 @@
   ],
   "semantic_diff": {
     "added": [
+      "actions:connect.open_connections",
+      "actions:market.sectors.show_all",
+      "actions:market.sectors.show_day",
+      "actions:market.sectors.show_highlights",
+      "actions:market.sectors.show_week",
       "actions:one.scheduled_tasks.open",
       "actions:pkm.close_sharing_bundle_review",
       "actions:pkm.close_sharing_price_review",
       "actions:pkm.review_sharing_price",
+      "actions:profile.retry_phone_lookup",
+      "actions:profile.world_model.public_profiles",
       "actions:route.one_files",
+      "actions:route.profile_account",
       "actions:setup.finish_cloud",
       "actions:setup.open_cloud",
       "screens:screen:/one/files",
@@ -48436,21 +49664,38 @@
     ],
     "breaking": [],
     "changed": [
+      "actions:connect.open_people",
       "actions:profile.delete_account",
+      "actions:route.kai_analysis",
       "actions:route.one_pkm",
       "actions:route.profile_payouts",
       "actions:setup.finish_connections",
       "actions:setup.open_connections",
+      "brains:location",
       "screens:screen:/one",
+      "screens:screen:/one/connect",
+      "screens:screen:/one/kai",
+      "screens:screen:/one/kai?tab=analysis",
+      "screens:screen:/one/kai?tab=analysis&focus=active",
+      "screens:screen:/one/kai?tab=analysis&view=history",
+      "screens:screen:/one/kai?tab=portfolio",
       "screens:screen:/one/pkm",
+      "screens:screen:/one/profile",
+      "screens:screen:/one/profile/account",
+      "screens:screen:/one/profile/account/phone",
       "screens:screen:/one/setup",
-      "workflows:workflow.setup.connections"
+      "services:service.location",
+      "workflows:workflow.setup.connections",
+      "workflows:workflow.setup.location"
     ],
     "compatible": [
+      "actions:route.kai_analysis",
       "actions:route.one_pkm",
-      "actions:route.profile_payouts"
+      "actions:route.profile_payouts",
+      "workflows:workflow.setup.location"
     ],
     "deprecated": [
+      "actions:connect.open_people",
       "actions:profile.delete_account",
       "actions:setup.finish_connections",
       "actions:setup.open_connections",
@@ -49437,6 +50682,16 @@
         {
           "authorization": "vault_owner",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.location.delete.delete_named_location_circle_type",
+          "kind": "backend_api_endpoint",
+          "method": "DELETE",
+          "operation_name": "delete_named_location_circle_type",
+          "path": "/api/one/location/circle-types",
+          "service_id": "location"
+        },
+        {
+          "authorization": "vault_owner",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.location.get.list_named_location_circles",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -50352,7 +51607,7 @@
       "capability_id": "service.location",
       "catalog_coverage": {
         "all_discovered_capabilities_classified": true,
-        "blocked_endpoint_count": 76,
+        "blocked_endpoint_count": 77,
         "declared_capability_count": 73
       },
       "completion": {
@@ -50364,7 +51619,7 @@
       "executor_hierarchy": [
         {
           "action_ids": [],
-          "discovered_endpoint_count": 76,
+          "discovered_endpoint_count": 77,
           "kind": "backend_api",
           "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
           "status": "adapter_required"
@@ -50463,7 +51718,7 @@
       ],
       "kind": "service",
       "knowledge_package": {
-        "brain_revision": "6b5d5cba5d004a489d67a601",
+        "brain_revision": "3967766bea6b662174e3b5cb",
         "catalog_status": "complete_and_compiled",
         "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "package_id": "location.brain",
@@ -50752,21 +52007,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "bc14079abfdd6cd58e1afd1e5652ad88e025205013f6732a43823edea42728cb",
+    "capability_graph_evolution": "614a1d0d954720cee48ddf1b479842ab445530faa5a5f1dbb0d2e3ea1ada4af2",
     "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "8e48d7af6c7f766b702bfe38abf1cfa2a53ed77c26a2d55d88b76c7ac9453c5b",
+    "kai_action_gateway": "ba9b02dbb6744a6e951018ef9a9ee846fca338be9ea3f5d934de532064072345",
     "location_agent_manifest": "a9a0e97fde714e059ccde820b0976f69d7793ab5e7b8b4998e355982f001c6ba",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "7c61a4d0a5e3c50a1f612848306b2748bb8c0721beb93f0835d4fcd10195d3a6",
-    "route_orchestration_index": "422d6becce2d7c41337d9a8d4e62c38f92922082b5195198385cafabae3ba6b8",
+    "product_agent_registry": "e1342aca450ac97e3a660b929cd6d2d3adb54f8cefc52359d4bf02f38a98f488",
+    "route_orchestration_index": "096e13cb27356fd092a6cfaac1075fbdcc4e44ba9aca829ba4a3803bf3ee48ba",
     "service_knowledge_packages": "1133c558fabf79a77d64b9227d6834c4c5d948b37e51ac2240caf7d50f2771e7"
   },
-  "source_revision": "6889f5062bd36428",
+  "source_revision": "bac83e877a340d9d",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "6889f5062bd36428",
+    "current_graph_revision": "bac83e877a340d9d",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -52470,7 +53725,7 @@
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "66407f6994814d614757572e20b4c068c439c5afedbb410cd9ce3604da95a410",
+        "workflow_digest": "0771acb921eb2e35924fdb845b87c93ff4919bd3dd6092ae95d9c760aeab61c9",
         "workflow_id": "workflow.setup.location",
         "workflow_version": 2
       },
@@ -54091,6 +55346,16 @@
           "method": "POST",
           "operation_name": "decline_named_circle_member_invite",
           "path": "/api/one/location/circle-member-invites/{invite_id}/decline",
+          "service_id": "location"
+        },
+        {
+          "authorization": "vault_owner",
+          "binding_status": "discovered_unbound",
+          "capability_id": "api.location.delete.delete_named_location_circle_type",
+          "kind": "backend_api_endpoint",
+          "method": "DELETE",
+          "operation_name": "delete_named_location_circle_type",
+          "path": "/api/one/location/circle-types",
           "service_id": "location"
         },
         {
@@ -56419,7 +57684,7 @@
         "executor_hierarchy": [
           {
             "action_ids": [],
-            "discovered_endpoint_count": 76,
+            "discovered_endpoint_count": 77,
             "kind": "backend_api",
             "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
             "status": "adapter_required"

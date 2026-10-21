@@ -16,6 +16,16 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Bounded team-preservation repair — 2026-10-19
+
+The shared Profile registry restores the approved neutral-outline artwork for
+web and generated iOS assets. Stable Agent Dock portals preserve editor nodes,
+selection and separate One/Puppy drafts through agent switches; inactive owners
+remain inert. These repairs do not enable custom native presentation or include
+the separate native privacy/lifecycle development batch. Current main's Drive,
+Chat and runtime-readiness changes remain intact. Ordinary Release/TestFlight
+keeps the established renderer; this source statement is not binary acceptance.
+
 ### Bottom navigation scroll clearance — 2026-10-19
 
 Physical reproduction found a real clearance defect: the 83-point native tab

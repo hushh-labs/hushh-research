@@ -195,7 +195,9 @@ class CacheService {
       CACHE_KEYS.CONNECTED_SYSTEMS_REGISTRY(userId),
       CACHE_KEYS.FEED_UNREAD_COUNT(userId),
       CACHE_KEYS.FEED_LIST(userId),
+      CACHE_KEYS.FEED_PRESENTATION(userId),
       CACHE_KEYS.CONNECTIONS_INCOMING(userId),
+      CACHE_KEYS.CONNECTOR_FEATURES(userId),
     ]);
 
     for (const key of this.cache.keys()) {
@@ -282,6 +284,7 @@ class CacheService {
 
 // Cache key constants for consistency
 export const CACHE_KEYS = {
+  CONNECTOR_FEATURES: (userId: string) => `connector_features_${userId}`,
   WALLET_PRESENTATIONS: (userId: string) => `wallet_presentations_${userId}`,
   GOOGLE_CONNECTION: (userId: string, service: "drive" | "calendar", generation: number, vaultEpoch: number, revision: number) =>
     `google_connection_${userId}_${service}_${generation}_${vaultEpoch}_${revision}`,
@@ -299,7 +302,7 @@ export const CACHE_KEYS = {
   PORTFOLIO_DATA: (userId: string) => `portfolio_data_${userId}`,
   KAI_FINANCIAL_RESOURCE: (userId: string) => `kai_financial_resource_${userId}`,
   KAI_MARKET_HOME_BASELINE: (userId: string, daysBack: number) =>
-    `kai_market_home_${userId}_baseline_${daysBack}`,
+    `kai_market_home_${userId}_baseline_v5_${daysBack}`,
   KAI_MARKET_NEWS: (
     userId: string,
     scope: string,
@@ -328,6 +331,7 @@ export const CACHE_KEYS = {
     limit: number
   ) => `consent_center_list_${userId}_${actor}_${surface}_${query}_${page}_${limit}`,
   FEED_UNREAD_COUNT: (userId: string) => `feed_unread_count_${userId}`,
+  FEED_PRESENTATION: (userId: string) => `feed_presentation_${userId}`,
   // First page only; "load more" pagination stays live/uncached so a
   // stale-while-revalidate render on revisit doesn't need to reason about
   // cursor-scoped entries beyond the initial view.

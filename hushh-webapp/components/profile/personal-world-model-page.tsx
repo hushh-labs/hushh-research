@@ -93,7 +93,7 @@ type StatusKind =
   | "failed"
   /** Research's own service is unreachable; it is asked again after a wait. */
   | "outage"
-  /** Today's research is spent; asking again before tomorrow returns the same. */
+  /** This check reached its limit; only an explicit new check can start. */
   | "exhausted"
   | "insufficient"
   | "not_ready"
@@ -206,8 +206,8 @@ function statusCopy(input: {
   if (result?.status === "unavailable" && result.research_exhausted)
     return {
       kind: "exhausted",
-      title: "Nothing more to check today",
-      body: "Try again tomorrow.",
+      title: "This check has ended",
+      body: "Open Research and email to start a new check.",
     };
   if (input.failed || result?.status === "unavailable")
     return {
@@ -286,6 +286,14 @@ function statusCopy(input: {
       kind: "nothing",
       title: "Nothing to review right now",
       body: "We’ll check public pages again in a few days.",
+    };
+  // Reviewed statements can all be duplicates or unsuitable without changing
+  // the separately assessed identity result.
+  if (result.status === "offered" && result.report.match_status !== "no_match")
+    return {
+      kind: "nothing",
+      title: "No new details to review",
+      body: "We checked the public findings and found no new personal details to offer.",
     };
   // Only an offered report with no statements at all. People with the owner's
   // name may have turned up without any of them confirmed as the owner.
@@ -400,6 +408,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     retryAt,
     reload: reloadResearch,
     refresh: refreshResearch,
+    researchPublicProfiles: researchProfiles,
   } = useWorldModelResearch(enabled);
   const ready = Boolean(
     enabled && !loading &&
@@ -468,6 +477,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   }, [scopeCurrent, setDetailState]);
   const reload = useCallback((confirmed?: PwmPreferences) => { if (scopeCurrent()) reloadResearch(confirmed); }, [scopeCurrent, reloadResearch]);
   const refresh = useCallback(() => { if (scopeCurrent()) refreshResearch(); }, [scopeCurrent, refreshResearch]);
+  const researchPublicProfiles = useCallback((urls: readonly string[]) => { if (scopeCurrent()) researchProfiles(urls); }, [scopeCurrent, researchProfiles]);
   const memory =
     ready && loaded && loaded.owner === user?.uid && loaded.key === vaultKey
       ? loaded.memory
@@ -852,10 +862,18 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   const retry = status.kind === "failed";
   // Nothing is running, and asking again would only return the same answer.
   const spent = status.kind === "outage" || status.kind === "exhausted";
+  // A bare restart response may be an obsolete draft or a concurrent read.
+  // Let the owner submit public starting links; the server's lease/CAS guard
+  // still decides whether that explicit refresh can replace existing work.
+  const canResearchPublicProfiles = (!spent || status.kind === "exhausted") && (
+    (result?.status !== "pending" && result?.status !== "paused") ||
+    (result.status === "pending" && result.restart_required &&
+      result.progress === undefined && result.validated_facts === undefined)
+  );
   const checkpoint = !preparing && (retry || spent || retrying) ? progress : null;
   const StatusIcon = STATUS_ICON[status.kind];
 
-  return { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, provisionalFacts, sections, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, detail, detailTitle, closeDetail, memory };
+  return { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, provisionalFacts, sections, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, canResearchPublicProfiles, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory };
 }
 export type PersonalWorldModelModel = ReturnType<typeof usePersonalWorldModelModel>;
 
@@ -869,7 +887,7 @@ export function PersonalWorldModelPage({ model, ...props }: PersonalWorldModelPa
 }
 
 function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAccount }: PersonalWorldModelPageOptions & { model: PersonalWorldModelModel }) {
-  const { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, provisionalFacts, sections, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, detail, detailTitle, closeDetail, memory } = model;
+  const { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, provisionalFacts, sections, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory } = model;
   const content = (
     <SurfaceStack compact data-pwm-page>
       <SettingsPresentationProvider density="compact">
@@ -1157,7 +1175,8 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
               preferences={preferences}
               sourcesRequest={claims}
               canCheckForUpdates={
-                result?.status !== "pending" && result?.status !== "paused" && !spent
+                result?.status !== "pending" && result?.status !== "paused" &&
+                (!spent || status.kind === "exhausted")
               }
               pathname={pathname}
               embedded={embedded}
@@ -1170,6 +1189,8 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
               onSourcesSaved={() => setReadRevision((value) => value + 1)}
               onUpdatePreferences={updatePreferences}
               onCheckForUpdates={refresh}
+              onResearchPublicProfiles={researchPublicProfiles}
+              canResearchPublicProfiles={model.canResearchPublicProfiles}
             />
             {detail ? (
               <WorldModelFactSheet

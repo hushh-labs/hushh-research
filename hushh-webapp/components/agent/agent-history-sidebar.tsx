@@ -368,7 +368,7 @@ export function AgentHistorySidebar({
               className={cn(
                 "block min-w-0 flex-1 rounded-[12px] pl-3 pr-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
                 isMobileMode && "relative isolate overflow-hidden",
-                // Keep a compact baseline; hover and AX retain the full title.
+                // Keep the complete title readable on touch without relying on hover.
                 isMobileMode ? "min-h-11 py-2" : "min-h-9 py-2",
                 active ? "font-medium text-foreground" : "font-normal text-foreground/85 group-hover:text-foreground"
               )}
@@ -379,7 +379,7 @@ export function AgentHistorySidebar({
             >
               <span className="flex min-w-0 items-baseline gap-2">
               <span data-agent-history-row-title
-                className={cn("min-w-0 truncate leading-tight", isMobileMode ? "text-[13px]" : "text-[14px]")}>
+                className={cn("min-w-0 flex-1 whitespace-normal wrap-break-word leading-tight", isMobileMode ? "text-[13px]" : "text-[14px]")}>
                 {title}
               </span>
 

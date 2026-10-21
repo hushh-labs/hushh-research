@@ -557,10 +557,31 @@ steps:
         probe_entries=""
         for _attempt in 1 2 3 4 5 6; do
           probe_entries="$(gcloud logging read \
-            "resource.type=cloud_run_job AND labels.\"run.googleapis.com/execution_name\"=\"${execution_name}\" AND (jsonPayload.azure_pwm_runtime_probe_result:* OR textPayload:azure_pwm_runtime_probe_result)" \
-            --project="$PROJECT_ID" --limit=1 --freshness=1h \
+            "resource.type=cloud_run_job AND labels.\"run.googleapis.com/execution_name\"=\"${execution_name}\" AND (jsonPayload.azure_pwm_runtime_probe_result:* OR jsonPayload.azure_pwm_runtime_probe_stage=primary_http OR jsonPayload.azure_managed_text_contract:* OR textPayload:azure_managed_text_contract OR textPayload:azure_pwm_runtime_probe_result OR textPayload:primary_http)" \
+            --project="$PROJECT_ID" --limit=10 --freshness=1h \
             --format=json 2>/dev/null || true)"
-          if [[ -n "${probe_entries}" && "${probe_entries}" != "[]" ]]; then
+          if PROBE_ENTRIES="${probe_entries}" python3 - <<'PY'
+        import json, os
+        try:
+            entries = json.loads(os.environ["PROBE_ENTRIES"])
+            values = []
+            for entry in entries:
+                payload = entry.get("jsonPayload")
+                if payload is None:
+                    try:
+                        payload = json.loads(entry.get("textPayload", ""))
+                    except json.JSONDecodeError:
+                        continue
+                values.append(payload)
+            terminal = any(isinstance(value, dict) and "azure_pwm_runtime_probe_result" in value for value in values)
+            primary = any(isinstance(value, dict) and value.get("azure_pwm_runtime_probe_stage") == "primary_http" for value in values)
+            managed = any(isinstance(value, dict) and value.get("azure_managed_text_contract") == "ok" for value in values)
+            failed = any(isinstance(value, dict) and value.get("azure_pwm_runtime_probe_result") == "failed" for value in values)
+            raise SystemExit(0 if failed or terminal and primary and managed else 1)
+        except (ValueError, TypeError):
+            raise SystemExit(1)
+        PY
+          then
             break
           fi
           sleep 5
@@ -584,6 +605,16 @@ steps:
             verdicts.append(payload)
         if {"azure_pwm_runtime_probe_result": "ok"} not in verdicts:
             raise SystemExit("Azure PWM UAT runtime probe did not pass")
+        primary = [item for item in verdicts if isinstance(item, dict)
+            and item.get("azure_pwm_runtime_probe_stage") == "primary_http"
+            and item.get("result") == "ok" and item.get("http_status") == 200]
+        if len(primary) != 1:
+            raise SystemExit("Azure primary HTTP200 structured receipt is missing")
+        print(json.dumps({"azure_primary_structured_readiness": "ok", "http_status": 200,
+            "deployment": primary[0]["deployment"]}))
+        if not any(isinstance(item, dict) and item.get("azure_managed_text_contract") == "ok" and item.get("scopes") == 2 for item in verdicts):
+            raise SystemExit("Shared Azure primary text contract receipt is missing")
+        print(json.dumps({"azure_managed_text_contract": "ok", "scopes": 2}))
         PY
         echo "Azure PWM UAT runtime probe passed."
     id: "verify-azure-pwm-runtime"

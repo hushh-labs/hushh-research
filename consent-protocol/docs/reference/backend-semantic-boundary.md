@@ -261,6 +261,8 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - Source, request revision, connection generation, original purpose, plan digest
   and assessment-policy digest bind encrypted evidence. The permission worker
   checks the assessed provider version, current consent and payment separately.
+  Requests start at revision `0`; candidate evidence preserves that exact
+  nonnegative revision. Positive review revisions remain a separate contract.
   Selected dates retain title → created → modified precedence by default;
   explicit created/modified or content-period intent remains distinct.
 - Promotion evidence: production-function regression tests plus the opt-in
@@ -989,10 +991,38 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
 - Azure UAT: GPT-5 mini owns planning, candidate assessment, attribution and report
   meaning using that same manifest. Adapter instructions select the execution
   stage and conservative citation-only identity boundary; native JSON schema and
-  host validation reject malformed or unreceived evidence. Candidate/source ID
-  namespaces and observed-attempt gates enforce evidence provenance, not meaning.
+  host validation reject malformed or unreceived evidence, not semantic
+  duplicates. Provisional extraction, compilation and final fact review use
+  bounded instruction blocks authored in the same PWM manifest, with no
+  retrieval, identity-verification or save authority; it does not inherit the
+  whole research task's unrelated duties. The model chooses which distinct
+  findings remain. Fact review returns immutable fact IDs and a summary; the host
+  resolves that subset without rewriting any statement, topic, confidence or
+  citation, then revalidates the original evidence contract. Its charged result
+  is bound to the checkpointed intermediate report, so resume never silently
+  reruns compilation. Selecting zero claims preserves the assessed identity;
+  an empty matched/uncertain report is valid, while no-match still forbids claims. Stage
+  instruction and reasoning changes enter the existing policy fingerprint.
+  Candidate/source ID namespaces and observed-attempt gates enforce evidence
+  provenance, not meaning.
   The policy fingerprint includes active stage instructions and transport bounds,
   invalidating old drafts while preserving paid-attempt accounting. The existing
   no-traffic candidate probe evaluates six synthetic attribution cases and the
   production output schemas through the real primary gateway. Live owner precision and nonprofessional/social
   coverage remain separate quality questions; no claim count proves them.
+
+### UAT Drive query-match delivery policy v2
+
+New UAT requester-origin automatic document requests seal policy version 2.
+The existing Documents planner remains the sole author of the complete typed
+search expression. The host compiles all supported predicates to Drive query
+syntax without substituting a successful model field or dropping a condition.
+This interaction delivers provider-search matches, so the document-content
+assessor stage is intentionally not applicable; it is recorded as such in
+`drive_query_matches_v1` provenance and closed operational telemetry. This is
+an explicit delivery-policy change, not a claimed successful or failed content
+assessment. No content-verification score, citation or fingerprint is invented.
+Provider-inexpressible content-period or account-relationship requests require
+clarification. Existing v1/package assessments and their byte-exact manifest
+policy hash remain unchanged. Permission, consent, date scope, payment and
+external-effect idempotency remain independently authoritative.

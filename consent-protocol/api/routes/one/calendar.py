@@ -28,6 +28,8 @@ class CalendarConnectStart(_UserRequest):
     access_level: Literal["read", "manage"] = "read"
     redirect_uri: str | None = Field(default=None, max_length=2048)
     login_hint: str | None = Field(default=None, max_length=512)
+    additional: bool = False
+    account_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class CalendarConnectComplete(_UserRequest):
@@ -38,6 +40,8 @@ class CalendarConnectComplete(_UserRequest):
 
 class CalendarNativeConnectStart(BaseModel):
     include_calendar_list: bool = False
+    additional: bool = False
+    account_id: str | None = Field(default=None, min_length=1, max_length=128)
     access_level: Literal["read", "manage"] = "read"
 
 
@@ -48,7 +52,7 @@ class CalendarNativeConnectComplete(_UserRequest):
 
 
 class CalendarDisconnect(_UserRequest):
-    pass
+    account_id: str = Field(default="default", min_length=1, max_length=128)
 
 
 class CalendarRange(BaseModel):
@@ -99,6 +103,14 @@ async def start_connect(
     payload: CalendarConnectStart, firebase_uid: str = Depends(hub_content_firebase)
 ):
     verify_user_id_match(firebase_uid, payload.user_id)
+    if payload.account_id is not None and not payload.additional:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "CALENDAR_ACCOUNT_TARGET_INVALID",
+                "message": "Select an additional Calendar account before reconnecting it.",
+            },
+        )
     try:
         return await get_google_connection_service().start(
             user_id=payload.user_id,
@@ -106,6 +118,8 @@ async def start_connect(
             access_level=payload.access_level,
             redirect_uri=payload.redirect_uri,
             login_hint=payload.login_hint,
+            **({"calendar_additional": True} if payload.additional else {}),
+            **({"calendar_account_id": payload.account_id} if payload.account_id else {}),
         )
     except Exception as exc:
         raise _http(exc) from exc
@@ -143,6 +157,12 @@ async def start_native_connect(
             **(
                 {"include_calendar_list": True} if payload and payload.include_calendar_list else {}
             ),
+            **({"calendar_additional": True} if payload and payload.additional else {}),
+            **(
+                {"calendar_account_id": payload.account_id}
+                if payload and payload.account_id
+                else {}
+            ),
         )
     except Exception as exc:
         raise _http(exc) from exc
@@ -170,7 +190,7 @@ async def complete_native_connect(
 async def calendar_status(user_id: str, firebase_uid: str = Depends(require_firebase_auth)):
     verify_user_id_match(firebase_uid, user_id)
     try:
-        return await get_google_connection_service().status(user_id=user_id, service="calendar")
+        return await get_google_connection_service().calendar_accounts_status(user_id=user_id)
     except Exception as exc:
         raise _http(exc) from exc
 
@@ -182,7 +202,9 @@ async def disconnect(
     verify_user_id_match(firebase_uid, payload.user_id)
     try:
         return await get_google_connection_service().disconnect_service(
-            user_id=payload.user_id, service="calendar"
+            user_id=payload.user_id,
+            service="calendar",
+            **({"account_id": payload.account_id} if payload.account_id != "default" else {}),
         )
     except Exception as exc:
         raise _http(exc) from exc

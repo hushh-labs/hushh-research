@@ -106,6 +106,20 @@ durable transaction journal. Initial connection, listener recovery, and Feed
 queue overflow send `feed_reset`; authenticated reads recover the current state.
 Legacy consent queues remain separate from Feed-only burst/reset handling.
 
+Deleting a participant chat emits the owner-only `history_mutated` reason on a
+general Feed hint. The stream admits only that exact enum and discards other
+producer fields. `CacheSyncService.onFeedHistoryMutated` advances the Feed
+presentation revision, evicts its saved pages, and invalidates list/count reads.
+The next authoritative page drops previously loaded deleted rows; a stale
+unmount cannot save them again. An opaque `history_revision` from existing
+owner received-message deletion flags repairs missed hints on reread, including
+off-page removals. It is captured before reading the page, so it cannot bless
+older rows with a newer deletion revision. Both local and server revision
+changes fence pending older-page responses. Ordinary arrivals and read receipts
+leave this revision unchanged and retain reading continuity. The indexed
+revision aggregate scans that owner's direct-message Feed sources; it creates
+no new persistence store.
+
 The backend shares its existing LISTEN connection, expires Feed streams after
 120 seconds, rechecks authentication every 30 seconds using the existing verifier
 (including its revocation-cache policy), and bounds a stalled send to 10 seconds.
@@ -364,6 +378,35 @@ Nested routes that render one workspace must share one cache contract and still 
 - Same-session Profile transitions do not use the root generic skeleton: `app/one/profile/loading.tsx` preserves the route-transition envelope, and `PhoneMandateGuard` hydrates cached vault and phone-mandate hints before its first paint. A cold or unsafe mandate state still owns its explicit guard feedback.
 - Route splits must regenerate `cache-coherence-screen-manifest.generated.json` and keep route readiness/resource classes aligned with `CacheSyncService` invalidation paths.
 
+Phone display follows the committed account identity, which can differ from the
+primary social Firebase user's phone. AuthProvider retains a known number for
+the current session across view-cache expiry and same-user provider updates.
+If the provider already supplies a number but canonical cache evidence is
+missing, stale or hint-only, the same bounded background recovery revalidates
+it. Failed reads retain that display; fresh backend evidence can replace an
+older provider number without another OTP.
+It subscribes to exact-owner identity cache writes; verified full records heal
+the display, while full unverified records establish absence. Bootstrap hints,
+foreign records and stale cache entries cannot establish a displayed number.
+A failed or empty read is unavailable, never evidence that the number was removed.
+An authoritative full negative after a real binding transfer does clear the
+display. That absence is retained for the current auth session so an expired
+cache or old native provider number cannot resurrect the transferred claim.
+Degraded legacy projections and bootstrap hints cannot revoke a known phone.
+
+Unknown phone reads have a ten-second wait budget and at most three scheduled
+retries (2, 5 and 15 seconds). Online/visible/native-active wakes can start a new
+bounded recovery episode; overlapping wakes share one request. Background,
+offline and disposed consumers stop scheduled work. Confirmed absence stops
+automatic retries, and recovery cannot reset an active OTP editor. Identity
+requests are fenced by auth generation and publication order, so a late read
+cannot overwrite a newer read or committed phone save. A concurrent name/photo
+mutation still runs; its superseded identity snapshot is reconciled by a new
+read rather than replacing the newer phone claim.
+AuthProvider also rechecks fresh canonical phone evidence after an awaited read
+returns, including authoritative absence, so a claim published between service
+completion and consumer continuation cannot be reverted by the returned snapshot.
+
 The One setup family follows the same retained-surface rule. Its parent
 `app/one/loading.tsx` and `app/one/setup/loading.tsx` boundaries intentionally
 render no generic placeholder during a same-session switch. A capability adapter
@@ -431,3 +474,30 @@ five minutes. `lib/cache/pkm-invalidation-epoch.ts` closes that gap:
   - first-party financial/one/profile/portfolio/history writes must go through `PkmWriteCoordinator`
   - stale manifests/domains should resume the client-side PKM upgrade before save when the vault is unlocked
   - if the vault is locked and the domain is stale, the UI should surface an upgrade-required/read-only state instead of attempting a legacy plaintext fallback
+
+### Profile and Feed state ownership (2026-10-21)
+
+Feed opts into `useStaleResource` version-aware single flight using the existing
+Feed invalidation epoch and auth generation. A forced invalidation during a read
+coalesces into one forced successor; publication waits for the current version.
+Same-version slow backend results are accepted. Token acquisition and final
+transport dispatch are session-fenced; a post-sign-out result cannot refill cache.
+Consent mutations now invalidate Feed as well as their existing projections.
+The existing consent read-after-write owner also increments a monotonic epoch,
+including multiple changes in one millisecond. Feed's five consent resources
+use that epoch with an auth-scoped request lifetime. Summary/list services keep
+returning complete responses but publish to memory/device caches only while
+their captured epoch and auth generation remain current. A confirmed no-charge
+Drive completion records the consent mutation before notifying/refetching Feed,
+so a pre-completion Pay projection cannot win an in-flight read.
+
+Feed return-position memory is separate from canonical list/count data and never
+authorizes actions. Confirmed history mutations invalidate its revision so later
+cleanup cannot restore raw dismissed/cleared rows. Sign-out clears owner memory.
+
+Person profile uses cached public identity for display, independent lightweight
+relationship and owner-feature readiness reads, and the existing complete viewer
+payload for all catalog, grants and history data. Retained labels/drafts are
+separate from current permission authority. Revalidation keeps workflow owners
+mounted, gates new submits while uncertain and accepts already dispatched server
+receipts under the original session guard. No backend response fields are removed.

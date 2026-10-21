@@ -329,6 +329,11 @@
     "362_circle_chat_member_add_batches.sql",
     "363_sms_circle_ten_contacts.sql",
     "364_one_private_text_processing_approvals.sql",
+    "365_one_product_activity_observations.sql",
+    "366_one_product_activity_correlation.sql",
+    "367_one_product_value_receipts.sql",
+    "368_drive_existing_access_nocharge.sql",
+    "369_calendar_additional_accounts.sql",
     "400_vault_environment_enrollment.sql",
     "401_consumer_scope_commerce.sql",
     "402_one_shared_hosting_choice.sql",
@@ -712,6 +717,11 @@
     "361_system_push_outbox.sql": "rollback/361_system_push_outbox.rollback.sql",
     "362_circle_chat_member_add_batches.sql": "rollback/362_circle_chat_member_add_batches.rollback.sql",
     "363_sms_circle_ten_contacts.sql": "rollback/363_sms_circle_ten_contacts.rollback.sql",
-    "364_one_private_text_processing_approvals.sql": "rollback/364_one_private_text_processing_approvals.rollback.sql"
+    "364_one_private_text_processing_approvals.sql": "rollback/364_one_private_text_processing_approvals.rollback.sql",
+    "365_one_product_activity_observations.sql": "rollback/365_one_product_activity_observations.rollback.sql",
+    "366_one_product_activity_correlation.sql": "rollback/366_one_product_activity_correlation.rollback.sql",
+    "367_one_product_value_receipts.sql": "rollback/367_one_product_value_receipts.rollback.sql",
+    "368_drive_existing_access_nocharge.sql": "rollback/368_drive_existing_access_nocharge.rollback.sql",
+    "369_calendar_additional_accounts.sql": "rollback/369_calendar_additional_accounts.rollback.sql"
   }
 }

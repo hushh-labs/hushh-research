@@ -1,6 +1,6 @@
 "use client";
 
-import { canStartReviewerLogin, shouldAutoAuthenticateReviewer, shouldBootstrapReviewerVault } from "@/lib/testing/reviewer-authentication-policy.mjs";
+import { canStartReviewerLogin, shouldAutoAuthenticateReviewer } from "@/lib/testing/reviewer-authentication-policy.mjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -181,7 +181,7 @@ export function AuthStep({
   const [reviewModeConfig, setReviewModeConfig] = useState<{
     enabled: boolean;
   }>({ enabled: false });
-  const shouldUseNativeTestBootstrap = shouldBootstrapReviewerVault(nativeTestConfig);
+  const shouldUseNativeTestBootstrap = nativeTestConfig.enabled && nativeTestConfig.autoReviewerLogin;
   const preserveOnboardingAuditRoute =
     nativeTestConfig.enabled &&
     nativeTestConfig.expectedRoute === ROUTES.ONE_SETUP_FINANCE &&
@@ -449,6 +449,8 @@ export function AuthStep({
   }, []);
 
   const handleReviewerLogin = useCallback(async (interactive: boolean) => {
+    const liveConfig = getNativeTestConfig();
+    if (shouldUseNativeTestBootstrap || (liveConfig.enabled && liveConfig.autoReviewerLogin)) return;
     trackEvent("auth_started", {
       action: "reviewer",
     });
@@ -550,6 +552,7 @@ export function AuthStep({
     nativeTestConfig.vaultPassphrase,
     resolveAndNavigate,
     reviewModeConfig.enabled,
+    shouldUseNativeTestBootstrap,
   ]);
 
   useEffect(() => {
@@ -948,7 +951,7 @@ export function AuthStep({
         {
           id: "apple",
           label: "Continue with Apple",
-          icon: <AppleIcon className="size-6" />,
+          icon: <AppleIcon className={cn("size-6", lightStyles.appleProviderIcon)} />,
           onClick: () => handleProviderLogin("apple", { initiator: "tap" }),
         },
       ]
@@ -956,7 +959,7 @@ export function AuthStep({
         {
           id: "apple",
           label: "Continue with Apple",
-          icon: <AppleIcon className="size-6" />,
+          icon: <AppleIcon className={cn("size-6", lightStyles.appleProviderIcon)} />,
           onClick: () => handleProviderLogin("apple", { initiator: "tap" }),
         },
         {
@@ -972,7 +975,7 @@ export function AuthStep({
   if (isWeb()) {
     authOptions.push({
       id: "microsoft", label: "Continue with Microsoft",
-      icon: <span aria-hidden="true" className="grid size-6 grid-cols-2 gap-[2px]">
+      icon: <span aria-hidden="true" className={cn("grid size-6 grid-cols-2 gap-[2px]", lightStyles.microsoftProviderIcon)}>
         {["#f25022", "#7fba00", "#00a4ef", "#ffb900"].map((color) => <span key={color} style={{ backgroundColor: color }} />)}
       </span>,
       onClick: () => handleProviderLogin("microsoft", { initiator: "tap" }),
@@ -995,7 +998,7 @@ export function AuthStep({
         dataState={nativeDataState}
         attachToBridge={(bridge) => {
           bridge.triggerReviewerLogin = () => {
-            if (autoReviewerLoginStartedRef.current || !shouldAutoAuthenticateReviewer(getNativeTestConfig())) {
+            if (shouldUseNativeTestBootstrap || autoReviewerLoginStartedRef.current || !shouldAutoAuthenticateReviewer(getNativeTestConfig())) {
               return;
             }
             autoReviewerLoginStartedRef.current = true;
@@ -1107,7 +1110,7 @@ export function AuthStep({
                     label="Continue as Reviewer"
                     icon={<Icon icon={Shield} size="md" />}
                     onClick={() => void handleReviewerLogin(true)}
-                    disabled={providerBusy}
+                    disabled={providerBusy || shouldUseNativeTestBootstrap}
                     className={REVIEWER_BTN_CLASS}
                   />
                 ) : null}

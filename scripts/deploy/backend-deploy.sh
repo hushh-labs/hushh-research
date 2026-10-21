@@ -299,6 +299,7 @@ append_optional_secret "${_GOOGLE_MAPS_API_KEY_SECRET}" "GOOGLE_MAPS_API_KEY"
 append_optional_secret ADVISORS_API_KEY ADVISORS_API_KEY
 append_optional_secret INSURANCE_AGENTS_API_KEY INSURANCE_AGENTS_API_KEY
 source deploy/email-auth/bind_secrets.sh "${_DEPLOY_ENV}"
+source deploy/plg/bind_secrets.sh "${_DEPLOY_ENV}" "$PROJECT_ID"
 append_optional_secret NWS_NEARBY_API_KEY NWS_NEARBY_API_KEY
 append_optional_secret NWS_NEARBY_V4_API_KEY NWS_NEARBY_V4_API_KEY
 append_optional_secret NWS_NEARBY_V4_ACTOR_HMAC_KEY NWS_NEARBY_V4_ACTOR_HMAC_KEY

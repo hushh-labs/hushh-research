@@ -145,6 +145,7 @@ export function FeedSoundControl({
       <div className="flex flex-wrap items-center justify-end gap-2">
         {enabled && !ready ? (
           <Button
+          data-profile-role="action"
             type="button"
             variant="none"
             effect="fade"
@@ -156,6 +157,7 @@ export function FeedSoundControl({
           </Button>
         ) : null}
         <Button
+          data-profile-role="action"
           type="button"
           variant="none"
           effect="fade"
@@ -170,7 +172,7 @@ export function FeedSoundControl({
         </Button>
       </div>
       {enabled ? (
-        <p className="px-2 text-right text-[11px] text-[color:var(--app-secondary-label)]">
+        <p data-profile-role="description" className="px-2 text-right text-[11px] text-[color:var(--app-secondary-label)]">
           Plays while Feed is open. Mac alerts may sound too.
         </p>
       ) : null}

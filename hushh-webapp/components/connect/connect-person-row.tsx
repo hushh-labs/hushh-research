@@ -1,8 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { connectPersonName, type ConnectPersonIdentity } from "@/lib/connections/person-label";
 import type { DirectoryPerson } from "@/lib/services/connections-service";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +35,7 @@ export function ConnectPersonRow({
   /** The avatar, already sized to fit the 30px well. */
   leading: ReactNode;
   title: ReactNode;
-  /** The one line under the name (a connected date, an email). Omitted when empty. */
+  /** Relationship context, such as a connected date. Omitted when empty. */
   description?: ReactNode;
   /** An optional control that belongs under the text column but cannot sit inside the open control. */
   supplement?: ReactNode;
@@ -112,6 +113,24 @@ export function ConnectPersonRow({
   );
 }
 
+/** Discovery shows a name, never contact identifiers or masked contact captions. */
+export function ConnectDirectoryPersonRow({
+  person,
+  ...props
+}: Omit<ComponentProps<typeof ConnectPersonRow>, "title" | "description"> & {
+  person: ConnectPersonIdentity & Partial<Pick<DirectoryPerson, "relationship">>;
+}) {
+  return (
+    <ConnectPersonRow
+      {...props}
+      title={connectPersonName(person)}
+      description={person.relationship === "pending_outgoing"
+        ? "Request sent"
+        : person.relationship === "pending_incoming" ? "Wants to connect" : undefined}
+    />
+  );
+}
+
 /**
  * The server-backed mutual-connection count under a directory row's text, with
  * the named preview only as an avatar and an accessible name. Renders nothing
@@ -128,6 +147,7 @@ export function DirectoryMutualLine({
   const count = person.mutualConnectionCount ?? 0;
   if (count <= 0) return null;
   const preview = person.mutualConnectionPreview;
+  const previewName = preview ? connectPersonName(preview) : "Hussh member";
   const label = count === 1 ? "Mutual connection" : `${count} mutual connections`;
   const content = (
     <>
@@ -137,7 +157,7 @@ export function DirectoryMutualLine({
           className="!size-4 shrink-0"
           fallbackClassName="bg-foreground/10 text-[8px]"
           photoUrl={preview.photoUrl}
-          label={preview.displayName}
+          label={previewName}
         />
       ) : null}
       <span data-slot="settings-row-description" className="min-w-0 [overflow-wrap:anywhere]">
@@ -150,7 +170,7 @@ export function DirectoryMutualLine({
     <button
       type="button"
       onClick={onOpenMutual}
-      aria-label={`Open mutual connection ${preview.displayName}'s profile`}
+      aria-label={`Open mutual connection ${previewName}'s profile`}
       data-testid="mutual-connection"
       className={cn(
         lineClassName,

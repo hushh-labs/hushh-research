@@ -19,7 +19,6 @@ export function projectNativeProfileMenu(name: string, email: string | null, rea
     { id: "identity-section", rows: [identity] },
     ...groups.map(group => ({ id: group.id, title: group.title, rows: group.entries.map(entry => ({
       id: entry.id, label: entry.label, symbol: entry.symbol, chevron: true,
-      ...("iconHex" in entry ? { iconHex: entry.iconHex } : {}),
       ...("destructive" in entry ? { destructive: entry.destructive } : {}),
       ...("localOnly" in entry ? { trailing: "Local" } : {}), enabled: ready,
     })) })),

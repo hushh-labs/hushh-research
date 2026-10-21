@@ -1,5 +1,5 @@
 import { useId, type ReactNode, type SVGProps } from "react";
-import { RotateCcw } from "@/components/icons";
+import { RotateCcw } from "@/components/icons/legacy-ui-icons";
 
 type AccountIconProps = SVGProps<SVGSVGElement> & {
   size?: number | string;

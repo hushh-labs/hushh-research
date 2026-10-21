@@ -71,6 +71,10 @@ export const CacheSyncService = { onConsentMutated: (_userId: string) => {} };
 // This fixture exercises document sharing, not vault-backed custom MCP setup.
 // Keep the connector service's unused configuration branch import-safe here.
 export const projectCustomConnectorTurnConfigurations = () => [];
+
+// Credential setup has its own acceptance suite. This fixture only controls
+// unlock state and must never initialize live Firebase or enter credential UI.
+export function VaultFlow() { throw new Error("Drive review fixture must not enter vault setup"); }
 export default function FixtureLink(
   props: AnchorHTMLAttributes<HTMLAnchorElement>,
 ) {

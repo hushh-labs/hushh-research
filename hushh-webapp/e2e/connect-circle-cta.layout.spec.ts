@@ -180,56 +180,59 @@ function boxOf(page: Page, selector: string): Promise<Box> {
 const fontsReady = (page: Page) =>
   page.evaluate(() => document.fonts.ready.then(() => undefined));
 
-test("Circles actions share a row on iPhone 15 Pro and keep larger phone sizing", async ({ page }, testInfo) => {
-  const source = fs.readFileSync(path.join(process.cwd(), "components/connect/circles/connect-circles-tab.tsx"), "utf8");
-  const groupClass = source.match(/data-connect-circle-actions className="([^"]+)"/)![1];
-  const actionClass = (id: string, before = false) => {
-    const authored = source.split("\n").find(line => line.includes(`data-testid="${id}"`))!.match(/className="([^"]+)"/)![1];
-    return cn(buttonVariants({ variant: "ghost", size: "standard" }), before ? authored.replace("max-[399px]:!px-4", "") : authored);
-  };
-  const body = (before = false) => `<div data-actions class="${groupClass}">${["join", "create"].map(action =>
-    `<button class="${actionClass(`connect-circle-${action}`, before)}"><span class="relative z-0 inline-flex items-center justify-center text-inherit"><svg class="mr-2 size-4" viewBox="0 0 16 16" aria-hidden="true"></svg>${action === "join" ? "Join with code" : "Create circle"}</span></button>`).join("")}</div>`;
-  const candidates = [groupClass, actionClass("connect-circle-join"), actionClass("connect-circle-create"), "relative z-0 inline-flex items-center justify-center text-inherit mr-2 size-4"].flatMap(value => value.split(/\s+/));
+test("Circle heading actions fit beside their labels on phone and tablet widths", async ({ page }, testInfo) => {
+  const root = process.cwd();
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "connect-circle-headings-"));
+  const { build } = await import("vite");
+  const { Scanner } = await import("@tailwindcss/oxide");
+  const scanner = new Scanner({});
+  const candidates = new Set<string>();
+  await build({
+    configFile: false, logLevel: "error",
+    oxc: { jsx: { runtime: "automatic" } },
+    plugins: [{ name: "fixture-css-candidates", transform(source, id) {
+      if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id)) {
+        for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
+      }
+    } }],
+    resolve: { alias: { "@": root } },
+    define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
+    build: { outDir, copyPublicDir: false, emptyOutDir: false, lib: {
+      entry: path.join(root, "e2e/fixtures/circle-discovery.tsx"), name: "Fixture", formats: ["iife"], fileName: () => "fixture.js",
+    } },
+  });
+  const script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+  const css = await buildStylesheet([...candidates]) + productFontStyle() + fs.readdirSync(outDir)
+    .filter(name => name.endsWith(".css")).map(name => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
   for (const width of [320, 360, 393, 402, 430, 768]) {
     await page.setViewportSize({ width, height: 852 });
-    await page.goto(await buildFixture("connect-circle-actions", body(), candidates));
+    await page.setContent(`<html data-circle-heading-actions="true"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`);
+    await page.addScriptTag({ content: script });
     await awaitProductFont(page);
-    const buttons = page.locator("[data-actions] button");
-    const join = await buttons.nth(0).boundingBox();
-    const create = await buttons.nth(1).boundingBox();
-    expect(join && create).toBeTruthy();
-    if (!join || !create) continue;
-    if (width >= 393) expect(join.y).toBeCloseTo(create.y, 0);
+    const buttons = page.locator('[data-testid="connect-circle-create"], [data-testid="connect-circle-join"]');
+    await expect(buttons).toHaveCount(2);
     for (const button of await buttons.all()) {
-      const size = await button.evaluate(element => ({ height: element.getBoundingClientRect().height, overflow: element.scrollWidth - element.clientWidth, padding: getComputedStyle(element).paddingLeft, font: getComputedStyle(element).fontFamily }));
-      expect(size.height).toBe(44);
-      expect(size.overflow).toBeLessThanOrEqual(1);
-      expect(size.padding).toBe(width < 400 ? "16px" : "20px");
-      expect(size.font).toContain("Plus Jakarta Sans");
+      const geometry = await button.evaluate(element => {
+        const heading = element.parentElement!.querySelector("h2")!;
+        const label = heading.getBoundingClientRect();
+        const action = element.getBoundingClientRect();
+        return { height: action.height, left: action.left, right: action.right, labelRight: label.right,
+          overflow: element.scrollWidth - element.clientWidth, font: getComputedStyle(element).fontFamily };
+      });
+      expect(geometry.height).toBeGreaterThanOrEqual(44);
+      expect(geometry.labelRight).toBeLessThanOrEqual(geometry.left);
+      expect(geometry.left).toBeGreaterThanOrEqual(0);
+      expect(geometry.right).toBeLessThanOrEqual(width);
+      expect(geometry.overflow).toBeLessThanOrEqual(1);
+      expect(geometry.font).toContain("Plus Jakarta Sans");
     }
+    await page.getByTestId("connect-circle-create").click();
+    await expect(page.getByRole("status")).toHaveText("Custom circle");
+    await page.getByTestId("connect-circle-join").click();
+    await expect(page.getByRole("status")).toHaveText("Join with code");
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
-    if (width === 393) await page.locator("[data-actions]").screenshot({ path: testInfo.outputPath("circle-actions-393.png") });
+    if (width === 393) await page.locator("main").screenshot({ path: testInfo.outputPath("circle-heading-actions-393.png") });
   }
-  // Measure the old layout before constraining it: text measurement can move
-  // its wrap boundary a few pixels between macOS and Linux. The fixed layout
-  // must still fit the same row when the old layout is short of 8px of room.
-  await page.setViewportSize({ width: 768, height: 852 });
-  await page.goto(await buildFixture("connect-circle-actions-before", body(true), candidates));
-  await awaitProductFont(page);
-  const oldRequiredWidth = await page.locator("[data-actions]").evaluate(group =>
-    [...group.querySelectorAll("button")].reduce((sum, button) => sum + button.getBoundingClientRect().width, 0)
-      + parseFloat(getComputedStyle(group).columnGap),
-  );
-  const stressWidth = Math.floor(oldRequiredWidth + PAGE_PADDING_PX * 2 - 8);
-  expect(stressWidth).toBeGreaterThanOrEqual(320);
-  expect(stressWidth).toBeLessThan(399);
-  await page.setViewportSize({ width: stressWidth, height: 852 });
-  const oldButtons = page.locator("[data-actions] button");
-  expect((await oldButtons.nth(1).boundingBox())!.y, `old actions must wrap at ${stressWidth}px`).toBeGreaterThan((await oldButtons.nth(0).boundingBox())!.y);
-  await page.goto(await buildFixture("connect-circle-actions-stress", body(), candidates));
-  await awaitProductFont(page);
-  const fixedButtons = page.locator("[data-actions] button");
-  expect((await fixedButtons.nth(1).boundingBox())!.y, `fixed actions must share a row at ${stressWidth}px`).toBeCloseTo((await fixedButtons.nth(0).boundingBox())!.y, 0);
 });
 
 // ---------------------------------------------------------------------------

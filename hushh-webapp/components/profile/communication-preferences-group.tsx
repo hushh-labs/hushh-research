@@ -44,10 +44,9 @@ const NO_PREFERENCE = "none";
 const CONTROL_WIDTH = "w-full min-w-0";
 // The select matches the text field beside it: one height, fill, corner and
 // value type (the pairing e2e/gemini-endpoint-fields.layout.spec.ts guards).
-const SELECT_CLASSNAME = `${CONTROL_WIDTH} data-[size=default]:h-11 border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] px-3.5 ui-text-input-value shadow-none dark:bg-[color:var(--app-secondary-surface)] dark:hover:bg-[color:var(--app-secondary-surface)]`;
-// Stacked under its label on a phone: 8 px grid gap plus the trailing's 4 px top
-// padding gives a 12 px step, on the 4 pt scale.
-const ROW_CLASSNAME = "profile-preferences-control-row [--settings-row-stack-gap:8px]";
+const SELECT_CLASSNAME = `${CONTROL_WIDTH} data-[size=default]:h-11 gap-0.5 border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] px-1.5 ui-text-input-value shadow-none dark:bg-[color:var(--app-secondary-surface)] dark:hover:bg-[color:var(--app-secondary-surface)] [&>svg]:!size-3`;
+// Keep the field beside its label, sized against the pane rather than viewport.
+const ROW_CLASSNAME = "profile-preferences-control-row";
 
 function ChoiceSelect<T extends string>({
   value,
@@ -119,14 +118,13 @@ export function CommunicationPreferencesGroup({
     <div className={`profile-preferences-content space-y-4 ${paneStyles.paneTypography}`} data-testid="style-settings" aria-busy={loading}>
       <SettingsGroup
         title="How One writes to you"
-        description="One follows these on every reply. They change its writing only, never what it can see, share or do."
+        description="Writing only. Access and permissions stay unchanged."
         testId="style-settings-group"
       >
         <SettingsRow
           icon={PreferredNameRowIcon}
           iconTone="capability"
           title="Call me"
-          description="The name One uses for you."
           trailing={
             <Input
               value={value.preferred_name ?? ""}
@@ -134,11 +132,10 @@ export function CommunicationPreferencesGroup({
               placeholder="Your name"
               aria-label="Name One calls you"
               disabled={disabled}
-              className={CONTROL_WIDTH}
+              className={`${CONTROL_WIDTH} px-1.5`}
               onChange={(event) => set("preferred_name", event.target.value)}
             />
           }
-          stackTrailingOnMobile
           className={ROW_CLASSNAME}
           testId="style-settings-row"
         />
@@ -146,12 +143,10 @@ export function CommunicationPreferencesGroup({
           icon={ToneRowIcon}
           iconTone="capability"
           title="Tone"
-          description="How One sounds."
           trailing={
             <ChoiceSelect value={value.tone} options={OWNER_STYLE_TONES} labels={OWNER_STYLE_TONE_LABEL}
               label="Tone" disabled={disabled} onChange={(next) => set("tone", next)} />
           }
-          stackTrailingOnMobile
           className={ROW_CLASSNAME}
           testId="style-settings-row"
         />
@@ -159,12 +154,10 @@ export function CommunicationPreferencesGroup({
           icon={ReplyLengthRowIcon}
           iconTone="capability"
           title="Length"
-          description="How much One writes."
           trailing={
             <ChoiceSelect value={value.length} options={OWNER_STYLE_LENGTHS} labels={OWNER_STYLE_LENGTH_LABEL}
               label="Length" disabled={disabled} onChange={(next) => set("length", next)} />
           }
-          stackTrailingOnMobile
           className={ROW_CLASSNAME}
           testId="style-settings-row"
         />
@@ -172,12 +165,10 @@ export function CommunicationPreferencesGroup({
           icon={LanguageRowIcon}
           iconTone="capability"
           title="Language"
-          description="The language One replies in."
           trailing={
             <ChoiceSelect value={value.language} options={OWNER_STYLE_LANGUAGES} labels={OWNER_STYLE_LANGUAGE_LABEL}
               label="Language" disabled={disabled} onChange={(next) => set("language", next)} />
           }
-          stackTrailingOnMobile
           className={ROW_CLASSNAME}
           testId="style-settings-row"
         />
@@ -185,7 +176,6 @@ export function CommunicationPreferencesGroup({
           icon={PunctuationRowIcon}
           iconTone="capability"
           title="Avoid em dashes"
-          description="One uses commas and periods instead."
           trailing={
             // A 44 px tall target, so this row sits on the same 60 px rhythm.
             <span className="inline-flex h-11 items-center">
@@ -202,7 +192,7 @@ export function CommunicationPreferencesGroup({
       </SettingsGroup>
       <SettingsGroup
         title="Style note"
-        description="Optional guidance in your words. It shapes writing only and can't give One permission to do anything."
+        description="Optional writing guidance. Permissions stay unchanged."
         testId="style-settings-note-group"
       >
         <div className="flex flex-col gap-2 p-4" data-testid="style-settings-note-block">

@@ -39,6 +39,24 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 - [ ] Missing identity shadows resolve before admission; unavailable bootstrap
   or identity reads show recovery without inventing an unverified-phone claim.
   OTP entry survives token refresh, and account switching clears the old flow.
+- [ ] A saved backend phone remains visible when the primary provider is
+  phone-less, returns an older number, or republishes after view-cache expiry.
+  Temporary identity failures offer Retry rather than Add/verification. Verify
+  recovery after online/foreground, bounded retries and unmount cleanup.
+  From another screen, phone recovery must offer the canonical Account route;
+  Retry runs only after its unavailable-phone control is mounted and signed in.
+- [ ] A delayed identity response cannot overwrite a newer phone claim, including
+  logout/login to the same UID. Concurrent name/avatar saves still execute and
+  reconcile stale readbacks. Foreground recovery preserves a sent OTP.
+- [ ] A passive backend provider snapshot cannot replace a saved E.164 phone,
+  even when an OTP claim commits during its lookup. Native completion sends
+  explicit finalization intent; wrong owner/phone and conflicting ownership are
+  rejected without changing either binding. First verification and replacement
+  still succeed with matching fresh provider proof.
+- [ ] A genuine full negative identity after a phone binding transfer clears
+  the old owner's number; resolver calls and later provider updates cannot
+  resurrect it after cache expiry. Degraded legacy projections are not removal
+  evidence, and a late empty lookup cannot undo a later confirmed absence.
 
 
 1. Persona switch restores `last_active_persona`.

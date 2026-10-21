@@ -134,11 +134,25 @@
   }
 }
 .providerButton:hover { background: #f8f8fa !important; }
+.providerButton [data-auth-provider-content] {
+  display: grid;
+  width: 240px;
+  max-width: 100%;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  text-align: left;
+}
+/* Match Google's painted mark while preserving each logo's proportions. */
+.appleProviderIcon { width: 26.4px; height: 26.4px; }
+.emailProviderIcon { width: 27.1px; height: 27.1px; }
+.appleProviderIcon, .emailProviderIcon { flex-shrink: 0; max-width: none; }
+.microsoftProviderIcon { width: 22px; height: 22px; }
 .providerButton [data-auth-provider-content] > span:last-child {
   font-family: var(--font-app-body) !important;
   font-size: 16px !important;
   font-weight: 600 !important;
   line-height: 22px !important;
+  white-space: normal;
 }
 .actions :global(#enterprise-sso-email) {
   height: 53px;

@@ -6096,6 +6096,7 @@ class PKMAgentLabService:
                 },
                 "used_fallback": bool(
                     segmentation_used_fallback
+                    or unmatched_quotes > 0
                     or any(result.get("used_fallback") for result in preview_results)
                 ),
                 "error": "; ".join(self._unique_list(errors)) or primary_preview.get("error"),

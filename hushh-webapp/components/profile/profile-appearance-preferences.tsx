@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Brain } from "@/components/icons";
+import { ProfilePreferenceAppearanceIcon, ProfilePreferenceAccentIcon, ProfilePreferenceVoiceIcon } from "./profile-pane-icons";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import type { AppAccent } from "@/lib/theme/accent";
 import styles from "./profile-appearance-preferences.module.css";
@@ -29,36 +30,6 @@ function RowIcon({ children }: { children: ReactNode }) {
     >
       {children}
     </svg>
-  );
-}
-
-function SlidersIcon() {
-  return (
-    <RowIcon>
-      <path d="M4 6h8M16 6h4M4 12h3M11 12h9M4 18h10M18 18h2" />
-      <circle cx="14" cy="6" r="2" className={styles.accentFill} />
-      <circle cx="9" cy="12" r="2" />
-      <circle cx="16" cy="18" r="2" />
-    </RowIcon>
-  );
-}
-
-function DropletIcon() {
-  return (
-    <RowIcon>
-      <path d="M12 3s6 6.6 6 11a6 6 0 0 1-12 0c0-4.4 6-11 6-11Z" />
-      <path d="M9 15.2c.5 1.4 1.5 2.1 3 2.2" className={styles.accentStroke} />
-    </RowIcon>
-  );
-}
-
-function VoiceIcon() {
-  return (
-    <RowIcon>
-      <rect x="9" y="3" width="6" height="11" rx="3" />
-      <path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" />
-      <path d="M5 8.5A8 8 0 0 0 8.2 17M19 8.5a8 8 0 0 1-3.2 8.5" className={styles.accentStroke} />
-    </RowIcon>
   );
 }
 
@@ -90,7 +61,7 @@ export function ProfileAppearancePreferences({
     <section className={styles.root} aria-label="Appearance and preferences" data-profile-appearance-preferences>
       <div className={styles.card}>
         <div className={styles.row}>
-          <span className={styles.icon}><SlidersIcon /></span>
+          <span className={styles.icon}><ProfilePreferenceAppearanceIcon /></span>
           <RowCopy title="Appearance" description="Light, dark, or system." />
           <span className={styles.trailing}>
             <ThemeToggleLean
@@ -102,7 +73,7 @@ export function ProfileAppearancePreferences({
         </div>
 
         <div className={styles.row}>
-          <span className={styles.icon}><DropletIcon /></span>
+          <span className={styles.icon}><ProfilePreferenceAccentIcon /></span>
           <RowCopy title="Accent" description="Choose the app accent." />
           <span className={styles.trailing}>
             <select
@@ -124,7 +95,7 @@ export function ProfileAppearancePreferences({
         </button>
 
         <button type="button" className={`${styles.row} ${styles.action}`} onClick={onVoiceClick}>
-          <span className={styles.icon}><VoiceIcon /></span>
+          <span className={styles.icon}><ProfilePreferenceVoiceIcon /></span>
           <RowCopy title="Voice" description="What One’s voice can do, and its safety controls." />
           <span className={`${styles.trailing} ${styles.chevron}`}><ChevronIcon /></span>
         </button>

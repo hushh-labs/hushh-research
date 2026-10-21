@@ -171,7 +171,9 @@ export function RequesterPaymentSection({ requestId, revision, payment, packageD
       if (!current()) return;
       if (!idToken) throw new Error("Sign in to continue");
       const checkoutUrl = await DriveRequestPaymentService.checkout(idToken, requestId);
-      if (current()) window.location.assign(checkoutUrl);
+      if (!current()) return;
+      if (typeof checkoutUrl === "string") window.location.assign(checkoutUrl);
+      else onChanged();
     } catch (cause) {
       if (current()) { setError(drivePaymentErrorMessage(cause)); onChanged(); }
     } finally {

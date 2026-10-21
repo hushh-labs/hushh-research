@@ -99,20 +99,17 @@ Capabilities also use regular outlines. `Key`, `KeyRound`, `KeyIcon` and the key
 
 ### Settings rows: one treatment, one glyph per concept
 
-A `SettingsRow` leading icon uses `iconTone="capability"` with a registry glyph
-that carries its own colour: the `*AgentIcon` and `*ProfileIcon` exports, or the
-semantic `*RowIcon` set in `hushh-webapp/components/icons/agents/row-icons.tsx`
-(vault, passphrase, sync, reset, delete, disconnect, invite code and so on).
-The row paints no tile. The Profile menu and every nested Profile screen share
-one size (32px well, 28px glyph, from `app/globals.css`); the coloured tile tones
-(`blue`, `orange`, `gray`...) are legacy and must not return on Profile surfaces.
-The same concept uses the same export on every screen: email is
-`GmailAgentIcon`, security is `SecurityProfileIcon`, devices are
-`DevicesProfileIcon`, invitations are `InviteFriendsProfileIcon`. When a row
-needs a concept the registry lacks, add a `*RowIcon` there; never import a glyph
-library from application code. A state (off, paused) may mute the same glyph
-rather than swap to a gray tile. `__tests__/components/iconography-motion.contract.test.ts`
-enforces both the import boundary and the Profile row treatment.
+Profile uses `PROFILE_ICONS` from `@/components/icons`: existing neutral-outline
+artwork with restrained app-accent details, not the launcher's capability palette.
+Preserve its approved geometry; this mapping also supplies generated iOS base and
+accent assets. Do not redraw it or edit generated assets by hand. Profile menus
+and nested rows keep the same 32px well/28px glyph from `app/globals.css`, with no
+colored tile. Provider logos remain branded; keys retain their fixed Blue detail.
+Capability launchers and other authored capability rows retain their own registry
+palette. A muted state uses the same glyph, not a gray tile. Add missing concepts
+to the shared authored mapping; never import an icon library from application
+code. The existing iconography-motion and Profile registry regressions protect
+these distinct treatments and the import boundary.
 
 Profile menu glyphs also generate native artwork. After changing
 `components/profile/profile-menu-model.ts` or its rendered icons, run

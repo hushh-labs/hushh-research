@@ -22,13 +22,16 @@ from fastapi.encoders import jsonable_encoder
 
 from api.middleware import require_firebase_auth, verify_user_id_match
 from hushh_mcp.operons.kai.fetchers import (
+    fetch_market_company_facts,
     fetch_market_data,
     fetch_market_data_batch,
     fetch_market_news,
+    fetch_market_session_history,
 )
 from hushh_mcp.services.fmp_call_budget import is_budget_critical, record_fmp_call
 from hushh_mcp.services.market_cache_store import get_market_cache_store_service
 from hushh_mcp.services.market_insights_cache import market_insights_cache
+from hushh_mcp.services.market_news_images import article_image_url, enrich_market_news_images
 from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.renaissance_service import TIER_WEIGHTS, get_renaissance_service
@@ -416,11 +419,11 @@ def _market_home_cache_key(
     exchange_suffix = "" if exchange_code == DEFAULT_EXCHANGE else f":x={exchange_code}"
     if not personalized:
         return (
-            f"home:v2:baseline:{canonical_watchlist_key}:{days_back}:{DEFAULT_PICK_SOURCE_ID}"
+            f"home:v5:baseline:{canonical_watchlist_key}:{days_back}:{DEFAULT_PICK_SOURCE_ID}"
             f"{exchange_suffix}"
         )
     return (
-        f"home:v2:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:"
+        f"home:v5:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:"
         f"{roster_signature}{exchange_suffix}"
     )
 
@@ -756,9 +759,17 @@ def _select_news_symbols(raw_symbols: str | None) -> list[str]:
     return selected or DEFAULT_SYMBOLS[:NEWS_SYMBOL_MAX]
 
 
+def _market_news_image_url(article: dict[str, Any]) -> str | None:
+    for key in ("image_url", "urlToImage", "image"):
+        image = article_image_url(article.get(key))
+        if image:
+            return image
+    return None
+
+
 def _market_news_feed_cache_key(symbols: list[str], days_back: int) -> str:
     canonical_symbols = ",".join(sorted(set(symbols)))
-    return f"news_feed:v2:{canonical_symbols}:{days_back}"
+    return f"news_feed:v5:{canonical_symbols}:{days_back}"
 
 
 def _market_news_snapshot_id(rows: list[dict[str, Any]]) -> str:
@@ -835,6 +846,10 @@ def _normalize_market_news_rows(
                 "published_at": str(article.get("publishedAt") or _now_iso()),
                 "source_name": source_name or "Market news",
                 "provider": str(article.get("provider") or "unknown"),
+                "image_url": _market_news_image_url(article),
+                "image_thumbnail_url": _market_news_image_url(
+                    {"image_url": article.get("image_thumbnail_url")}
+                ),
                 "sentiment_hint": None,
                 "degraded": False,
             }
@@ -945,6 +960,7 @@ async def _get_market_news_feed_page(
                         consent_token,
                         days_back=days_back,
                     )
+                    articles = await enrich_market_news_images(symbol, articles or [])
                     return symbol, articles or [], ("ok" if articles else "partial")
                 except Exception as exc:
                     logger.debug(
@@ -1291,44 +1307,24 @@ async def _fetch_market_status_for_exchange(exchange: str) -> dict[str, Any]:
 
 
 async def _fetch_vix_signal() -> dict[str, Any]:
-    pmp_key = _pmp_api_key()
-    if market_insights_cache.is_provider_in_cooldown(FMP_GLOBAL_COOLDOWN_KEY):
-        pmp_key = ""
-    if pmp_key:
-        timeout = httpx.Timeout(connect=3.0, read=6.0, write=6.0, pool=3.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            res = await client.get(
-                "https://financialmodelingprep.com/stable/quote",
-                params={"symbol": "^VIX", "apikey": pmp_key},
-            )
-            record_fmp_call(endpoint="/stable/quote:^VIX", status_code=res.status_code)
-            if not res.is_success:
-                cooldown_seconds = _provider_cooldown_seconds(res.status_code)
-                if cooldown_seconds > 0:
-                    market_insights_cache.mark_provider_cooldown(
-                        "fmp:quote:^VIX",
-                        cooldown_seconds,
-                    )
-                    if res.status_code in {401, 402, 403, 429}:
-                        market_insights_cache.mark_provider_cooldown(
-                            FMP_GLOBAL_COOLDOWN_KEY,
-                            cooldown_seconds,
-                        )
-            if res.is_success:
-                payload = res.json() or []
-                if isinstance(payload, list) and payload:
-                    row = payload[0] or {}
-                    price = _safe_float(row.get("price"))
-                    if price is not None:
-                        market_insights_cache.append_series_point(VIX_SERIES_KEY, price)
-                    return {
-                        "label": "Volatility",
-                        "value": price,
-                        "delta_pct": _safe_float(row.get("changePercentage")),
-                        "as_of": None,
-                        "source": "PMP/FMP",
-                        "degraded": False,
-                    }
+    # Use the same public index adapter as the benchmark strip, never the
+    # equity-only FMP plan whose rejection would cool down all stock quotes.
+    quotes = await fetch_market_data_batch(["^VIX"], "market-public")
+    quote = quotes.get("^VIX") or {}
+    price = _safe_float(quote.get("price"))
+    if price is not None and price > 0:
+        market_insights_cache.append_series_point(VIX_SERIES_KEY, price)
+        return {
+            "label": "Volatility",
+            "symbol": "^VIX",
+            "value": price,
+            "delta_pct": _safe_float(quote.get("change_percent")),
+            "as_of": quote.get("quoted_at"),
+            "source": quote.get("source") or "Yahoo Chart (Batch)",
+            "degraded": bool(quote.get("is_stale")),
+            "is_delayed": bool(quote.get("is_delayed")),
+            "market_state": quote.get("market_state"),
+        }
 
     cached_vix_points = market_insights_cache.get_series_points(
         VIX_SERIES_KEY,
@@ -1865,8 +1861,46 @@ async def _fetch_sector_rotation_from_etf_quotes(
 async def _fetch_sector_rotation_snapshot(
     user_id: str, consent_token: str | None
 ) -> tuple[list[dict[str, Any]], str]:
+    # Both periods use the same sector ETF basis. A week is five trading-session
+    # returns, rather than an arbitrary seven-day news/history window.
+    try:
+        histories = await fetch_market_session_history(list(SECTOR_ETF_MAP.values()))
+    except Exception as exc:
+        logger.debug("[Kai Market] sector history unavailable: %s", exc)
+        histories = {}
+    rows = []
+    for sector, symbol in SECTOR_ETF_MAP.items():
+        points = histories.get(symbol) or []
+        if len(points) < 2:
+            continue
+        last = points[-1]
+
+        def to_date(point: dict[str, float]) -> str:
+            return datetime.fromtimestamp(point["t"], tz=timezone.utc).date().isoformat()
+
+        rows.append(
+            {
+                "sector": sector,
+                "symbol": symbol,
+                "change_pct": (last["p"] / points[-2]["p"] - 1) * 100,
+                "change_1w_pct": (last["p"] / points[-6]["p"] - 1) * 100
+                if len(points) >= 6
+                else None,
+                "period_start_1d": to_date(points[-2]),
+                "period_start_1w": to_date(points[-6]) if len(points) >= 6 else None,
+                "period_end": to_date(last),
+                "basis": "Sector ETF price return",
+                "as_of": datetime.fromtimestamp(last["t"], tz=timezone.utc).isoformat(),
+                "source_tags": ["Yahoo Finance", symbol],
+                "degraded": False,
+            }
+        )
+    if rows:
+        return rows, "ok" if len(rows) == len(SECTOR_ETF_MAP) else "partial"
     rows, status = await _fetch_sector_rotation_from_etf_quotes(user_id, consent_token)
     if rows:
+        for row in rows:
+            row["basis"] = "Sector ETF daily return"
         return rows, status
     return await _fetch_sector_rotation_from_fmp()
 
@@ -1958,10 +1992,10 @@ def _fallback_sector_rotation_from_watchlist(
 
 
 def _build_market_overview(
-    spy_quote: dict[str, Any] | None,
-    qqq_quote: dict[str, Any] | None,
-    dia_quote: dict[str, Any] | None,
-    iwm_quote: dict[str, Any] | None,
+    sp500_quote: dict[str, Any] | None,
+    nasdaq_quote: dict[str, Any] | None,
+    dow_quote: dict[str, Any] | None,
+    russell_quote: dict[str, Any] | None,
     vix_payload: dict[str, Any],
     status_payload: dict[str, Any],
     sparklines: dict[str, list[float]] | None = None,
@@ -1978,25 +2012,34 @@ def _build_market_overview(
             "symbol": symbol,
             "value": _safe_float(quote.get("price")),
             "delta_pct": _safe_float(quote.get("change_percent")),
-            "as_of": quote.get("fetched_at") if isinstance(quote.get("fetched_at"), str) else None,
+            "as_of": quote.get("quoted_at"),
+            "retrieved_at": quote.get("fetched_at"),
+            "is_delayed": bool(quote.get("is_delayed")),
+            "quote_delay_minutes": quote.get("quote_delay_minutes"),
+            "market_state": quote.get("market_state"),
             "source": str(quote.get("source") or "Unavailable"),
-            "degraded": degraded,
-            "sparkline": sparklines.get(symbol) or None,
+            "degraded": degraded or bool(quote.get("is_stale")),
+            "sparkline": quote.get("sparkline") or sparklines.get(symbol) or None,
         }
 
     out = [
-        metric_from_quote("S&P 500", "SPY", spy_quote, degraded=not bool(spy_quote)),
-        metric_from_quote("NASDAQ 100", "QQQ", qqq_quote, degraded=not bool(qqq_quote)),
-        metric_from_quote("DOW 30", "DIA", dia_quote, degraded=not bool(dia_quote)),
-        metric_from_quote("Russell 2000", "IWM", iwm_quote, degraded=not bool(iwm_quote)),
+        metric_from_quote("S&P 500", "^GSPC", sp500_quote, degraded=not bool(sp500_quote)),
+        metric_from_quote(
+            "NASDAQ Composite", "^IXIC", nasdaq_quote, degraded=not bool(nasdaq_quote)
+        ),
+        metric_from_quote("Dow Jones", "^DJI", dow_quote, degraded=not bool(dow_quote)),
+        metric_from_quote("Russell 2000", "^RUT", russell_quote, degraded=not bool(russell_quote)),
         {
             "id": "volatility",
+            "symbol": "^VIX",
             "label": vix_payload["label"],
             "value": vix_payload["value"],
             "delta_pct": vix_payload["delta_pct"],
             "as_of": vix_payload["as_of"],
             "source": vix_payload["source"],
             "degraded": bool(vix_payload.get("degraded")),
+            "is_delayed": bool(vix_payload.get("is_delayed")),
+            "market_state": vix_payload.get("market_state"),
         },
         {
             "id": "market_status",
@@ -2117,34 +2160,14 @@ def _build_signals(
 
 
 async def _build_sparkline_points(
-    spy_quote: dict[str, Any] | None,
+    sp500_quote: dict[str, Any] | None,
 ) -> tuple[list[dict[str, float]], bool, list[str]]:
-    try:
-        candles = await _fetch_finnhub_candles("SPY")
-        if candles:
-            for point in candles[-12:]:
-                market_insights_cache.append_series_point(
-                    "sparkline:SPY", point["p"], timestamp=point["t"]
-                )
-            return candles, False, ["Finnhub"]
-    except Exception as exc:
-        logger.warning("[Kai Market] sparkline candles failed: %s", exc)
-
-    history = market_insights_cache.get_series_points(
-        "sparkline:SPY", max_age_seconds=5 * 24 * 60 * 60
-    )
-    if history:
-        points = [{"t": ts, "p": price} for ts, price in history[-60:]]
-        return points, True, ["Cache"]
-
-    price = _safe_float((spy_quote or {}).get("price"))
-    delta = _safe_float((spy_quote or {}).get("change_percent"))
-    if price is not None and delta is not None:
-        prev = price / (1 + (delta / 100.0)) if delta != -100 else price
-        ts_now = time()
-        points = [{"t": ts_now - 86400, "p": prev}, {"t": ts_now, "p": price}]
-        return points, True, ["Derived from Quote"]
-
+    # The same index response supplies actual intraday candles; no ETF history
+    # or two-point interpolation may masquerade as index price history.
+    quote = sp500_quote or {}
+    points = quote.get("sparkline_points")
+    if isinstance(points, list) and len(points) >= 2:
+        return points, bool(quote.get("is_stale")), [str(quote.get("source") or "Yahoo Chart")]
     return [], True, ["Unavailable"]
 
 
@@ -2210,7 +2233,7 @@ async def _refresh_public_market_modules_once() -> None:
 
     try:
         _, stale, age_seconds, tier, cache_hit = await _get_or_refresh_public_module(
-            key="macro:us",
+            key="macro:v2:us",
             fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
             stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
             fetcher=_fetch_macro_bundle,
@@ -2242,10 +2265,10 @@ async def _refresh_public_market_modules_once() -> None:
 
     try:
         _, stale, age_seconds, tier, cache_hit = await _get_or_refresh_public_module(
-            key="sectors:us",
+            key="sectors:v2:us",
             fresh_ttl_seconds=SECTORS_FRESH_TTL_SECONDS,
             stale_ttl_seconds=SECTORS_STALE_TTL_SECONDS,
-            fetcher=lambda: _fetch_sector_rotation_from_fmp(),
+            fetcher=lambda: _fetch_sector_rotation_snapshot("market-public", None),
             warm_source="startup",
             serve_stale_while_revalidate=False,
         )
@@ -2433,10 +2456,8 @@ async def _get_market_insights_payload(
             if str(item.get("quote_symbol") or "").strip()
         ]
 
-        # ETFs provide the available, liquid quote proxies for these benchmark
-        # indices through the same provider contract as the existing SPY/QQQ
-        # tiles. Keeping them in this cached bundle avoids per-tile fetches.
-        core_symbols = ["SPY", "QQQ", "DIA", "IWM"]
+        # Benchmark levels must come from the indices, not similarly named ETFs.
+        core_symbols = ["^GSPC", "^IXIC", "^DJI", "^RUT"]
         symbol_set = sorted({*watchlist_symbols, *core_symbols, *renaissance_symbols})
         quotes_key = f"quotes:{','.join(symbol_set)}"
 
@@ -2462,13 +2483,15 @@ async def _get_market_insights_payload(
                     quotes_by_symbol[symbol] = payload or {}
                     statuses[f"quote:{symbol}"] = "ok"
                     market_insights_cache.append_series_point(f"quote:{symbol}", price)
-                    if symbol == "SPY":
-                        market_insights_cache.append_series_point("sparkline:SPY", price)
                 unresolved_symbols = next_unresolved
 
             semaphore = asyncio.Semaphore(QUOTE_FANOUT_CONCURRENCY)
 
             async def fetch_symbol_quote(symbol: str) -> tuple[str, dict[str, Any], str]:
+                if symbol.startswith("^"):
+                    # The Yahoo batch already tried this index. Leave it unavailable
+                    # rather than retrying through equity plans and their global cooldowns.
+                    return symbol, {}, "unavailable"
                 async with semaphore:
                     last_exc: Exception | None = None
                     for allow_slow_fallbacks in (False, True):
@@ -2484,8 +2507,6 @@ async def _get_market_insights_payload(
                             if price is None:
                                 continue
                             market_insights_cache.append_series_point(f"quote:{symbol}", price)
-                            if symbol == "SPY":
-                                market_insights_cache.append_series_point("sparkline:SPY", price)
                             return symbol, payload, "ok"
                         except Exception as exc:
                             last_exc = exc
@@ -2561,7 +2582,7 @@ async def _get_market_insights_payload(
             safe_public_module(
                 "macro",
                 _get_or_refresh_public_module(
-                    key="macro:us",
+                    key="macro:v2:us",
                     fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
                     stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
                     fetcher=_fetch_macro_bundle,
@@ -2606,7 +2627,7 @@ async def _get_market_insights_payload(
             safe_public_module(
                 "sectors",
                 _get_or_refresh_public_module(
-                    key="sectors:us",
+                    key="sectors:v2:us",
                     fresh_ttl_seconds=SECTORS_FRESH_TTL_SECONDS,
                     stale_ttl_seconds=SECTORS_STALE_TTL_SECONDS,
                     fetcher=lambda: _fetch_sector_rotation_snapshot(user_id, consent_token),
@@ -2625,10 +2646,10 @@ async def _get_market_insights_payload(
         stale = stale or quotes_stale
         aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, quotes_cache_tier)
         aggregated_cache_hit = aggregated_cache_hit and quotes_cache_hit
-        spy_quote = quote_map.get("SPY") if isinstance(quote_map, dict) else None
-        qqq_quote = quote_map.get("QQQ") if isinstance(quote_map, dict) else None
-        dia_quote = quote_map.get("DIA") if isinstance(quote_map, dict) else None
-        iwm_quote = quote_map.get("IWM") if isinstance(quote_map, dict) else None
+        sp500_quote = quote_map.get("^GSPC") if isinstance(quote_map, dict) else None
+        nasdaq_quote = quote_map.get("^IXIC") if isinstance(quote_map, dict) else None
+        dow_quote = quote_map.get("^DJI") if isinstance(quote_map, dict) else None
+        russell_quote = quote_map.get("^RUT") if isinstance(quote_map, dict) else None
         quoted_watchlist_symbols = [
             s
             for s in watchlist_symbols
@@ -2884,7 +2905,7 @@ async def _get_market_insights_payload(
         ][:NEWS_SYMBOL_MAX]
         if not news_symbols:
             news_symbols = watchlist_symbols_for_cards[:NEWS_SYMBOL_MAX]
-        news_key = f"news:v2:{','.join(news_symbols)}:{days_back}"
+        news_key = f"news:v5:{','.join(news_symbols)}:{days_back}"
 
         async def fetch_news_bundle() -> dict[str, Any]:
             rows: list[dict[str, Any]] = []
@@ -2897,6 +2918,7 @@ async def _get_market_insights_payload(
                         articles = await fetch_market_news(
                             symbol, user_id, consent_token, days_back=days_back
                         )
+                        articles = await enrich_market_news_images(symbol, articles or [])
                         return symbol, (articles or []), ("ok" if articles else "partial")
                     except Exception as exc:
                         logger.debug("[Kai Market] news failed for %s: %s", symbol, exc)
@@ -2926,6 +2948,10 @@ async def _get_market_insights_payload(
                                 or "Unknown"
                             ),
                             "provider": str(article.get("provider") or "unknown"),
+                            "image_url": _market_news_image_url(article),
+                            "image_thumbnail_url": _market_news_image_url(
+                                {"image_url": article.get("image_thumbnail_url")}
+                            ),
                             "sentiment_hint": None,
                             "degraded": False,
                         }
@@ -2996,7 +3022,9 @@ async def _get_market_insights_payload(
             for row in (movers_payload.get(bucket) or [])
             if isinstance(row, dict) and str(row.get("symbol") or "").strip()
         ]
-        sparkline_symbol_set = sorted({"SPY", "QQQ", "DIA", "IWM", *mover_symbols})
+        sparkline_symbol_set = sorted(
+            {symbol for symbol in mover_symbols if not symbol.startswith("^")}
+        )
         # Movers itself is cached (key "movers:v2:us"), so this symbol set is
         # stable for the lifetime of that cache entry. Cache the batch series
         # fetch the same way instead of hitting FMP on every request - this is
@@ -3029,17 +3057,17 @@ async def _get_market_insights_payload(
                     row["sparkline"] = series or None
 
         market_overview = _build_market_overview(
-            spy_quote,
-            qqq_quote,
-            dia_quote,
-            iwm_quote,
+            sp500_quote,
+            nasdaq_quote,
+            dow_quote,
+            russell_quote,
             vix_payload,
             status_payload,
             sparklines=symbol_series,
         )
 
         sparkline_points, sparkline_degraded, sparkline_sources = await _build_sparkline_points(
-            spy_quote
+            sp500_quote
         )
 
         financial_summary: dict[str, Any] = {}
@@ -3074,8 +3102,8 @@ async def _get_market_insights_payload(
             "day_change_value": None,
             "day_change_pct": None,
             "sparkline_points": sparkline_points,
-            "as_of": (spy_quote or {}).get("fetched_at")
-            if isinstance((spy_quote or {}).get("fetched_at"), str)
+            "as_of": (sp500_quote or {}).get("quoted_at")
+            if isinstance((sp500_quote or {}).get("quoted_at"), str)
             else _now_iso(),
             "source_tags": sorted(
                 set([*(sparkline_sources or []), *(["PKM"] if personalized else [])])
@@ -3260,6 +3288,52 @@ async def _get_market_insights_payload(
     )
 
     return payload
+
+
+@router.get("/market/company-facts/{user_id}")
+async def get_market_company_facts(
+    user_id: _UserId,
+    symbols: str = Query(min_length=1, max_length=128),
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Authenticated public company information, never derived from a person's vault."""
+    verify_user_id_match(firebase_uid, user_id)
+    requested = list(
+        dict.fromkeys(part.strip().upper() for part in symbols.split(",") if part.strip())
+    )
+    if (
+        not requested
+        or len(requested) > 8
+        or any(
+            len(symbol) > 16
+            or not symbol[0].isalnum()
+            or not all(char.isalnum() or char in ".-" for char in symbol)
+            for symbol in requested
+        )
+    ):
+        raise HTTPException(status_code=400, detail="Provide up to eight valid stock symbols.")
+    semaphore = asyncio.Semaphore(4)
+
+    async def load(symbol: str) -> tuple[str, dict[str, Any]]:
+        async def fetch_facts() -> dict[str, Any]:
+            # Hold the permit during provider work, including background stale refreshes.
+            async with semaphore:
+                return await fetch_market_company_facts(symbol)
+
+        try:
+            value, stale, *_ = await _get_or_refresh_public_module(
+                key=f"company_facts:v1:{symbol}",
+                fresh_ttl_seconds=6 * 60 * 60,
+                stale_ttl_seconds=24 * 60 * 60,
+                fetcher=fetch_facts,
+                warm_source="market_company_facts",
+            )
+            return symbol, {**value, "stale": stale}
+        except Exception:
+            logger.debug("[Kai Market] company facts unavailable for %s", symbol)
+            return symbol, {"symbol": symbol, "unavailable": True}
+
+    return {"facts": dict(await asyncio.gather(*(load(symbol) for symbol in requested)))}
 
 
 @router.get("/market/insights/baseline/{user_id}")

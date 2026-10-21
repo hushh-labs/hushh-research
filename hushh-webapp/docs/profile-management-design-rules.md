@@ -23,7 +23,11 @@ Profile is a management surface, not a dashboard.
 
 ## Current Application
 
-- `Profile` uses a single mobile-first grouped index with drill-in panels for `My Data`, `Access & sharing`, `Preferences`, `Security`, and support flows.
+- `Profile` uses one grouped index with nested management panels. Memory
+  includes sharing; Account, Payouts, Request pricing, Personal World Model,
+  Preferences, Security, Trusted devices, Connectors, support and Legal keep
+  their authored entry/Back contracts. The exhaustive current inventory is
+  [Profile UI Contract](./ui-contracts/profile.md).
 - PKM and consent panels use management cards and rows, not summary KPI strips.
 
 ## Account presentation guardrail
@@ -34,11 +38,20 @@ and Memory reuse `paneAccountContent` with `profile-account-content`; their
 helper text and compact controls use `managedContent` from the same owner.
 
 - Compose rows with `SettingsGroup` and `SettingsRow`, including transaction
-  summaries. Use Profile's account/secondary outline icons and semantic colors.
+  summaries. Use the shared `PROFILE_ICONS` registry's approved neutral outlines
+  and restrained accent details. Generated native artwork uses that same mapping;
+  capability-launcher palettes and branded provider logos remain separate. Preferences Appearance, Accent and Voice use the same approved mapping, including their native artwork.
+- Import that Profile-specific mapping from `components/icons/profile-icons`.
+  Keep it out of the generic icon barrel so unrelated surfaces do not evaluate
+  Profile's feature modules. Both Profile renderers and the artwork generator
+  continue to consume the same authored mapping.
 - Keep one whole-row action with an inline label, as Display name and Phone
   number do. Do not place a large independent action button inside that row.
 - Keep the existing 13px row title, 12px description/action and 10px section
   label scale. Add no feature-specific typography or card geometry.
+- Use the [typography usage contract](./ui-contracts/typography.md) for home
+  versus detail rows, shared navigation and Feed context; source tokens and
+  semantic components remain authoritative.
 - Give amounts and fees enough context: test earnings remain labelled
   `Test payment`; a Stripe transfer must not be called a bank deposit.
 - Bank details remain masked. Changes open Stripe; users replace their payout

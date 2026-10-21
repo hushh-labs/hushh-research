@@ -1213,6 +1213,7 @@
       "data_class": "provider_cache",
       "exact_tables": [
         "google_provider_connections",
+        "google_calendar_additional_accounts",
         "google_service_grants",
         "google_oauth_attempts",
         "google_calendar_action_proposals",
@@ -1221,7 +1222,7 @@
       "id": "google_integrations_provider_state",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service and connected Schedule attendance review ledger"
+      "primary_access_path": "Google OAuth connection service, owner/account-scoped additional Calendar credentials, confirmation-bound Calendar live-read/action service, and connected Schedule attendance review ledger"
     },
     {
       "data_class": "audit_regulated",
@@ -1595,6 +1596,18 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Firebase-authenticated GET/PUT /api/one/models/private-text-approval records an owner's explicit UAT Azure text-processing choice; document request admission and each model call verify the current generation."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_product_activity_epochs",
+        "one_product_activity_observations",
+        "one_product_value_receipts"
+      ],
+      "id": "one_product_activity_observations",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Production pilot or explicitly expanded registered-contact observer, signed PLG v2 metadata projection, and separately keyed private paginated registered-account audience. Closed generated catalog identifiers only; client reports and SDK returns are distinct from domain outcome authority. Migration 366 adds phase-independent opaque operation correlation; historical rows remain uncorrelated. Migration 367 adds domain-authored Calendar/explicit-consent/direct-Location value receipts and a canonical information-request/Mail-send association; per-agent signed outcome adapters read retained domain evidence."
     },
     {
       "data_class": "workflow_state",
@@ -2235,7 +2248,8 @@
       "table_family_ids": [
         "actor_identity_state",
         "agent_chat_encrypted_memory",
-        "relay_ticket_replay_guard"
+        "relay_ticket_replay_guard",
+        "one_product_activity_observations"
       ]
     },
     {
@@ -3273,6 +3287,7 @@
         "action_ids": [
           "connect.accept_request",
           "connect.cancel_request",
+          "connect.open_connections",
           "connect.open_nearby",
           "connect.open_people",
           "connect.reject_request",
@@ -3649,6 +3664,11 @@
           "analysis.open_detailed_tab",
           "analysis.open_summary_tab",
           "analysis.resume_active",
+          "analysis.start",
+          "market.sectors.show_all",
+          "market.sectors.show_day",
+          "market.sectors.show_highlights",
+          "market.sectors.show_week",
           "route.back",
           "route.kai_home"
         ],
@@ -4560,6 +4580,7 @@
           "profile.payouts.redeem",
           "profile.payouts.test_redeem",
           "profile.reset_account",
+          "profile.retry_phone_lookup",
           "profile.set_contact_discoverable",
           "profile.sign_out",
           "profile.support.submit_message",
@@ -4567,6 +4588,7 @@
           "route.back",
           "route.profile",
           "route.profile_access_panel",
+          "route.profile_account",
           "route.profile_connected_systems",
           "route.profile_my_data",
           "route.profile_payouts",
@@ -4673,6 +4695,7 @@
           "profile.payouts.redeem",
           "profile.payouts.test_redeem",
           "profile.reset_account",
+          "profile.retry_phone_lookup",
           "profile.set_contact_discoverable",
           "profile.sign_out",
           "profile.support.submit_message",
@@ -4680,6 +4703,7 @@
           "route.back",
           "route.profile",
           "route.profile_access_panel",
+          "route.profile_account",
           "route.profile_connected_systems",
           "route.profile_my_data",
           "route.profile_payouts",
@@ -4721,6 +4745,7 @@
           "profile.payouts.redeem",
           "profile.payouts.test_redeem",
           "profile.reset_account",
+          "profile.retry_phone_lookup",
           "profile.set_contact_discoverable",
           "profile.sign_out",
           "profile.support.submit_message",
@@ -4728,6 +4753,7 @@
           "route.back",
           "route.profile",
           "route.profile_access_panel",
+          "route.profile_account",
           "route.profile_connected_systems",
           "route.profile_my_data",
           "route.profile_payouts",
@@ -6948,21 +6974,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "901ffa785f2f917bce0a5eee0aceebeaded2180baf7a3bf7915c9d03e72fb526",
-    "action_gateway": "8e48d7af6c7f766b702bfe38abf1cfa2a53ed77c26a2d55d88b76c7ac9453c5b",
-    "agent_registry": "7c61a4d0a5e3c50a1f612848306b2748bb8c0721beb93f0835d4fcd10195d3a6",
-    "cache_manifest": "e0571b6c4ad7d73af8db63d90ae574a65b107f7c62951bbadf43998d3a199617",
-    "data_plane": "9cded5536ae00f3c62baaf741590ae7e579bf695d29907c7d220b430be33911e",
+    "action_gateway": "ba9b02dbb6744a6e951018ef9a9ee846fca338be9ea3f5d934de532064072345",
+    "agent_registry": "e1342aca450ac97e3a660b929cd6d2d3adb54f8cefc52359d4bf02f38a98f488",
+    "cache_manifest": "935ac807950e3082e52242b9e83d359992f6dafe66b3dadff3c30783486fbca2",
+    "data_plane": "523b959cc420b68f82de91ff2c401310d2b28f8fe35dde961558328fba6be938",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "422d6becce2d7c41337d9a8d4e62c38f92922082b5195198385cafabae3ba6b8",
-    "route_layout": "cb7f355999f7974afd3248d5ab11dfb75f305c32fe71b524fd828fb7cd0bc4de",
-    "surface_map": "bc676bfcec89b54bcc9b9b9cba20307599ce883d13baa36e987711d6ff65ab73",
-    "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
+    "route_index": "096e13cb27356fd092a6cfaac1075fbdcc4e44ba9aca829ba4a3803bf3ee48ba",
+    "route_layout": "bea973a910251937692c27e49d92c5e3359fc5e60502ce5b5309e8c0f661bcc7",
+    "surface_map": "5c5b425eb88aeaadba209387527a9064388568aa79f7b35f365d58364e83db01",
+    "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 265,
+    "actions": 273,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,
@@ -6970,6 +6996,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 160,
     "semantic_routes": 17,
-    "table_families": 123
+    "table_families": 124
   }
 }

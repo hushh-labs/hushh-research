@@ -478,7 +478,6 @@ export function AgentTurnStreamPanel({
   return (
     <AppStreamPanel
       title="One activity"
-      activityAppearance="plain"
       structuredContentPlacement={leadsIntoConsentCard ? "after" : "before"}
       progressItems={[...progressItems, ...specialistItems]}
       progressValue={batchIsStreaming && currentBatchProgress

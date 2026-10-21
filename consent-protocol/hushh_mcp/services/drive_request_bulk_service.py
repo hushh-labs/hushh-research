@@ -354,6 +354,11 @@ class DriveRequestBulkService:
     ):
         if authority_mode not in {"owner", "trusted_auto", "agent_package"}:
             raise DriveSharingError("invalid_argument")
+        await self._owner()
+        migrate = getattr(self.search.store, "migrate_request_processor", None)
+        if callable(migrate) and authority_mode == "trusted_auto":
+            if await migrate(user_id=user_id, request_id=request_id):
+                await self.wake("suggestions")
         context = await self._context(user_id, request_id)
         if context.get("agentPackageRequired"):
             authority_mode = "agent_package"
@@ -402,6 +407,11 @@ class DriveRequestBulkService:
                 user_id=user_id, request_id=request_id
             )
             if takeover is not None:
+                if takeover["status"] == "queued" and callable(migrate):
+                    await migrate(user_id=user_id, request_id=request_id, authority_mode="owner")
+                    takeover = await self.search.store.by_client(
+                        user_id=user_id, client_request_id=request_id
+                    )
                 await self._owner()
                 if takeover["status"] == "queued":
                     await self.wake("suggestions")
@@ -426,6 +436,9 @@ class DriveRequestBulkService:
                 if changed:
                     await self.wake("v1" if context.get("v1LiveRequest") else "suggestions")
                 return recovered
+        if authority_mode == "owner" and callable(migrate):
+            if await migrate(user_id=user_id, request_id=request_id, authority_mode="owner"):
+                context = await self._context(user_id, request_id)
         route = None
         planner_fallback = None
         brain = None
@@ -436,7 +449,7 @@ class DriveRequestBulkService:
             )
         if context.get("semanticSearch") is True:
             # This creation-time policy never falls back to a lexical planner.
-            # The complete interpretation is sealed and later content-verified.
+            # The complete interpretation is sealed; v2 delivers provider-query matches.
             prompt = {
                 "document_request": purpose,
                 "transaction_search": True,
@@ -565,6 +578,11 @@ class DriveRequestBulkService:
             **({"brain": brain.as_checkpoint()} if brain is not None else {}),
             **({"plan_source": plan_source} if plan_source is not None else {}),
             **({"semantic_search": True} if context.get("semanticSearch") is True else {}),
+            **(
+                {"discovery_delivery_enabled": True}
+                if context.get("discoveryDelivery") is True
+                else {}
+            ),
             **(
                 {"semantic_model_binding": context["semanticModelBinding"]}
                 if context.get("semanticSearch") is True

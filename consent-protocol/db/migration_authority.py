@@ -640,7 +640,47 @@ END $$;"""
     return replay[:start] + triggers + replay[end:]
 
 
+def _replay_drive_cent_prices_sql(entry: MigrationManifestEntryV2) -> str:
+    """Preserve immutable 329 and the exact installed 368 waiver constraints."""
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "ee91dfcc494deda10e84e0a06b506a93022c3416264c160ae6541db5786dda4a"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Drive cent prices replay source checksum changed")
+    original = "    IF NOT EXISTS (SELECT 1 FROM pg_constraint\n"
+    if entry.sql.count(original) != 1:
+        raise MigrationAuthorityError("Drive cent prices replay source shape changed")
+    # Keep Boolean grouping: removing parentheses could accept a weaker CHECK.
+    # Only this exact successor skips the old rule; the other five checks and
+    # the original repair/failure path remain unchanged. No rows are rewritten.
+    successor = """    IF rule.constraint_name='drive_share_requests_locked_quote_check'
+      AND EXISTS (SELECT 1 FROM pg_attribute
+        WHERE attrelid='drive_share_requests'::regclass
+          AND attname='existing_access_waived_at' AND NOT attisdropped
+          AND atttypid='timestamptz'::regtype AND NOT attnotnull
+          AND NOT atthasdef AND attgenerated='' AND attidentity='')
+      AND EXISTS (SELECT 1 FROM pg_constraint
+        WHERE conrelid='drive_share_requests'::regclass
+          AND conname='drive_share_requests_locked_quote_check'
+          AND contype='c' AND convalidated
+          AND regexp_replace(pg_get_constraintdef(oid),'[[:space:]]','','g')=
+            'CHECK((((quoted_amount_centsISNULL)AND(quote_versionISNULL))OR(((payment_required=true)OR(existing_access_waived_atISNOTNULL))AND((quoted_amount_cents>=50)AND(quoted_amount_cents<=50000))AND(quote_version>=0))))')
+      AND EXISTS (SELECT 1 FROM pg_constraint
+        WHERE conrelid='drive_share_requests'::regclass
+          AND conname='drive_request_existing_access_waiver_check'
+          AND contype='c' AND convalidated
+          AND regexp_replace(pg_get_constraintdef(oid),'[[:space:]]','','g')=
+            'CHECK(((existing_access_waived_atISNULL)OR(payment_required=false)))') THEN
+      CONTINUE;
+    END IF;
+"""
+    return entry.sql.replace(original, successor + original, 1)
+
+
 def _replay_sql(entry: MigrationManifestEntryV2) -> str:
+    if entry.migration_id == "329" and entry.filename == "329_drive_request_cent_prices.sql":
+        return _replay_drive_cent_prices_sql(entry)
     if entry.migration_id == "361" and entry.filename == "361_system_push_outbox.sql":
         return _replay_system_push_outbox_sql(entry)
     if entry.migration_id == "289" and entry.filename == "289_one_referral_program_settings_v2.sql":

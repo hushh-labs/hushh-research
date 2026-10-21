@@ -131,11 +131,12 @@ ${script.slice(boundary)}`], {
     expect(runtime).toContain('App.addListener("resume"');
     expect(runtime).not.toContain('App.addListener("appStateChange"');
     expect(runtime).toContain('document.visibilityState === "hidden" ? "background" : "active"');
-    // Auth and vault state stay stable across ordinary resume/focus events.
-    // Their explicit recovery and expiry paths remain independent of this
-    // shared lifecycle signal.
+    // Session admission and vault state stay stable across ordinary resume.
+    // Auth's bounded phone-cache recovery consumes the shell signal without
+    // collecting native events or reopening the session admission gate; the
+    // AuthProvider behavior suite verifies fresh and unavailable phone cases.
     expect(vault).not.toContain("appInteractionCoordinator.subscribeLifecycle");
-    expect(auth).not.toContain("appInteractionCoordinator.subscribeLifecycle");
+    expect(auth).toContain("appInteractionCoordinator.subscribeLifecycle");
     expect(notification).toContain("appInteractionCoordinator.subscribeLifecycle");
     expect(vault).not.toContain('App.addListener("pause"');
     expect(vault).not.toContain('App.addListener("resume"');

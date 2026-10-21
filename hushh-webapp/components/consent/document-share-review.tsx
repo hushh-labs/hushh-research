@@ -49,6 +49,7 @@ import {
   isValidDocumentRequestPriceCents,
 } from "@/lib/consent/document-request-price";
 import { DOCUMENT_FLOW_TEXT_SCALE, periodConflictNote } from "@/lib/consent/document-request-flow";
+import { partialDocumentDeliveryState } from "@/lib/consent/document-request-delivery-state";
 import {
   effectiveRequesterPaymentState,
   REQUESTER_PAYMENT_TITLES,
@@ -145,7 +146,7 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: "Request cancelled",
   expired: "Request expired",
   completed: "Sharing results",
-  partial: "Sharing incomplete",
+  partial: "Review sharing and search results",
   no_match: "No file candidates in this search",
   no_files_shared: "No files were shared",
   management_only: "Manage recorded access",
@@ -1239,6 +1240,21 @@ function UnlockedDocumentReview({
     review?.preparationError !== "date_range_required" &&
     review?.preparationError !== "background_preparation_required" &&
     !["completed", "partial", "no_match"].includes(snapshot?.status.status ?? "");
+  // A completed latest batch cannot stand in for all progressive batches.
+  const requestDeliveryCounts = snapshot?.delivery?.counts ?? review?.aggregateCounts;
+  const partialDeliveryState = snapshot?.status.status === "partial"
+    ? partialDocumentDeliveryState({
+      total: requestDeliveryCounts?.total,
+      available: requestDeliveryCounts && requestDeliveryCounts.shared + requestDeliveryCounts.alreadyShared,
+      pending: requestDeliveryCounts && requestDeliveryCounts.pending + requestDeliveryCounts.unknown,
+    }) : null;
+  const partialDeliveryLine = partialDeliveryState === "available"
+    ? "Files shared · Request incomplete"
+    : partialDeliveryState === "checking" ? "Checking file access"
+    : partialDeliveryState === "unavailable"
+      ? bulkShare && ["stopped", "failed"].includes(bulkShare.status)
+        ? BULK_STATUS_LABELS[bulkShare.status] : "Sharing incomplete"
+    : partialDeliveryState === "unknown" ? "Review sharing and search results" : null;
   // Started work that no worker has moved past the server's threshold (for
   // example while the drains are paused): stop claiming work, never spin.
   const automaticDelayed = automaticSharing && typeof review?.workDelayedSince === "string" &&
@@ -1356,6 +1372,10 @@ function UnlockedDocumentReview({
               ? documentRequestSetupLabel(setup, snapshot.status.direction === "incoming")
             : ownerDecision
               ? priceOnly ? "Set price" : "Needs your decision"
+            : partialDeliveryState === "unknown" && requesterPayment?.autoshare === true && requesterLine
+              ? requesterLine
+            : partialDeliveryLine
+              ? partialDeliveryLine
             : durableReview && durableStatus
               ? durableStatus
               : requesterLine

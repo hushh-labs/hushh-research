@@ -24,7 +24,7 @@ export type AppPageHeaderContentSpacing = "standard" | "compact";
 
 // 2. Mapped directly to Tailwind classes instead of raw string values
 export const APP_SHELL_MAX_WIDTHS: Record<AppPageShellWidth, string> = {
-  reading: "max-w-[720px]",
+  reading: "max-w-[54rem]",
   agent: "max-w-[880px]",
   narrow: "max-w-[720px]",
   profile: "max-w-[720px]",
@@ -43,7 +43,7 @@ export const APP_SHELL_FRAME_STYLE: CSSProperties = {
 };
 
 export const APP_MEASURE_STYLES: Record<"reading" | "standard" | "expanded", CSSProperties> = {
-  reading: { maxWidth: "720px" },
+  reading: { maxWidth: "54rem" },
   standard: { maxWidth: "90rem" },
   expanded: { maxWidth: "96rem" },
 } as const;

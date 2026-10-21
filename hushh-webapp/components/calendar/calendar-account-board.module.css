@@ -1,0 +1,102 @@
+.shell { min-width: 0; }
+.content { width: 100%; min-width: 0; display: grid; gap: 1.1rem; padding-bottom: 2rem; }
+.description { color: var(--app-secondary-label); font-size: .85rem; line-height: 1.5; }
+.headerActions { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.headerActions button { min-height: 44px; }
+.topTabs { max-width: 100%; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.zoneSetting { display: flex; align-items: end; gap: .5rem; flex-wrap: wrap; font-size: .78rem; }
+.zoneSetting label { display: grid; gap: .25rem; min-width: min(100%, 16rem); }
+.zoneSetting input, .zoneSetting button { min-height: 44px; }
+.zoneSetting p { color: var(--app-destructive); width: 100%; }
+.message { padding: 1.4rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.summary { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; color: var(--app-label); font-size: .85rem; }
+.summary svg { color: #b77b28; }
+.summary .clearIcon { color: var(--app-success); }
+.summary span { color: var(--app-secondary-label); margin-left: auto; }
+.accounts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; min-width: 0; align-items: start; }
+.accounts[data-count="1"] { grid-template-columns: minmax(0, 1fr); }
+.accounts[data-count="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.account { min-width: 0; overflow: hidden; padding: .9rem; box-shadow: none; }
+.accountHeader { display: flex; align-items: center; gap: .6rem; min-width: 0; }
+.accountMark { display: grid; place-items: center; flex: none; width: 2.35rem; height: 2.35rem; border-radius: .75rem; background: var(--app-accent-surface); }
+.accountMark span { width: .72rem; height: .72rem; border-radius: 50%; background: var(--app-accent); }
+.account[data-account-index="1"] .accountMark { background: color-mix(in srgb, #8068db 14%, var(--app-card-surface-compact)); }
+.account[data-account-index="1"] .accountMark span { background: #8068db; }
+.account[data-account-index="2"] .accountMark { background: color-mix(in srgb, #168b80 14%, var(--app-card-surface-compact)); }
+.account[data-account-index="2"] .accountMark span { background: #168b80; }
+.accountIdentity { min-width: 0; flex: 1; }
+.accountIdentity h2 { font-size: .88rem; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
+.accountIdentity p { font-size: .72rem; color: var(--app-secondary-label); line-height: 1.5; }
+.accountHeader button { flex: none; min-width: 44px; min-height: 44px; }
+.accountTabs { margin: .85rem 0 .7rem; }
+.calendarSources { font-size: .75rem; margin: 0 0 .7rem; color: var(--app-secondary-label); }
+.calendarSources summary { cursor: pointer; min-height: 36px; }
+.calendarSources > div { display: grid; gap: .45rem; padding: .35rem 0; max-height: 10rem; overflow-y: auto; }
+.calendarSources label { display: flex; align-items: center; gap: .4rem; color: var(--app-label); }
+.calendarSources input { width: 1rem; height: 1rem; flex: none; }
+.accountStream { overflow-y: auto; overscroll-behavior: contain; max-height: min(35rem, 55vh); min-height: 9rem; scrollbar-gutter: stable; outline-offset: 2px; }
+.eventList, .freeList { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.eventCard { display: flex; align-items: stretch; min-width: 0; border: 1px solid var(--app-separator); border-radius: .85rem; background: var(--app-card-surface-compact); }
+.eventMain { display: flex; align-items: center; gap: .7rem; min-height: 4.7rem; min-width: 0; flex: 1; padding: .75rem; text-align: left; border-radius: .85rem; }
+.eventMain:focus-visible, .conflictButton:focus-visible, .join:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.eventColor { flex: none; width: .23rem; align-self: stretch; border-radius: .2rem; }
+.eventCopy { min-width: 0; display: grid; gap: .12rem; }
+.eventCopy strong { font-size: .82rem; font-weight: 600; overflow-wrap: anywhere; }
+.eventCopy span { font-size: .74rem; color: var(--app-secondary-label); }
+.eventCopy small { font-size: .69rem; color: var(--app-secondary-label); overflow-wrap: anywhere; }
+.conflictButton { display: flex; align-items: center; justify-content: center; gap: .18rem; flex: none; min-width: 44px; min-height: 44px; margin: auto .28rem auto 0; border-radius: .6rem; color: var(--app-label); background: var(--app-warning-surface); font-size: .7rem; font-weight: 700; }
+.conflictButton:hover { background: var(--app-warning-tint); }
+.freeList li { display: flex; align-items: center; gap: .55rem; min-height: 3rem; border: 1px solid var(--app-separator); border-radius: .8rem; padding: .7rem; font-size: .77rem; }
+.freeList svg { flex: none; color: var(--app-accent); }
+.empty, .coverage, .accountError, .readOnly { color: var(--app-secondary-label); font-size: .8rem; line-height: 1.5; }
+.coverage { margin: .3rem 0 .8rem; }
+.accountError { display: grid; gap: .6rem; padding: .6rem; }
+.accountError svg { color: #b77b28; }
+.accountError button { width: fit-content; min-height: 44px; }
+.shared { padding: 1rem 1.15rem; box-shadow: none; }
+.sharedTitle { display: flex; align-items: center; gap: .7rem; }
+.sharedTitle svg { color: var(--app-success); flex: none; }
+.sharedTitle h2 { font-size: 1rem; font-weight: 650; }
+.sharedTitle p, .shared > p { font-size: .8rem; color: var(--app-secondary-label); }
+.sharedList { list-style: none; display: flex; gap: .5rem; flex-wrap: wrap; margin: .8rem 0 0; padding: 0; }
+.sharedList li { border-radius: .7rem; padding: .5rem .8rem; background: var(--app-accent-surface); color: var(--app-accent); font-size: .77rem; }
+.sharedList button { display: grid; gap: .2rem; text-align: left; min-height: 44px; }
+.sharedList button span { font-weight: 650; }
+.sharedList button:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.secondary { min-width: 0; display: grid; gap: 1rem; }
+.accountPicker { display: grid; gap: .35rem; width: min(100%, 24rem); font-size: .82rem; font-weight: 600; }
+.accountPicker select { min-height: 44px; border: 1px solid var(--app-separator); border-radius: .65rem; background: var(--app-card-surface-compact); padding: .55rem .7rem; }
+.insightSummary { padding: 1rem; }
+.insightSummary h2 { font-weight: 650; }
+.insightSummary p { font-size: .83rem; color: var(--app-secondary-label); }
+.footer { display: flex; justify-content: center; padding-top: .3rem; }
+.footer button { min-height: 48px; min-width: min(100%, 20rem); }
+.detail { max-height: 86dvh; overflow-y: auto; }
+.detailSource, .detailDescription { font-size: .83rem; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
+.detailSource { color: var(--app-secondary-label); }
+.join { display: inline-flex; align-items: center; min-height: 44px; color: var(--app-accent); font-size: .85rem; }
+.overlapDetail { display: grid; gap: .55rem; padding: .8rem; background: var(--app-warning-surface); border: 1px solid var(--app-warning-border); border-radius: .75rem; }
+.overlapDetail h3 { display: flex; align-items: center; gap: .4rem; font-size: .88rem; font-weight: 650; }
+.overlapItem { padding: .45rem 0; border-top: 1px solid var(--app-warning-border); font-size: .8rem; }
+.overlapItem p { color: var(--app-secondary-label); line-height: 1.5; overflow-wrap: anywhere; }
+.conflictPanel { display: grid; gap: .85rem; font-size: .83rem; line-height: 1.5; }
+.conflictPanel h3 { font-size: .98rem; font-weight: 650; }
+.keptCard { display: flex; align-items: flex-start; gap: .55rem; border: 1px solid var(--app-success-border); border-radius: .75rem; background: var(--app-success-surface); padding: .75rem; }
+.keptCard svg { color: var(--app-success); flex: none; margin-top: .15rem; }
+.keptCard p { font-size: .78rem; color: var(--app-secondary-label); }
+.choiceList, .previewList, .outcomeList { display: grid; gap: .55rem; list-style: none; padding: 0; margin: 0; }
+.choice, .previewList li, .outcomeList li { border: 1px solid var(--app-separator); border-radius: .75rem; padding: .75rem; }
+.choice > label:first-child { display: flex; align-items: flex-start; gap: .65rem; min-height: 44px; cursor: pointer; }
+.choice input { width: 1.1rem; height: 1.1rem; margin-top: .2rem; flex: none; }
+.choice label span, .previewList li, .outcomeList li { display: grid; gap: .15rem; }
+.choice small, .previewList span, .outcomeList span { font-size: .75rem; color: var(--app-secondary-label); overflow-wrap: anywhere; }
+.noteLabel { display: grid; gap: .3rem; margin-top: .55rem; font-weight: 600; }
+.noteLabel textarea { min-height: 6rem; font-weight: 400; }
+.mailPreview { margin-top: .5rem; padding: .6rem; background: var(--app-card-surface-compact); border-radius: .55rem; overflow-wrap: anywhere; }
+.notePreview { white-space: pre-wrap; }
+.conflictActions { display: flex; gap: .55rem; flex-wrap: wrap; }
+.conflictActions button { min-height: 44px; }
+.conflictError { display: flex; align-items: flex-start; gap: .4rem; color: var(--app-destructive); }
+@media (max-width: 900px) { .accounts, .accounts[data-count="2"] { grid-template-columns: 1fr; } .accountStream { max-height: min(24rem, 48vh); } }
+@media (max-width: 600px) { .content { gap: .9rem; } .toolbar { align-items: stretch; } .summary span { width: 100%; margin-left: 0; } .accountStream { max-height: min(20rem, 42vh); } }

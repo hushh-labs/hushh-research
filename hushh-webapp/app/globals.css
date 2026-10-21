@@ -867,7 +867,7 @@ html.native-keyboard-inset.kb-open
   --page-top-start: 28px;
   --app-top-body-start-gap: var(--page-top-start);
   --page-top-local-offset: 0px;
-  --app-shell-reading: 720px;
+  --app-shell-reading: 54rem;
   --app-shell-agent: 55rem;
   --app-shell-standard: 90rem;
   --app-shell-expanded: 96rem;
@@ -2691,36 +2691,19 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   container: profile-preferences / inline-size;
 }
 
-.profile-preferences-content .profile-preferences-control-row {
-  --profile-control-icon-size: 34px;
-}
-
 .profile-preferences-content .profile-preferences-control-row > .grid {
-  grid-template-columns: minmax(0, 1fr);
-  row-gap: var(--settings-row-stack-gap);
-}
-
-.profile-preferences-control-row[data-settings-density="compact"] {
-  --profile-control-icon-size: 28px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, min(50%, 148px));
+  align-items: center;
+  column-gap: var(--settings-row-gap);
+  row-gap: 0;
 }
 
 .profile-preferences-control-row [data-slot="settings-row-trailing"] {
   width: 100%;
   min-width: 0;
-  padding-inline-start: calc(var(--profile-control-icon-size) + var(--settings-row-gap));
-  padding-top: 4px;
-}
-
-@container profile-preferences (min-width: 560px) {
-  .profile-preferences-content .profile-preferences-control-row > .grid {
-    grid-template-columns: minmax(0, 1fr) 240px;
-    row-gap: 0;
-  }
-
-  .profile-preferences-control-row [data-slot="settings-row-trailing"] {
-    padding-inline-start: 0;
-    padding-top: 0;
-  }
+  padding-inline-start: 0;
+  padding-inline-end: 0;
+  padding-top: 0;
 }
 
 .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"],
@@ -2889,6 +2872,19 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   width: 24px !important;
   height: 24px !important;
   stroke-width: 1.8 !important;
+}
+
+.profile-pane-icon,
+.profile-account-line-icon {
+  color: var(--ios-account-label);
+}
+
+:is(.profile-pane-icon-accent, .profile-account-icon-accent) {
+  stroke: var(--ios-account-accent);
+}
+
+:is(.profile-pane-icon-accent-fill, .profile-account-icon-accent-fill) {
+  fill: var(--ios-account-accent);
 }
 
 .profile-pane-scroll-root .profile-pane-icon {
@@ -3375,36 +3371,6 @@ html.kb-open [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]):n
       var(--app-safe-area-top-effective, 0px)
   );
   margin-top: calc(var(--kb-height, 0px) / -2);
-}
-
-/* The request form stays in one phone sheet while its inline range calendar
-   opens. Keep 44px day targets inside a 320px viewport and lift the whole
-   surface above the keyboard without changing desktop dialogs.
-
-   The dialog primitive centers with the independent `translate` property
-   (Tailwind v4 `translate-x/y-[-50%]`). Do NOT reset it here: the production
-   optimizer (Lightning CSS, minify) folds `translate: none` into the sibling
-   `transform` and drops it, so production kept the -50% shift and the sheet
-   rendered half off the left edge of a phone. The reset lives on the element
-   as `max-sm:translate-x-0 max-sm:translate-y-0` utilities instead. */
-@media (max-width: 639px) {
-  [data-request-files-dialog] {
-    top: auto !important;
-    bottom: var(--kb-height, 0px) !important;
-    left: 0 !important;
-    width: 100% !important;
-    max-width: none !important;
-    max-height: calc(
-      100dvh - var(--kb-height, 0px) -
-        var(--app-safe-area-top-effective, 0px) - 0.5rem
-    ) !important;
-    margin-top: 0 !important;
-    transform: none !important;
-    padding: 1rem 0.25rem
-      calc(1rem + var(--app-safe-area-bottom-effective, 0px));
-    border-radius: var(--app-card-radius-feature)
-      var(--app-card-radius-feature) 0 0;
-  }
 }
 
 /* The fixed "Talk to One" agent launcher lifts above the on-screen keyboard by
@@ -7760,17 +7726,11 @@ html.dark:has([data-direct-message-page]) [data-app-bottom-shell] {
   --accent: var(--chat-ios-accent);
 }
 
-/* Messages is a split workspace on desktop. The shared dock remains one
-   column, aligned to the conversation rather than the whole viewport. */
+/* Messages reserves the centered shared dock inside both split panes. */
 @media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
   html:has([data-direct-message-page]) [data-app-scroll-root] {
-    /* The desktop workspace reserves dock space inside the conversation. */
+    /* The workspace panes reserve the measured dock, avoiding double padding. */
     padding-bottom: 0;
-  }
-  html:has([data-direct-message-page]) [data-messages-dock] {
-    inset-inline-start: var(--app-messages-sidebar-width);
-    --app-bottom-shell-max-width: none;
-    --app-bottom-shell-inline-inset: 16px;
   }
 }
 
@@ -8746,6 +8706,12 @@ body[data-persona-surface="ria"] {
     line-height: var(--type-major-section-title-line) !important;
   }
 
+  [data-task-surface] .check-in-drawer-title.check-in-drawer-title {
+    font-size: var(--foundation-title3-size) !important;
+    line-height: var(--foundation-title3-line) !important;
+    font-weight: var(--foundation-title3-weight) !important;
+  }
+
   .check-in-subsection-title.check-in-subsection-title {
     font-family: var(--font-app-body) !important;
     font-size: var(--type-row-label-size) !important;
@@ -9679,6 +9645,33 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     line-height: 1.3 !important;
   }
 
+  /* Legal content keeps every authored block while using Profile's type scale
+     inside the pane. Public /privacy and /terms keep their article scale. */
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-legal-document] :is(.ui-text-section-title, .ui-text-headline) {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0 !important;
+    line-height: 1.4 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-legal-document] .ui-text-body {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+    line-height: 1.4 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-legal-document] .ui-text-helper-text {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 1.3 !important;
+  }
+
   /* Text fields inherit the app's larger form scale unless the pane supplies
      its own value size. Keep nested Profile controls aligned with Your account. */
   .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
@@ -9755,7 +9748,7 @@ html:has([data-profile-type-scale]),
   }
 
   /* Surface header: a page's own title. */
-  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale])
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"])
     [data-profile-role="header"] {
     font-size: var(--profile-type-header-size) !important;
     line-height: var(--profile-type-header-line) !important;
@@ -9765,7 +9758,7 @@ html:has([data-profile-type-scale]),
 
   /* Primary label: tab labels, the controls that name a list, and names of
      things you open (an agent, a section). */
-  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale])
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"])
     :is(
       [data-profile-role="label"],
       [data-ui-role="agent-tab-label"],
@@ -9778,7 +9771,7 @@ html:has([data-profile-type-scale]),
   }
 
   /* Group label: a heading nested under a list's own title. */
-  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale])
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"])
     :is([data-profile-role="group-label"], [data-slot="settings-group-heading"]) {
     font-family: var(--font-app-body) !important;
     color: var(--ios-account-secondary-label) !important;
@@ -9789,7 +9782,7 @@ html:has([data-profile-type-scale]),
   }
 
   /* Row label (Profile detail rows). */
-  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale])
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"])
     :is(
       [data-profile-role="name"],
       [data-row-layout] [data-slot="settings-row-title"]
@@ -9803,7 +9796,7 @@ html:has([data-profile-type-scale]),
 
   /* Secondary line and count: one role, so a date, an email, a helper and a
      "1 action" all read alike. */
-  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale])
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"])
     :is(
       [data-profile-role="description"],
       [data-row-layout] [data-slot="settings-row-description"],
@@ -9818,7 +9811,7 @@ html:has([data-profile-type-scale]),
     text-wrap: balance;
   }
 
-  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale])
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"])
     :is(
       [data-row-layout] [data-slot="settings-row-description"],
       [data-settings-density] [data-slot="settings-group-description"]
@@ -9827,12 +9820,68 @@ html:has([data-profile-type-scale]),
   }
 
   /* Action label (Profile's inline "Edit" / "Change"). */
-  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale])
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"])
     [data-profile-role="action"] {
     font-size: var(--profile-type-action-size) !important;
     line-height: var(--profile-type-action-line) !important;
     font-weight: var(--profile-type-action-weight) !important;
     letter-spacing: 0 !important;
+  }
+
+  /* Circle chrome shares Profile roles, including explicitly scoped portals. */
+  [data-profile-type-scale="circles"] {
+    --type-page-title-size: var(--profile-type-header-size);
+    --type-page-title-line: var(--profile-type-header-line);
+    --type-page-title-weight: var(--profile-type-header-weight);
+    --type-page-title-tracking: var(--profile-type-header-tracking);
+  }
+  [data-profile-type-scale="circles"] :is([data-ui-role="agent-title"], [data-ui-role="page-title"], .ui-text-page-title) {
+    font-size: var(--profile-type-header-size) !important;
+    line-height: var(--profile-type-header-line) !important;
+    font-weight: var(--profile-type-header-weight) !important;
+    letter-spacing: var(--profile-type-header-tracking) !important;
+  }
+
+  [data-profile-type-scale="circles"] :is([data-ui-role="section-label"], [data-ui-role="section-title"], [data-ui-role="group-label"]) {
+    font-size: var(--app-side-pane-section-size) !important;
+    line-height: var(--app-side-pane-section-line) !important;
+    font-weight: var(--app-side-pane-section-weight) !important;
+    letter-spacing: var(--app-side-pane-section-tracking) !important;
+  }
+
+  [data-profile-type-scale="circles"] :is([data-ui-role="card-title"], [data-ui-role="body"], [data-ui-role="body-strong"], [data-ui-role="form-label"], .ui-text-card-title) {
+    font-size: var(--profile-type-label-size) !important;
+    line-height: var(--profile-type-label-line) !important;
+    font-weight: var(--profile-type-label-weight) !important;
+  }
+
+  [data-profile-type-scale="circles"] :is([data-ui-role="row-description"], [data-ui-role="caption"], [data-ui-role="trailing-value"], .ui-text-row-description:not([data-profile-role="name"]), .ui-text-page-subtitle, [role="alert"]) {
+    font-size: var(--profile-type-description-size) !important;
+    line-height: var(--profile-type-description-line) !important;
+    font-weight: 400 !important;
+  }
+
+  [data-profile-type-scale="circles"] :is(input:not([type="file"]):not([type="checkbox"]):not([type="radio"]), textarea, select) {
+    font-size: var(--profile-type-label-size) !important;
+    line-height: var(--profile-type-description-line) !important;
+    font-weight: var(--profile-type-label-weight) !important;
+  }
+
+  [data-profile-type-scale="circles"] :is(button, [role="menuitem"], [data-profile-role="action"]) {
+    font-size: var(--profile-type-action-size) !important;
+    line-height: var(--profile-type-action-line) !important;
+    font-weight: var(--profile-type-action-weight) !important;
+  }
+
+  [data-profile-type-scale="circles"] :is([data-slot="dialog-title"], [data-slot="sheet-title"], [data-slot="drawer-title"], [data-profile-role="dialog-title"]) {
+    font-size: var(--profile-type-dialog-title-size) !important;
+    line-height: var(--profile-type-dialog-title-line) !important;
+    font-weight: var(--profile-type-dialog-title-weight) !important;
+  }
+
+  [data-profile-type-scale="circles"] :is([data-slot="dialog-description"], [data-slot="sheet-description"], [data-slot="drawer-description"]) {
+    font-size: var(--profile-type-dialog-description-size) !important;
+    line-height: var(--profile-type-dialog-description-line) !important;
   }
 
   /* Dialog variant: Profile's own account-dialog roles (profile-your-account
@@ -10058,7 +10107,88 @@ html:has([data-profile-type-scale]),
     max-width: 256px;
   }
 }
-
+/* The browser/recovery One surface retains its authored portrait identity.
+   Native coherent chrome keeps the compact reservation above. Controls keep
+   their shared 44px targets and stay anchored when switching agents. */
+.agent-chat-header[data-one-centered-header="true"] {
+  --one-header-artwork-size: 104px;
+  --one-header-body-height: 144px;
+  height: calc(var(--one-header-body-height) + var(--agent-chat-header-safe-top));
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-rows: 128px;
+}
+.agent-chat-header[data-one-centered-header="true"] > :first-child,
+.agent-chat-header[data-one-centered-header="true"] > :last-child {
+  align-self: start;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+  position: absolute;
+  grid-column: auto;
+  grid-row: auto;
+  top: calc(8px + var(--agent-chat-header-safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(256px, calc(100% - 32px));
+  flex-direction: column;
+  gap: 4px;
+  overflow: visible;
+  text-align: center;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
+  width: var(--one-header-artwork-size);
+  height: var(--one-header-artwork-size);
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+  justify-content: center;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 0 8px;
+  background: var(--app-secondary-surface);
+}
+@media (max-width: 959px) {
+  .agent-chat-header[data-agent-header-layout="portrait"] .agent-chat-surface-control { width: 94px; }
+  .agent-chat-header[data-agent-header-layout="portrait"] .agent-chat-surface-control [role="radio"] > svg { display: block; }
+  .agent-chat-header[data-agent-header-layout="portrait"] .agent-chat-surface-control [role="radio"] > span { display: none; }
+  .agent-chat-header[data-agent-header-layout="portrait"] .agent-chat-model-picker {
+    width: 44px;
+    min-width: 44px;
+    padding-inline: 0;
+    justify-content: center;
+  }
+  .agent-chat-header[data-agent-header-layout="portrait"] .agent-chat-model-picker > span,
+  .agent-chat-header[data-agent-header-layout="portrait"] .agent-chat-model-picker > svg:last-child { display: none; }
+}
+@media (max-width: 767px) {
+  .agent-chat-header[data-agent-header-layout="portrait"] {
+    --agent-chat-header-inline-gutter: 8px;
+  }
+  .agent-chat-header[data-agent-header-layout="portrait"] [data-agent-chat-header-region="actions"] { gap: 4px; }
+  .agent-chat-header[data-one-centered-header="true"] {
+    --one-header-artwork-size: clamp(52px, calc(100vw - 268px), 64px);
+    --one-header-body-height: calc(var(--one-header-artwork-size) + 44px);
+    grid-template-rows: calc(var(--one-header-artwork-size) + 28px);
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+    /* At 320px, move the portrait slightly left instead of shrinking targets. */
+    left: min(50%, calc(100% - var(--agent-chat-header-inline-gutter) - 146px - var(--one-header-artwork-size) / 2));
+    width: var(--one-header-artwork-size);
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
+    flex-shrink: 0;
+    width: max-content;
+    max-width: min(256px, calc(100vw - 64px));
+  }
+}
+.agent-chat-header[data-one-centered-header="true"]:has([data-agent-chat-header-region="identity"] p) {
+  height: calc(var(--one-header-body-height) + 20px + var(--agent-chat-header-safe-top));
+}
+@media (max-width: 359px) {
+  .agent-chat-header[data-agent-header-layout="portrait"]:not([data-one-centered-header]) [data-agent-chat-header-region="identity"] > div:last-child > div {
+    white-space: normal;
+  }
+}
 /* Chat detail bodies inherit the same grouped material and type as Profile. */
 [data-chat-detail-body] [role="region"] {
   color: var(--ios-account-label);

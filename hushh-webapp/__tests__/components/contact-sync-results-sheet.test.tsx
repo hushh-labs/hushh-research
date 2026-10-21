@@ -191,6 +191,42 @@ describe("ContactSyncResultsSheet", () => {
     expect(screen.queryByRole("button", { name: /Show more/ })).toBeNull();
   });
 
+  it("redacts contact-only matched names without changing the request target", async () => {
+    const requestConnection = vi.fn().mockResolvedValue(undefined);
+    const matches = ["member@example.test", "98******10"].map((displayName, index) => ({
+      lookupId: `lookup_private_${index}`,
+      userId: `user_private_${index}`,
+      displayName,
+      photoUrl: null,
+      outcome: "request_required" as const,
+    }));
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          matches,
+          matchedUserIds: matches.map((match) => match.userId),
+          matchedContactCount: 2,
+          requestRequiredCount: 2,
+          autoConnectedCount: 0,
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={requestConnection}
+      />,
+    );
+
+    expect(screen.queryByText("member@example.test")).toBeNull();
+    expect(screen.queryByText("98******10")).toBeNull();
+    const requests = screen.getAllByRole("button", { name: "Send a connection request to Hussh member" });
+    expect(requests).toHaveLength(2);
+    fireEvent.click(requests[1]!);
+    await waitFor(() => expect(requestConnection).toHaveBeenCalledWith("user_private_1"));
+    expect(await screen.findByText("Request sent")).toBeVisible();
+  });
+
   it("lists matched identities but keeps unmatched contacts aggregate-only", () => {
     render(
       <ContactSyncResultsSheet
@@ -326,7 +362,7 @@ describe("ContactSyncResultsSheet", () => {
       const proceed = screen.getByRole("link", {
         name: "Proceed to connections",
       });
-      expect(proceed).toHaveAttribute("href", "/one/connect?tab=all");
+      expect(proceed).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
       proceed.addEventListener("click", (event) => event.preventDefault(), {
         once: true,
       });
@@ -418,7 +454,7 @@ describe("ContactSyncResultsSheet", () => {
     );
     expect(
       screen.getByRole("link", { name: "Proceed to connections" }),
-    ).toHaveAttribute("href", "/one/connect?tab=all");
+    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
     expect(screen.queryByRole("button", { name: "Sync again" })).toBeNull();
 
     view.rerender(
@@ -441,7 +477,7 @@ describe("ContactSyncResultsSheet", () => {
     );
     expect(
       screen.getByRole("link", { name: "Proceed to connections" }),
-    ).toHaveAttribute("href", "/one/connect?tab=all");
+    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
     expect(
       screen.getByRole("button", { name: "Sync again" }),
     ).toBeInTheDocument();
@@ -464,7 +500,7 @@ describe("ContactSyncResultsSheet", () => {
     );
     expect(
       screen.getByRole("link", { name: "Proceed to connections" }),
-    ).toHaveAttribute("href", "/one/connect?tab=all");
+    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
     expect(
       screen.getByRole("button", { name: "Sync again" }),
     ).toBeInTheDocument();

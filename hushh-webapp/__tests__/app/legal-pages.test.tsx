@@ -157,8 +157,11 @@ describe("Privacy Policy and Terms of Use pages", () => {
   it("discloses the separate Azure/Bing research opt-in and Bing privacy boundary", () => {
     const privacy = LEGAL_DOCUMENTS.privacy;
     const text = plainText(privacy);
-    expect(privacy.version).toBe("2.7");
-    expect(privacy.lastUpdated).toBe("2026-10-19");
+    expect(privacy.version).toBe("2.10");
+    expect(privacy.lastUpdated).toBe("2026-10-21");
+    expect(text).toContain("Microsoft Azure AI is the server-managed primary processor");
+    expect(text).toContain("No model-settings toggle or personal pilot approval is required or created");
+    expect(text).toContain("Current file access, owner consent, payment requirements and sharing permissions still apply");
     expect(text).toContain("an earlier Google research setting does not authorize Microsoft research");
     expect(text).toContain("GPT-5-mini on Microsoft Azure AI receives your name");
     expect(text).toContain("GPT-5 mini also plans follow-up searches from received public profile labels and source URLs");
@@ -175,11 +178,11 @@ describe("Privacy Policy and Terms of Use pages", () => {
 
   it("discloses private Azure scope and revocation separately from public research", () => {
     const privacy = plainText(LEGAL_DOCUMENTS.privacy);
-    expect(privacy).toContain("Without current approval, the pilot cannot send these private text requests to Azure");
+    expect(privacy).toContain("No model-settings toggle or personal pilot approval is required or created");
     expect(privacy).toContain("relevant conversation history and memories");
-    expect(privacy).toContain("document-request purposes and relevant document text");
-    expect(privacy).toContain("Revocation blocks new private Azure text requests");
-    expect(privacy).toContain("This approval does not enable Bing search or Personal World Model research");
+    expect(privacy).toContain("request purposes and relevant document text");
+    expect(privacy).toContain("Current file access, owner consent, payment requirements and sharing permissions still apply");
+    expect(privacy).toContain("Native Google Search, public research, voice and your own-key settings have separate provider behavior");
   });
 
   it("does not promise automatic expiry for manually created backups", () => {

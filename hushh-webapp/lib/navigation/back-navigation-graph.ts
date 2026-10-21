@@ -182,6 +182,7 @@ export function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.CONNECTED_SYSTEMS]: "Connected Systems",
     [ROUTES.CONSENTS]: "Consent Center",
     [ROUTES.ONE_FEED]: "Feed",
+    [ROUTES.ONE_MESSAGES]: "Messages",
     [ROUTES.ONE_TODOS]: "To-do List",
     [ROUTES.ONE_KYC]: "KYC",
     [KAI_MARKET_PATH]: "Finance",
@@ -391,7 +392,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           align: "center",
           items: [
             { label: "Finance", href: ROUTES.KAI_HOME },
-            { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+            { label: "Stocks", href: ROUTES.KAI_ANALYSIS },
             { label: ticker ? `${ticker} analysis` : "Saved analysis" },
           ],
         };
@@ -403,7 +404,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           align: "center",
           items: [
             { label: "Finance", href: ROUTES.KAI_HOME },
-            { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+            { label: "Stocks", href: ROUTES.KAI_ANALYSIS },
             { label: ticker ? `${ticker} live` : "Active run" },
           ],
         };
@@ -415,7 +416,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           align: "center",
           items: [
             { label: "Finance", href: ROUTES.KAI_HOME },
-            { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+            { label: "Stocks", href: ROUTES.KAI_ANALYSIS },
             { label: `${ticker} preview` },
           ],
         };
@@ -427,7 +428,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           align: "center",
           items: [
             { label: "Finance", href: ROUTES.KAI_HOME },
-            { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+            { label: "Stocks", href: ROUTES.KAI_ANALYSIS },
             { label: "Debate" },
           ],
         };

@@ -198,6 +198,8 @@ def test_mail_capable_attendance_rejects_mismatched_firebase_and_vault_owners(
 def test_public_rescheduling_options_use_capability_without_owner_login_and_disable_caching(
     monkeypatch,
 ) -> None:
+    from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
+
     calls: list[dict[str, object]] = []
 
     class _Schedule:
@@ -206,6 +208,9 @@ def test_public_rescheduling_options_use_capability_without_owner_login_and_disa
             return {"openings": [], "time_zone": "UTC", "reply_to": "owner@example.com"}
 
     monkeypatch.setattr(calendar_workspace, "_schedule", lambda: _Schedule())
+    monkeypatch.setattr(
+        CalendarScheduleService, "_open", lambda token, purpose: {"account_id": "default"}
+    )
     response = TestClient(_app()).post(
         "/api/one/calendar/rescheduling/options", json={"token": "a" * 40}
     )

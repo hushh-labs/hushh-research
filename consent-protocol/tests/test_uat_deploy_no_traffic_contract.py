@@ -274,6 +274,86 @@ def test_backend_container_honors_governed_worker_count(tmp_path: Path) -> None:
     assert _container_worker_count(tmp_path, "1") == 1
 
 
+@pytest.mark.parametrize(
+    "failure",
+    ["", "missing_cpu", "missing_memory", "invalid_cpu", "invalid_memory", "lookup", "execute"],
+)
+def test_candidate_pkm_evaluator_inherits_exact_revision_resources(
+    tmp_path: Path, failure: str
+) -> None:
+    cloud = tmp_path / "gcloud"
+    calls_path = tmp_path / "calls.jsonl"
+    cloud.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "args = sys.argv[1:]\n"
+        "failure = os.environ['PROBE_FAILURE']\n"
+        "with open(os.environ['CLOUD_CALLS'], 'a') as log:\n"
+        "    log.write(json.dumps(args) + '\\n')\n"
+        "if args[:3] == ['run', 'revisions', 'describe']:\n"
+        "    assert args[3] == 'candidate-revision'\n"
+        "    if failure == 'lookup': sys.exit(1)\n"
+        "    projection = next(arg for arg in args if arg.startswith('--format='))\n"
+        "    values = {'--format=value(spec.containers[0].image)': 'image@sha256:123',\n"
+        "              '--format=value(spec.containers[0].resources.limits.cpu)': '2',\n"
+        "              '--format=value(spec.containers[0].resources.limits.memory)': '6Gi'}\n"
+        "    field = projection.split('.')[-1].removesuffix(')')\n"
+        "    print('' if failure == 'missing_' + field else 'invalid' if failure == 'invalid_' + field else values[projection])\n"
+        "elif args[:3] == ['run', 'services', 'describe']:\n"
+        "    print('runtime@example.test')\n"
+        "elif args[:3] == ['run', 'jobs', 'execute'] and failure == 'execute':\n"
+        "    sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    cloud.chmod(0o700)
+    result = subprocess.run(  # noqa: S603 - real wrapper, isolated synthetic gcloud
+        ["bash", str(REPO_ROOT / "scripts/ci/run-candidate-pkm-structure-agent-eval.sh")],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "CLOUD_CALLS": str(calls_path),
+            "PROBE_FAILURE": failure,
+            "GCP_PROJECT_ID": "test-project",
+            "GCP_REGION": "test-region",
+            "BACKEND_SERVICE": "backend",
+            "BACKEND_REVISION": "candidate-revision",
+            "GITHUB_RUN_ID": "123",
+            "GITHUB_RUN_ATTEMPT": "1",
+        },
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    calls = [json.loads(line) for line in calls_path.read_text().splitlines()]
+    creates = [call for call in calls if call[:3] == ["run", "jobs", "create"]]
+    executes = [call for call in calls if call[:3] == ["run", "jobs", "execute"]]
+    assert (result.returncode == 0) is (not failure), result.stderr
+    if failure not in ("", "execute"):
+        assert not creates and not executes, (
+            "Missing or invalid resources must fail before job creation"
+        )
+        return
+    assert len(creates) == len(executes) == 1
+    create = creates[0]
+    for flag, value in (
+        ("--cpu", "2"),
+        ("--memory", "6Gi"),
+        ("--image", "image@sha256:123"),
+        ("--tasks", "1"),
+        ("--parallelism", "1"),
+        ("--max-retries", "0"),
+        ("--task-timeout", "45m"),
+    ):
+        assert create[create.index(flag) + 1] == value
+    assert create[create.index("--args") + 1] == (
+        "scripts/eval_pkm_structure_agent.py,--phase,release_chain_24,--skip-shadow,--reps,3,"
+        "--enforce-gates,--fail-fast,--json-out,/tmp/pkm-structure-agent-eval.json"
+    )
+    assert not any("secret" in arg or "cloudsql" in arg for arg in create)
+    assert calls[-1][:4] == ["run", "jobs", "delete", "uat-pkm-eval-123-1"]
+
+
 def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict(
     tmp_path: Path,
 ) -> None:
@@ -311,10 +391,17 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         "#!/bin/bash\n"
         'printf "%s\\n" "$*" >> "$GCLOUD_CALLS_PATH"\n'
         'if [[ "$1 $2 $3" == "run jobs executions" ]]; then echo "azure-pwm-exec-1"; fi\n'
-        'if [[ "$1 $2" == "logging read" ]]; then printf \'[{"jsonPayload":{"azure_pwm_runtime_probe_result":"%s"}}]\\n\' "$PROBE_VERDICT"; fi\n',
+        'if [[ "$1 $2" == "logging read" ]]; then\n'
+        '  if [[ "$PROBE_DELAYED" == "true" && ! -f "$PROBE_FIRST_READ" ]]; then\n'
+        '    touch "$PROBE_FIRST_READ"; printf "%s\\n" "$PROBE_PARTIAL_LOGS"\n'
+        '  else printf "%s\\n" "$PROBE_LOGS"; fi\n'
+        "fi\n",
         encoding="utf-8",
     )
     fake_gcloud.chmod(0o755)
+    # Exercise the production bounded polling loop without real ingestion waits.
+    (fake_bin / "sleep").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (fake_bin / "sleep").chmod(0o755)
     digest = "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64
     base_env = {
         **os.environ,
@@ -330,13 +417,34 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
     runtime_identity = base_env["_RUNTIME_SERVICE_ACCOUNT"]
     cases = (
         ("ok", digest, runtime_identity, 0, True),
+        ("delayed", digest, runtime_identity, 0, True),
         ("failed", digest, runtime_identity, 1, True),
+        ("missing_http", digest, runtime_identity, 1, True),
+        ("missing_managed", digest, runtime_identity, 1, True),
+        ("wrong_scope", digest, runtime_identity, 1, True),
         ("ok", "gcr.io/hushh-pda-uat/consent-protocol:mutable", runtime_identity, 1, False),
         ("ok", digest, "other-runtime@hushh-pda-uat.iam.gserviceaccount.com", 1, False),
     )
     for verdict, image, service_account, expected_status, should_call_gcloud in cases:
         calls = tmp_path / "gcloud-calls.txt"
         calls.write_text("", encoding="utf-8")
+        first_read = tmp_path / "first-read"
+        first_read.unlink(missing_ok=True)
+        http = {
+            "azure_pwm_runtime_probe_stage": "primary_http",
+            "result": "ok",
+            "http_status": 200,
+            "deployment": "synthetic-primary",
+        }
+        records = [
+            http,
+            {"azure_managed_text_contract": "ok", "scopes": 1 if verdict == "wrong_scope" else 2},
+            {"azure_pwm_runtime_probe_result": "failed" if verdict == "failed" else "ok"},
+        ]
+        if verdict == "missing_http":
+            records.pop(0)
+        if verdict == "missing_managed":
+            records.pop(1)
         result = subprocess.run(  # noqa: S603 - production build script with a fake gcloud.
             ["bash", "-c", probe],
             cwd=tmp_path,
@@ -344,7 +452,10 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
                 **base_env,
                 "_IMAGE_REFERENCE": image,
                 "_RUNTIME_SERVICE_ACCOUNT": service_account,
-                "PROBE_VERDICT": verdict,
+                "PROBE_LOGS": json.dumps([{"jsonPayload": value} for value in records]),
+                "PROBE_PARTIAL_LOGS": json.dumps([{"jsonPayload": http}]),
+                "PROBE_DELAYED": "true" if verdict == "delayed" else "false",
+                "PROBE_FIRST_READ": str(first_read),
                 "GCLOUD_CALLS_PATH": str(calls),
             },
             capture_output=True,
@@ -361,6 +472,8 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
             assert "--clear-secrets" in invoked
             assert "run.googleapis.com/execution_name" in invoked
             assert "jsonPayload.azure_pwm_runtime_probe_result" in invoked
+            if verdict == "delayed":
+                assert invoked.count("logging read") >= 2
         else:
             assert not invoked
 
@@ -1202,6 +1315,7 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Pat
         "scripts/deploy/backend-drive-secret-settings.sh",
         "scripts/deploy/scope-commerce-secrets.sh",
         "deploy/email-auth/bind_secrets.sh",
+        "deploy/plg/bind_secrets.sh",
         "deploy/sso/bind_workos.sh",
     )
     (tmp_path / "runner/release-tools").mkdir(parents=True)

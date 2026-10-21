@@ -693,11 +693,25 @@ export class OneLocationService {
   static async listCircles(
     vaultOwnerToken: string,
   ): Promise<OneLocationCircleSummary[]> {
-    const response = await apiJson<{ circles: OneLocationCircleSummary[] }>(
+    return (await this.listCircleWorkspace(vaultOwnerToken)).circles;
+  }
+
+  static async listCircleWorkspace(vaultOwnerToken: string): Promise<{
+    circles: OneLocationCircleSummary[];
+    customTypePolicy?: { version: number; maxTypes: number };
+  }> {
+    const response = await apiJson<{ circles: OneLocationCircleSummary[]; customTypePolicy?: { version: number; maxTypes: number } }>(
       "/api/one/location/circles",
       { headers: authHeaders(vaultOwnerToken) },
     );
-    return response.circles ?? [];
+    return { ...response, circles: response.circles ?? [] };
+  }
+
+  static async deleteCircleType(params: { vaultOwnerToken: string; customTypeLabel: string }): Promise<{ updatedCircleCount: number }> {
+    return apiJson("/api/one/location/circle-types", {
+      method: "DELETE", headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({ customTypeLabel: params.customTypeLabel }),
+    });
   }
 
   static async getCircle(params: {
@@ -787,13 +801,14 @@ export class OneLocationService {
     vaultOwnerToken: string;
     name: string;
     kind: OneLocationCircleKind;
+    customTypeLabel?: string;
   }): Promise<OneLocationCircleDetail> {
     const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       "/api/one/location/circles",
       {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        body: JSON.stringify({ name: params.name, kind: params.kind }),
+        body: JSON.stringify({ name: params.name, kind: params.kind, ...(params.customTypeLabel ? { customTypeLabel: params.customTypeLabel } : {}) }),
       },
     );
     return normalizeCircleDetail(response.circle);
@@ -859,6 +874,7 @@ export class OneLocationService {
     circleId: string;
     name?: string;
     kind?: OneLocationCircleKind;
+    customTypeLabel?: string;
   }): Promise<OneLocationCircleDetail> {
     const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       `/api/one/location/circles/${encodeURIComponent(params.circleId)}`,
@@ -868,6 +884,7 @@ export class OneLocationService {
         body: JSON.stringify({
           ...(params.name ? { name: params.name } : {}),
           ...(params.kind ? { kind: params.kind } : {}),
+          ...(params.customTypeLabel ? { customTypeLabel: params.customTypeLabel } : {}),
         }),
       },
     );

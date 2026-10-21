@@ -36,6 +36,7 @@ from hushh_mcp.services.google_connection_service import (
     GoogleConnectionService,
     get_google_connection_service,
 )
+from hushh_mcp.services.product_value_receipts import capture_value_epoch, record_calendar_effect
 
 _CALENDAR_BASE = "https://www.googleapis.com/calendar/v3"
 logger = logging.getLogger(__name__)
@@ -1492,6 +1493,7 @@ class GoogleCalendarService:
                 "Calendar proposal expired, was already used, or needs a new review",
                 status_code=409,
             )
+        value_epoch = await capture_value_epoch(user_id)
         plan = proposal["plan"]
         try:
             binding = tuple(plan["connection_binding"]) if plan.get("connection_binding") else None
@@ -1608,6 +1610,9 @@ class GoogleCalendarService:
             await self.proposals.finish(user_id=user_id, proposal_id=proposal_id, executed=False)
             raise
 
+        await record_calendar_effect(
+            user_id=user_id, kind="proposal", source_id=proposal_id, generation=value_epoch
+        )
         # The executed transition is the Feed projection seam. Remove the
         # short-lived, content-bearing plan as before, but cleanup trouble
         # must not recast a successful Google mutation as a failed one.

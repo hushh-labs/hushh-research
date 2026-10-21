@@ -560,6 +560,54 @@ def owner_client(monkeypatch, jobs):
     return TestClient(app), routes
 
 
+def test_numeric_usage_is_owner_only_and_keeps_json_and_stream_bodies_compatible(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.routes.one.world_model_stream import _frame
+
+    usage = {
+        "model_calls": 2,
+        "recorded_calls": 2,
+        "input_tokens": 120,
+        "output_tokens": 35,
+        "cached_input_tokens": 20,
+        "provider_elapsed_ms": 1000,
+        "bing_requests": 1,
+    }
+    public = {
+        "status": "offered",
+        "pkm_written": False,
+        "research": {"provider": "azure_openai_web_search"},
+    }
+    internal = {**public, "_provider_usage": usage}
+    jobs = SimpleNamespace(
+        status=AsyncMock(return_value=internal),
+        start=AsyncMock(return_value=internal),
+        ensure=AsyncMock(return_value=internal),
+    )
+    client, routes = owner_client(monkeypatch, jobs)
+    for method, path in [("get", "jobs"), ("post", "jobs"), ("post", "ensure")]:
+        response = getattr(client, method)("/api/one/world-model/" + path)
+        assert response.status_code == 200
+        assert response.json() == public
+        assert json.loads(response.headers["x-hussh-pwm-usage"]) == usage
+        assert response.headers["cache-control"] == "private, no-store"
+    assert json.loads(_frame("result", internal)["data"]) == public
+    assert internal["_provider_usage"] == usage  # transport cannot mutate encrypted state
+    unauthenticated = FastAPI()
+    unauthenticated.include_router(routes.router)
+    denied = TestClient(unauthenticated).get("/api/one/world-model/jobs")
+    assert denied.status_code == 401
+    assert "x-hussh-pwm-usage" not in denied.headers
+    jobs.status.assert_awaited_once_with("owner", "fixture")
+    internal["_provider_usage"] = {**usage, "prompt": "SYNTHETIC_PRIVATE_TEXT"}
+    malformed = client.get("/api/one/world-model/jobs")
+    assert malformed.status_code == 503
+    assert "x-hussh-pwm-usage" not in malformed.headers
+    assert "SYNTHETIC_PRIVATE_TEXT" not in malformed.text
+
+
 def test_ensure_busy_or_unexpected_failure_is_a_retryable_503(monkeypatch):
     ensure = AsyncMock(side_effect=RuntimeError("Discovery capacity is temporarily busy"))
     client, _ = owner_client(monkeypatch, SimpleNamespace(ensure=ensure))
@@ -583,6 +631,18 @@ def test_owner_decisions_body_is_optional_bounded_and_forwarded(monkeypatch):
     assert ensure.await_args.kwargs == {"owner_decisions": decisions}
     assert client.post("/api/one/world-model/jobs", json=body).status_code == 202
     start.assert_awaited_once_with("owner", "fixture", inputs={"owner_decisions": decisions})
+    assert (
+        client.post("/api/one/world-model/jobs", json={**body, "refresh": True}).status_code == 202
+    )
+    assert start.await_args.kwargs == {
+        "inputs": {"owner_decisions": decisions},
+        "refresh_completed": True,
+    }
+    assert (
+        client.post("/api/one/world-model/ensure", json={**body, "refresh": True}).status_code
+        == 422
+    )
+    assert client.post("/api/one/world-model/jobs", json={"refresh": "true"}).status_code == 422
     for invalid in [
         {**body, "user_id": "other"},
         {"owner_decisions": {**decisions, "inferred": []}},
@@ -592,7 +652,57 @@ def test_owner_decisions_body_is_optional_bounded_and_forwarded(monkeypatch):
     ]:
         for path in ("ensure", "jobs"):
             assert client.post(f"/api/one/world-model/{path}", json=invalid).status_code == 422
-    assert ensure.await_count == 2 and start.await_count == 1
+    assert ensure.await_count == 2 and start.await_count == 2
+
+
+def test_public_profiles_require_explicit_permission_and_jobs_refresh(monkeypatch):
+    from hushh_mcp.services.world_model_service import PublicProfilesChanged
+
+    start = AsyncMock(return_value={"status": "pending", "pkm_written": False})
+    client, _ = owner_client(monkeypatch, SimpleNamespace(start=start))
+    profiles = {"urls": ["https://github.com/example"], "permitted_public_sources": True}
+    response = client.post(
+        "/api/one/world-model/jobs", json={"refresh": True, "public_profiles": profiles}
+    )
+    assert response.status_code == 202
+    start.assert_awaited_once_with(
+        "owner", "fixture", inputs={"public_profiles": profiles}, refresh_completed=True
+    )
+    assert (
+        client.post("/api/one/world-model/ensure", json={"public_profiles": profiles}).status_code
+        == 422
+    )
+    for bad in [False, "true", 1, None]:
+        assert (
+            client.post(
+                "/api/one/world-model/jobs",
+                json={
+                    "refresh": True,
+                    "public_profiles": {**profiles, "permitted_public_sources": bad},
+                },
+            ).status_code
+            == 422
+        )
+    for url in [
+        "http://example.test/me",
+        "https://127.0.0.1/me",
+        "https://user:secret@example.test/me",
+        "https://example.test/me?token=secret",
+        "https://example.internal/me",
+    ]:
+        assert (
+            client.post(
+                "/api/one/world-model/jobs",
+                json={"refresh": True, "public_profiles": {**profiles, "urls": [url]}},
+            ).status_code
+            == 422
+        )
+    assert start.await_count == 1
+    start.side_effect = PublicProfilesChanged("private diagnostic")
+    conflict = client.post(
+        "/api/one/world-model/jobs", json={"refresh": True, "public_profiles": profiles}
+    )
+    assert conflict.status_code == 409 and "private diagnostic" not in conflict.text
 
 
 @pytest.mark.parametrize(

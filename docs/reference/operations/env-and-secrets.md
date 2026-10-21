@@ -67,6 +67,64 @@ flowchart TB
 
 ## Parity rule: code ↔ .env ↔ Secret Manager
 
+### One PLG metadata pilot
+
+`one_plg_activity_enabled` in `BACKEND_RUNTIME_CONFIG_JSON` maps to
+`ONE_PLG_ACTIVITY_ENABLED` (default false). This separately controls the
+metadata-only all-agent observation pilot. Apply migration365 and verify its
+service-only RLS, account deletion guards, epoch/reset fencing and bounded
+retention before enabling. It uses the existing private export UID allowlist;
+it grants no messaging permission. Disabling it stops collection and hides
+retained observations from exports. The authenticated Drive work drain keeps
+expiry cleanup independent of collection flags. The snapshot v2 consumer and
+producer can release separately; v1 task export remains compatible.
+New browser/native operations refresh observation admission at most once per
+minute, including after rollout, source failures or resets on another device.
+Pending terminal reports retain their original admission promise. An already
+resolved epoch stays fixed; cold admission first processed after a remote reset
+belongs to the new observation window. Browser reports use server receipt time,
+not verified execution start time. Admission failures are best effort and there
+is no durable client retry queue.
+
+The deployment config writer defaults all four PLG flags to false and retains only
+explicit booleans from the existing config (JSON booleans or exact `true`/`false`
+strings). Retaining an enabled flag requires both the target and stored config
+to identify production project `hushh-pda`. Invalid values or cross-lane
+activation fail config generation. Production candidate releases retain these
+settings in their candidate config without updating the serving canonical
+config. Deploying this code does not activate the pilot.
+
+The follow-up audience flags `one_plg_audience_enabled` and
+`one_plg_activity_all_registered` map to `ONE_PLG_AUDIENCE_ENABLED` and
+`ONE_PLG_ACTIVITY_ALL_REGISTERED`. Both default false and use the same strict
+production/project retention guards. Expanded collection still requires
+`ONE_PLG_ACTIVITY_ENABLED` and canonical registered-contact evidence. The
+private audience reader requires migration366 and its own Secret Manager key
+`ONE_PLG_AUDIENCE_SECRET` in `hushh-pda`, matching dashboard
+`metrics-one-plg-audience-secret` in `hushh-ai-prod`. Never reuse the snapshot,
+sync, session, OTP or sender key. The optional deployment binding independently
+checks audience key version metadata; it does not require the legacy pilot pair.
+Empty/disabled containers remain unbound. Matrix binds this key only to its
+private PLG runtime, never the sync worker or browser. Provisioning code creates
+containers and scoped IAM only; values stay out of Terraform state. All these
+settings require a separately approved rollout, not a customer import or send.
+
+Production exporter `ONE_PLG_EXPORT_ENABLED` defaults false and maps from
+`one_plg_export_enabled` in `BACKEND_RUNTIME_CONFIG_JSON`.
+`ONE_PLG_EXPORT_SECRET` and `ONE_PLG_EXPORT_ACCOUNT_IDS` are optional dedicated
+Secret Manager bindings with the same names in `hushh-pda`. The UID allowlist is
+private (maximum 100 production customer UIDs); never put it in tracked config,
+logs or Terraform state. The source key must match dashboard
+`metrics-one-plg-source-secret` in `hushh-ai-prod`, transferred through secure
+process memory/stdin. Never reuse application, session, OTP or provider keys.
+Keep the flag off until separately approved releases of both reviewed PRs are
+verified. See [the API contract](../architecture/api-contracts.md#one-plg-pilot-task-evidence).
+The production binding helper checks only version metadata and binds the pair
+only when both `latest` versions are `ENABLED`. Missing, disabled or unreadable
+versions bind neither secret; empty provisioning containers cannot break an
+independent production release. Cloud Build passes the target project explicitly
+to the helper; its built-in substitutions are not assumed to be shell variables.
+
 - **Local:** `.env` (backend) and `.env.local` (frontend) must contain exactly the keys the application code reads. Use the repo `.env.example` files as the template; they are audited to match the code.
 - **Production:** GCP Secret Manager must hold **exactly** the secrets the code expects — no more, no less. The Cloud Build config (`deploy/*.cloudbuild.yaml`) injects only these; do not add secrets that are not read by the code, and do not remove any that are.
 - **Canonical runtime modes:** the supported frontend `local`, `uat`, `dev`, and `prod` files must share one frontend key shape. The backend contributor runtime stays local-only in `consent-protocol/.env`. The hosted `dev` environment is a UAT infrastructure replica that keeps the `uat` runtime identity; see [consent-protocol/docs/reference/dev-environment-setup.md](../../../consent-protocol/docs/reference/dev-environment-setup.md).

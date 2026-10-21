@@ -3,9 +3,12 @@
 // reader, the Legal and Connectors stack entries and the pane navigation
 // helpers are real; only routing, the vault gate and the heavy Profile
 // workspace are stood in for.
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { ProfileAppearancePreferences } from "@/components/profile/profile-appearance-preferences";
+import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
 import { useAccent, writeAccent } from "@/lib/theme/accent";
+import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
+import { parseDocumentRequestPrice } from "@/lib/consent/document-request-price";
 
 import { ProfileStackNavigator } from "@/components/profile/profile-stack-navigator";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -72,6 +75,7 @@ export function useVault() {
  */
 export function ProfilePage({ paneLocation }: { paneLocation?: ProfilePaneLocation }) {
   const accent = useAccent();
+  const [price, setPrice] = useState("");
   const search = useSearchParams();
   const location = paneLocation ?? { panel: null, detail: null };
   const updateView = (
@@ -92,8 +96,15 @@ export function ProfilePage({ paneLocation }: { paneLocation?: ProfilePaneLocati
     entries.push(buildProfileConnectorsStackEntry({ detail: location.detail, updateView }));
   } else if (location.panel === "account") {
     entries.push({ key: "panel:account", title: "Account", content: <SettingsGroup title="Account"><SettingsRow title="Signed-in account" /></SettingsGroup> });
+  } else if (location.panel === "request-pricing") {
+    entries.push({ key: "panel:request-pricing", title: "Request pricing", content:
+      <DocumentRequestPricingCard model={{ available: true, saved: { enabled: false, amountCents: 1000, version: 1 },
+        dollars: price, loading: false, saving: false, error: null, notice: null,
+        amountCents: parseDocumentRequestPrice(price), dirty: Boolean(price), save: async () => {}, change: setPrice, retry: () => {} }} /> });
   } else if (location.panel === "preferences") {
     entries.push({ key: "panel:preferences", title: "Preferences", content:
+      search.get("renderer") === "controls" ?
+      <ProfileAppearanceControls value={accent} nativeContext={{ owner: null, context: "synthetic-preferences", eligible: false }} /> :
       <ProfileAppearancePreferences accent={accent} onAccentChange={writeAccent}
         onGeminiClick={() => updateView({ panel: "preferences", detail: "gemini" })}
         onVoiceClick={() => updateView({ panel: "preferences", detail: "voice" })} /> });

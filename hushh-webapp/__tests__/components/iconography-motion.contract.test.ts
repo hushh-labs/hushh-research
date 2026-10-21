@@ -273,8 +273,8 @@ describe("application icon and motion contracts", () => {
     );
     expect(offenders).toEqual([]);
 
-    // Native details reuse the same row concepts as web; selecting a legacy
-    // hand-drawn glyph just because the row is in a pane was the regression.
+    // Profile artwork is selected once by the shared registry, not separately
+    // by pane/native callers. The registry retains the approved glyph sources.
     const legacyPaneIcons = /from\s+["'][^"']*profile-(?:inner|secondary|pane|your-account)-icons["']/;
     for (const surface of ["profile-workspace-page", "profile-legal-section", "referrals-panel", "trusted-devices-page", "pkm-data-manager"]) {
       const source = readFileSync(join(process.cwd(), `components/profile/${surface}.tsx`), "utf8");

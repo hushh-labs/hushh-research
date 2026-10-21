@@ -99,6 +99,8 @@ WITH keyed AS (
     (c.participant_a_user_id = m.sender_user_id AND c.participant_b_user_id = :user_id)
     OR (c.participant_b_user_id = m.sender_user_id AND c.participant_a_user_id = :user_id))
   WHERE f.user_id = :user_id
+    AND NOT (f.source_domain = 'connections' AND f.event_type = 'direct_message_received'
+      AND (m.deleted_for_recipient_at IS NOT NULL OR m.deleted_for_everyone_at IS NOT NULL))
     AND NOT (f.source_domain = 'pwm' AND f.event_type = 'pwm_research'
       AND COALESCE(f.metadata->>'pwm_outcome', '') NOT IN ('ready', 'partial'))
 ), bounded AS (
@@ -186,6 +188,11 @@ _WALLET_GROUPED_FEED_CTE = _GROUPED_FEED_CTE.replace(
     "  WHERE f.user_id = :user_id",
 )
 _COUNTERPART_PHOTO_KEY = "counterpart_photo_url"
+_DRIVE_DELIVERY_COUNT_FIELDS = (
+    "current_delivery_total_count",
+    "current_delivery_confirmed_count",
+    "current_delivery_pending_count",
+)
 _LOCATION_GRANT_EVENT_TYPES = frozenset(
     {
         "location_share_created",
@@ -246,6 +253,7 @@ _SAFE_METADATA_KEYS = frozenset(
         # order and request remain authoritative; this bounded projection
         # prevents an old Pay row from surviving payment or expiry.
         "current_request_status",
+        *_DRIVE_DELIVERY_COUNT_FIELDS,
         "current_payment_status",
         "current_checkout_expired",
         "current_request_expired",
@@ -481,6 +489,29 @@ class FeedService:
         """
         bounded_limit = max(1, min(limit, _MAX_LIMIT))
         db = self._get_db()
+        # Read before the page: a concurrent deletion may conservatively label
+        # newer rows with an older revision, never stale rows with a newer one.
+        revision_rows = (
+            db.execute_raw(
+                """SELECT md5(concat_ws(':',
+                count(*) FILTER (WHERE m.deleted_for_recipient_at IS NOT NULL),
+                max(m.deleted_for_recipient_at),
+                count(*) FILTER (WHERE m.deleted_for_everyone_at IS NOT NULL),
+                max(m.deleted_for_everyone_at))) AS history_revision
+            FROM feed_events f
+            JOIN messages m ON m.id = CASE WHEN f.source_row_id ~*
+              '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+              THEN f.source_row_id::uuid ELSE NULL END
+            JOIN conversations c ON c.id = m.conversation_id
+            WHERE f.user_id = :user_id AND f.source_domain = 'connections'
+              AND f.event_type = 'direct_message_received'
+              AND m.sender_user_id <> :user_id
+              AND :user_id IN (c.participant_a_user_id, c.participant_b_user_id)
+            """,
+                {"user_id": user_id},
+            ).data
+            or []
+        )
         rows = (
             db.execute_raw(
                 self._grouped_feed_sql(count=False),
@@ -500,6 +531,7 @@ class FeedService:
             "items": [self._to_item(row, user_id) for row in rows],
             "next_cursor": next_cursor,
             "unread_count": self.unread_count(user_id),
+            "history_revision": revision_rows[0]["history_revision"] if revision_rows else None,
         }
 
     def _with_drive_payment_status(
@@ -535,6 +567,9 @@ class FeedService:
                     """
                     SELECT r.request_id::TEXT AS request_id,
                            r.status AS current_request_status,
+                           delivery.total AS current_delivery_total_count,
+                           delivery.available AS current_delivery_confirmed_count,
+                           delivery.pending AS current_delivery_pending_count,
                            r.expires_at AS current_request_expires_at,
                            (r.expires_at <= clock_timestamp()) AS current_request_expired,
                            (r.access_stop_requested_at IS NOT NULL) AS current_access_stopped,
@@ -565,6 +600,9 @@ class FeedService:
                              AS current_refund_amount_cents,
                            o.amount_cents AS current_payment_amount_cents,
                            r.payment_required AS view_payment_required,
+                           (r.existing_access_waived_at IS NOT NULL AND NOT r.payment_required
+                            AND r.status='completed' AND COALESCE(o.status,'expired') NOT IN ('paid','refunded'))
+                            AS current_existing_access_nocharge,
                            r.preparation_error_code AS view_preparation_error_code,
                            r.quoted_amount_cents AS view_quoted_amount_cents,
                            o.reconciliation_reason AS view_reconciliation_reason,
@@ -579,6 +617,19 @@ class FeedService:
                     LEFT JOIN stripe_owner_payout_accounts a
                       ON a.user_id=r.user_id AND r.payment_required AND a.stripe_mode=:stripe_mode
                     LEFT JOIN drive_request_payment_refunds f ON f.request_id=r.request_id
+                    LEFT JOIN LATERAL (
+                      SELECT count(*) AS total,
+                        count(*) FILTER (WHERE e.state IN ('succeeded','preexisting')) AS available,
+                        count(*) FILTER (WHERE e.state IN ('queued','dispatching','unknown')) AS pending
+                      FROM drive_bulk_shares b
+                      JOIN drive_bulk_share_effects e ON e.share_id=b.share_id AND e.user_id=b.user_id
+                      JOIN drive_bulk_share_files selected ON selected.share_id=e.share_id
+                        AND selected.user_id=e.user_id AND selected.position=e.position
+                      WHERE r.status='partial' AND b.origin_request_id=r.request_id
+                        AND b.user_id=r.user_id AND b.approved_at IS NOT NULL
+                        AND e.recipient_user_id=r.recipient_user_id
+                        AND (b.progressive_batch=FALSE OR selected.origin_request_id=r.request_id)
+                    ) delivery ON TRUE
                     WHERE r.recipient_user_id=:user_id OR r.user_id=:user_id
                     """,
                     {
@@ -605,7 +656,24 @@ class FeedService:
                 result.append(row)
                 continue
             current = by_request.get(str(metadata.get("request_id") or ""), {})
+            # These fields are live receipt projections, never snapshot claims.
+            metadata = {
+                key: value
+                for key, value in metadata.items()
+                if key not in _DRIVE_DELIVERY_COUNT_FIELDS
+            }
             projection: dict[str, Any] = {}
+            metadata.pop("current_existing_access_nocharge", None)
+            if (
+                row.get("event_type") == "document_share_outcome"
+                and current.get("current_request_status") == "partial"
+            ):
+                # Historical outcome rows use current participant-scoped receipts,
+                # not payment state or the ambiguous request-level partial flag.
+                for field in _DRIVE_DELIVERY_COUNT_FIELDS:
+                    count = current.get(field)
+                    if type(count) is int and count >= 0:
+                        projection[field] = count
             if row.get("event_type") == "document_share_payment_ready":
                 # Fail closed in presentation: a missing read cannot authorize
                 # an old Pay instruction. The action rechecks the live order.
@@ -660,7 +728,16 @@ class FeedService:
                 "document_share_payment_confirmed",
             }:
                 projection.update(self._requester_payment_projection(row["event_type"], current))
-            result.append({**row, "metadata": {**metadata, **projection}})
+            result.append(
+                {
+                    **row,
+                    "metadata": {**metadata, **projection},
+                    "_drive_existing_access_nocharge": current.get(
+                        "current_existing_access_nocharge"
+                    )
+                    is True,
+                }
+            )
         return result
 
     @staticmethod
@@ -1069,13 +1146,15 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
                      AND feed.source_row_id = message.id::TEXT
                     LEFT JOIN public.actor_identity_cache AS identity
                       ON identity.user_id = message.sender_user_id
-                    WHERE (
+                    WHERE message.deleted_for_recipient_at IS NULL
+                      AND message.deleted_for_everyone_at IS NULL
+                      AND ((
                       conversation.participant_a_user_id = message.sender_user_id
                       AND conversation.participant_b_user_id = :viewer_user_id
                     ) OR (
                       conversation.participant_b_user_id = message.sender_user_id
                       AND conversation.participant_a_user_id = :viewer_user_id
-                    )
+                    ))
                     """,
                     {
                         "viewer_user_id": user_id,
@@ -1505,6 +1584,9 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
     @staticmethod
     def _to_item(row: dict[str, Any], viewer_user_id: str | None = None) -> dict[str, Any]:
         metadata = _safe_feed_metadata(row.get("metadata"))
+        # A participant-scoped live receipt, never a persisted metadata claim.
+        if row.get("_drive_existing_access_nocharge") is True:
+            metadata["current_existing_access_nocharge"] = True
         metadata.pop("wallet_card_grant_id", None)
         metadata.pop("wallet_card_request_id", None)
         metadata.pop("wallet_card_request_status", None)

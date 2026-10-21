@@ -291,6 +291,58 @@ async def _probe_primary(config: dict[str, str], supplier: Callable[[], str]) ->
     )
 
 
+async def _probe_managed_text() -> None:
+    """Exercise the actual shared primary contract with synthetic text only."""
+    from google.adk.models.llm_request import LlmRequest
+    from google.genai import types
+
+    from hushh_mcp.runtime_providers.managed_text import build_managed_text_model
+
+    class NoFallback:
+        model = "probe_must_use_azure"
+
+        async def generate_content_async(self, request, stream=False):
+            raise RuntimeError("Readiness must succeed on Azure primary")
+            yield
+
+    async def synthetic_authority():
+        # Probe-owned synthetic input; no owner, document or connector information.
+        return None
+
+    for scope in ("one_text_chat", "drive_document_requests"):
+        model = build_managed_text_model(scope=scope, require_current=synthetic_authority)
+        model.fallback_model = NoFallback()
+        request = LlmRequest(
+            model=model.model,
+            contents=[
+                types.Content(
+                    role="user", parts=[types.Part(text='Return exactly {"ready":true}.')]
+                )
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema={
+                    "type": "object",
+                    "properties": {"ready": {"type": "boolean"}},
+                    "required": ["ready"],
+                    "additionalProperties": False,
+                },
+                max_output_tokens=256,
+                thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW),
+            ),
+        )
+        results = [item async for item in model.generate_content_async(request)]
+        answer = "".join(
+            part.text or ""
+            for item in results
+            for part in (item.content.parts if item.content else [])
+            if not part.thought
+        )
+        if json.loads(answer) != {"ready": True}:
+            raise RuntimeError("Managed UAT text structured response failed")
+    print(json.dumps({"azure_managed_text_contract": "ok", "scopes": 2}), flush=True)
+
+
 async def probe() -> None:
     if os.environ.get("ENVIRONMENT") != "uat":
         raise RuntimeError("Azure PWM runtime probe is UAT-only")
@@ -329,6 +381,7 @@ async def probe() -> None:
     _stage("primary", "start", started_at=started_at)
     await _probe_primary(config, lambda: token)
     _stage("primary", "ok", started_at=started_at)
+    await _probe_managed_text()
 
 
 def main() -> int:

@@ -53,7 +53,7 @@ describe("projectFeedDriveProgress", () => {
     } })]);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.title).toBe("One is finding documents");
+    expect(rows[0]?.title).toBe("Finding documents");
     expect(rows[0]?.href).toContain("requestId=document_share_request");
     expect(rows[0]?.href).not.toContain("requestView=sent");
     expect(JSON.stringify(rows)).not.toMatch(/unconfirmed\.pdf|candidate_count|7 files/i);
@@ -95,9 +95,9 @@ describe("projectFeedDriveProgress", () => {
         automatic_queued_at: "2026-10-17T02:32:50Z" },
     })])[0];
     expect(delayed("outgoing")).toMatchObject({ title: "Taking longer than usual",
-      description: "Your request is saved and continues automatically.", waiting: true });
+      description: "Saved · continues automatically", waiting: true });
     expect(delayed("incoming")).toMatchObject({ title: "Taking longer than usual",
-      description: "This request is saved and continues automatically.", waiting: true });
+      description: "Saved · continues automatically", waiting: true });
     expect(JSON.stringify([delayed("incoming"), delayed("outgoing")])).not.toMatch(/paused/i);
     // Started work that no worker moves keeps its legacy stage but no working copy.
     const [stalled] = projectFeedDriveProgress([entry({ metadata: { ...entry().metadata,
@@ -112,10 +112,10 @@ describe("projectFeedDriveProgress", () => {
     const row = (metadata: Record<string, unknown>) =>
       projectFeedDriveProgress([entry({ metadata: { ...entry().metadata, ...metadata } })])[0];
     expect(row({ automatic_progress_state: "searching" })).toMatchObject({
-      title: "One is finding documents" });
+      title: "Finding documents" });
     expect(row({ automatic_progress_state: "searching" })?.waiting).toBeUndefined();
     expect(row({ automatic_progress_stage: "sharing", automatic_progress_state: "sharing" })?.title)
-      .toBe("One is sharing documents");
+      .toBe("Sharing documents");
     // No state field (older server): its "preparing" never meant work had started.
     expect(row({ automatic_progress_stage: "preparing" })).toMatchObject({
       title: "Waiting to start", waiting: true, queuedAt: null });
@@ -129,7 +129,7 @@ describe("projectFeedDriveProgress", () => {
           automatic_progress_stage: "checking" },
       })]);
       expect(rows).toHaveLength(1);
-      expect(rows[0]?.title).toBe("One is checking documents");
+      expect(rows[0]?.title).toBe("Checking documents");
       expect(rows[0]?.description).toBe("One is checking the documents for this request.");
       expect(rows[0]?.description).not.toMatch(/owner.*review|sharing|Trusted Circle/i);
       if (direction === "outgoing") expect(rows[0]?.href).toContain("requestView=sent");
@@ -145,7 +145,7 @@ describe("projectFeedDriveProgress", () => {
     })]);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ title: "Documents unavailable",
-      description: "One couldn't verify the documents for this request." });
+      description: "Couldn't verify documents" });
     expect(rows[0]?.href).toContain("requestView=sent");
   });
 
@@ -175,7 +175,7 @@ describe("projectFeedDriveProgress", () => {
     const rows = projectFeedDriveProgress([pending, active]);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.title).toBe("One is sharing documents");
+    expect(rows[0]?.title).toBe("Sharing documents");
     expect(rows[0]?.href).toContain("tab=active");
   });
 
@@ -567,7 +567,7 @@ describe("the requester's price line on sent requests", () => {
     [{ quotedAmountCents: 2500, owner_allowed: true }, "Price $25"],
   ])("reads %j as %s", (metadata, line) => {
     const [row] = projectFeedDriveProgress([sent(metadata)]);
-    expect(row?.description).toBe(`${line} · Waiting for the owner to review your request.`);
+    expect(row?.description).toBe(`${line} · Awaiting review`);
     expect(row?.description).not.toMatch(/lock/i);
   });
 });

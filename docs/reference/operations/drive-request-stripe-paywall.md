@@ -37,6 +37,32 @@ sequenceDiagram
 ```
 
 
+## Already-accessible automatic requests
+
+When the final automatic search has at most 120 discovered matches, the private
+agent freezes the full selection in bounded batches and checks current Drive
+access. If every file is already accessible, it completes this request for free,
+publishes the original links in the current request and Feed, and records
+unmanaged `preexisting` receipts. The requester sees **Files ready · Already had
+access · No charge**; the owner sees **Files delivered · No payment due**.
+Mixed or unknown access retains the normal single request price. A running
+search cannot treat its first batch as the entire purchase set.
+
+Open or expired bound checkouts are retired through Stripe and compared again
+under payment locks. Paid, unknown, allocated-but-unbound or stale outcomes keep
+the request pending for reconciliation. No session identifier is removed.
+Migration 368 preserves the locked quote and records an opaque durable waiver
+on the payment obligation, so a late signed payment is fully refunded exactly
+once even after request erasure. No payout is earned for free delivery. This
+uses the existing Postgres money authority and workers; no process-local or
+Redis mirror is introduced. Pending completed searches are admitted by the
+bounded scheduled drain, with fresh consent and source checks, so interrupted
+requests recover without replaying completed history.
+
+Rollback: migration 368 has a down path for an unused deployment. Once waiver
+receipts exist it refuses destructive rollback; retain the additive columns and
+roll forward so late-payment refund authority cannot disappear.
+
 ## V1 live document requests
 
 New eligible live requests carry a creation-time `v1_live_request` marker.
@@ -136,6 +162,13 @@ New request planning runs concurrently with already queued searches, so a slow
 planner does not consume their worker slice before Google receives a query.
 The existing authority checks, durable checkpoints and retry backoff remain in
 the critical path.
+
+The search worker resolves request authority inside the claimed job's failure
+boundary, including short slices waiting for content assessment. Declined or
+cancelled requests release their active search slot without another provider
+call; saved results remain available for audit. A temporary context lookup
+failure retains the job for retry. This prevents a closed request from parking
+the same owner's later searches and their Checkout preparation.
 
 The Documents agent expresses an explicit file count as `result_limit` (1–1,000)
 with recent ordering. A date count such as “last three days” is not a file limit.

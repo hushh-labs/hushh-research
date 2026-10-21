@@ -221,8 +221,8 @@ function Fixture() {
   const historySelections = useRef<string[]>([]);
   const newChatRequests = useRef(0);
   Object.assign(window, {
-    __seedChatHistory: () => setHistoryRows([
-      { id: "history-one", title: "Weekly planning", status: "active", message_count: 2, updated_at: new Date().toISOString() },
+    __seedChatHistory: (title = "Weekly planning") => setHistoryRows([
+      { id: "history-one", title, status: "active", message_count: 2, updated_at: new Date().toISOString() },
       { id: "history-two", title: "Draft email", status: "active", message_count: 1, updated_at: new Date().toISOString() },
     ]),
     __chatHistorySelections: historySelections.current,

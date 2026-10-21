@@ -1,5 +1,6 @@
 """Owner-scoped PWM preparation; default-on after setup, with a persistent opt-out."""
 
+import json
 from typing import Literal
 from uuid import UUID
 
@@ -15,7 +16,9 @@ from api.routes.one.profile_research import (
     PrivateProfileRoute,
 )
 from hushh_mcp.managed_ai_config import load_pwm_policy
+from hushh_mcp.one_adk.public_sources import OwnerPublicProfiles
 from hushh_mcp.one_adk.world_model import OwnerDecisions
+from hushh_mcp.one_adk.world_model_usage import public_result
 from hushh_mcp.services import world_model_invitations as invitations
 from hushh_mcp.services import world_model_preferences as preferences
 from hushh_mcp.services import world_model_source_review as source_reviews
@@ -24,7 +27,7 @@ from hushh_mcp.services.magic_intelligence_completion import (
     complete_magic_intelligence,
 )
 from hushh_mcp.services.owner_placement_guard import hub_content_chat_owner
-from hushh_mcp.services.world_model_service import world_model_jobs
+from hushh_mcp.services.world_model_service import PublicProfilesChanged, world_model_jobs
 
 router = APIRouter(
     prefix="/api/one/world-model", tags=["Personal World Model"], route_class=PrivateProfileRoute
@@ -44,24 +47,47 @@ class PreparationInput(BaseModel):
     owner_decisions: OwnerDecisions | None = None
 
 
+class RefreshPreparationInput(PreparationInput):
+    """Explicit owner refresh; automatic ensure retains its reuse contract."""
+
+    refresh: bool = Field(default=False, strict=True)
+    public_profiles: OwnerPublicProfiles | None = None
+
+
 def decisions(body: PreparationInput | None):
     return body.owner_decisions.model_dump() if body and body.owner_decisions else None
 
 
-async def operation(token, start, owner_decisions=None):
+def research_response(result, status_code):
+    payload, usage = public_result(result)
+    headers = {"X-Hussh-PWM-Usage": json.dumps(usage, separators=(",", ":"))} if usage else None
+    return JSONResponse(payload, status_code=status_code, headers=headers)
+
+
+async def operation(token, start, owner_decisions=None, refresh=False, public_profiles=None):
     try:
-        if owner_decisions is not None:
-            inputs = {"owner_decisions": owner_decisions}
-            result = await world_model_jobs.start(*owner(token), inputs=inputs)
-        else:
-            result = await (world_model_jobs.start if start else world_model_jobs.status)(
-                *owner(token)
+        if start:
+            kwargs = (
+                {"inputs": {"owner_decisions": owner_decisions}}
+                if owner_decisions is not None
+                else {}
             )
-        return JSONResponse(result, status_code=202 if result["status"] == "pending" else 200)
+            if refresh:
+                kwargs["refresh_completed"] = True
+            if public_profiles is not None:
+                kwargs.setdefault("inputs", {})["public_profiles"] = public_profiles
+            result = await world_model_jobs.start(*owner(token), **kwargs)
+        else:
+            result = await world_model_jobs.status(*owner(token))
+        return research_response(result, status_code=202 if result["status"] == "pending" else 200)
     except PermissionError:
         raise HTTPException(403, "Unlock your vault to continue.") from None
     except HTTPException:
         raise
+    except PublicProfilesChanged:
+        raise HTTPException(
+            409, "Wait for current research, then explicitly research these profiles."
+        ) from None
     except Exception:
         raise HTTPException(
             503, "Research is temporarily unavailable.", headers={"Retry-After": "5"}
@@ -72,10 +98,18 @@ async def operation(token, start, owner_decisions=None):
 @limiter.limit("20/hour")
 async def start(
     request: Request,
-    body: PreparationInput | None = None,
+    body: RefreshPreparationInput | None = None,
     token: dict = Depends(hub_content_chat_owner),
 ):
-    return await operation(token, True, decisions(body))
+    return await operation(
+        token,
+        True,
+        decisions(body),
+        refresh=bool(body and body.refresh),
+        public_profiles=body.public_profiles.model_dump()
+        if body and body.public_profiles
+        else None,
+    )
 
 
 @router.get("/jobs")
@@ -140,7 +174,7 @@ async def ensure(
 ):
     try:
         result = await world_model_jobs.ensure(*owner(token), owner_decisions=decisions(body))
-        return JSONResponse(
+        return research_response(
             result, status_code=202 if result["status"] in {"pending", "paused"} else 200
         )
     except HTTPException:

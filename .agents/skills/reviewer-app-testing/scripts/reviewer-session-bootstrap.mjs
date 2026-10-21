@@ -1,8 +1,29 @@
 import { installOperatorReviewerTokenBinding } from "./reviewer-operator-token-binding.mjs";
+/** Runs on each document; logout landing must not silently authenticate again. */
+export function installReviewerBridge({ expectedUserId, vaultPassphrase, reviewerSessionPassphrase,
+  reviewerMutationPolicy, reviewerAuthMode, explicitLoginOnly, appOrigin }) {
+  const loginEntry = !explicitLoginOnly || (window.top === window &&
+    location.origin === appOrigin && location.pathname === "/login");
+  const bridge = { ...(window.__HUSHH_NATIVE_TEST__ || {}), enabled: true,
+    autoReviewerLogin: loginEntry, expectedUserId, reviewerMutationPolicy, reviewerAuthMode };
+  delete bridge.vaultPassphrase;
+  delete bridge.reviewerSessionPassphrase;
+  if (reviewerAuthMode === "operator_issued_token") {
+    bridge.requestOperatorReviewerToken = expected => window.__hushhIssueOperatorReviewerToken(expected);
+  } else {
+    delete bridge.requestOperatorReviewerToken;
+  }
+  if (loginEntry && !["human_authenticated", "operator_issued_token"].includes(reviewerAuthMode)) {
+    bridge.reviewerSessionPassphrase = reviewerSessionPassphrase;
+    if (vaultPassphrase) bridge.vaultPassphrase = vaultPassphrase;
+  }
+  window.__HUSHH_NATIVE_TEST__ = bridge;
+}
+
 /** Memory-only admission inside the canonical reviewer-session harness. */
 export function createReviewerBootstrap({ reviewerUid, reviewerPassphrase,
   reviewerAuthMode, allowMemoryPreparation, admitMutation, deferLegalAcceptance, timeoutMs,
-  appOrigin, reviewerTokenProvider }) {
+  appOrigin, reviewerTokenProvider, explicitLoginOnly = false }) {
   const operatorIssued = reviewerAuthMode === "operator_issued_token";
   async function installBridge(page, { includePassphrase = true } = {}) {
     if (operatorIssued) await installOperatorReviewerTokenBinding(page, {
@@ -14,35 +35,15 @@ export function createReviewerBootstrap({ reviewerUid, reviewerPassphrase,
         ? "preparation_only"
         : "read_only";
     await page.addInitScript(
-      ({
-        expectedUserId,
-        vaultPassphrase,
-        reviewerSessionPassphrase,
-        reviewerMutationPolicy,
-        reviewerAuthMode,
-      }) => {
-        window.__HUSHH_NATIVE_TEST__ = {
-          ...(window.__HUSHH_NATIVE_TEST__ || {}),
-          enabled: true,
-          autoReviewerLogin: true,
-          expectedUserId,
-          reviewerMutationPolicy,
-          reviewerAuthMode,
-          ...(reviewerAuthMode === "operator_issued_token" ? {
-            requestOperatorReviewerToken: expected => window.__hushhIssueOperatorReviewerToken(expected),
-          } : {}),
-          // The backend review-session mint requires the reviewer passphrase
-          // even when this context must not auto-unlock the vault.
-          ...(["human_authenticated", "operator_issued_token"].includes(reviewerAuthMode) ? {} : { reviewerSessionPassphrase }),
-          ...(!["human_authenticated", "operator_issued_token"].includes(reviewerAuthMode) && vaultPassphrase ? { vaultPassphrase } : {}),
-        };
-      },
+      installReviewerBridge,
       {
         expectedUserId: reviewerUid,
         vaultPassphrase: !operatorIssued && includePassphrase ? reviewerPassphrase : "",
         reviewerSessionPassphrase: operatorIssued ? "" : reviewerPassphrase,
         reviewerMutationPolicy,
         reviewerAuthMode,
+        explicitLoginOnly,
+        appOrigin,
       }
     );
   }
@@ -98,7 +99,8 @@ export function createReviewerBootstrap({ reviewerUid, reviewerPassphrase,
         throw error;
       }
 
-      if (!humanAuthenticated && !reviewerLoginSubmitted && await reviewerButton.isVisible().catch(() => false)) {
+      if (!humanAuthenticated && !reviewerLoginSubmitted && await reviewerButton.isVisible().catch(() => false) &&
+          await reviewerButton.isEnabled().catch(() => false)) {
         reviewerLoginSubmitted = await page.evaluate(() => {
           const trigger = window.__HUSHH_NATIVE_TEST__?.triggerReviewerLogin;
           if (typeof trigger !== "function") return false;

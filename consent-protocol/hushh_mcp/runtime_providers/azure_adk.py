@@ -26,6 +26,11 @@ from .azure_response_history import (
     restore_reasoning,
 )
 
+
+class AzureAuthenticationError(RuntimeError):
+    """Workload authentication failed before model I/O; not a model outage."""
+
+
 _MAX_ARGUMENT_BYTES = 256 * 1024
 
 
@@ -433,9 +438,13 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
             if kwargs.get("tool_choice") != "none"
             else set()
         )
-        token = await asyncio.to_thread(self.token_supplier)
+        try:
+            async with asyncio.timeout(5):
+                token = await asyncio.to_thread(self.token_supplier)
+        except Exception:
+            raise AzureAuthenticationError("Azure workload authentication failed") from None
         if not isinstance(token, str) or not token:
-            raise RuntimeError("Azure managed model token is unavailable")
+            raise AzureAuthenticationError("Azure managed model token is unavailable")
         from openai import AsyncOpenAI
 
         factory = self.client_factory or AsyncOpenAI

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Loader2, UsersRound } from "@/components/icons";
 
-import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ContactAvatar } from "@/components/one-location/redesign/contact-picker/atoms";
 import { ContactListControls } from "@/components/one-location/redesign/contact-picker/list-controls";
 import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
@@ -323,13 +322,13 @@ export function CircleMemberPicker({
                         label={row.label}
                         photoUrl={row.photoUrl}
                         verified={row.isRia}
+                        fromContacts={row.fromContacts}
                       />
                       <span className="min-w-0 flex-1">
                         <span className="flex min-w-0 items-start gap-1.5">
                           <span className="min-w-0 truncate text-[17px] font-normal leading-[22px] text-foreground">
                             {row.label}
                           </span>
-                          {row.fromContacts ? <ContactSourceBadge /> : null}
                         </span>
                         {row.blockedReason ? (
                           <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">

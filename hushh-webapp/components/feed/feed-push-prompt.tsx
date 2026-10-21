@@ -62,7 +62,7 @@ export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat"
       data-testid="feed-push-prompt"
       className="mb-3 flex w-full items-center justify-between gap-3 rounded-[16px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3"
     >
-      <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+      <p data-profile-role="description" className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
         {quietNative ? "Device alerts or sounds are off. Enable them in notification settings to hear alerts."
           : permission === "denied"
           ? Capacitor.isNativePlatform() ? "Allow notifications in device settings to get message alerts." : "Notifications are blocked for One in this browser. Allow them in site settings to get alerts."
@@ -73,6 +73,7 @@ export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat"
       </p>
       {permission === "default" || permission === "granted" || (permission === "denied" && Capacitor.isNativePlatform()) ? (
         <Button
+          data-profile-role="action"
           type="button"
           data-voice-control-id={context === "location" ? "one-location-notification-recovery" : undefined}
           variant="none"

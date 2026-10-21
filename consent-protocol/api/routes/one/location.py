@@ -50,6 +50,7 @@ from hushh_mcp.services.one_location_agent_service import (
     requires_recipient_phone_verification,
 )
 from hushh_mcp.services.one_location_circle_service import (
+    CIRCLE_MAX_CUSTOM_TYPES,
     OneLocationCircleError,
     OneLocationCircleService,
 )
@@ -343,6 +344,7 @@ class ClaimCircleInviteRequest(_CamelModel):
 class CreateNamedCircleRequest(_CamelModel):
     name: str = Field(min_length=1, max_length=80)
     kind: str = Field(default="other", pattern="^(family|friends|other)$")
+    custom_type_label: str | None = Field(default=None, alias="customTypeLabel", max_length=80)
 
 
 class BootstrapNamedCircleRequest(_CamelModel):
@@ -364,6 +366,11 @@ class UpdateNamedCircleRequest(_CamelModel):
     command_binding: dict[str, Any] | None = Field(default=None, alias="commandBinding")
     name: str | None = Field(default=None, min_length=1, max_length=80)
     kind: str | None = Field(default=None, pattern="^(family|friends|other)$")
+    custom_type_label: str | None = Field(default=None, alias="customTypeLabel", max_length=80)
+
+
+class DeleteCircleTypeRequest(_CamelModel):
+    custom_type_label: str = Field(alias="customTypeLabel", min_length=1, max_length=80)
 
 
 def _circle_command_kwargs(
@@ -1096,7 +1103,28 @@ def list_named_location_circles(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
-        return {"circles": _circle_service().list_circles(user_id=_user_id(token_data))}
+        return {
+            "circles": _circle_service().list_circles(user_id=_user_id(token_data)),
+            "customTypePolicy": {"version": 1, "maxTypes": CIRCLE_MAX_CUSTOM_TYPES},
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/circle-types")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def delete_named_location_circle_type(
+    request: Request,
+    response: Response,
+    payload: DeleteCircleTypeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    _set_private_no_store(response)
+    try:
+        return _circle_service().delete_custom_type(
+            owner_user_id=_user_id(token_data), label=payload.custom_type_label
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -1115,6 +1143,11 @@ def create_named_location_circle(
                 owner_user_id=_user_id(token_data),
                 name=payload.name,
                 kind=payload.kind,
+                **(
+                    {"custom_type_label": payload.custom_type_label}
+                    if payload.custom_type_label is not None
+                    else {}
+                ),
             )
         }
     except Exception as exc:
@@ -1248,6 +1281,11 @@ def update_named_location_circle(
             circle_id=circle_id,
             name=payload.name,
             kind=payload.kind,
+            **(
+                {"custom_type_label": payload.custom_type_label}
+                if payload.custom_type_label is not None
+                else {}
+            ),
             **command,
         )
         return result if command else {"circle": result}

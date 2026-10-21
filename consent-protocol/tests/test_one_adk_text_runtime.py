@@ -40,7 +40,7 @@ async def test_text_runtime_replays_history_and_extracts_generated_directive(mon
     observed: dict = {}
 
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None, plugins=None):
             assert app_name == ONE_APP_NAME
             observed["agent"] = agent
             self.session_service = session_service
@@ -313,7 +313,7 @@ async def test_managed_text_runtime_never_replays_after_tool_boundary(monkeypatc
 
 async def test_text_runtime_emits_non_partial_final_memory_summary(monkeypatch):
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None, plugins=None):
             self.session_service = session_service
 
         async def run_async(self, **kwargs):  # noqa: ANN003
@@ -401,7 +401,7 @@ async def test_bounded_adk_events_times_out_stalled_followup(monkeypatch):
 
 async def test_text_runtime_rejects_silent_model_completion(monkeypatch):
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None, plugins=None):
             self.session_service = session_service
 
         async def run_async(self, **kwargs):  # noqa: ANN003
@@ -446,7 +446,7 @@ async def test_text_runtime_persists_the_aggregated_final_and_commits_it_to_memo
             committed.append(session)
 
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None, plugins=None):
             self.session_service = session_service
             self.memory_service = memory_service
 
@@ -519,7 +519,7 @@ async def test_text_runtime_treats_an_all_partial_tool_call_turn_as_silent(monke
             committed.append(session)
 
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None, plugins=None):
             self.session_service = session_service
 
         async def run_async(self, **kwargs):  # noqa: ANN003
@@ -571,7 +571,7 @@ async def test_text_runtime_stamps_the_reported_model_on_token_events(
     route can report the model that answered rather than the one it asked for."""
 
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None, plugins=None):
             self.session_service = session_service
 
         async def run_async(self, *, user_id, session_id, new_message, run_config):
@@ -627,7 +627,7 @@ async def test_text_runtime_leaves_model_version_empty_when_unreported_negative_
     provider,
 ):
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None, plugins=None):
             self.session_service = session_service
 
         async def run_async(self, *, user_id, session_id, new_message, run_config):
@@ -710,7 +710,7 @@ async def test_text_runtime_reports_observed_recall_digest_and_catch_up(monkeypa
     observed: dict = {}
 
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None, plugins=None):
             self.session_service = session_service
             observed["agent_model"] = agent[1]
 
@@ -837,7 +837,7 @@ async def test_the_catch_up_review_carries_the_turns_verified_authority(monkeypa
         return MemoryReviewResult(outcome="applied", reason="catch_up", through_seq=1, records=1)
 
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None, plugins=None):
             pass
 
         async def run_async(self, *, user_id, session_id, new_message, run_config):
@@ -934,7 +934,7 @@ async def test_a_second_model_step_answer_is_not_discarded_as_a_duplicate(monkey
             pass
 
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None, plugins=None):
             self.session_service = session_service
 
         async def run_async(self, *, user_id, session_id, new_message, run_config):
@@ -1009,7 +1009,7 @@ async def test_the_intro_turn_also_survives_a_second_model_step(monkeypatch):
     """
 
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None, plugins=None):
             self.session_service = session_service
 
         async def run_async(self, *, user_id, session_id, new_message, run_config):
@@ -1082,7 +1082,7 @@ class _CountingRecorder:
 
 def _one_step_runner():
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None, plugins=None):
             self.session_service = session_service
 
         async def run_async(self, *, user_id, session_id, new_message, run_config):

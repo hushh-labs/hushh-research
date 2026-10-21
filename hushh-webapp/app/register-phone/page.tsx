@@ -23,6 +23,7 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import {
   buildOneSetupRoute,
   normalizeStaticExportPathname,
+  normalizeInvitationReturnTo,
   KAI_MARKET_PATH,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -126,6 +127,8 @@ export function PhoneMandatePageContent() {
       // lists a firm or advisers at it, show that instead of the generic next
       // screen. Fails open — any error, timeout or miss continues as normal.
       const claimRoute = await (async () => {
+        // Finish the invitation the person chose before optional discovery.
+        if (normalizeInvitationReturnTo(redirectPath)) return null;
         // identity.phone_number is the authoritative verified number. The
         // Firebase user object is null here whenever the phone was confirmed
         // through the backend test-code path or any non-Firebase channel --
@@ -216,6 +219,27 @@ export function PhoneMandatePageContent() {
       if (admissionRetry > 0) {
         await PreVaultUserStateService.bootstrapState(userId, { force: true });
       }
+      // Accepting a token invitation is an explicit phone-verification operation.
+      // Generic onboarding correctly exempts established accounts, but applying
+      // that exemption here bounced them back to the invite before any OTP form.
+      const invitation = normalizeInvitationReturnTo(redirectPath);
+      const invitationUrl = invitation ? new URL(invitation, window.location.origin) : null;
+      const invitationPath = invitationUrl && normalizeStaticExportPathname(invitationUrl.pathname);
+      const isTokenInvitation = Boolean(invitationUrl && (
+        /^\/one\/location\/invite\/[^/]+$/.test(invitationPath!) ||
+        (invitationPath === ROUTES.CIRCLE_JOIN && invitationUrl.searchParams.get("invite")?.trim())
+      ));
+      if (isTokenInvitation) {
+        const identity = await AccountIdentityService.syncCurrentUser(user);
+        if (cancelled) return;
+        if (typeof identity?.phone_verified !== "boolean") {
+          throw new Error("Unable to check phone verification. Please retry.");
+        }
+        if (!identity.phone_verified) {
+          setAdmission({ userId, status: "ready" });
+          return;
+        }
+      }
       const nextPath = await PostAuthRouteService.resolveAfterLogin({
         userId,
         redirectPath,
@@ -259,7 +283,7 @@ export function PhoneMandatePageContent() {
           screenId: "phone_mandate",
           title: "Verify your phone",
           purpose:
-            "Adding a phone number keeps your account recoverable and secure before setup continues.",
+            "Verify your phone to continue setup or accept your invitation.",
           // The step is the only verification state published to One. Phone
           // numbers and OTPs stay inside the input and auth operation.
           screenMetadata: { phone_verification_step: verificationStep },

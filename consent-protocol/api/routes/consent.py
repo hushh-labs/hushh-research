@@ -647,6 +647,9 @@ async def approve_consent(
     if token_data["user_id"] != userId:
         raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
+    from hushh_mcp.services.product_value_receipts import capture_value_epoch, record_owner_decision
+
+    value_epoch = await capture_value_epoch(userId)
     logger.info("consent.approve_requested")
     logger.info("consent.approve_export_attached=%s", bool(encryptedData))
 
@@ -1042,6 +1045,8 @@ async def approve_consent(
 
     granted_event_metadata = dict(metadata) if isinstance(metadata, dict) else {}
     granted_event_metadata["approved_duration_hours"] = expiry_hours
+    granted_event_metadata["decision_owner_uid"] = userId
+    granted_event_metadata["owner_decision"] = "approve"
 
     # Log CONSENT_GRANTED with the normalized requested scope string.
     if subject_user_id != userId:
@@ -1066,6 +1071,9 @@ async def approve_consent(
         metadata=granted_event_metadata,
     )
     logger.info("consent.granted_event_saved")
+    await record_owner_decision(
+        user_id=userId, request_id=requestId, generation=value_epoch, decision="approve"
+    )
 
     superseded_scopes: list[str] = []
     superseded_tokens = await service.get_superseded_active_tokens(

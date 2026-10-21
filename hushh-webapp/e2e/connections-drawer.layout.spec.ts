@@ -315,9 +315,11 @@ for (const width of [390, 1440])
       return width;
     });
     expect(readingMeasure).toBeGreaterThan(0);
+    const rootFontSize = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
+    expect(readingMeasure).toBeCloseTo(54 * rootFontSize, 0);
     const box = (await shell.boundingBox())!;
     if (width > readingMeasure) {
-      expect(box.width).toBeLessThanOrEqual(readingMeasure + 1);
+      expect(box.width).toBeCloseTo(readingMeasure, 0);
       expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThan(2);
     } else {
       expect(Math.abs(box.x)).toBeLessThan(1);
@@ -2600,3 +2602,87 @@ test("Reset icon colors only its arrowhead and keeps native geometry in the acco
     await page.screenshot({ path: test.info().outputPath(`reset-icon-${theme}.png`) });
   }
 });
+
+for (const width of [320, 390])
+  test(`History preserves full long titles at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 850 });
+    const title = "Plan the next family holiday and discuss every booking " + "LongReservationReference".repeat(5);
+    await page.evaluate(value => (window as unknown as { __seedChatHistory: (title: string) => void }).__seedChatHistory(value), title);
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    const drawer = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+    await expect(drawer).toBeVisible();
+    // Range and element bounds must be sampled after the pane's entrance motion.
+    await expect.poll(() => drawer.evaluate(element =>
+      new DOMMatrix(getComputedStyle(element).transform).m41)).toBeCloseTo(0, 1);
+    const row = page.locator('[data-agent-history-row][data-state="active"]');
+    const label = row.locator("[data-agent-history-row-title]");
+    await expect(label).toHaveText(title);
+    const geometry = await label.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      const range = document.createRange(); range.selectNodeContents(element);
+      return { lines: [...range.getClientRects()].map(rect => ({ x: rect.x, right: rect.right, y: rect.y })),
+        x: bounds.x, right: bounds.right, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth };
+    });
+    expect(new Set(geometry.lines.map(line => Math.round(line.y))).size).toBeGreaterThan(1);
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
+    for (const line of geometry.lines) {
+      expect(line.x).toBeGreaterThanOrEqual(geometry.x - 1);
+      expect(line.right).toBeLessThanOrEqual(geometry.right + 1);
+    }
+    const actions = row.getByRole("button", { name: `Open actions for ${title}` });
+    const box = (await actions.boundingBox())!;
+    expect(box.width + 0.0001).toBeGreaterThanOrEqual(44);
+    expect(box.height + 0.0001).toBeGreaterThanOrEqual(44);
+    expect(geometry.right).toBeLessThanOrEqual(box.x + 1);
+    const age = (await row.locator("time").boundingBox())!;
+    expect(geometry.right).toBeLessThanOrEqual(age.x + 1);
+    await row.getByTitle(title, { exact: true }).click();
+    expect(await page.evaluate(() => (window as unknown as { __chatHistorySelections: string[] }).__chatHistorySelections)).toEqual(["history-one"]);
+  });
+
+for (const dark of [false, true])
+  test(`Reduced-transparency History keeps the theme canvas in ${dark ? "dark" : "light"}`, async ({ page }) => {
+    await page.evaluate(() => (window as unknown as { __seedChatHistory: () => void }).__seedChatHistory());
+    const activated = await page.evaluate(enabled => {
+      document.documentElement.classList.toggle("dark", enabled);
+      let matched = 0;
+      const visit = (rules: CSSRuleList) => {
+        for (const rule of rules) {
+          if (rule instanceof CSSMediaRule && rule.conditionText.includes("prefers-reduced-transparency")) {
+            rule.media.mediaText = "all"; matched++;
+          }
+          if ("cssRules" in rule) visit((rule as CSSGroupingRule).cssRules);
+        }
+      };
+      for (const sheet of document.styleSheets) visit(sheet.cssRules);
+      return matched;
+    }, dark);
+    expect(activated).toBeGreaterThan(0);
+    await page.waitForFunction(() => [document.documentElement, document.body]
+      .every(element => element.getAnimations().every(animation => animation.playState !== "running")));
+    const before = await page.evaluate(() => [getComputedStyle(document.documentElement).backgroundColor, getComputedStyle(document.body).backgroundColor]);
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+    const reference = await profileFrame(page);
+    expect(reference.material.background).toBe(reference.canvas);
+    await expect(chats).toHaveCSS("background-color", reference.canvas);
+    await expect(chats).toHaveCSS("backdrop-filter", "none");
+    await chats.getByRole("button", { name: "Open actions for Weekly planning" }).click();
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    const solidCard = await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.style.backgroundColor = "var(--app-card-surface-default-solid)";
+      document.body.append(probe);
+      const color = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return color;
+    });
+    await expect(menu).toHaveCSS("background-color", solidCard);
+    await expect(menu).toHaveCSS("backdrop-filter", "none");
+    await page.keyboard.press("Escape");
+    await expect(menu).not.toBeVisible();
+    await page.getByRole("button", { name: "Close chat history", exact: true }).click();
+    await expect(chats).not.toBeVisible();
+    expect(await page.evaluate(() => [getComputedStyle(document.documentElement).backgroundColor, getComputedStyle(document.body).backgroundColor])).toEqual(before);
+  });

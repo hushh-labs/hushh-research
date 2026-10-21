@@ -152,6 +152,34 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     service = AccountService()
     conn = MagicMock()
     user_id = "user_delete_123"
+    committed = False
+    notifications = []
+
+    @contextmanager
+    def _committing_db():
+        nonlocal committed
+        yield conn
+        committed = True
+
+    def _capture_viewers(connection, **kwargs):
+        assert not committed
+        assert kwargs["user_id"] == user_id
+        assert kwargs["include_pending_requests"] is True
+        statements = "\n".join(str(call.args[0]) for call in connection.execute.call_args_list)
+        assert "DELETE FROM connections" not in statements
+        assert "pg_advisory_xact_lock" in statements
+        return {"connected-peer", "circle-peer", "pending-peer"}
+
+    def _notify(**kwargs):
+        assert committed
+        notifications.append(kwargs["user_ids"])
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.list_connection_graph_viewer_ids", _capture_viewers
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.connections_service._notify_connection_graph_changed", _notify
+    )
 
     monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
 
@@ -167,7 +195,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
 
     monkeypatch.setattr(service, "_delete_personal_agent_state", _delete_personal_agent_state)
 
-    with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
+    with patch("hushh_mcp.services.account_service.get_db_connection", side_effect=_committing_db):
         result = await service._delete_full_account(
             user_id,
             requested_target="both",
@@ -175,6 +203,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
 
     assert result["success"] is True
     assert result["account_deleted"] is True
+    assert notifications == [{"connected-peer", "circle-peer", "pending-peer"}]
     assert result["details"]["external_connectors"] is True
     assert result["details"]["live_memory_hosted_pilot_grants"] is True
     assert result["details"]["live_memory_hosted_source_envelopes"] is True
@@ -708,6 +737,42 @@ async def test_full_account_delete_returns_stable_external_resource_block_withou
     assert "private agent or cloud setup" in result["message"]
     executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
     assert "DELETE FROM" not in executed_sql
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rollback", [True, False])
+async def test_full_delete_does_not_report_rollback_or_notification_failure_as_removal(
+    monkeypatch, rollback
+):
+    service = AccountService()
+    conn = MagicMock()
+    notifications = []
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: False)
+    monkeypatch.setattr(service, "_delete_personal_agent_state", lambda *_, **__: None)
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.list_connection_graph_viewer_ids",
+        lambda *_, **__: {"peer"},
+    )
+
+    @contextmanager
+    def transaction():
+        yield conn
+        if rollback:
+            raise RuntimeError("commit failed")
+
+    def failed_notification(**kwargs):
+        notifications.append(kwargs["user_ids"])
+        raise RuntimeError("push unavailable")
+
+    monkeypatch.setattr("hushh_mcp.services.account_service.get_db_connection", transaction)
+    monkeypatch.setattr(
+        "hushh_mcp.services.connections_service._notify_connection_graph_changed",
+        failed_notification,
+    )
+    result = await service._delete_full_account("departing", requested_target="both")
+    assert result["success"] is not rollback
+    assert result["account_deleted"] is not rollback
+    assert notifications == ([] if rollback else [{"peer"}])
 
 
 def test_live_erasure_catalog_is_documented_and_has_explicit_predicates():

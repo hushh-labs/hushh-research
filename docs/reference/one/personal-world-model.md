@@ -35,9 +35,9 @@ enabled. Azure UAT instead requires the separate Azure/Bing opt-in described
 below. An existing disabled row is never turned back on; no migration rewrites
 existing rows. The owner keeps an off switch for research and readiness email.
 
-There is no Build button, research settings screen or manual URL in the main journey. After vault unlock on any non-setup route, the app-wide world-model provider calls `ensure`: a new owner's research starts in the background, an existing owner without a model starts preparation, and interrupted work resumes. Research only progresses while an authenticated client keeps calling `ensure` or `/jobs`; the server keeps the derived chat key for at most 300 seconds. Drafts are purged after 24 hours, and a finished model may be prepared again seven days after its latest preparation started; purged unfinished work may resume sooner. Automatic messages remain outside chat.
+Research controls live in **Research and email**; the main journey does not require a manual URL. After vault unlock on any non-setup route, the app-wide world-model provider calls `ensure`: eligible new-owner research starts in the background, an existing owner without a model can start preparation, and interrupted work resumes through the existing consent and budget gates. Research only progresses while an authenticated client keeps calling `ensure` or `/jobs`; the server keeps the derived chat key for at most 300 seconds. Drafts are purged after 24 hours, and a model is prepared again automatically after seven days without research activity. A purged recent completion retains that cadence; **Check for updates** explicitly requests research through normal budgets. Automatic messages remain outside chat.
 
-Profile has one compact **Personal World Model** row immediately below Memory. It opens the dedicated `/one/profile/world-model` page as a full route, using the existing Profile icons, typography, cards, Back navigation and vault authority. The page shows one state: **Preparing your model**, **Ready to review** or **Up to date**.
+Profile has one compact **Personal World Model** row immediately below Memory. It opens the Personal World Model panel in Profile, using the existing icons, typography, cards, Back navigation and vault authority. The panel distinguishes preparation, reviewable findings, saved state and retryable failure.
 
 Findings are grouped into seven display sections: About, Work, Education, Projects, Interests, Preferences and Public presence. Empty sections are hidden. Each finding is a short fact row with its source and visible **Yes** and **No**. One tap saves the decision to the owner's memory; there is no second Save step, and the row only shows success after the encrypted memory write commits. Tapping a row opens its sources, why it may be about the owner, its uncertainty, and **Edit** and **Remove**.
 
@@ -83,6 +83,154 @@ or merged PR metadata does not establish graduation, creation or who merged it.
 Shorter names and unlinked institutional/company/aggregator records remain
 uncertain. Raw citations are not independent verification of their contents, so
 Azure candidates remain for owner review. No minimum finding count is forced.
+
+Azure's native planner schema projects the existing admitted identity/coverage
+branches, selected candidate and anchor IDs. Candidate-for-review coverage uses
+public name/anchors; contacts remain limited to identity research. The prompt
+requests a short question and at most two anchors within the original host
+bounds. A coherent review candidate should receive public coverage rather than
+repeat exact-contact searches; competing candidates still require identity work.
+Company, GitHub and social profiles need an explicit received first-party URL
+cross-link before their anchors are combined. Reports place missing evidence and
+namesake observations in gaps, not personal findings. These are model-authored
+semantic instructions, not a host guarantee of page support or identity. A returned invalid plan may receive one charged correction using the
+same context and failed field/type feedback. Four model slots must remain before
+repair, preserving search, assessment and final reporting. Invalid correction
+stops expansion and preserves existing cited findings; provider errors and loss
+of authority are never retried as plan corrections. Logs contain only bounded
+error types, never model field names or contact values.
+
+Within the unchanged 240-second slice, follow-up search reserves 145 seconds:
+up to 45 seconds for reassessment and 100 seconds for final reporting. Reporting
+keeps its 90-second provider cap. Optional provisional batches yield when that
+reserve is needed. This replaces a 230-second follow-up admission requirement
+that effectively prevented expansion after ordinary initial-call latency.
+
+An identity assessment that fails schema or evidence validation may receive one
+paid, tool-free model repair using the same admitted identity and received
+sources. The replacement must pass the unchanged validators. The host never
+fills a candidate or substitutes an identity decision. Repair preserves owner
+authority, the final-report time/slot reserve and every charged usage receipt;
+insufficient time pauses the slice without another search.
+
+The existing provisional extraction receives the selected candidate's label and
+owned anchors, not merely its ID. Compilation receives the selected assessment,
+validated selected-candidate finding batches and their admitted source metadata.
+Unpartitioned discovery notes and other candidates are withheld from this model
+input; their complete checkpoint and returned research remain intact. Selected
+anchors still permit reporting when optional batches fail or skip. This reduces
+contamination; receipt validation does not independently prove semantic attribution.
+
+Azure assessment requires a connected model-declared reciprocal-link graph over
+all distinct URLs owned by the selected candidate, including orphan owned anchors.
+One exact URL is valid without an edge. The host never chooses or splits people;
+a missing chain receives the existing charged model correction. The same guard
+checks restored work. This validates declared linkage, not page contents. Unlinked
+results remain in the full research record and cannot supply typed findings.
+Correction receives the disconnected receipt-reference groups, never a host-selected
+person. When received bridges are absent, the model can select one supported page
+for review and leave other discoveries as separate leads in the retained research.
+A failed multi-page assessment uses a compact correction schema: one candidate,
+one anchor and one scalar source reference, or explicit no match. The host only
+expands scalar transport fields to the existing arrays, preserving the model's IDs,
+identity choice and assertions. The original assessment and graph validators still
+apply. This prevents a paid correction from returning the same disconnected cluster.
+The owner-only provisional stream applies the same current-anchor receipt fence.
+If reassessment changes the selected page while reusing a candidate ID, earlier
+coverage batches cannot survive as claims about that new page. Unmarked Vertex
+coverage retains its original contract.
+An Azure page citation may legitimately have an empty title. Its raw title, URL
+and offsets remain exact; the source card uses only the generic "Public page"
+label. This does not relax URL, range, completion or billing validation. Starting
+anchors do not prohibit the search stage from using newly retrieved public URLs.
+If opening a public page fails, the search prompt uses its remaining native-tool
+call for an indexed URL/handle search. Unreadable pages remain unavailable. Final
+compilation audits proposed batches for distinct, owner-reviewable personal
+statements; structural receipt validation does not make a proposal a verified fact.
+
+After compilation, GPT-5 mini reviews the immutable cited facts and returns only
+the IDs to keep plus a new summary. The host resolves those IDs without rewriting
+statements, topics, confidence or citations, then applies the same evidence
+validation. It never classifies meaning with a keyword filter. This extra call
+uses the existing 16-call budget and a 35-second bound. The accepted intermediate
+report is checkpointed first; a paused review resumes there without buying
+research or compilation again. A completed review is bound to that report's
+digest. Missing or repeated IDs fail closed.
+
+A schema-invalid fact selection or resulting report may receive one charged,
+tool-free model correction using the same immutable proposed facts, identity,
+owner decisions and schema. The original validators run again; an invalid
+correction fails, and the host never returns the unreviewed proposal instead.
+The existing model-slot, remaining-time and access checks apply to both calls.
+Saved review checkpoints are validated without repair or new provider calls.
+Validation diagnostics contain only fixed stage/attempt labels and error types;
+they exclude field paths, messages, input and exception context.
+
+Review may retain zero findings without changing the assessed identity. An empty
+matched or uncertain report means no new personal statements remain to review;
+it does not imply no identity candidate exists. A no-match report still cannot
+contain findings. The shared client decoder accepts the same cardinality.
+This is semantic cleanup, not independent source verification or proof of owner
+identity, and it cannot recover facts omitted by compilation.
+
+Provisional extraction and final compilation use their scoped instructions
+authored inside the PWM manifest, rather than the whole research prompt. The
+model still chooses every fact; there is no host semantic deduplication or
+replacement. Both stages and report repair retain the same manifest-owned output
+privacy exclusions and owner-decision rules: never repropose confirmed/rejected
+equivalents or infer their opposite. Missing contacts, identity decisions and source availability belong
+in identity or gaps, never findings. A fixed-evidence Azure experiment returned
+one account–repository attribution with scoped extraction, while the whole
+research instruction returned four padded rows even with high reasoning. This
+is a limited stage experiment, not owner-account or general quality acceptance.
+Identity assessment/repair uses medium reasoning with an 8,192-token ceiling.
+Provisional extraction also uses medium reasoning, retaining its 2,048-token and
+35-second bounds. Only final compilation/repair uses high reasoning. Other stages keep low effort,
+and every call retains the existing 90-second outer cap. The SDK deadline matches
+that cap; planner and provisional limits remain shorter. Optional sections contain
+positive personal findings, with no placeholder facts or minimum count. Empty
+uncertain reports remain valid when no new positive findings survive review.
+
+The provider report schema excludes coverage: the existing host ledger authors
+all twenty rows before unchanged full report validation. The final schema limits
+section kinds to topics with observed, candidate-compatible search receipts.
+All twenty public coverage rows remain present.
+Each section's citation enum projects the original receipt rules for that exact
+candidate and topic, intersected with selected-candidate owned-anchor sources.
+The final host validator receives that same narrowed catalog, including on repair;
+a received, observed coverage lead alone cannot become a selected-person citation. Other
+namesake pages cannot supply citations merely because search returned them.
+When native topic specializations exceed Azure's schema budget, one shared
+shape carries the eligible citation union instead. Evidence is never truncated;
+the full per-topic eligibility remains in the prompt and original validator.
+A schema/evidence-invalid report may receive one charged, tool-free correction
+using the same research and assessed identity, then passes the original
+validators again. No section is silently removed or relabelled by the host;
+provider failures, authority loss and exhausted budgets are not repaired.
+Both report calls remain within the existing sixteen-call generation budget.
+Repair receives failed field paths and error types without exception input or
+context; the original schema's length, item-count and pattern bounds still apply.
+Retained completed checkpoints are reused only for their current identity/policy
+binding. A purged completed draft still follows the seven-day preparation
+interval; the existing **Check for updates** action requests fresh research
+through the normal admission and paid budgets.
+
+Azure usage receipts contain only input, output and cached-token counts plus
+provider elapsed milliseconds. They use the existing charged model slots in the
+encrypted work checkpoint and are excluded from model-visible research history.
+Owner-authorized JSON research responses expose their aggregate in
+`X-Hussh-PWM-Usage`; the web proxy preserves that header. JSON and SSE result
+bodies keep their existing strict shape. Unacknowledged calls or missing SDK
+usage produce nullable totals, never an assumed zero. Bing request totals use
+the provider's reported `tool_usage.web_search.num_requests`. Completed `open_page`
+and `find_in_page` calls accept an explicit zero Bing-query count; actual `search`
+actions still require a positive count, and missing usage is never inferred.
+A malformed search
+receipt (including a missing billable count) admits no evidence and leaves that
+paid call unacknowledged. Further search stops at the existing conservative
+budget boundary, while earlier assessed receipts can still produce a draft;
+Bing totals remain unknown. Currency requires
+identified provider rates and remains an estimate rather than an invoice total.
 
 | Environment | Vertex project | Text/PWM | Live | Embeddings |
 | --- | --- | --- | --- | --- |
@@ -185,6 +333,21 @@ Integration request:
 
 Name and at least one verified contact are required. Phone uses E.164. Every supplied field must match the freshly resolved owner's account. The UI normally calls `/ensure` or `/jobs` without sending identifiers. Arbitrary submitted identities are rejected.
 
+**Pages you choose** also has an explicit Azure research action when Azure/Bing
+research is already enabled and a fresh run is allowed. The owner confirms up to
+three public profile links and their public-source permission. These links enter
+normal charged web retrieval as starting leads, not received evidence or verified
+identity. They never grant access to private accounts. A changed URL set starts a
+new work generation, retains hourly starts, and cannot replace a live pending
+lease. Omission carries existing profiles and prior decisions across resumes.
+A bare server-requested restart keeps the explicit profile action available;
+the server still checks the live lease and CAS fence before admitting it. A
+pending or paused checkpoint does not expose that recovery action.
+Web and Android use the shared form; the corresponding iOS owned form requires
+its additive `profileWorldModelPublicProfiles` capability. Older binaries retain
+their existing source-review action. The separate Gemini page-review action and
+the owner’s encrypted Memory save remain unchanged.
+
 `/ensure` and `POST /jobs` accept an optional body carrying the owner's earlier decisions, so research does not propose them again:
 
 ```json
@@ -268,7 +431,7 @@ User checks on the deployed UAT revision: finish setup and unlock; navigate else
 
 ## Profile presentation
 
-The Profile row opens the dedicated `/one/profile/world-model` route as a full page, not an in-pane panel. The Profile pane renders outside the app-wide world-model provider, so an in-pane panel could not read research status. Edit and Remove for research facts happen on the page itself; Memory still lists the saved statements. Feed, email and existing `/one/profile/world-model?claim=...` invitation links open the same route and keep their contact-bound claim flow. Research, review, saving and invitation permissions remain unchanged.
+The Profile row opens the Personal World Model panel. Although the pane sits beside the app-wide provider, both use the same owner/key/token-scoped external store; React provider ancestry is unnecessary. Normal `/one/profile/world-model` requests redirect to `/one?profile_pane=1&profile_panel=world-model`; invitation requests containing `claim` retain their contact-bound route. Edit and Remove happen in the research surface; Memory still lists saved statements. Opening the panel may reuse a recent purged completion under the existing seven-day automatic cadence. **Research and email → Check for updates** explicitly requests new research through the normal budgets. Research, review, saving and invitation permissions remain unchanged.
 
 ## Operations: see what is happening
 

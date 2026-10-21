@@ -14,30 +14,15 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { isNative } from "@/lib/capacitor/platform";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { backendPhoneIsMissing } from "@/lib/auth/phone-identity";
 import {
   WarningIcon as AlertTriangle,
   SpinnerGapIcon as Loader2,
   ArrowsClockwiseIcon as RefreshCw,
 } from "@/components/icons";
-import {
-  AccountProfileIcon,
-  ConsentAgentIcon,
-  DeleteRowIcon,
-  DiscoverableRowIcon,
-  FingerprintProfileIcon,
-  FinanceAgentIcon,
-  GmailAgentIcon,
-  InboxRowIcon,
-  LocationAgentIcon,
-  MarketplaceAgentIcon,
-  PhoneRowIcon,
-  ResetRowIcon,
-  SignOutProfileIcon,
-  SyncRowIcon,
-  VaultRowIcon,
-  VoiceRowIcon,
-  WalletAgentIcon,
-} from "@/components/icons/agents";
+import { FinanceAgentIcon } from "@/components/icons/agents";
+import { PROFILE_ICONS } from "@/components/icons/profile-icons";
 import accountStyles from "@/components/profile/profile-your-account.module.css";
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
@@ -45,7 +30,6 @@ import { toast } from "sonner";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
 import { NativeProfilePresentation } from "./native-profile-menu";
 import { AccountConfirmationPreparation } from "./account-confirmation-preparation";
-import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { useNativeProfilePreferences } from "./use-native-profile-preferences";
 import { useNativeVoiceProfile } from "./use-native-voice-profile";
 import { NativeSupportComposer } from "./native-support-composer";
@@ -569,6 +553,8 @@ function ProfilePageContent({
     user,
     loading: authLoading,
     phoneNumber,
+    phoneNumberStatus,
+    resolveVerifiedPhoneNumber,
     signOut,
     startPhoneVerification,
     confirmPhoneVerification,
@@ -2021,7 +2007,7 @@ function ProfilePageContent({
     const presentation = SUPPORT_INTENT_PRESENTATION[kind];
 
     if (trimmedMessage.length < 10) {
-      setSupportMessageError("Add a few more details.");
+      setSupportMessageError("Write at least 10 characters.");
       setSupportComposerState({ status: "editing" });
       supportMessageRef.current?.focus();
       return { kind: "too_short" };
@@ -2218,7 +2204,30 @@ function ProfilePageContent({
       : "Hidden from contact sync";
   const phoneSummaryText = phoneNumber
     ? formatMaskedPhoneNumber(phoneNumber)
-    : "No phone number yet";
+    : phoneNumberStatus === "missing"
+      ? "No phone number yet"
+      : phoneNumberStatus === "unavailable"
+        ? "Phone number temporarily unavailable"
+        : "Checking phone number…";
+  const phoneLookupPending = !phoneNumber && phoneNumberStatus !== "missing";
+  const retryPhoneLookup = useCallback(async () => {
+    const owner = snapshotValidatedAuthSessionOwner();
+    if (!owner || owner.userId !== user?.uid) {
+      return { status: "blocked" as const, summary: "Sign in to check your phone number." };
+    }
+    try {
+      const phone = await resolveVerifiedPhoneNumber();
+      if (!isValidatedAuthSessionOwnerCurrent(owner)) {
+        return { status: "blocked" as const, summary: "Your account changed. Try again." };
+      }
+      if (phone) return { status: "succeeded" as const, summary: "Your saved phone number is available." };
+      const snapshot = AccountIdentityService.peekCachedIdentity(user?.uid);
+      if (snapshot && !snapshot.isStale && backendPhoneIsMissing(snapshot.data, user?.uid)) {
+        return { status: "succeeded" as const, summary: "You can add a verified phone number." };
+      }
+    } catch { /* Keep an unavailable lookup retryable. */ }
+    return { status: "failed" as const, summary: "Couldn't load your phone number. Try again." };
+  }, [resolveVerifiedPhoneNumber, user?.uid]);
   const emailVerified = Boolean(user?.emailVerified);
 
   const gmailStatusLabel = gmailPresentation.badgeLabel;
@@ -2325,7 +2334,7 @@ function ProfilePageContent({
         id: "profile_account",
         label: PROFILE_LABELS.account,
         purpose: "opens account identity, mail, and phone management.",
-        actionId: "route.profile",
+        actionId: "route.profile_account",
         role: "card",
         voiceAliases: ["account", "phone number", "identity"],
       },
@@ -2401,6 +2410,14 @@ function ProfilePageContent({
     const controls =
       activePanel === "preferences"
         ? preferenceControls
+        : activePanel === "account" && phoneLookupPending
+          ? phoneNumberStatus === "unavailable" ? [{
+              id: activeDetail === "phone" ? "profile-phone-detail-retry" : "profile-phone-retry",
+              label: "Retry phone lookup",
+              purpose: "retrieves the saved verified phone without starting OTP verification.",
+              actionId: "profile.retry_phone_lookup",
+              role: "control",
+            }] : []
         : activePanel === "hosting" || activePanel === "software-updates" || activePanel === "payouts" || activePanel === "world-model" || activePanel === "request-pricing"
           ? []
           : profileHomeControls;
@@ -2475,25 +2492,24 @@ function ProfilePageContent({
                   "Propose Salesforce CRM create",
                   "Propose Salesforce CRM update",
                 ]
-            : activePanel === "account"
-              ? [phoneNumber ? "Change phone number" : "Add phone number"]
-              : activePanel === "preferences" ||
-                  activePanel === "hosting" ||
-                  activePanel === "software-updates"
-                ? []
-                : activePanel === "security"
-                  ? [
-                      vaultAccess.needsVaultCreation
-                        ? "Create your vault"
-                        : "Unlock vault",
-                      "Change password",
-                      "Delete account",
-                    ]
-                  : [
-                      "Open your account",
-                      "Open security & privacy",
-                      "Open help & feedback",
-                    ];
+              : activePanel === "account"
+                ? phoneNumber ? ["Change phone number"] : phoneNumberStatus === "missing"
+                  ? ["Add phone number"] : phoneNumberStatus === "unavailable" ? ["Retry phone lookup"] : []
+                : activePanel === "preferences" || activePanel === "hosting" || activePanel === "software-updates"
+                  ? []
+                  : activePanel === "security"
+                    ? [
+                        vaultAccess.needsVaultCreation
+                          ? "Create your vault"
+                          : "Unlock vault",
+                        "Change password",
+                        "Delete account",
+                      ]
+                    : [
+                        "Open your account",
+                        "Open security & privacy",
+                        "Open help & feedback",
+                      ];
 
     return {
       surfaceDefinition: {
@@ -2606,6 +2622,7 @@ function ProfilePageContent({
         marketplace_opt_in: marketplaceOptIn,
         security_summary: securitySummaryText,
         phone_verified: Boolean(phoneNumber),
+        phone_lookup_status: phoneNumberStatus,
         email_verified: emailVerified,
         preference_voice_actions_available:
           activePanel === "preferences" ? false : null,
@@ -2626,6 +2643,7 @@ function ProfilePageContent({
         marketplace_opt_in: marketplaceOptIn,
         security_summary: securitySummaryText,
         phone_verified: Boolean(phoneNumber),
+        phone_lookup_status: phoneNumberStatus,
         email_verified: emailVerified,
         pkm_agent_lab_available: canShowPkmAgentLab,
         vault_needs_creation: vaultAccess.needsVaultCreation === true,
@@ -2649,6 +2667,8 @@ function ProfilePageContent({
     passphraseDialogOpen,
     pendingConsents,
     phoneNumber,
+    phoneLookupPending,
+    phoneNumberStatus,
     profileSummary.totalAttributes,
     profileSummary.totalDomains,
     savingMarketplaceOptIn,
@@ -2660,6 +2680,12 @@ function ProfilePageContent({
     vaultAccess.needsVaultCreation,
   ]);
   usePublishVoiceSurfaceMetadata(profileVoiceSurfaceMetadata);
+
+  useLocalOnboardingActionHandler(
+    "profile.retry_phone_lookup",
+    retryPhoneLookup,
+    { enabled: Boolean(user) && activePanel === "account" && phoneLookupPending && phoneNumberStatus === "unavailable" },
+  );
 
   // Profile's three remaining unwired actions. Registered here rather than in
   // the global registrar because each genuinely needs this page's state --
@@ -3518,7 +3544,7 @@ function ProfilePageContent({
 
       <SettingsGroup>
         <SettingsRow
-          icon={LocationAgentIcon}
+          icon={PROFILE_ICONS.location}
           iconTone="capability"
           title="Location sharing"
           description="Manage live location."
@@ -3528,7 +3554,7 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.ONE_LOCATION)}
         />
         <SettingsRow
-          icon={ConsentAgentIcon}
+          icon={PROFILE_ICONS.review}
           iconTone="capability"
           title="Consent center"
           description="Review sharing."
@@ -3538,7 +3564,7 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.CONSENTS)}
         />
         <SettingsRow
-          icon={DiscoverableRowIcon}
+          icon={PROFILE_ICONS.people}
           iconTone="capability"
           title="Find and connect me by phone number"
           description={contactDiscoverableStatusText}
@@ -3556,7 +3582,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={MarketplaceAgentIcon}
+          icon={PROFILE_ICONS.visibility}
           iconTone="capability"
           title="Marketplace visibility"
           description={marketplaceStatusText}
@@ -3597,7 +3623,7 @@ function ProfilePageContent({
       {presentation === "native-page" && nativeAccountException !== "photo" ? <ProfileAvatarEditor /> : null}
       <SettingsGroup title="Identity">
         <SettingsRow
-          icon={AccountProfileIcon}
+          icon={PROFILE_ICONS.name}
           iconTone="capability"
           title="Display name"
           description={user.displayName || "Not available"}
@@ -3624,25 +3650,31 @@ function ProfilePageContent({
           </div>
         ) : null}
         <SettingsRow
-          icon={GmailAgentIcon}
+          icon={PROFILE_ICONS.mail}
           iconTone="capability"
           title="Mail"
           description={user.email || "Not available"}
         />
         <SettingsRow
-          icon={PhoneRowIcon}
+          icon={PROFILE_ICONS.phone}
           iconTone="capability"
           title="Phone number"
           description={phoneSummaryText}
+          voiceControlId={phoneLookupPending ? "profile-phone-retry" : undefined}
+          disabled={!phoneNumber && phoneNumberStatus === "loading"}
           trailing={
             <span className="profile-account-inline-action">
-              {phoneNumber ? "Change" : "Add"}
+              {phoneNumber ? "Change" : phoneLookupPending ? "Retry" : "Add"}
             </span>
           }
           chevron
-          onClick={() =>
-            updateProfileView({ panel: "account", detail: "phone" }, "push")
-          }
+          onClick={() => {
+            if (phoneLookupPending) {
+              void retryPhoneLookup();
+              return;
+            }
+            updateProfileView({ panel: "account", detail: "phone" }, "push");
+          }}
         />
         <SettingsRow
           iconTone="capability"
@@ -3656,7 +3688,7 @@ function ProfilePageContent({
         />
         {walletCardEntryEnabled ? (
           <SettingsRow
-            icon={WalletAgentIcon}
+            icon={PROFILE_ICONS.wallet}
             iconTone="capability"
             className="profile-account-service-row"
             title={WALLET_CARD_COPY.profileEntry.title}
@@ -3675,7 +3707,7 @@ function ProfilePageContent({
       </SettingsGroup>
       <SettingsGroup title="Account actions">
         <SettingsRow
-          icon={ResetRowIcon}
+          icon={PROFILE_ICONS.reset}
           iconTone="capability"
           className="profile-account-reset-row"
           title="Reset account"
@@ -3684,7 +3716,7 @@ function ProfilePageContent({
           onClick={() => void handleResetClick()}
         />
         <SettingsRow
-          icon={DeleteRowIcon}
+          icon={PROFILE_ICONS.delete}
           iconTone="capability"
           className="profile-account-delete-row"
           testId="profile-account-delete-row"
@@ -3732,7 +3764,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={VoiceRowIcon}
+          icon={PROFILE_ICONS.voice}
           iconTone="capability"
           title="Voice"
           description="What One's voice can do, and its safety controls."
@@ -3758,7 +3790,7 @@ function ProfilePageContent({
     <div className="space-y-4">
       <SettingsGroup>
         <SettingsRow
-          icon={FingerprintProfileIcon}
+          icon={PROFILE_ICONS.vault}
           iconTone="capability"
           title="Vault methods"
           description="Password, passkey, and unlock method."
@@ -3945,7 +3977,7 @@ function ProfilePageContent({
     >
       <SettingsGroup>
         <SettingsRow
-          icon={GmailAgentIcon}
+          icon={PROFILE_ICONS.mail}
           iconTone="capability"
           title="Connection"
           description={gmailSettingsDescription}
@@ -3960,7 +3992,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={SyncRowIcon}
+          icon={PROFILE_ICONS.refresh}
           iconTone="capability"
           title="Actions"
           description="Sync, receipts, or disconnect."
@@ -4001,7 +4033,7 @@ function ProfilePageContent({
       <SettingsGroup title="Vault">
         {vaultAccess.needsVaultCreation ? (
           <SettingsRow
-            icon={VaultRowIcon}
+            icon={PROFILE_ICONS.security}
             iconTone="capability"
             title="Create your vault"
             description="Secure saved details."
@@ -4021,7 +4053,7 @@ function ProfilePageContent({
           <>
             {!vaultAccess.canMutateSecureData ? (
               <SettingsRow
-                icon={VaultRowIcon}
+                icon={PROFILE_ICONS.security}
                 iconTone="capability"
                 title="Unlock vault"
                 description="Change methods or password."
@@ -4057,7 +4089,7 @@ function ProfilePageContent({
     >
       <SettingsGroup title="Connection">
         <SettingsRow
-          icon={GmailAgentIcon}
+          icon={PROFILE_ICONS.mail}
           iconTone="capability"
           title="Status"
           description={gmailSettingsDescription}
@@ -4065,7 +4097,7 @@ function ProfilePageContent({
           stackTrailingOnMobile
         />
         <SettingsRow
-          icon={InboxRowIcon}
+          icon={PROFILE_ICONS.inbox}
           iconTone="capability"
           title="Inbox"
           description={
@@ -4077,7 +4109,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={SyncRowIcon}
+          icon={PROFILE_ICONS.refresh}
           iconTone="capability"
           title="Latest sync"
           description={gmailLastSyncText}
@@ -4202,11 +4234,23 @@ function ProfilePageContent({
     if (activeDetail === "phone") {
       profileStackEntries.push({
         key: "detail:phone",
-        title: phoneNumber ? "Change phone number" : "Add phone number",
+        title: phoneNumber ? "Change phone number" : phoneLookupPending ? "Phone number" : "Add phone number",
         description: phoneNumber
           ? "Verify a new number."
-          : "Add a verified number.",
-        content: (
+          : phoneLookupPending ? undefined : "Add a verified number.",
+        content: phoneLookupPending ? (
+          <div className="flex flex-col gap-4">
+            <p role="status">{phoneSummaryText}</p>
+            <Button
+              data-voice-control-id="profile-phone-detail-retry"
+              onClick={() => void retryPhoneLookup()}
+              disabled={phoneNumberStatus === "loading"}
+            >
+              Try again
+            </Button>
+            <Button variant="none" effect="fade" onClick={popProfileStack}>Cancel</Button>
+          </div>
+        ) : (
           <>
             {presentation === "native-page" ? <div ref={setNativePhoneHost} /> : <PhoneVerificationFlow
               ownerKey={phoneVisit.id}
@@ -4524,7 +4568,7 @@ function ProfilePageContent({
         content: (
           <SettingsGroup title={PROFILE_LABELS.accountAccess}>
             <SettingsRow
-              icon={SignOutProfileIcon}
+              icon={PROFILE_ICONS.signOut}
               iconTone="capability"
               title="Sign out"
               description="Sign out on this device."
@@ -4976,9 +5020,9 @@ function ProfilePageContent({
         ...(nativePortrait ? { portraitData: nativePortrait } : {}) },
     ] },
     { id: "account-identity", title: "Identity", rows: [
-      { id: "account-name", label: "Display name", detail: user.displayName || "Not available", enabled: true, artworkId: "account", trailing: "Edit" },
+      { id: "account-name", label: "Display name", detail: user.displayName || "Not available", enabled: true, artworkId: "account-name", trailing: "Edit" },
       { id: "account-mail", label: "Mail", detail: user.email || "Not available", enabled: true, readOnly: true, artworkId: "account-mail" },
-      { id: "account-phone", label: "Phone number", detail: phoneSummaryText, enabled: true, artworkId: "account-phone", trailing: phoneNumber ? "Change" : "Add", chevron: true },
+      { id: "account-phone", label: "Phone number", detail: phoneSummaryText, enabled: !!phoneNumber || phoneNumberStatus !== "loading", artworkId: "account-phone", trailing: phoneNumber ? "Change" : phoneLookupPending ? "Retry" : "Add", chevron: true },
       { id: "account-provider", label: "Sign-in provider", detail: provider.name, enabled: true, readOnly: true },
       ...(walletCardEntryEnabled ? [{ id: "account-wallet", label: WALLET_CARD_COPY.profileEntry.title,
         detail: WALLET_CARD_COPY.profileEntry.description, enabled: true, artworkId: "account-wallet", chevron: true }] : []),
@@ -5050,7 +5094,7 @@ function ProfilePageContent({
           onClose={() => setNativePricingEditorOpen(false)} onFallback={() => { setNativePricingEditorOpen(false); setNativePricingFailed(true); }} /> : null }}
     detailOverlay={<>{nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
       onPresentationClose={() => setNativeAccountException(null)} /> : null}{vaultOverlays}</>}
-    phone={{ active: activePanel === "account" && activeDetail === "phone" && !showVaultUnlock && nativeMenuOpen,
+    phone={{ active: activePanel === "account" && activeDetail === "phone" && !showVaultUnlock && nativeMenuOpen && !phoneLookupPending,
       editor: options => <NativePhoneVerificationFlow {...options} ownerKey={phoneVisit.id} isCurrent={phoneVisitIsCurrent}
         webHost={nativePhoneHost} mode={phoneNumber ? "replace" : "link"} currentPhoneNumber={phoneNumber}
         startVerification={phoneNumber ? startPhoneReplacement : startPhoneVerification}
@@ -5114,7 +5158,7 @@ function ProfilePageContent({
         {nativeRuntimeActive ? nativeRuntime.editor(destinationId) : null}
         {vaultNativeActive && passphraseDialogOpen && destinationId ? <NativeVaultPasswordEditor model={vaultMethods} userId={user.uid}
           destinationId={destinationId} onFallback={() => setNativeVaultPasswordFallback(true)} /> : null}</> }}
-    account={{ active: activePanel === "account" && (!activeDetail || activeDetail === "phone") && !nativeAccountException && !showVaultUnlock,
+    account={{ active: activePanel === "account" && (!activeDetail || activeDetail === "phone" && !phoneLookupPending) && !nativeAccountException && !showVaultUnlock,
       page: nativeAccountPage, confirmation: accountConfirmation,
       root: () => {
         if (isDeleting || isResetting) return;
@@ -5123,7 +5167,7 @@ function ProfilePageContent({
       ...(accountConfirmation ? { back: dismissAccountConfirmation } : {}), rows: new Map([
         ["account-photo", () => setNativeAccountException("photo")],
         ["account-name", () => setEditingDisplayName(true)],
-        ["account-phone", () => updateProfileView({ panel: "account", detail: "phone" }, "push")],
+        ["account-phone", () => { if (phoneLookupPending) { void retryPhoneLookup(); return; } updateProfileView({ panel: "account", detail: "phone" }, "push"); }],
         ["account-wallet", () => router.push(ROUTES.ONE_WALLET_CARD)],
         ["account-payments-open", () => openVaultBackedPanel("payouts")],
         ["account-reset", handleResetClick],

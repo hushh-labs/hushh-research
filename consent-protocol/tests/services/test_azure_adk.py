@@ -321,7 +321,10 @@ async def test_real_adk_runner_executes_one_authorized_tool_then_preserves_its_r
 
 
 @pytest.mark.parametrize("matched", [True, False])
-async def test_real_runner_migrates_gemini_fallback_tool_ids_without_guessing_pairs(matched):
+@pytest.mark.parametrize("managed", [True, False])
+async def test_real_runner_migrates_gemini_fallback_tool_ids_without_guessing_pairs(
+    matched, managed, monkeypatch
+):
     from google.adk.agents import LlmAgent
     from google.adk.apps import App
     from google.adk.events import Event
@@ -329,6 +332,25 @@ async def test_real_runner_migrates_gemini_fallback_tool_ids_without_guessing_pa
     from google.adk.sessions import InMemorySessionService
 
     adapter, client, _, token = model([response(message("Migrated synthetic history"))])
+    if managed:
+        from unittest.mock import AsyncMock
+
+        from hushh_mcp.runtime_providers.managed_text import (
+            ManagedPrimaryTextModel,
+            managed_text_policy,
+        )
+
+        monkeypatch.setenv("ENVIRONMENT", "uat")
+        monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+        adapter = ManagedPrimaryTextModel(
+            **adapter.model_dump(exclude={"api_key", "client"}),
+            token_supplier=token,
+            client_factory=lambda **kwargs: client,
+            require_current=AsyncMock(),
+            fallback_model=SimpleNamespace(model="gemini"),
+            policy_generation=managed_text_policy()["generation"],
+            processing_scope="one_text_chat",
+        )
     agent = LlmAgent(name="migration_agent", model=adapter, instruction="Keep original history.")
     sessions = InMemorySessionService()
     session = await sessions.create_session(
@@ -558,3 +580,301 @@ async def test_private_authority_is_rechecked_after_token_before_every_send(stre
     result = [item async for item in adapter.generate_content_async(request(), stream=stream)]
     assert result[-1].turn_complete and len(client.requests) == 1
     assert order[-2:] == ["token", "guard"]
+
+
+@pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
+async def test_managed_uat_azure_first_fallback_targets_gemini_without_replaying_tools(
+    monkeypatch, status
+):
+    from unittest.mock import AsyncMock
+
+    from google.adk.models.llm_response import LlmResponse
+
+    from hushh_mcp.runtime_providers import managed_text as managed
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    calls = []
+    error = RuntimeError("synthetic outage")
+    error.status_code = status
+
+    async def azure(self, req, stream=False):
+        calls.append(("azure", req.model))
+        raise error
+        yield
+
+    async def gemini(req, stream=False):
+        calls.append(("gemini", req.model))
+        # Real Gemini non-stream responses do not set turn_complete.
+        yield LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text="Arbitrary topic result")])
+        )
+
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", azure)
+    guard = AsyncMock()
+    adapter, _, _, _ = model([])
+    wrapped = managed.ManagedPrimaryTextModel(
+        **adapter.model_dump(exclude={"api_key", "client"}),
+        token_supplier=lambda: "synthetic",
+        require_current=guard,
+        fallback_model=SimpleNamespace(model="gemini-fallback", generate_content_async=gemini),
+        policy_generation=managed.managed_text_policy()["generation"],
+        processing_scope="one_text_chat",
+    )
+    req = request(
+        types.Content(role="user", parts=[types.Part(text="Arbitrary topic")]),
+        types.Content(
+            role="model",
+            parts=[
+                types.Part(
+                    function_call=types.FunctionCall(id="adk-existing", name="lookup", args={})
+                )
+            ],
+        ),
+        types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        id="adk-existing", name="lookup", response={"done": True}
+                    )
+                )
+            ],
+        ),
+    )
+    before = req.model_dump()
+    result = [item async for item in wrapped.generate_content_async(req)]
+    assert result[-1].content.parts[0].text == "Arbitrary topic result"
+    assert calls == [("azure", "synthetic-deployment"), ("gemini", "gemini-fallback")]
+    assert req.model_dump() == before
+    assert guard.await_count == 2  # Revalidation before each provider, no tool rerun.
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        PermissionError("revoked"),
+        ValueError("invalid schema"),
+        __import__(
+            "hushh_mcp.runtime_providers.azure_adk", fromlist=["AzureAuthenticationError"]
+        ).AzureAuthenticationError("auth"),
+        SimpleNamespace(status_code=401),
+        SimpleNamespace(status_code=403),
+        SimpleNamespace(status_code=400),
+    ],
+)
+async def test_managed_uat_denial_auth_configuration_never_falls_back(monkeypatch, failure):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.runtime_providers import managed_text as managed
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    if not isinstance(failure, Exception):
+        error = RuntimeError("synthetic provider refusal")
+        error.status_code = failure.status_code
+    else:
+        error = failure
+
+    async def azure(self, req, stream=False):
+        raise error
+        yield
+
+    fallback = Mock()
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", azure)
+    wrapped = managed.ManagedPrimaryTextModel(
+        model="synthetic",
+        endpoint="https://synthetic.openai.azure.com/openai/v1/",
+        token_supplier=lambda: "synthetic",
+        require_current=AsyncMock(),
+        fallback_model=SimpleNamespace(model="gemini", generate_content_async=fallback),
+        policy_generation=managed.managed_text_policy()["generation"],
+        processing_scope="drive_document_requests",
+    )
+    with pytest.raises(type(error)):
+        _ = [item async for item in wrapped.generate_content_async(request())]
+    fallback.assert_not_called()
+
+
+async def test_managed_primary_success_partial_output_and_authority_fence(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from google.adk.models.llm_response import LlmResponse
+
+    from hushh_mcp.runtime_providers import managed_text as managed
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    fallback = Mock()
+    guard = AsyncMock()
+    wrapped = managed.ManagedPrimaryTextModel(
+        model="synthetic",
+        endpoint="https://synthetic.openai.azure.com/openai/v1/",
+        token_supplier=lambda: "synthetic",
+        require_current=guard,
+        fallback_model=SimpleNamespace(model="gemini", generate_content_async=fallback),
+        policy_generation=managed.managed_text_policy()["generation"],
+        processing_scope="drive_document_requests",
+    )
+
+    async def azure(self, req, stream=False):
+        yield LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text="valid")]),
+            turn_complete=True,
+        )
+
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", azure)
+    assert len([item async for item in wrapped.generate_content_async(request())]) == 1
+    fallback.assert_not_called()
+    closed = []
+
+    async def partial(self, req, stream=False):
+        try:
+            yield LlmResponse(
+                content=types.Content(role="model", parts=[types.Part(text="partial")]),
+                partial=True,
+            )
+            raise TimeoutError
+        finally:
+            closed.append(True)
+
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", partial)
+    with pytest.raises(TimeoutError):
+        _ = [item async for item in wrapped.generate_content_async(request(), stream=True)]
+    assert closed == [True]
+    fallback.assert_not_called()
+    guard.side_effect = PermissionError("revoked source")
+    with pytest.raises(managed.ManagedTextAuthorityError):
+        _ = [item async for item in wrapped.generate_content_async(request())]
+    fallback.assert_not_called()
+
+
+async def test_managed_invocation_guards_are_owner_local_and_policy_changes_block_send(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.adk_bridge import delegation
+    from hushh_mcp.one_adk.request_secrets import store_request_secret
+    from hushh_mcp.runtime_providers import managed_text as managed
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    adapter, client, factory, token = model([response(message("unused"))])
+    wrapped = managed.ManagedPrimaryTextModel(
+        **adapter.model_dump(exclude={"api_key", "client"}),
+        token_supplier=token,
+        client_factory=factory,
+        fallback_model=SimpleNamespace(model="gemini"),
+        policy_generation=managed.managed_text_policy()["generation"],
+        processing_scope="one_text_chat",
+    )
+    agent = managed.managed_text_agent(name="one", model=wrapped)
+    validator = AsyncMock(
+        side_effect=lambda owner, credential: (
+            object() if credential == f"synthetic-{owner}" else None
+        )
+    )
+    monkeypatch.setattr(delegation, "validate_first_party_owner_token", validator)
+    bound = await asyncio.gather(
+        *(
+            agent.canonical_model_async(
+                SimpleNamespace(
+                    state={
+                        "hussh:user_id": owner,
+                        "hussh:consent_token": store_request_secret(f"synthetic-{owner}"),
+                    }
+                )
+            )
+            for owner in ("owner-a", "owner-b")
+        )
+    )
+    await asyncio.gather(*(item.require_current() for item in bound))
+    assert validator.await_args_list[0].args != validator.await_args_list[1].args
+    assert wrapped.require_current is None  # Shared model is only a template.
+    with pytest.raises(managed.ManagedTextAuthorityError):
+        _ = [item async for item in wrapped.generate_content_async(request())]
+    original_policy = managed.managed_text_policy()
+    token.side_effect = lambda: (
+        monkeypatch.setattr(
+            managed, "managed_text_policy", lambda: {**original_policy, "generation": "changed"}
+        )
+        or "synthetic"
+    )
+    with pytest.raises(managed.ManagedTextAuthorityError):
+        _ = [item async for item in bound[0].generate_content_async(request())]
+    assert client.requests == []  # Policy was rechecked after token acquisition.
+
+
+async def test_managed_timeout_is_bounded_and_closed_before_single_fallback(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from google.adk.models.llm_response import LlmResponse
+
+    from hushh_mcp.runtime_providers import managed_text as managed
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    closed, calls = [], []
+
+    async def blocked(self, req, stream=False):
+        try:
+            await asyncio.Event().wait()
+            yield
+        finally:
+            closed.append(True)
+
+    async def fallback(req, stream=False):
+        calls.append(req.model)
+        yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="complete")]))
+
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", blocked)
+    wrapped = managed.ManagedPrimaryTextModel(
+        model="azure",
+        endpoint="https://synthetic.openai.azure.com/openai/v1/",
+        token_supplier=lambda: "synthetic",
+        require_current=AsyncMock(),
+        fallback_model=SimpleNamespace(model="gemini", generate_content_async=fallback),
+        policy_generation=managed.managed_text_policy()["generation"],
+        processing_scope="drive_document_requests",
+        primary_seconds=0.01,
+    )
+    async with asyncio.timeout(1):
+        assert len([item async for item in wrapped.generate_content_async(request())]) == 1
+    assert closed == [True] and calls == ["gemini"]
+
+
+async def test_managed_healthy_stream_can_finish_after_its_first_output_deadline(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from google.adk.models.llm_response import LlmResponse
+
+    from hushh_mcp.runtime_providers import managed_text as managed
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+
+    async def healthy(self, req, stream=False):
+        yield LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text="first")]), partial=True
+        )
+        await asyncio.sleep(0.03)
+        yield LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text="complete")]),
+            partial=False,
+            turn_complete=True,
+        )
+
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", healthy)
+    fallback = Mock()
+    wrapped = managed.ManagedPrimaryTextModel(
+        model="azure",
+        endpoint="https://synthetic.openai.azure.com/openai/v1/",
+        token_supplier=lambda: "synthetic",
+        require_current=AsyncMock(),
+        fallback_model=SimpleNamespace(model="gemini", generate_content_async=fallback),
+        policy_generation=managed.managed_text_policy()["generation"],
+        processing_scope="one_text_chat",
+        primary_seconds=0.01,
+    )
+    result = [item async for item in wrapped.generate_content_async(request(), stream=True)]
+    assert [item.partial for item in result] == [True, False]
+    fallback.assert_not_called()

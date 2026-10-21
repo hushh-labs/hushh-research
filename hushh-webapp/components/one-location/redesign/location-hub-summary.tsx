@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { locationStatusLabel } from "@/lib/one-location/location-readiness";
 import type { LocationHubViewModel } from "./location-redesign-hub";
 import { TaskFlowHeader } from "./primitives";
-import { LOCATION_HEADER_ACTIONS_CLASSNAME, LOCATION_HEADER_STATUS_CLASSNAME, LOCATION_HEADER_TOGGLE_LABEL_CLASSNAME } from "./location-header-layout";
+import { LOCATION_HEADER_ACTIONS_CLASSNAME, LOCATION_HEADER_STATUS_CLASSNAME, LOCATION_HEADER_SWITCH_CLASSNAME, LOCATION_HEADER_TOGGLE_LABEL_CLASSNAME } from "./location-header-layout";
 
 type LocationHeaderViewModel = Pick<LocationHubViewModel,
   "locationEnabled" | "locationAcquiring" | "locationBlocked" | "locationPaused" |
@@ -102,7 +102,7 @@ export function LocationHeaderActions({ vm }: { vm: LocationHeaderViewModel }) {
         data-voice-control-id="one-location-updates-toggle"
         // No colour override: the shared Switch already carries the iOS
         // system green, so this toggle reads the same as every other one.
-        className={cn("shrink-0", acquiring && "animate-pulse")}
+        className={cn(LOCATION_HEADER_SWITCH_CLASSNAME, acquiring && "animate-pulse")}
       />
       <LocationHeaderStatus vm={vm} />
       </label>

@@ -2554,9 +2554,11 @@ def _semantic_content_io(service, bodies, decisions):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("subject", ["Alder Rowan", "Nia O'Keefe", "Zoë Amari"])
+@pytest.mark.parametrize("request_revision", [0, 3])
 async def test_semantic_request_keeps_fifty_generic_titles_and_resumes_unique_candidates(
     monkeypatch,
     subject,
+    request_revision,
 ):
     first = [
         _provider_file(f"generic-{n}", f"Research notebook {n}", version="9") for n in range(50)
@@ -2582,6 +2584,7 @@ async def test_semantic_request_keeps_fifty_generic_titles_and_resumes_unique_ca
     labels[bodies["generic-37"]] = labels[bodies["later-match"]] = "include"
     reads = _semantic_content_io(service, bodies, labels)
     checkpoint = _semantic_checkpoint(subject)
+    checkpoint["request_revision"] = request_revision
     job = {"user_id": "owner", "generation": 7, "checkpoint": checkpoint}
 
     checkpoint, files, incomplete, done = await service._page(job)
@@ -2622,7 +2625,8 @@ async def test_semantic_request_keeps_fifty_generic_titles_and_resumes_unique_ca
         assert evidence["source"]["id"] == item["id"]
         assert evidence["owner_user_id"] == "owner"
         assert evidence["request_id"] == checkpoint["request_origin_id"]
-        assert evidence["request_revision"] == 3 and evidence["connection_generation"] == 7
+        assert evidence["request_revision"] == request_revision
+        assert evidence["connection_generation"] == 7
         assert evidence["plan_digest"] == checkpoint["semantic_plan_digest"]
 
 
@@ -2663,7 +2667,10 @@ async def test_semantic_unavailable_preserves_pending_candidate_for_retry(monkey
 
 
 @pytest.mark.asyncio
-async def test_semantic_permanent_unavailable_marks_partial_coverage_and_continues(monkeypatch):
+async def test_semantic_permanent_unavailable_marks_partial_coverage_and_continues(
+    monkeypatch, caplog
+):
+    caplog.set_level("INFO", logger="drive_owner_search")
     service, _ = _real_rest_service(monkeypatch, lambda *_: pytest.fail("discovery repeated"))
     checkpoint = _semantic_checkpoint("Ember Vale")
     unavailable = _provider_file("unsupported", "Archived document", version="9")
@@ -2691,11 +2698,20 @@ async def test_semantic_permanent_unavailable_marks_partial_coverage_and_continu
     assert not incomplete and not done and files == []
     assert updated["semantic_coverage_incomplete"] is True
     assert updated["coverage_counts"]["unavailableCandidateCount"] == 1
+    assert updated["semantic_outcome_counts"] == {"unavailable:unsupported_format": 1}
     assert [item["id"] for item in updated["semantic_pending"]] == ["supported"]
     job["checkpoint"] = updated
     updated, files, incomplete, done = await service._page(job)
     assert done and not incomplete and files == []
     assert updated["coverage_counts"]["contentExcludedCount"] == 1
+    assert updated["semantic_outcome_counts"] == {
+        "unavailable:unsupported_format": 1,
+        "excluded:content_excluded": 1,
+    }
+    assert "decision=unavailable reason=unsupported_format position=1" in caplog.text
+    assert "decision=excluded reason=content_excluded position=2" in caplog.text
+    assert "Archived document" not in caplog.text
+    assert "Agreement with another person." not in caplog.text
     assert reads == ["supported"]
 
     # The source may complete and stream verified files. The separate coverage
@@ -3682,3 +3698,145 @@ async def test_page_commit_cannot_add_or_remove_model_binding(monkeypatch, remov
     with pytest.raises(DriveReadError, match="search_superseded"):
         await store.commit_page(job, checkpoint=proposed, files=[])
     assert writes == []
+
+
+def _discovery_checkpoint(subject="Cedar Rook"):
+    from hushh_mcp.services.drive_request_discovery import (
+        DISCOVERY_DELIVERY_POLICY,
+        compile_discovery_queries,
+    )
+
+    checkpoint = _semantic_checkpoint(subject)
+    queries = compile_discovery_queries(checkpoint["semantic_plan"])
+    checkpoint.update(
+        discovery_delivery_policy=DISCOVERY_DELIVERY_POLICY,
+        request_file_kind="any",
+        queries=queries,
+        arguments=queries[0]["arguments"],
+    )
+    return checkpoint
+
+
+@pytest.mark.asyncio
+async def test_discovery_delivery_keeps_79_mixed_formats_without_any_content_assessment(
+    monkeypatch,
+):
+    originals = [
+        _provider_file(
+            f"result-{n}",
+            f"Cedar Rook record {n}",
+            [
+                "video/mp4",
+                "application/pdf",
+                "application/zip",
+                "image/png",
+                "application/vnd.google-apps.document",
+            ][n % 5],
+            version="9",
+        )
+        for n in range(79)
+    ]
+    outside = _provider_file("outside", "Cedar Rook 2024-01-01", version="9")
+    folder = _provider_file("folder", "Cedar Rook folder", "application/vnd.google-apps.folder")
+
+    def respond(path, params, keys):
+        if path == "/drives":
+            return {"drives": []}
+        assert path == "/files"  # No body export, OCR, or companion reads.
+        assert "mimeType != 'application/vnd.google-apps.folder'" in params["q"]
+        assert "mimeType != 'application/vnd.google-apps.shortcut'" in params["q"]
+        if params.get("pageToken") == "next":
+            return {"files": originals[40:] + [originals[0], outside, folder]}
+        return {"files": originals[:40], "nextPageToken": "next"}
+
+    service, _ = _real_rest_service(monkeypatch, respond)
+    service.reader_factory = lambda **_: pytest.fail("content reader invoked")
+    service.candidate_assessor = AsyncMock(side_effect=AssertionError("assessor invoked"))
+    checkpoint = _discovery_checkpoint()
+    delivered = {}
+    for _ in range(4):
+        checkpoint, files, incomplete, done = await service._page(
+            {"user_id": "owner", "generation": 7, "checkpoint": json.loads(json.dumps(checkpoint))}
+        )
+        assert not incomplete
+        delivered.update({item["id"]: item for item in files})
+        if done:
+            break
+    assert done and set(delivered) == {item["id"] for item in originals}
+    assert checkpoint["folder_queue"] == []
+    assert checkpoint["semantic_pending"] == []
+    assert checkpoint["coverage_counts"]["excludedByDateCount"] == 1
+    service.candidate_assessor.assert_not_awaited()
+    for item in delivered.values():
+        assert "contentVerified" not in item and "requestEvidence" not in item
+        assert (
+            item["discoveryEvidence"]["content_assessment"] == "not_applicable_by_delivery_policy"
+        )
+        assert item["discoveryEvidence"]["source"]["id"] == item["id"]
+
+
+@pytest.mark.asyncio
+async def test_discovery_commit_requires_frozen_query_policy_and_bound_source(monkeypatch):
+    from hushh_mcp.services.drive_request_discovery import discovery_evidence
+
+    checkpoint = _discovery_checkpoint()
+    item = {**_provider_file("video", "Cedar Rook recording", "video/mp4"), "sourceVersion": "9"}
+    item["discoveryEvidence"] = discovery_evidence(
+        checkpoint, user_id="owner", generation=7, metadata=item
+    )
+    store, job, writes = _semantic_commit_store(monkeypatch, checkpoint)
+    monkeypatch.setattr(DriveBulkShareStore, "refresh_request", AsyncMock())
+    for key, value in [("name", "different"), ("contentVerified", True), ("discoveryEvidence", {})]:
+        with pytest.raises(DriveReadError, match="provider_response_invalid"):
+            await store.commit_page(job, checkpoint=checkpoint, files=[{**item, key: value}])
+        assert not writes
+    changed = {**checkpoint, "discovery_delivery_policy": None}
+    with pytest.raises(DriveReadError, match="search_superseded"):
+        await store.commit_page(job, checkpoint=changed, files=[])
+    result = await store.commit_page(job, checkpoint=checkpoint, files=[item], done=True)
+    assert result["status"] == "completed" and result["matched"] == 1
+
+
+def test_discovery_query_preserves_required_terms_negation_and_no_discovery_aliases():
+    from hushh_mcp.services.drive_request_discovery import compile_discovery_queries
+
+    plan = _semantic_checkpoint("Cedar Rook")["semantic_plan"]
+    predicates = plan["clauses"][0]["predicates"]
+    predicates[0]["discovery_terms"] = ["Cedar"]
+    predicates.extend(
+        [
+            {
+                "id": "topic",
+                "kind": "content",
+                "value": "compensation",
+                "match": "token",
+                "negated": False,
+                "discovery_terms": [],
+            },
+            {
+                "id": "without",
+                "kind": "title",
+                "value": "draft",
+                "match": "token",
+                "negated": True,
+                "discovery_terms": [],
+            },
+        ]
+    )
+    q = compile_discovery_queries(plan)[0]["arguments"]["query"]
+    assert "'Cedar Rook'" in q and "name contains 'Cedar'" not in q
+    assert "fullText contains 'compensation'" in q and "not ((name contains 'draft'))" in q
+    plan["date_basis"] = "content"
+    from hushh_mcp.services.drive_request_semantic_plan import SemanticPlanInputRequired
+
+    with pytest.raises(SemanticPlanInputRequired):
+        compile_discovery_queries(plan)
+
+
+@pytest.mark.asyncio
+async def test_discovery_refuses_query_provenance_drift_before_provider_io(monkeypatch):
+    service, _ = _real_rest_service(monkeypatch, lambda *_: pytest.fail("drift reached Drive"))
+    checkpoint = _discovery_checkpoint()
+    checkpoint["arguments"] = {"query": "trashed = false"}
+    with pytest.raises(DriveReadError, match="provider_response_invalid"):
+        await service._page({"user_id": "owner", "generation": 7, "checkpoint": checkpoint})

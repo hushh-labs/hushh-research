@@ -148,6 +148,12 @@ authority contract.
    only when you want the focused simulator App Intent/action gate in this
    release; the default is `false` because the full suite already runs in
    change-aware CI.
+   When the committed marketing version is behind the intended tester version,
+   supply `marketing_version` (`x.y.z`) after checking live Apple version history
+   and concurrent uploads. This is packaging metadata only: the exact source SHA
+   and matching UAT backend stay unchanged. The archive's app and extensions must
+   agree, and recovery receipts record the archived version, not the source default.
+   This option does not create, submit, publish or replace a public App Store version.
 6. Use `dry_run: true` only when you want a signed archive without uploading.
    It follows the same `require_hardware` choice. The signed IPA is retained for
    14 live days in the dedicated `hushh-native-uat` project's private

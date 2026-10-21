@@ -24,6 +24,10 @@ Classes:
 * ``SUPPORT``: public reference information, settings and retired responders.
 * ``OPS``: placement, provisioning, setup, heartbeat and lifecycle.
 
+PLG OPS routes carry bounded product-operation metadata and signed first-party
+identity-directory projections, never private pod observations or arguments.
+Public company facts use explicit public symbols rather than vault holdings.
+
 ``@pending:<lane>`` marks a ``CONTENT`` route whose module is owned by another lane of
 the private-agent plan; it is listed in ``CONTENT_GUARD_PENDING`` and the inventory
 test fails as soon as it is guarded, so the ledger only shrinks.
@@ -54,6 +58,9 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+POST /api/one/calendar/board/day
+POST /api/one/calendar/conflicts/review
+POST /api/one/calendar/conflicts/confirm
 GET /api/connectors/google_drive/sharing/requests/{request_id}/shared-files
 POST /api/connectors/google_drive/sharing/requests/{request_id}/shared-files/remove
 POST /api/connectors/google_drive/sharing/requests/{request_id}/shared-files/restore
@@ -288,6 +295,7 @@ POST /api/one/google/connect/transition/complete
 GET,POST /api/one/kyc/client-connector
 POST /api/one/runtime/gemini/validate
 [SUPPORT]
+GET /api/kai/market/company-facts/{user_id}
 GET /api/one/wallet/card-access/artwork/assets/{digest}
 POST /api/one/wallet/card-access/artwork/resolve
 POST /api/one/wallet/card-access/artwork/banks
@@ -319,6 +327,9 @@ GET /api/one/voice/readiness
 GET /api/pkm/domain-registry
 POST /api/pkm/slice-price
 [OPS]
+GET,POST /api/one/plg/activity
+POST /api/one/plg/snapshot
+POST /api/one/plg/audience
 POST /api/one/runtime/byoc/attach/retry
 POST /api/kai/gmail/webhook
 GET /api/one/agent-prompt

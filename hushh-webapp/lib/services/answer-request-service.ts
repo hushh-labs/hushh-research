@@ -437,16 +437,18 @@ export class AnswerRequestService {
     dispatchConsentStateChanged({ requestId: `answer_request:${requestId}` });
   }
 
-  /** Submit a question. Returns the new request id; resolution happens server-side. */
+  /** Submit a question. An unchanged retry can reuse the existing request id. */
   static async create(
     firebaseIdToken: string,
     personRef: string,
     terms: AnswerRequestTerms,
+    options?: { clientRequestId: string; isEffectCurrent?: () => boolean },
   ): Promise<{ requestId: string }> {
     if (!firebaseIdToken) throw new Error("Sign in to send this request");
     if (!validAnswerRequest(terms))
       throw new Error("Check the request details");
     const response = await ApiService.apiFetch("/api/one/answer-requests", {
+      isEffectCurrent: options?.isEffectCurrent,
       method: "POST",
       cache: "no-store",
       headers: {
@@ -454,6 +456,7 @@ export class AnswerRequestService {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        ...(options ? { clientRequestId: options.clientRequestId } : {}),
         personRef,
         question: terms.question.trim(),
         periodStart: terms.periodStart,

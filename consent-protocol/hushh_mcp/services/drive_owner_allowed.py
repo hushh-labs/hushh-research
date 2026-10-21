@@ -39,7 +39,7 @@ LEGACY_DEFAULT_PRICE_CENTS = 1_000
 # payment with no owner file selection, at a price from $0.50 in cents. Older
 # sealed requests keep their own price and review contract.
 AUTOSHARE_REQUEST_FLOW = "oct17_autoshare"
-SEMANTIC_SEARCH_POLICY_VERSION = 1
+SEMANTIC_SEARCH_POLICY_VERSION = 2
 SEMANTIC_SEARCH_ENROLLMENT_FLAG = "DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED"
 
 
@@ -73,7 +73,7 @@ def semantic_search_request(private: Mapping[str, Any]) -> bool:
     version = private.get("semantic_search_policy_version")
     return (
         type(version) is int
-        and version == SEMANTIC_SEARCH_POLICY_VERSION
+        and version in {1, SEMANTIC_SEARCH_POLICY_VERSION}
         and autoshare_request(private)
         and private.get("v1_live_request") is not True
     )

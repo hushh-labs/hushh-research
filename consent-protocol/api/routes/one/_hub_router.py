@@ -52,6 +52,7 @@ from .people import router as people_router
 from .personal_agent import router as personal_agent_router
 from .pkm_packets import router as pkm_packets_router
 from .places import router as places_router
+from .plg import router as plg_router
 from .pod_browser_approval import router as pod_browser_approval_router
 from .pod_consent import router as pod_consent_router
 from .pod_heartbeat import router as pod_heartbeat_router
@@ -130,6 +131,7 @@ router.include_router(payout_balance_router)
 router.include_router(career_router)
 router.include_router(opportunity_signals_router)
 router.include_router(personal_agent_router)
+router.include_router(plg_router)
 router.include_router(places_router)
 router.include_router(profile_discovery_router)
 router.include_router(public_people_router)

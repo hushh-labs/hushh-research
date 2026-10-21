@@ -311,6 +311,7 @@ function SheetContent(
         */}
         {showCloseButton && (
           <SheetPrimitive.Close
+            data-slot="sheet-close"
             className={cn(
               "ring-offset-background focus:ring-ring absolute right-4 z-10 rounded-full border border-transparent bg-transparent p-2 text-[color:var(--app-secondary-label)] transition-colors after:absolute after:-inset-1.5 after:content-[''] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none",
               // Absolute against the sheet's box, so the padding above does

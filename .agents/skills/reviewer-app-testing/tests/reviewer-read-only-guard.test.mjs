@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { borrowedPage } from "./fixtures/borrowed-reviewer-page.mjs";
 import test from "node:test";
+import vm from "node:vm";
 
-import { createReviewerSessionHarness, installReadOnlyMutationGuard } from "../scripts/reviewer-session-harness.mjs";
+import { createReviewerSessionHarness, installReadOnlyMutationGuard, installReviewerBridge } from "../scripts/reviewer-session-harness.mjs";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -16,6 +17,26 @@ import { createOperatorReviewerTokenProvider } from "../scripts/reviewer-operato
 import { exactCommerceReadback } from "../scripts/scope-commerce-rehearsal-browser.mjs";
 
 const APP_ORIGIN = "https://uat.one.hushh.ai";
+
+test("explicit-login bridge leaves logout landing anonymous without unlock material", () => {
+  for (const [pathname, origin, frame, permitted] of [
+    ["/login", APP_ORIGIN, false, true], ["/", APP_ORIGIN, false, false],
+    ["/one/pkm", APP_ORIGIN, false, false], ["/login", "https://other.example", false, false],
+    ["/login", APP_ORIGIN, true, false],
+  ]) {
+    const window = { __HUSHH_NATIVE_TEST__: { vaultPassphrase: "old", reviewerSessionPassphrase: "old" } };
+    window.top = frame ? {} : window;
+    vm.runInNewContext(`(${installReviewerBridge.toString()})(config)`, { window,
+      location: { pathname, origin }, config: { explicitLoginOnly: true, appOrigin: APP_ORIGIN,
+        expectedUserId: "reviewer", vaultPassphrase: "test-unlock", reviewerSessionPassphrase: "test-mint",
+        reviewerMutationPolicy: "bounded_mutation", reviewerAuthMode: "custom_token" } });
+    const bridge = window.__HUSHH_NATIVE_TEST__;
+    assert.equal(bridge.autoReviewerLogin, permitted);
+    assert.equal(bridge.vaultPassphrase, permitted ? "test-unlock" : undefined);
+    assert.equal(bridge.reviewerSessionPassphrase, permitted ? "test-mint" : undefined);
+  }
+});
+
 
 test("secure paid readback requires a visible current card and every exact-proof assertion", async () => {
   const originalDocument = globalThis.document;
@@ -489,5 +510,22 @@ for (const [label, pathname, port] of [
     for (const [name, previous] of [["REVIEWER_AUTH_MODE", previousMode], ["REVIEWER_ALLOW_SHARED_MUTATIONS", previousWrites]]) {
       if (previous === undefined) delete process.env[name]; else process.env[name] = previous;
     }
+  }
+});
+
+// Both real-session modes keep unlock material out of the document bridge.
+test("human and operator bridges never retain reviewer credentials", () => {
+  for (const reviewerAuthMode of ["human_authenticated", "operator_issued_token"]) {
+    const window = { __HUSHH_NATIVE_TEST__: { vaultPassphrase: "old", reviewerSessionPassphrase: "old" } };
+    window.top = window;
+    vm.runInNewContext(`(${installReviewerBridge.toString()})(config)`, { window,
+      location: { pathname: "/login", origin: APP_ORIGIN }, config: {
+        explicitLoginOnly: true, appOrigin: APP_ORIGIN, reviewerAuthMode,
+        expectedUserId: "reviewer", vaultPassphrase: "test-unlock", reviewerSessionPassphrase: "test-mint",
+      } });
+    assert.equal(window.__HUSHH_NATIVE_TEST__.vaultPassphrase, undefined);
+    assert.equal(window.__HUSHH_NATIVE_TEST__.reviewerSessionPassphrase, undefined);
+    assert.equal(typeof window.__HUSHH_NATIVE_TEST__.requestOperatorReviewerToken,
+      reviewerAuthMode === "operator_issued_token" ? "function" : "undefined");
   }
 });

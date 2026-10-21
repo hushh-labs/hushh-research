@@ -86,7 +86,7 @@ def _citation(annotation: Any, text: str, *, offset: int) -> AzureCitation | Non
     if not isinstance(url, str):
         return None
     title = annotation.get("title")
-    if not isinstance(title, str) or not 1 <= len(title) <= MAX_CITATION_TITLE_CHARS:
+    if not isinstance(title, str) or len(title) > MAX_CITATION_TITLE_CHARS:
         return None
     try:
         # Keep provider reference text and URL byte-for-byte. The factual
@@ -98,7 +98,7 @@ def _citation(annotation: Any, text: str, *, offset: int) -> AzureCitation | Non
 
 
 def extract_azure_web_receipts(response: Mapping[str, Any]) -> AzureWebReceipts:
-    """Extract only completed search calls and their URL-citation receipts.
+    """Extract completed search/page retrievals and their URL-citation receipts.
 
     `num_requests` is the provider's billable Bing request count, which can be
     larger than the number of visible `web_search_call` entries. Missing usage
@@ -108,15 +108,27 @@ def extract_azure_web_receipts(response: Mapping[str, Any]) -> AzureWebReceipts:
         raise ValueError("Azure response must be a mapping")
     output = _bounded_list(response.get("output"), limit=MAX_OUTPUT_ITEMS, name="output")
     count = _request_count(response)
-    completed_search = any(
-        isinstance(item, Mapping)
+    completed_calls = [
+        item
+        for item in output
+        if isinstance(item, Mapping)
         and item.get("type") == "web_search_call"
         and item.get("status") == "completed"
-        for item in output
+    ]
+    actions = [
+        item["action"].get("type")
+        for item in completed_calls
+        if isinstance(item.get("action"), Mapping)
+    ]
+    completed_retrieval = any(
+        isinstance(action, str) and action in {"search", "open_page", "find_in_page"}
+        for action in actions
     )
-    if completed_search and (count is None or count == 0):
-        raise ValueError("Completed Azure web search has no billable request count")
-    if response.get("status") != "completed" or not completed_search:
+    # Opening/finding in an existing page can explicitly bill zero Bing queries.
+    # An actual search still requires a positive count; missing usage stays unknown.
+    if completed_calls and (count is None or ("search" in actions and count == 0)):
+        raise ValueError("Completed Azure web retrieval has no valid billable request count")
+    if response.get("status") != "completed" or not completed_retrieval:
         return AzureWebReceipts(False, "", (), count or 0)
 
     answer_parts: list[str] = []
@@ -169,7 +181,9 @@ def extract_azure_web_receipts(response: Mapping[str, Any]) -> AzureWebReceipts:
                     continue
                 if len(sources) >= MAX_SOURCES:
                     raise ValueError("Azure sources exceed supported bounds")
-                source = ProfileSource(title=title, url=url)
+                # Page-open citations may have no provider title. Preserve that
+                # exact citation; this is only a display label, never new evidence.
+                source = ProfileSource(title=title or "Public page", url=url)
                 seen_urls.add(url)
                 sources.append(source)
     if not sources:

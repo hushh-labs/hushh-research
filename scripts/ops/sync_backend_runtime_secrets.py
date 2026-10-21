@@ -312,11 +312,47 @@ def _retained_referral_config(
     return {keys[0]: True, **dict(zip(keys[1:], expected_values, strict=True))}
 
 
+def _retained_plg_config(
+    existing: dict[str, Any], *, project: str, environment: str
+) -> dict[str, bool]:
+    """Preserve explicit pilot settings without importing another lane's activation."""
+    retained: dict[str, bool] = {}
+    for key in (
+        "one_plg_export_enabled",
+        "one_plg_activity_enabled",
+        "one_plg_activity_all_registered",
+        "one_plg_audience_enabled",
+    ):
+        if key not in existing:
+            continue
+        value = existing[key]
+        if isinstance(value, bool):
+            retained[key] = value
+        elif isinstance(value, str) and value in {"true", "false"}:
+            retained[key] = value == "true"
+        else:
+            raise ValueError("PLG activation must be an explicit boolean")
+    if any(retained.values()) and (
+        environment != "production"
+        or project != "hushh-pda"
+        or existing.get("environment") != "production"
+        or existing.get("google_cloud_project") != "hushh-pda"
+    ):
+        raise ValueError(
+            "PLG activation belongs only to the production environment and project"
+        )
+    return retained
+
+
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
     if getattr(args, "one_magic_intelligence_phase", "0") == "5" and args.environment != "uat":
         raise ValueError("Magic Intelligence phase 5 is only admitted for UAT")
     config: dict[str, Any] = {
         "environment": args.environment,
+        "one_plg_export_enabled": False,
+        "one_plg_activity_enabled": False,
+        "one_plg_activity_all_registered": False,
+        "one_plg_audience_enabled": False,
         "email_auth_enabled": getattr(args, "email_auth_enabled", "false"),
         "email_auth_risk_manifest": "/app/config/email-auth/risk-manifest.json",
         "email_auth_mail_api_endpoint": "https://hushh-mail-api-646258530541.us-central1.run.app",
@@ -738,6 +774,13 @@ def main() -> int:
     if retained_runtime_config:
         config.update(
             _retained_referral_config(
+                retained_runtime_config,
+                project=args.project,
+                environment=args.environment,
+            )
+        )
+        config.update(
+            _retained_plg_config(
                 retained_runtime_config,
                 project=args.project,
                 environment=args.environment,

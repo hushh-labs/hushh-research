@@ -2818,6 +2818,19 @@ class PersonalKnowledgeModelService:
             if location_finalize_authorization
             else "commit_pkm_domain_mutation_v4"
         )
+        if normalized_mutation_plan:
+            # Add derived observation metadata after the existing fingerprint:
+            # retries of pre-release commits must retain the same request hash.
+            # This does not grant write or marketing authority.
+            for event in event_rows:
+                provenance = event["metadata"].get("provenance")
+                if (
+                    isinstance(provenance, dict)
+                    and provenance.get("mutation_plan_id") == normalized_mutation_plan.plan_id
+                ):
+                    provenance["authorization_mode"] = (
+                        normalized_mutation_plan.confirmation_receipt.authorization_mode
+                    )
         rpc_result = await self._run_rpc(
             rpc_name,
             {

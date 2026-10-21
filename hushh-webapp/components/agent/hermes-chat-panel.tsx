@@ -458,7 +458,7 @@ export function HermesChatPanel({
           size), not a bordered box on a divider: the small 40px field under a
           rule was the clearest sign this surface was a different, lesser app.
           16px text and a 24px line box, matching One on phones and desktop. */}
-      <AgentDockPortal enabled={sharedDock && active} visible>
+      <AgentDockPortal enabled={sharedDock} active={active} visible>
       <AgentBarSurface embedded={sharedDock} inert={composerDisabled && !sending} className={cn("agent-chat-composer-surface agent-chat-composer-compact mx-auto min-w-0 shrink-0 items-end gap-2", !sharedDock && "mt-3")}>
         <textarea
           ref={editorRef}

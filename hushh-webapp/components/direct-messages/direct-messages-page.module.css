@@ -289,6 +289,31 @@
   height: 2.5rem;
 }
 
+.peerProfileLink {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.peerProfileLink:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+
+.messageProfileLink {
+  margin: -7px;
+}
+
+.contactProfileLink {
+  justify-self: center;
+}
+
 .threadTitle {
   display: grid;
   gap: 0.0625rem;
@@ -596,7 +621,7 @@ article[data-actions-visible="true"] .messageActions {
   outline: none;
 }
 
-.messageActionButton:focus-visible {
+article[data-message-role] .messageActionButton:focus-visible {
   outline: 2px solid var(--muted-foreground);
   outline-offset: 1px;
 }
@@ -1580,6 +1605,29 @@ article[data-message-role="peer"] .messageCluster {
   padding: 10px 11px;
 }
 .conversationRow[data-active="true"] { background: var(--chat-row-active); }
+.conversationItem { position: relative; min-width: 0; }
+.conversationItem .conversationRow { padding-right: 56px; }
+.conversationOptions {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--chat-muted);
+}
+.conversationOptions:hover, .conversationOptions:focus-visible { background: var(--chat-row-active); color: var(--chat-text); }
+.conversationOptions:focus-visible { outline: 2px solid var(--chat-accent); outline-offset: -2px; }
+@media (hover: hover) {
+  .conversationOptions { opacity: 0; }
+  .conversationItem:hover .conversationOptions, .conversationItem:focus-within .conversationOptions { opacity: 1; }
+}
 .conversationName { font-size: 14px; font-weight: 600; color: var(--chat-text); }
 .conversationPreview { font-size: 13px; color: var(--chat-muted); }
 .conversationMeta { font-size: 12px; color: var(--chat-muted); }
@@ -1639,35 +1687,13 @@ article[data-message-role="user"] .messageDeliveryState {
   border-color: var(--chat-accent);
   box-shadow: 0 0 0 1px var(--chat-accent);
 }
-.reactionPicker {
-  --chat-glass: rgba(255, 255, 255, .68);
-  --chat-glass-edge: rgba(255, 255, 255, .65);
-  --chat-row-active: rgba(0, 122, 255, .1);
-  display: flex;
-  width: max-content;
-  min-width: 0;
-  gap: 2px;
-  padding: 5px;
-  border: 1px solid var(--chat-line, var(--border));
-  border-radius: 999px;
-  background: var(--chat-surface, var(--background));
-  box-shadow: none;
-  animation: chatPickerIn .15s ease-out;
-}
-:global(.dark) .reactionPicker {
-  --chat-glass: rgba(30, 30, 36, .62);
-  --chat-glass-edge: rgba(255, 255, 255, .14);
-  --chat-row-active: rgba(10, 132, 255, .16);
-}
-.reactionPicker button { width: 44px; height: 44px; border-radius: 50%; font-size: 19px; }
-.reactionPicker button:hover { background: var(--chat-row-active); }
-@keyframes chatPickerIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .sendButton { background: var(--chat-accent); transition: transform .18s ease-out, opacity .18s ease-out; }
 .sendButton:active { transform: scale(.92); }
 .composer { --chat-accent: var(--chat-ios-accent); font-family: var(--font-app-body); max-width: none; margin-inline: auto; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
-.threadHeader, .inboxHeader, .messageList, .attachmentMenu, .reactionPicker { backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
+.threadHeader, .inboxHeader, .messageList, .attachmentMenu { backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
 .voiceButton, .sendButton { width: 44px; height: 44px; box-shadow: none; }
-.messageActionButton { background: radial-gradient(circle, var(--chat-surface) 14px, transparent 15px); box-shadow: none; }
+/* Message controls retain their compact disc inside the shared emoji trigger. */
+article[data-message-role] .messageActions .messageActionButton { background: radial-gradient(circle, var(--chat-surface) 14px, transparent 15px); box-shadow: none; }
 .attachmentMenu { min-width: 160px; }
 .attachmentMenu [role="menuitem"] { min-height: 44px; gap: 8px; }
 .attachmentLimit { padding: 5px 8px 2px; color: var(--muted-foreground); font-size: 11px; }
@@ -1729,18 +1755,14 @@ article[data-message-role="user"] .messageDeliveryState {
 .newChatPerson:disabled { opacity: .5; cursor: not-allowed; }
 .newChatMore { min-height: 44px; color: var(--chat-ios-accent); font-size: 13px; font-weight: 600; }
 @media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
-  /* The list reaches the bottom edge. Only the conversation reserves the
-     shared dock, so the composer does not leave a blank band under the list. */
+  /* Both panes reserve the viewport-centered composer and navigation. */
   .page, .page[data-chat-open="true"] {
     height: max(0px, calc(100dvh - max(var(--direct-message-page-top, 0px), var(--messages-top-clearance))));
   }
+  .inbox,
   .thread {
     align-self: start;
     height: max(0px, calc(100% - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset) + var(--direct-message-dock-height, 0px) + var(--direct-message-dock-clearance, 0px)))));
-  }
-  .inbox {
-    align-self: start;
-    height: max(0px, calc(100% - var(--direct-message-keyboard-inset, 0px)));
   }
   .messageCluster,
   article[data-message-role="peer"] .messageCluster {
@@ -1797,7 +1819,6 @@ article[data-message-role="user"] .messageDeliveryState {
 }
 @media (prefers-reduced-motion: reduce) {
   .page, .laneSwitcher button, .sendButton { transition: none; }
-  .reactionPicker { animation: none; }
 }
 
 /* Exact light-theme palette from the Chat UI handoff. */

@@ -18,7 +18,10 @@ vi.mock("@/lib/services/onboarding-local-service", () => ({
   OnboardingLocalService: { clearReleaseNotices: mocks.clearReleaseNotices },
 }));
 
-vi.mock("@/lib/services/secure-durable-resource-service", () => ({ SecureDurableResourceService: { purgeUser: vi.fn().mockResolvedValue(undefined) } }));
+vi.mock("@/lib/services/secure-durable-resource-service", () => ({
+  SecureDurableResourceService: { purgeUser: vi.fn().mockResolvedValue(undefined) },
+  subscribeDurableOwnerReset: () => () => {},
+}));
 
 vi.mock("@/lib/one-location/encryption", () => ({
   forgetLocationRecipientKey: mocks.forgetLocationRecipientKey,

@@ -21,6 +21,7 @@ FRONTEND_PREFIXES = (
 BACKEND_PREFIXES = (
     "consent-protocol/",
     "deploy/email-auth/",
+    "deploy/plg/",
 )
 FRONTEND_EXACT_PATHS = {
     "deploy/frontend.cloudbuild.yaml",

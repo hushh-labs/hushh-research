@@ -42,6 +42,8 @@ flowchart TD
   root --> n16
   n18["Personal World Model Runbook"]
   root --> n18
+  n19["Source and Release Recovery"]
+  root --> n19
 ```
 
 Use this as the entrypoint for CI, docs governance, delivery, and environment operations.
@@ -141,6 +143,7 @@ the calendar is an event record, never a timekeeping or performance measure.
 - [observability-event-matrix.md](./observability-event-matrix.md): event taxonomy, emitter map, and dashboard contract.
 - [runtime-capacity.md](./runtime-capacity.md): connection admission, application deadlines, retained-work lifecycle, provider observability and workload qualification.
 - [production-db-backup-and-recovery.md](./production-db-backup-and-recovery.md): production DB recovery guide.
+- [source-snapshot-rollback.md](./source-snapshot-rollback.md): recover main source, UAT/production traffic, TestFlight, iOS and Android releases through their governed lanes; includes pinned AgentOne backup snapshots.
 - [hussh-code-persona.md](./hussh-code-persona.md): durable Hussh engineering and Codex product non-deviation contract.
 - [coding-agent-mcp.md](./coding-agent-mcp.md): MCP host operations for local engineering environments.
 - [subtree-maintainers.md](./subtree-maintainers.md): maintainer-only subtree sync and upstream coordination.

@@ -85,9 +85,10 @@ function openSharedStream(user: FeedUser): SharedStream {
     getToken: (forceRefresh) => shared.user.getIdToken(forceRefresh),
     isCurrent,
     isVisible: () => document.visibilityState !== "hidden",
-    dispatchFeed: ({ general, consent, requestId }) => {
+    dispatchFeed: ({ general, consent, requestId, historyMutated }) => {
       // Server activity invalidates both Feed projections and fences older reads.
-      CacheSyncService.onFeedChanged(uid);
+      if (historyMutated) CacheSyncService.onFeedHistoryMutated(uid);
+      else CacheSyncService.onFeedChanged(uid);
       if (general) dispatchFeedStateChanged("arrived");
       if (!consent) return;
       // Feed surfaces listen to this one signal and perform a forced

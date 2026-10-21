@@ -200,7 +200,7 @@ action composition without changing the Foundation color system.
    button labels, and eyebrows must not be recreated with route-local arbitrary
    font sizes or weights.
 2. Text buttons use exactly three interaction sizes:
-   - `compact`: a 44px target with the compact 15/20/600 label. Use for dense
+   - `compact`: a 44px target with the compact 15/20/650 label (shipped 700 face). Use for dense
      row and toolbar actions.
    - `standard`: a 44px target with the standard button label. Use for ordinary
      actions, retry controls, secondary actions, and pagination.

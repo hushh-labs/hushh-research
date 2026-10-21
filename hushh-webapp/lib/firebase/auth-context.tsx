@@ -31,6 +31,7 @@ import { Capacitor } from "@capacitor/core";
 import { AuthService } from "@/lib/services/auth-service";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import {
@@ -42,7 +43,8 @@ import {
   clearSessionStorage,
   removeLocalItem,
 } from "@/lib/utils/session-storage";
-import { ApiService } from "@/lib/services/api-service";
+import { ApiService, type AccountIdentity } from "@/lib/services/api-service";
+import { backendPhoneIsMissing, verifiedBackendPhoneNumber } from "@/lib/auth/phone-identity";
 import { setObservabilityUserId } from "@/lib/observability/identity";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import {
@@ -67,6 +69,7 @@ import {
   publishValidatedAuthSessionOwner,
   AUTH_SESSION_VERIFICATION_REQUIRED_EVENT,
   snapshotValidatedAuthSessionOwner,
+  getAuthSessionGeneration,
   type AuthSessionVerificationRequiredDetail,
 } from "@/lib/auth/session-owner";
 import { ACCOUNT_SESSION_VALIDATION_BUDGET_MS } from "@/lib/auth/account-session-policy";
@@ -74,11 +77,14 @@ import { shouldSkipAmbientIdentityHydrationForAutomation } from "@/lib/testing/n
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { settleSignOutNotifications } from "@/lib/auth/sign-out-notifications";
 import { replaceWindowLocation } from "@/lib/utils/browser-navigation";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
 const WEB_AUTH_OBSERVER_WATCHDOG_MS = 10_000;
 const SESSION_VERIFICATION_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 30_000] as const;
+const PHONE_RECOVERY_RETRY_DELAYS_MS = [2_000, 5_000, 15_000] as const;
+const PHONE_RECOVERY_REQUEST_BUDGET_MS = 10_000;
 const NATIVE_SESSION_PRIVACY_READ_BUDGET_MS = 2_000;
 const ACCOUNT_DELETION_REPROBE_DEFAULT_DELAY_MS = 2_000;
 const ACCOUNT_DELETION_REPROBE_MAX_DELAY_MS = 2_000;
@@ -303,18 +309,15 @@ function runWhenBrowserIsIdle(task: () => void): () => void {
   return () => globalThis.clearTimeout(timeout);
 }
 
-function verifiedBackendPhoneNumber(
-  identity:
-    | {
-        phone_number?: string | null;
-        phone_verified?: boolean;
-      }
-    | null
-    | undefined,
-): string | null {
-  if (identity?.phone_verified !== true) return null;
-  const phone = String(identity.phone_number ?? "").trim();
-  return phone || null;
+function cachedBackendPhoneIdentity(userId: string): AccountIdentity | null {
+  const snapshot = AccountIdentityService.peekCachedIdentity(userId);
+  if (!snapshot || snapshot.isStale) return null;
+  return verifiedBackendPhoneNumber(snapshot.data, userId) || backendPhoneIsMissing(snapshot.data, userId)
+    ? snapshot.data : null;
+}
+
+function cachedBackendPhoneIsMissing(userId: string): boolean {
+  return backendPhoneIsMissing(cachedBackendPhoneIdentity(userId), userId);
 }
 
 // ============================================================================
@@ -327,6 +330,7 @@ interface AuthContextType {
   /** True when the backend has not authoritatively confirmed this session. */
   sessionVerificationRequired: boolean;
   phoneNumber: string | null;
+  phoneNumberStatus: "loading" | "verified" | "missing" | "unavailable";
   /** Resolves only after the verified backend phone lookup has settled. */
   resolveVerifiedPhoneNumber: () => Promise<string | null>;
   // Derived state
@@ -404,6 +408,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     epoch: number;
   } | null>(null);
   const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
+  const [phoneNumberStatus, setPhoneNumberStatusState] = useState<AuthContextType["phoneNumberStatus"]>("loading");
+  const phoneNumberStatusRef = useRef(phoneNumberStatus);
+  const setPhoneNumberStatus = useCallback((status: AuthContextType["phoneNumberStatus"]) => {
+    phoneNumberStatusRef.current = status;
+    setPhoneNumberStatusState(status);
+  }, []);
 
   // Hussh state
   const [userId, setUserId] = useState<string | null>(null);
@@ -414,6 +424,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const phoneVerificationEpochRef = useRef(0);
   const verifiedPhoneResolutionRef = useRef<{
     userId: string;
+    generation: number | null;
+    lifetime: number;
     promise: Promise<string | null>;
   } | null>(null);
   const authRecoveryInFlightRef = useRef(false);
@@ -442,6 +454,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // state and the JS listener must not publish a false signed-out transition.
   const nativeRestoreSettledRef = useRef(!IS_NATIVE);
   const nativeRestoreEpochRef = useRef(new NativeAuthRestoreEpoch());
+  const phoneRecoveryLifetimeRef = useRef(0);
+  useEffect(() => {
+    phoneRecoveryLifetimeRef.current += 1;
+    return () => { phoneRecoveryLifetimeRef.current += 1; };
+  }, []);
 
   const applyAuthUser = useCallback((nextUser: User | null) => {
     if (nextUser && nextUser.uid === signingOutUserIdRef.current) return;
@@ -484,8 +501,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // even when Firebase republishes the same user object after verification.
     const cachedPhone = cachedIdentity?.isStale
       ? null
-      : verifiedBackendPhoneNumber(cachedIdentity?.data);
-    const nextPhoneNumber = nextUser?.phoneNumber || cachedPhone || null;
+      : verifiedBackendPhoneNumber(cachedIdentity?.data, nextUser?.uid);
+    // A provider refresh or expired view cache is not a phone removal event.
+    const retainedPhone = nextUser?.uid === userRef.current?.uid ? phoneNumberRef.current : null;
+    const confirmedMissing = Boolean(cachedIdentity && !cachedIdentity.isStale &&
+      backendPhoneIsMissing(cachedIdentity.data, nextUser?.uid)) ||
+      (Boolean(nextUser) && nextUser?.uid === userRef.current?.uid && phoneNumberStatusRef.current === "missing");
+    const nextPhoneNumber = cachedPhone || (confirmedMissing ? null : retainedPhone || nextUser?.phoneNumber) || null;
     if (nextUser) {
       completedScopedSignOutUserIdRef.current = null;
     }
@@ -498,6 +520,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser(nextUser);
     setUserId(nextUser?.uid ?? null);
     setPhoneNumber(nextPhoneNumber);
+    setPhoneNumberStatus(nextPhoneNumber ? "verified" : !nextUser || confirmedMissing ? "missing" : "loading");
     // Binds the cross-surface analytics identity (a salted digest, never the
     // UID) so web, iOS and Android resolve to one user in GA4. Deliberately
     // not awaited: analytics identity must never sit on the auth critical path.
@@ -522,92 +545,194 @@ export function AuthProvider({ children }: AuthProviderProps) {
         hydrateConnectedSystems();
       }
     }
-  }, []);
+  }, [setPhoneNumberStatus]);
 
   const resolveVerifiedPhoneNumber = useCallback(async (): Promise<
     string | null
   > => {
     const currentUser = userRef.current;
     if (!currentUser?.uid) return null;
-
-    const existingPhone = String(
-      phoneNumberRef.current ?? currentUser.phoneNumber ?? "",
-    ).trim();
-    if (existingPhone) return existingPhone;
+    const generation = getAuthSessionGeneration();
+    const lifetime = phoneRecoveryLifetimeRef.current;
+    const isCurrent = () => userRef.current?.uid === currentUser.uid &&
+      generation === getAuthSessionGeneration() && lifetime === phoneRecoveryLifetimeRef.current;
 
     const cachedIdentity = AccountIdentityService.peekCachedIdentity(
       currentUser.uid,
     );
     const cachedPhone = cachedIdentity?.isStale
       ? null
-      : verifiedBackendPhoneNumber(cachedIdentity?.data);
+      : verifiedBackendPhoneNumber(cachedIdentity?.data, currentUser.uid);
     if (cachedPhone) {
       phoneNumberRef.current = cachedPhone;
       setPhoneNumber(cachedPhone);
+      setPhoneNumberStatus("verified");
       return cachedPhone;
     }
+    if (cachedBackendPhoneIsMissing(currentUser.uid)) {
+      phoneNumberRef.current = null;
+      setPhoneNumber(null);
+      setPhoneNumberStatus("missing");
+    }
+    // A real binding transfer can revoke this account's app phone while its
+    // native provider still carries the old number. Do not resurrect it.
+    const existingPhone = phoneNumberStatusRef.current === "missing" ? "" : String(
+      phoneNumberRef.current ?? currentUser.phoneNumber ?? "",
+    ).trim();
+    if (existingPhone) return existingPhone;
 
     const inFlight = verifiedPhoneResolutionRef.current;
-    if (inFlight?.userId === currentUser.uid) {
+    if (inFlight?.userId === currentUser.uid && inFlight.generation === generation && inFlight.lifetime === lifetime) {
       return inFlight.promise;
     }
 
+    // Returning from Messages must not replace an active OTP editor with a
+    // loading/error panel. A verified positive claim may still complete it.
+    const hasActivePhoneAttempt = () => phoneVerificationOwnerRef.current === currentUser.uid;
+    if (!hasActivePhoneAttempt() && phoneNumberStatusRef.current !== "missing") setPhoneNumberStatus("loading");
     const promise = (async () => {
       // A non-forced read can legally return a fresh but phone-incomplete
       // shadow. Contact normalization needs an authoritative region, so this
       // missing-phone path must consult Firebase even when that cache is fresh.
-      const identity = await AccountIdentityService.refreshCurrentUserIdentity(
-        currentUser,
-        { force: true },
+      const identity = await withinAccountSessionValidationBudget(
+        AccountIdentityService.refreshCurrentUserIdentity(
+          currentUser,
+          { force: true },
+        ),
+        Date.now() + PHONE_RECOVERY_REQUEST_BUDGET_MS,
       );
-      if (userRef.current?.uid !== currentUser.uid) return null;
+      if (!isCurrent()) return null;
 
-      const backendPhone = verifiedBackendPhoneNumber(identity);
+      // A newer claim can publish after this read returns but before the
+      // awaiting consumer resumes. Preserve that canonical phone evidence.
+      const phoneIdentity = cachedBackendPhoneIdentity(currentUser.uid) ?? identity;
+      const backendPhone = verifiedBackendPhoneNumber(phoneIdentity, currentUser.uid);
       if (backendPhone) {
         phoneNumberRef.current = backendPhone;
         setPhoneNumber(backendPhone);
+        setPhoneNumberStatus("verified");
+      } else if (backendPhoneIsMissing(phoneIdentity, currentUser.uid)) {
+        phoneNumberRef.current = null;
+        setPhoneNumber(null);
+        setPhoneNumberStatus("missing");
+      } else if (!phoneNumberRef.current && !hasActivePhoneAttempt()) {
+        setPhoneNumberStatus(phoneNumberStatusRef.current === "missing"
+          ? "missing" : "unavailable");
       }
-      return backendPhone;
+      return backendPhone || phoneNumberRef.current;
     })();
     verifiedPhoneResolutionRef.current = {
       userId: currentUser.uid,
+      generation,
+      lifetime,
       promise,
     };
     try {
       return await promise;
+    } catch (error) {
+      if (isCurrent() && !phoneNumberRef.current && !hasActivePhoneAttempt()) {
+        setPhoneNumberStatus(cachedBackendPhoneIsMissing(currentUser.uid) || phoneNumberStatusRef.current === "missing"
+          ? "missing" : "unavailable");
+      }
+      throw error;
     } finally {
       if (verifiedPhoneResolutionRef.current?.promise === promise) {
         verifiedPhoneResolutionRef.current = null;
       }
     }
-  }, []);
+  }, [setPhoneNumberStatus]);
 
   useEffect(() => {
-    if (
-      !user ||
-      phoneNumber ||
-      shouldSkipAmbientIdentityHydrationForAutomation()
-    ) {
-      return;
-    }
-
-    const hydrateBackendPhone = () => {
-      void resolveVerifiedPhoneNumber().catch(() => undefined);
+    if (!user || shouldSkipAmbientIdentityHydrationForAutomation()) return;
+    const expectedUid = user.uid;
+    const generation = getAuthSessionGeneration();
+    let disposed = false;
+    let running = false;
+    let retry = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const isCurrent = () => !disposed && userRef.current?.uid === expectedUid &&
+      getAuthSessionGeneration() === generation;
+    const canReachBackend = () => document.visibilityState === "visible" && navigator.onLine !== false &&
+      appInteractionCoordinator.getLifecycleSnapshot().state === "active";
+    const clearRetry = () => {
+      if (retryTimer !== null) globalThis.clearTimeout(retryTimer);
+      retryTimer = null;
     };
-
-    if (!isGmailStartupRoute()) {
-      hydrateBackendPhone();
-      return;
-    }
-
-    const cancelIdle = runWhenBrowserIsIdle(() => {
-      void hydrateBackendPhone();
+    const freshIdentity = () => cachedBackendPhoneIdentity(expectedUid);
+    const hasFreshPhoneEvidence = () => {
+      const identity = freshIdentity();
+      return Boolean(verifiedBackendPhoneNumber(identity, expectedUid) || backendPhoneIsMissing(identity, expectedUid));
+    };
+    const applyPhoneIdentity = (identity: AccountIdentity | null | undefined) => {
+      if (!isCurrent()) return false;
+      const verifiedPhone = verifiedBackendPhoneNumber(identity, expectedUid);
+      if (verifiedPhone) {
+        phoneNumberRef.current = verifiedPhone;
+        setPhoneNumber(verifiedPhone);
+        setPhoneNumberStatus("verified");
+      } else if (backendPhoneIsMissing(identity, expectedUid)) {
+        phoneNumberRef.current = null;
+        setPhoneNumber(null);
+        setPhoneNumberStatus("missing");
+      } else return false;
+      clearRetry();
+      return true;
+    };
+    const recover = async () => {
+      if (!isCurrent() || running || !canReachBackend()) return;
+      if (applyPhoneIdentity(freshIdentity())) return;
+      clearRetry();
+      running = true;
+      try {
+        if (phoneNumberRef.current) {
+          // A restored SDK number can be older than the durable app claim.
+          // Revalidate stale/missing canonical evidence in the background,
+          // retaining the displayed number if the request is unavailable.
+          const identity = await withinAccountSessionValidationBudget(
+            AccountIdentityService.refreshCurrentUserIdentity(user, { force: true }),
+            Date.now() + PHONE_RECOVERY_REQUEST_BUDGET_MS,
+          );
+          applyPhoneIdentity(freshIdentity() ?? identity);
+        } else await resolveVerifiedPhoneNumber();
+      } catch { /* Availability stays retryable. */ }
+      finally { running = false; }
+      if (!isCurrent() || retry >= PHONE_RECOVERY_RETRY_DELAYS_MS.length || hasFreshPhoneEvidence()) return;
+      const delay = PHONE_RECOVERY_RETRY_DELAYS_MS[retry++];
+      retryTimer = globalThis.setTimeout(() => { retryTimer = null; void recover(); }, delay);
+    };
+    const wake = () => {
+      if (!canReachBackend()) return;
+      // A burst of foreground/online signals shares one recovery episode.
+      if (running) return;
+      clearRetry();
+      if (retry >= PHONE_RECOVERY_RETRY_DELAYS_MS.length) retry = 0;
+      void recover();
+    };
+    const cache = CacheService.getInstance();
+    const unsubscribe = cache.subscribe((event) => {
+      if (!isCurrent() || event.type !== "set" || event.key !== CACHE_KEYS.ACCOUNT_IDENTITY(expectedUid)) return;
+      applyPhoneIdentity(freshIdentity());
     });
-
+    window.addEventListener("online", wake);
+    window.addEventListener("focus", wake);
+    document.addEventListener("visibilitychange", wake);
+    const unsubscribeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => {
+      if (canReachBackend()) wake();
+      else clearRetry();
+    });
+    const cancelIdle = isGmailStartupRoute() ? runWhenBrowserIsIdle(wake) : null;
+    if (!cancelIdle) void recover();
     return () => {
-      cancelIdle();
+      disposed = true;
+      clearRetry();
+      cancelIdle?.();
+      unsubscribe();
+      unsubscribeLifecycle();
+      window.removeEventListener("online", wake);
+      window.removeEventListener("focus", wake);
+      document.removeEventListener("visibilitychange", wake);
     };
-  }, [phoneNumber, resolveVerifiedPhoneNumber, user]);
+  }, [resolveVerifiedPhoneNumber, setPhoneNumberStatus, user]);
 
   const refreshUser = useCallback(async (): Promise<User | null> => {
     if (Capacitor.isNativePlatform()) {
@@ -1687,16 +1812,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [requirePhoneVerificationOwner],
   );
 
-  const finalizeLinkedNativePhone = useCallback(
+  const finalizeLinkedProviderPhone = useCallback(
     async (
       phone: string | null | undefined,
       expectedUid: string | null | undefined,
       expectedEpoch: number,
     ): Promise<User | null> => {
-      if (!Capacitor.isNativePlatform() || !phone) return null;
+      if (!phone) return null;
       // Read the provider without publishing it: a previous OTP can have
       // linked successfully while its backend persistence was unavailable.
-      const linkedUser = await AuthService.restoreNativeSession({ nativeOnly: true });
+      const linkedUser = Capacitor.isNativePlatform()
+        ? await AuthService.restoreNativeSession({ nativeOnly: true })
+        : AuthService.getCurrentUser();
       requirePhoneVerificationOwner(expectedUid, expectedEpoch);
       if (!linkedUser || linkedUser.uid !== expectedUid) {
         throw new Error("The verified account changed. Start phone verification again.");
@@ -1768,7 +1895,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           }
 
           if (!result) {
-            const linkedUser = await finalizeLinkedNativePhone(phone, expectedUid, expectedPhoneEpoch);
+            const linkedUser = await finalizeLinkedProviderPhone(phone, expectedUid, expectedPhoneEpoch);
             if (linkedUser) {
               applyAuthUser(linkedUser);
               phoneVerificationOwnerRef.current = null;
@@ -1829,7 +1956,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return { autoVerified: false };
       })();
     },
-    [applyAuthUser, refreshUser, requirePhoneVerificationOwner, finalizeLinkedNativePhone, confirmRetainedNativePhone],
+    [applyAuthUser, refreshUser, requirePhoneVerificationOwner, finalizeLinkedProviderPhone, confirmRetainedNativePhone],
   );
 
   const startPhoneReplacement = useCallback(
@@ -1858,7 +1985,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           phoneVerificationOwnerRef.current = null;
           return { autoVerified: true, user: retainedUser };
         }
-        const linkedUser = await finalizeLinkedNativePhone(phone, expectedUid, expectedPhoneEpoch);
+        const linkedUser = await finalizeLinkedProviderPhone(phone, expectedUid, expectedPhoneEpoch);
         if (linkedUser) {
           applyAuthUser(linkedUser);
           phoneVerificationOwnerRef.current = null;
@@ -1898,9 +2025,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           : await refreshUser());
         requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
         if (refreshedUser?.uid !== expectedUid) throw new Error("The verified account changed. Start phone verification again.");
-        if (isNative) {
-          await AccountIdentityService.finalizeNativePhoneVerification(refreshedUser, phone);
-        }
+        await AccountIdentityService.finalizeNativePhoneVerification(refreshedUser, phone);
         requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
         applyAuthUser(refreshedUser);
         phoneVerificationOwnerRef.current = null;
@@ -1912,7 +2037,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       return { autoVerified: false };
     },
-    [applyAuthUser, refreshUser, requirePhoneVerificationOwner, finalizeLinkedNativePhone, confirmRetainedNativePhone],
+    [applyAuthUser, refreshUser, requirePhoneVerificationOwner, finalizeLinkedProviderPhone, confirmRetainedNativePhone],
   );
 
   const confirmPhoneVerification = useCallback(
@@ -1929,7 +2054,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           Capacitor.isNativePlatform() &&
           !AuthService.isUatPhoneTestVerificationId(nativeVerificationId);
         const linkedUser = useNativeFirebaseConfirm
-          ? await finalizeLinkedNativePhone(phoneVerificationPhoneNumber, verificationUser.uid, expectedPhoneEpoch)
+          ? await finalizeLinkedProviderPhone(phoneVerificationPhoneNumber, verificationUser.uid, expectedPhoneEpoch)
           : null;
         const verifiedUser = linkedUser ?? (useNativeFirebaseConfirm
           ? await AuthService.confirmPhoneLinkVerification({
@@ -2020,7 +2145,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       phoneVerificationAttempt,
       refreshUser,
       requirePhoneVerificationOwner,
-      finalizeLinkedNativePhone,
+      finalizeLinkedProviderPhone,
     ],
   );
 
@@ -2029,7 +2154,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const expectedUid = phoneVerificationAttempt?.userId;
       const expectedPhoneEpoch = phoneVerificationAttempt?.epoch ?? -1;
       requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
-      const linkedUser = await finalizeLinkedNativePhone(phoneVerificationPhoneNumber, expectedUid, expectedPhoneEpoch);
+      const linkedUser = await finalizeLinkedProviderPhone(phoneVerificationPhoneNumber, expectedUid, expectedPhoneEpoch);
       const verifiedUser = linkedUser ??
         await AuthService.confirmPhoneReplacementVerification({
           verificationCode: otp,
@@ -2038,7 +2163,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         });
       requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
       if (verifiedUser?.uid !== expectedUid) throw new Error("The verified account changed. Start phone verification again.");
-      if (Capacitor.isNativePlatform() && !linkedUser) {
+      // Web replacement updates the primary provider too. Both platforms must
+      // explicitly persist the new phone before reporting completion.
+      if (!linkedUser) {
         await AccountIdentityService.finalizeNativePhoneVerification(
           verifiedUser, phoneVerificationPhoneNumber,
         );
@@ -2064,7 +2191,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [
       applyAuthUser, confirmationResult, nativeVerificationId,
       phoneVerificationAttempt, phoneVerificationPhoneNumber,
-      refreshUser, requirePhoneVerificationOwner, finalizeLinkedNativePhone,
+      refreshUser, requirePhoneVerificationOwner, finalizeLinkedProviderPhone,
     ],
   );
 
@@ -2116,6 +2243,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       loading,
       sessionVerificationRequired,
       phoneNumber,
+      phoneNumberStatus,
       resolveVerifiedPhoneNumber,
       // Derived
       // Unified Auth State: Authenticated = Identity Verified.
@@ -2139,6 +2267,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       loading,
       sessionVerificationRequired,
       phoneNumber,
+      phoneNumberStatus,
       resolveVerifiedPhoneNumber,
       userId,
       startPhoneVerification,

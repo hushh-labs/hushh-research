@@ -171,7 +171,8 @@ function PuppyChatSurface({
           {/* Remote Puppy retains its own admitted-pod composer. Suppress the
               shared cloud launcher; local Hermes may claim the retained dock. */}
           <AgentDockPortal
-            enabled={sharedDock && active && (localBridge !== true || (conversations !== undefined && !conversations.some(conversation => conversation.id === activeConversationId)))}
+            enabled={sharedDock}
+            active={active && (localBridge !== true || (conversations !== undefined && !conversations.some(conversation => conversation.id === activeConversationId)))}
             visible={false} suppressed
           >{null}</AgentDockPortal>
           {conversations === undefined ? panel(active) : (

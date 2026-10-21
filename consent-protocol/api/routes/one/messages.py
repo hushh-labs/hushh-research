@@ -189,6 +189,19 @@ async def list_conversations(
         raise _handle(exc) from exc
 
 
+@router.delete("/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: UUID,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return await run_in_threadpool(
+            _service().delete_conversation, firebase_uid, str(conversation_id)
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
 @router.get("/with/person/{person_ref}")
 async def open_conversation_with_person(
     response: Response,
@@ -466,6 +479,11 @@ def _direct_message_event(payload: object) -> dict[str, object] | None:
         "directMessageId": str(payload.get("direct_message_id") or "").strip() or None,
         "at": str(payload.get("at") or "").strip() or None,
         "deepLink": None,  # Navigation resolves through the authenticated token endpoint.
+        **(
+            {"action": "conversation_deleted"}
+            if payload.get("action") == "conversation_deleted"
+            else {}
+        ),
     }
 
 

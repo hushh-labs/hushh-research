@@ -13,6 +13,14 @@ test.beforeAll(async () => {
   const scanner = new Scanner({});
   const candidates = new Set<string>();
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "location-switch-"));
+  // Measure the exact shipped footer/button classes; the page unit test owns
+  // its stale-only admission and real request handler.
+  const previewSource = fs.readFileSync(path.join(root, "app/one/location/page.tsx"), "utf8");
+  const hubSource = fs.readFileSync(path.join(root, "components/one-location/redesign/location-redesign-hub.tsx"), "utf8");
+  const refreshRowClass = previewSource.match(/data-testid="one-location-map-refresh-action"\s+className="([^"]+)"/)?.[1];
+  const refreshButtonClass = hubSource.match(/onClick=\{\(\) => vm\.onAskReshare\(grant\)\}[\s\S]*?className="([^"]+)"/)?.[1];
+  if (!refreshRowClass || !refreshButtonClass) throw new Error("Location preview action geometry not found");
+  for (const candidate of scanner.scanFiles([{ content: `${refreshRowClass} ${refreshButtonClass}`, extension: "html" }])) candidates.add(candidate);
   await build({
     configFile: false,
     logLevel: "error",
@@ -34,6 +42,8 @@ test.beforeAll(async () => {
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
       "process.env": "{}",
+      __LOCATION_REFRESH_ROW_CLASSNAME__: JSON.stringify(refreshRowClass),
+      __LOCATION_REFRESH_BUTTON_CLASSNAME__: JSON.stringify(refreshButtonClass),
     },
     build: {
       outDir,
@@ -72,8 +82,36 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  const { transform } = await import("lightningcss");
+  css = transform({ filename: "location-switch.css", code: Buffer.from(stripAppFontFaces(compiler.build([...candidates])) + productFontStyle()), minify: true }).code.toString();
 });
+
+for (const width of [320, 393, 1440]) {
+  for (const dark of [false, true]) {
+    test(`stale map keeps only a right-aligned refresh action at ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.setContent(`<html class="${dark ? "dark" : ""}"><head><style>${css}</style></head><body data-stale-preview="true"><div id="root"></div></body></html>`);
+      await page.addScriptTag({ content: script });
+      await awaitProductFont(page);
+      const row = page.getByTestId("preview-refresh-row");
+      const action = row.getByRole("button", { name: "Ask to refresh" });
+      await expect(action).toBeVisible();
+      await expect(row).toHaveText("Ask to refresh");
+      await expect(row).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(row).toHaveCSS("border-top-width", "0px");
+      const geometry = await row.evaluate(node => {
+        const action = node.querySelector("button")!.getBoundingClientRect();
+        return { rightInset: node.getBoundingClientRect().right - action.right,
+          padding: parseFloat(getComputedStyle(node).paddingRight), width: action.width, height: action.height };
+      });
+      expect(geometry.rightInset).toBeCloseTo(geometry.padding, 0);
+      expect(geometry.height).toBeGreaterThanOrEqual(44);
+      expect(geometry.width).toBeGreaterThanOrEqual(44);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      await page.screenshot({ path: testInfo.outputPath("stale-map-refresh-action.png") });
+    });
+  }
+}
 
 async function expectThumbPosition(page: Page, checked: boolean) {
   await expect(page.getByRole("switch")).toHaveAttribute(
@@ -162,17 +200,47 @@ for (const width of [320, 393, 430, 1440]) {
     await page.setContent(`<html><head><style>${css}</style></head><body data-compact="true"><div id="root"></div></body></html>`);
     await page.addScriptTag({ content: script });
     const toggle = page.getByRole("switch");
-    await expect(toggle).toHaveCSS("width", "36px");
-    await expect(toggle).toHaveCSS("height", "20px");
+    await expect(toggle).toHaveCSS("width", "54px");
+    await expect(toggle).toHaveCSS("height", "24px");
+    await expect(toggle.locator('[data-slot="switch-thumb"]')).toHaveCSS("width", "20px");
+    await expect(toggle.locator('[data-slot="switch-thumb"]')).toHaveCSS("height", "20px");
+    await awaitProductFont(page);
     const status = page.getByTestId("one-location-header-status");
     const geometry = await status.evaluate((node) => ({ size: parseFloat(getComputedStyle(node).fontSize), width: node.clientWidth, scrollWidth: node.scrollWidth, tapHeight: node.closest("label")!.getBoundingClientRect().height }));
     expect(geometry.size).toBeLessThanOrEqual(12);
     expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
     expect(geometry.tapHeight).toBeGreaterThanOrEqual(44);
+    const alignment = await status.evaluate(node => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const text = range.getBoundingClientRect();
+      const track = node.closest("label")!.querySelector("[role=switch]")!.getBoundingClientRect();
+      return { textLeft: text.left, textCenter: text.left + text.width / 2, trackLeft: track.left, trackCenter: track.left + track.width / 2 };
+    });
+    expect(Math.abs(alignment.textCenter - alignment.trackCenter)).toBeLessThan(1);
+    expect(Math.abs(alignment.textLeft - alignment.trackLeft)).toBeLessThan(9);
     await status.click();
     await expect(toggle).toBeChecked();
+    await expect.poll(() => toggle.evaluate(node => {
+      const track = node.getBoundingClientRect();
+      const thumb = node.querySelector("[data-slot=switch-thumb]")!.getBoundingClientRect();
+      return track.right - thumb.right;
+    })).toBeCloseTo(3, 0);
     await toggle.press("Space");
     await expect(toggle).not.toBeChecked();
+    // Width, thumb size and travel must scale together with browser text size.
+    await page.locator("html").evaluate(node => { node.style.fontSize = "20px"; });
+    await expect(toggle).toHaveCSS("width", "67.5px");
+    for (const checked of [true, false]) {
+      await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-checked", String(checked));
+      await expect.poll(() => toggle.evaluate(node => {
+        const track = node.getBoundingClientRect();
+        const thumb = node.querySelector("[data-slot=switch-thumb]")!.getBoundingClientRect();
+        return thumb.left >= track.left && thumb.right <= track.right;
+      })).toBe(true);
+    }
+    await page.locator("html").evaluate(node => { node.style.fontSize = ""; });
     const share = page.getByRole("button", { name: "Share location", exact: true });
     const caption = page.getByText("Choose a Circle or contact.", { exact: true });
     if (width < 640) expect(Math.abs((await share.boundingBox())!.x - (await caption.boundingBox())!.x)).toBeLessThanOrEqual(1);

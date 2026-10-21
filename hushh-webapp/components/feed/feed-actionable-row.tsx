@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { FeedSmsSentTime } from "@/components/feed/feed-sms-sent-time";
 import { DirectMessageLink } from "@/components/direct-messages/direct-message-link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Loader2, X } from "@/components/icons";
 
 import { SettingsRow } from "@/components/app-ui/settings-ui";
@@ -14,8 +15,7 @@ import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
-import { formatFeedTimestamp } from "@/lib/feed/feed-timestamp";
-import { FeedRowMetadata } from "./feed-row-metadata";
+import { FeedRowMetadata, FeedRowTimestamp, FEED_INLINE_ROW_CLASSNAME } from "./feed-row-metadata";
 import type {
   FeedActionButton,
   FeedActionable,
@@ -128,7 +128,7 @@ function ActionButton({
           ? // The button is the 44px target; the glyph drawn inside is 28px.
             "!size-11 !min-w-11 shrink-0 !bg-transparent !p-0 hover:!bg-transparent"
           : "w-auto min-w-[5.5rem] max-w-full shrink-0 whitespace-nowrap px-4 sm:min-w-24",
-        !glyph && compact && "h-7 min-h-7 min-w-0 rounded-full px-3 text-[11px] sm:min-w-0",
+        !glyph && compact && "h-11 min-h-11 min-w-0 rounded-full px-3 sm:min-w-0",
         dense && "max-sm:px-3",
         // Below 375px the row itself opens the same Details (see onSelect),
         // so the icon steps aside and the two decisions keep one line.
@@ -220,7 +220,15 @@ function mobileDecisionLabel(action: FeedActionButton): string | undefined {
   return undefined;
 }
 
-function ActionButtons({ actions, compact = false }: { actions: FeedActionButton[]; compact?: boolean }) {
+function ActionButtons({
+  actions,
+  compact = false,
+  phoneActions,
+}: {
+  actions: FeedActionButton[];
+  compact?: boolean;
+  phoneActions?: FeedActionButton[];
+}) {
   const runningRef = useRef(false);
   const [runningActionKey, setRunningActionKey] = useState<string | null>(null);
 
@@ -241,10 +249,19 @@ function ActionButtons({ actions, compact = false }: { actions: FeedActionButton
   };
 
   if (!actions.length) return null;
+  const responsiveActions = (content: ReactNode) => phoneActions?.length ? (
+    <>
+      <div data-testid="feed-phone-actions" className="flex items-center gap-1.5 sm:hidden">
+        {phoneActions.map(action => <ActionButton key={action.key} action={action} compact={compact}
+          runningActionKey={runningActionKey} runAction={runAction} />)}
+      </div>
+      <div className="hidden sm:flex">{content}</div>
+    </>
+  ) : content;
   if (compact && isDecisionPair(actions)) {
     const decline = actions.find((action) => /^decline$/i.test(action.label))!;
     const accept = actions.find((action) => action !== decline)!;
-    return (
+    return responsiveActions(
       <div
         data-testid="feed-action-buttons"
         data-decision-glyphs=""
@@ -284,10 +301,10 @@ function ActionButtons({ actions, compact = false }: { actions: FeedActionButton
   if (actions.length <= 2) {
     const primary = actions.find(isPrimaryTone) ?? actions[actions.length - 1]!;
     const secondary = actions.find((action) => action !== primary);
-    return (
+    return responsiveActions(
       <div
         data-testid="feed-action-buttons"
-        className="flex w-full min-w-0 flex-nowrap items-center justify-end gap-2 sm:w-auto"
+        className="flex w-auto min-w-0 shrink-0 flex-nowrap items-center justify-end gap-1.5"
       >
         {secondary
           ? renderAction(secondary, mobileDecisionLabel(secondary))
@@ -297,16 +314,13 @@ function ActionButtons({ actions, compact = false }: { actions: FeedActionButton
     );
   }
 
-  // A dense row (the owner's consent request) is sized so its phone actions
-  // fit one line with under 2px to spare at 320px, and Linux text metrics are
-  // about 1.5px wider than a Mac's. Wrapping there dropped Allow onto its own
-  // line and grew the row 52px. On a phone the line never wraps; any excess
-  // spills into the empty stack indent on the left, as the pair branch does.
-  return (
+  // Keep decisions on one track. Scoped consent requests use their existing
+  // full Review surface on phones, where the scope cannot fit beside decisions.
+  return responsiveActions(
     <div
       data-testid="feed-action-buttons"
       className={cn(
-        "flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto",
+        "flex w-auto min-w-0 shrink-0 flex-nowrap items-center justify-end gap-1.5",
         dense && "max-sm:flex-nowrap",
       )}
     >
@@ -346,54 +360,14 @@ function FeedActionableIdentity({
  */
 export function FeedActionableRow({ item }: { item: FeedActionable }) {
   const isLive = item.emphasis === "emergency";
-  // Pending multi-decision and emergency rows need their existing roomy controls.
-  // Simple activity and one-action rows use the compact Feed list rhythm.
-  const compact =
-    !isLive &&
-    !item.spinning &&
-    (item.actions.length <= 1 || isDecisionPair(item.actions));
-
-  const descriptionBody =
-    item.spinning || isLive ? (
-      <span className="inline-flex min-w-0 items-center gap-1.5">
-        <span
-          aria-hidden="true"
-          className={cn(
-            "h-1.5 w-1.5 shrink-0 rounded-full animate-pulse motion-reduce:animate-none",
-            isLive ? "bg-emerald-500" : "bg-accent",
-          )}
-        />
-        <span className="whitespace-normal [overflow-wrap:anywhere]">
-          {item.description}
-        </span>
-      </span>
-    ) : (
-      <span className="min-w-0">{item.description}</span>
-    );
-
-  const hasDescription = item.description.trim().length > 0;
-  const description = !hasDescription ? undefined : compact ? (
-    <span data-slot="feed-event-description" className="block line-clamp-2">
-      {descriptionBody}
-    </span>
-  ) : (
-    <FeedRowMetadata
-      description={item.updateProgress ? (
-        <span className="block space-y-2">
-          {descriptionBody}
-          <AgentUpdateProgress update={item.updateProgress} />
-        </span>
-      ) : descriptionBody}
-      timestamp={item.displayTimestamp}
-    />
-  );
-
+  const indicator = item.spinning || isLive ? (
+    <span aria-hidden="true" className={cn(
+      "h-1.5 w-1.5 shrink-0 rounded-full animate-pulse motion-reduce:animate-none",
+      isLive ? "bg-emerald-500" : "bg-accent",
+    )} />
+  ) : null;
   const hasActions = item.actions.length > 0;
-  const isMeetJoin = item.actions.length === 1 && item.actions[0]?.key === "join-meet";
-  const compactTime = compact && item.displayTimestamp != null
-    ? formatFeedTimestamp(item.displayTimestamp)
-    : null;
-  const leading = compact ? (
+  const leading = (
     <span className="grid w-[30px] place-items-center">
       {item.person ? (
         <FeedActionableIdentity person={item.person} compact />
@@ -412,48 +386,33 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
         </span>
       )}
     </span>
-  ) : item.person ? (
-    <FeedActionableIdentity person={item.person} />
-  ) : undefined;
+  );
 
   const shared = {
-    layout: compact ? "settings" : "person",
-    density: compact ? "compact" : undefined,
-    icon: leading ? undefined : item.icon,
-    iconTone: leading ? undefined : item.iconTone,
+    layout: "settings",
+    density: "compact",
     leading,
-    title: item.title,
-    textOverflow: isMeetJoin ? "truncate" : "wrap",
-    description,
-    trailing: compact ? (
-      <>
-        {compactTime ? (
-          <time
-            data-slot="feed-event-time"
-            dateTime={new Date(item.displayTimestamp!).toISOString()}
-            className="self-start whitespace-nowrap pt-[3px] text-[10px] tabular-nums text-[color:var(--app-secondary-label)] max-[520px]:hidden"
-          >
-            {compactTime}
-          </time>
-        ) : null}
-        <ActionButtons actions={item.actions} compact />
-      </>
-    ) : <ActionButtons actions={item.actions} />,
+    title: item.smsEmergency ? (
+      <span className="block min-w-0 space-y-0.5 py-1">
+        <span data-profile-role="name" className="block whitespace-normal [overflow-wrap:anywhere]">{item.title}</span>
+        <span data-profile-role="description" data-slot="feed-event-description" className="flex items-center gap-1.5 whitespace-normal text-muted-foreground">{indicator}{item.description}</span>
+        <FeedSmsSentTime timestamp={item.displayTimestamp} />
+      </span>
+    ) : item.updateProgress ? (
+      <span className="block min-w-0 space-y-2 py-1">
+        <FeedRowMetadata title={item.title} description={item.description} indicator={indicator} />
+        <AgentUpdateProgress update={item.updateProgress} />
+      </span>
+    ) : <FeedRowMetadata title={item.title} description={item.description} indicator={indicator} />,
+    ariaLabel: item.smsEmergency ? undefined : [item.title, item.description].filter(Boolean).join(". "),
+    textOverflow: item.smsEmergency || item.updateProgress ? "wrap" : "truncate",
+    trailing: <>
+      {!item.smsEmergency ? <FeedRowTimestamp timestamp={item.displayTimestamp} /> : null}
+      <ActionButtons actions={item.actions} phoneActions={item.phoneActions} compact />
+    </>,
     trailingInteractive: hasActions,
-    className: compact
-      ? `[--settings-row-px:12px] [--settings-row-py:6px] [--settings-row-gap:8px] [--settings-row-stack-indent:50px] [--type-row-label-size:13px] [--type-row-label-compact-size:13px] [--type-row-label-compact-line:16px] [--type-row-label-compact-weight:500] [--type-row-description-size:11px] [--type-row-description-compact-size:11px] [--type-row-description-compact-line:15px] [&>button]:min-h-[52px] [&>a]:min-h-[52px] [&>div.grid]:min-h-[52px] ${hasActions ? "" : "[&_[data-slot=settings-row-title]]:truncate"} group-data-[inset-separators=true]/settings-list:after:left-[50px]`
-      : undefined,
-    // Actions are sized to their content and carry three separate `shrink-0`s,
-    // so on a phone they take the row's width first and leave the text column
-    // at literally 0px: "Deny" + "Approve 4 hours more" is 238.5px of a 358px
-    // row. The title then wrapped one character per line — a 307px-tall row of
-    // single letters at 320px — and the description had nowhere to go.
-    // Stacking gives the text the full width and the buttons their own line.
-    // A single meeting CTA fits beside truncated event details; wider action
-    // groups retain their own line. Chevron-only rows also stay inline.
-    // A compact row keeps its action beside the text at every phone width; the
-    // text column flexes and wraps. Roomier multi-action rows still stack.
-    stackTrailingOnMobile: hasActions && !isMeetJoin && !compact,
+    className: FEED_INLINE_ROW_CLASSNAME,
+    stackTrailingOnMobile: false,
     testId: `feed-actionable-${item.id}`,
   } as const;
 
@@ -468,7 +427,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
         <NavigationLink
           href={item.href}
           prefetch={false}
-          aria-label={[item.title, item.description].filter(Boolean).join(". ")}
+          aria-label={item.smsEmergency ? undefined : [item.title, item.description].filter(Boolean).join(". ")}
         />
       </SettingsRow>
     ) : (

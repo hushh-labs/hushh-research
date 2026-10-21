@@ -9,6 +9,8 @@ node --test .agents/skills/reviewer-app-testing/tests/*.test.mjs
 node --check .agents/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs
 node --check .agents/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
 node --check .agents/skills/reviewer-app-testing/scripts/verify-reviewer-agent-chat.mjs
+node --check .agents/skills/reviewer-app-testing/scripts/verify-reviewer-pwm.mjs
+node .agents/skills/reviewer-app-testing/scripts/verify-reviewer-pwm.mjs --help >/dev/null
 consent-protocol/.venv/bin/python -m py_compile \
   .agents/skills/reviewer-app-testing/scripts/reconcile-reviewer-identity.py
 node .agents/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs --help >/dev/null

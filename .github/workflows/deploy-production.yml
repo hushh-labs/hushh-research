@@ -1,8 +1,17 @@
 name: Deploy to Production
+run-name: ${{ inputs.cadence_origin && format('Cadence {0} deploy · {1}', inputs.cadence_ordinal, inputs.cadence_origin) || 'Deploy to Production' }}
 
 on:
   workflow_dispatch:
     inputs:
+      cadence_origin:
+        description: Internal exact-run release cadence authority (leave blank for manual deploys)
+        type: string
+        default: ""
+      cadence_ordinal:
+        description: Internal successful UAT deployment ordinal
+        type: string
+        default: ""
       sha:
         description: "Exact green main SHA to deploy"
         required: true
@@ -133,6 +142,8 @@ jobs:
 
       - name: Assert production dispatch actor policy
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"
@@ -173,6 +184,9 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/release-tools/email-auth"
           cp deploy/email-auth/bind_secrets.sh \
             "${RUNNER_TEMP}/release-tools/email-auth/bind_secrets.sh"
+          mkdir -p "${RUNNER_TEMP}/release-tools/plg"
+          cp deploy/plg/bind_secrets.sh \
+            "${RUNNER_TEMP}/release-tools/plg/bind_secrets.sh"
           cp scripts/ci/assert_one_voice_live_probe.py \
             "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py"
           # Orchestration must remain current when rolling back to an older image.
@@ -217,6 +231,9 @@ jobs:
           mkdir -p deploy/email-auth
           cp "${RUNNER_TEMP}/release-tools/email-auth/bind_secrets.sh" \
             deploy/email-auth/bind_secrets.sh
+          mkdir -p deploy/plg
+          cp "${RUNNER_TEMP}/release-tools/plg/bind_secrets.sh" \
+            deploy/plg/bind_secrets.sh
           cp "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py" \
             scripts/ci/assert_one_voice_live_probe.py
           mkdir -p deploy/drive

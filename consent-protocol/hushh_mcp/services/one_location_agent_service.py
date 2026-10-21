@@ -1450,7 +1450,11 @@ class OneLocationAgentService:
                         status_code=409,
                     )
                 command.save(str(grant["id"]))
-            return dict(row) if row is not None else None
+            return (
+                {**dict(row), **({"_command_owned": True} if command_operation else {})}
+                if row is not None
+                else None
+            )
 
     def _execute_recipient_key_registration(
         self,
@@ -4153,7 +4157,14 @@ class OneLocationAgentService:
             else None
         )
         mutation_sql = """
-            WITH key_id_compatibility AS MATERIALIZED (
+            WITH prior_key_state AS MATERIALIZED (
+              SELECT EXISTS (
+                SELECT 1 FROM one_location_recipient_keys
+                WHERE user_id = :user_id AND key_id = :key_id
+                  AND public_key_fingerprint = :fingerprint
+                  AND algorithm = :algorithm AND status = 'active'
+              ) AS unchanged
+            ), key_id_compatibility AS MATERIALIZED (
               SELECT (
                 NOT EXISTS (
                   SELECT 1
@@ -4254,8 +4265,13 @@ class OneLocationAgentService:
               FROM upserted_key k
               RETURNING id
             )
-            SELECT k.*
+            SELECT k.*, (
+              NOT prior.unchanged
+              OR EXISTS (SELECT 1 FROM rotated_keys)
+              OR EXISTS (SELECT 1 FROM revoked_grants)
+            ) AS recipient_metadata_changed
             FROM upserted_key k
+            CROSS JOIN prior_key_state prior
             CROSS JOIN (SELECT COUNT(*) FROM revoked_grant_events) revoked_event_barrier
             CROSS JOIN (SELECT COUNT(*) FROM registered_key_event) registered_event_barrier
             """
@@ -4301,6 +4317,26 @@ class OneLocationAgentService:
                 "This secure key id is already bound to different key material.",
                 status_code=409,
             )
+        if row.get("recipient_metadata_changed"):
+            # Registration has committed. Wake viewers' own channels so open
+            # People, Share, Ask and SMS projections discard stale public keys.
+            # Identical warm-up registrations and private-key backup backfills
+            # do not repeatedly invalidate everyone else's lists.
+            try:
+                from hushh_mcp.services.connection_graph_service import (
+                    list_connection_graph_viewer_ids,
+                )
+                from hushh_mcp.services.connections_service import _notify_connection_graph_changed
+
+                # Read viewers after the key commit. A concurrent connection
+                # accept must either be visible here or emit its own doorbell
+                # after the committed key is readable. A pre-commit snapshot
+                # could miss that edge while its early event still saw no key.
+                with get_db_connection() as connection:
+                    viewers = list_connection_graph_viewer_ids(connection, user_id=user_id)
+                _notify_connection_graph_changed(user_ids={user_id, *viewers})
+            except Exception:  # registration is already committed
+                logger.warning("one_location.recipient_graph_sync_failed", exc_info=True)
         # The caller's own record, handed straight back to them. There is no
         # privacy line to draw against yourself, and withholding it here would
         # show a person their own masked phone where every other surface now
@@ -6582,6 +6618,12 @@ class OneLocationAgentService:
         if capability is not None:
             metadata["capability_token"] = capability["token"]
         metadata_json = _json_param(metadata)
+        from hushh_mcp.services.product_value_receipts import (
+            capture_value_epoch_sync,
+            record_location_effect_sync,
+        )
+
+        value_epoch = capture_value_epoch_sync(owner_user_id) if not command_operation_id else None
         row = self._execute_atomic_private_share(
             recipient_key_lock_key=f"one-location-recipient-key:{recipient_user_id}",
             pair_lock_key=f"one-location-grant:{owner_user_id}:{recipient_user_id}",
@@ -7007,6 +7049,18 @@ class OneLocationAgentService:
             )
 
         idempotent_replay = bool(row.get("idempotent_replay"))
+        if (
+            not idempotent_replay
+            and not command_operation_id
+            and not row.get("_command_owned")
+            and resolved_kind in {"share", "check_in"}
+        ):
+            record_location_effect_sync(
+                user_id=owner_user_id,
+                kind="private_share",
+                source_id=str(grant["id"]),
+                generation=value_epoch,
+            )
         if not idempotent_replay:
             self._send_location_share_created_notification(
                 grant=grant,

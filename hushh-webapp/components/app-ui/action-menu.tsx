@@ -73,6 +73,7 @@ export function ActionMenu({
   trigger: customTrigger,
   testId,
   contentClassName,
+  profileTypeScale,
   nativePresentation,
 }: {
   /** The trigger's accessible name, e.g. "Add Circle". */
@@ -87,6 +88,8 @@ export function ActionMenu({
   trigger?: ReactNode;
   testId?: string;
   contentClassName?: string;
+  /** Explicit typography scope for portaled controls. */
+  profileTypeScale?: string;
   /** Explicit author admission: only stationary public labels, never a person,
    * protected record, credential, or arbitrary rich React label. */
   nativePresentation?: { owner: string | null; context: string };
@@ -132,7 +135,7 @@ export function ActionMenu({
       <>
         <span onClick={() => setOpen(true)}>{presentedTrigger}</span>
         <Sheet open={open} onOpenChange={setOpen} modal>
-          <SheetContent
+          <SheetContent data-profile-type-scale={profileTypeScale}
             side="bottom"
             showCloseButton={false}
             data-testid={testId ? `${testId}-sheet` : undefined}
@@ -207,7 +210,7 @@ export function ActionMenu({
     // load while passing in isolation -- which is exactly what it did.
     <DropdownMenu onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>{presentedTrigger}</DropdownMenuTrigger>
-      <DropdownMenuContent
+      <DropdownMenuContent data-profile-type-scale={profileTypeScale}
         align="end"
         forceMount
         data-testid={testId ? `${testId}-menu` : undefined}

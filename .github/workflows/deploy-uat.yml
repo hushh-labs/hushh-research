@@ -27,6 +27,23 @@ on:
         required: false
         default: false
         type: boolean
+      run_pwm_acceptance:
+        description: "Authorized live PWM research, one reviewed save and cold vault readback"
+        required: false
+        default: false
+        type: boolean
+      pwm_evidence_public_key:
+        description: "Base64 DER SPKI public key sealing owner research evidence for the operator"
+        required: false
+        type: string
+      pwm_expected_emails:
+        description: "Expected verified owner emails (comma-separated); no fixture substitution"
+        required: false
+        type: string
+      pwm_owner_confirmed_profile:
+        description: "GitHub profile explicitly confirmed by the owner; bounds one reviewed save"
+        required: false
+        type: string
       preserve_paused_drive_worker:
         description: "Preserve all three operator-paused UAT Drive jobs and the current private worker"
         required: false
@@ -297,6 +314,7 @@ jobs:
               scripts/deploy/backend-drive-secret-settings.sh \
               scripts/deploy/scope-commerce-secrets.sh \
               deploy/email-auth/bind_secrets.sh \
+              deploy/plg/bind_secrets.sh \
               deploy/sso/bind_workos.sh > "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
             while IFS= read -r tool; do
               mkdir -p "${RUNNER_TEMP}/release-tools/$(dirname "$tool")"
@@ -328,6 +346,7 @@ jobs:
               cp "${RUNNER_TEMP}/release-tools/$tool" "$tool"
             done < "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
             printf '\n!deploy/email-auth/bind_secrets.sh\n' >> .gcloudignore
+            printf '\n!deploy/plg/bind_secrets.sh\n' >> .gcloudignore
           fi
 
       - name: Validate Google Cloud workload identity configuration
@@ -587,7 +606,7 @@ jobs:
           if-no-files-found: error
 
       - name: Set up Node runtime for protected PKM verification
-        if: steps.verification-plan.outputs.requires_web_dependencies == 'true'
+        if: steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
         uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -595,7 +614,7 @@ jobs:
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Install protected PKM browser dependencies
-        if: steps.verification-plan.outputs.requires_web_dependencies == 'true'
+        if: steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
         shell: bash
         run: |
           set -euo pipefail
@@ -2143,6 +2162,31 @@ jobs:
             done
           } 2>&1 | tee /tmp/uat-reviewer-byok.log
 
+      - name: Verify live PWM streaming, reviewed save and cold readback
+        id: verify-pwm-acceptance
+        if: inputs.run_pwm_acceptance && (steps.verify-uat-1.outcome == 'success' || steps.verify-uat-2.outcome == 'success')
+        continue-on-error: true
+        timeout-minutes: 25
+        env:
+          REVIEWER_APP_ORIGIN: ${{ env.APP_FRONTEND_ORIGIN }}
+          REVIEWER_SECRET_PROJECT: ${{ env.GCP_PROJECT_ID }}
+          REVIEWER_AUTH_MODE: custom_token
+          REVIEWER_ALLOW_SHARED_MUTATIONS: "true"
+          PWM_EXPECTED_EMAILS: ${{ inputs.pwm_expected_emails }}
+          PWM_OWNER_CONFIRMED_PROFILE: ${{ inputs.pwm_owner_confirmed_profile }}
+          PWM_EVIDENCE_PUBLIC_KEY: ${{ inputs.pwm_evidence_public_key }}
+          PWM_PROOF_OUTPUT: ${{ github.workspace }}/tmp/pwm-acceptance.sealed.json
+        run: node .agents/skills/reviewer-app-testing/scripts/verify-reviewer-pwm.mjs
+
+      - name: Upload sealed PWM acceptance evidence
+        if: always() && inputs.run_pwm_acceptance
+        uses: actions/upload-artifact@v6
+        with:
+          name: pwm-acceptance-sealed
+          path: tmp/pwm-acceptance.sealed.json
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Classify UAT release outcome
         if: always()
         id: classify-uat-release
@@ -2159,6 +2203,8 @@ jobs:
           SEMANTIC_ATTEMPT_2: ${{ steps.verify-uat-2.outcome }}
           REVIEWER_BYOK_OUTCOME: ${{ steps.verify-reviewer-byok.outcome }}
           REVIEWER_BYOK_REQUIRED: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
+          PWM_ACCEPTANCE_REQUIRED: ${{ inputs.run_pwm_acceptance }}
+          PWM_ACCEPTANCE_OUTCOME: ${{ steps.verify-pwm-acceptance.outcome }}
           PASSKEY_ASSOCIATIONS_OUTCOME: ${{ steps.verify-passkey-associations.outcome }}
           ANALYTICS_SMOKE_OUTCOME: ${{ steps.verify-analytics-uat.outcome }}
           PKM_EVALUATOR_RUNS: ${{ steps.verification-plan.outputs.pkm_evaluator_runs }}
@@ -2234,6 +2280,10 @@ jobs:
           )
 
           blocking: list[str] = []
+          pwm_required = os.environ.get("PWM_ACCEPTANCE_REQUIRED") == "true"
+          pwm_success = not pwm_required or os.environ.get("PWM_ACCEPTANCE_OUTCOME") == "success"
+          if not pwm_success:
+              blocking.append("pwm_acceptance_failed")
           backend_failure = False
           frontend_failure = False
 
@@ -2336,6 +2386,11 @@ jobs:
           payload = {
               "status": "blocked" if release_failed else "healthy",
               "release_failed": release_failed,
+              "pwm_acceptance": {
+                  "required": pwm_required,
+                  "success": pwm_success,
+                  "outcome": os.environ.get("PWM_ACCEPTANCE_OUTCOME") or "not_run",
+              },
               "blocking_classifications": blocking,
               "backend_failure": backend_failure,
               "frontend_failure": frontend_failure,
@@ -2911,6 +2966,16 @@ jobs:
           exec > >(tee /tmp/uat-drive-worker-release.log) 2>&1
           exec bash deploy/drive/deploy_worker_service.sh
 
+      - name: Recover eligible pending UAT text requests
+        id: recover-uat-text-requests
+        if: success() && inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome == 'success' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ops/run_uat_text_recovery_job.py \
+            --service-json /tmp/uat-backend-promoted-service.json \
+            --sha "${{ steps.resolve-sha.outputs.sha }}" --run-id "${{ github.run_id }}"
+
       - name: Verify paused Drive maintenance unchanged
         id: verify-paused-drive-maintenance
         if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
@@ -3212,6 +3277,13 @@ jobs:
             fi
           fi
 
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+             && [ "${{ inputs.preserve_paused_drive_worker }}" != "true" ] \
+             && [ "${{ steps.deploy-drive-worker.outcome }}" = "success" ] \
+             && [ "${{ steps.recover-uat-text-requests.outcome }}" != "success" ]; then
+            STATUS="blocked"
+          fi
+
           export STATUS DRIVE_WORKER_ROLLBACK_COMPLETE DRIVE_WORKER_GATE_SUCCESS
           python3 - <<'PY'
           import json
@@ -3271,6 +3343,7 @@ jobs:
                   "account_deletion_fence_required": "${{ steps.account-deletion-fence-decision.outputs.required }}",
                   "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
                   "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
+                  "text_processor_recovery": "${{ steps.recover-uat-text-requests.outcome }}",
                   "drive_worker": "${{ steps.deploy-drive-worker.outcome }}",
                   "drive_v1_worker": "${{ steps.deploy-drive-v1-worker.outcome }}",
                   "drive_v1_worker_revision": "${{ steps.deploy-drive-v1-worker.outputs.revision }}",
@@ -3395,6 +3468,7 @@ jobs:
             /tmp/uat-release-verify-attempt-2.json
             /tmp/uat-reviewer-byok.log
             /tmp/uat-release-classification.json
+            /tmp/uat-text-recovery-proof.json
             /tmp/uat-release-status.json
 
       - name: Deployment summary

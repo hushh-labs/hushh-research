@@ -616,13 +616,21 @@ for (const width of [320, 393, 1440]) {
         titleRight: title.right, actionLeft: action.left, actionRight: action.right,
         viewport: innerWidth, pageWidth: document.documentElement.scrollWidth,
         listHeight: el.closest("aside")!.getBoundingClientRect().height,
-        paneHeight: el.closest("[data-circle-messages-pane]")!.getBoundingClientRect().height };
+        paneHeight: el.closest("[data-circle-messages-pane]")!.getBoundingClientRect().height,
+        threadHeight: el.closest("[data-circle-messages-pane]")!.querySelector(":scope > section")!.getBoundingClientRect().height };
     });
     expect(geometry.fontSize).toBe("20px");
     expect(geometry.lineHeight).toBe("24px");
     expect(geometry.weight).toBe("600");
     expect(geometry.headerHeight).toBe(68);
-    expect(Math.abs(geometry.listHeight - geometry.paneHeight)).toBeLessThanOrEqual(1);
+    if (width >= 768) {
+      // Both split panes reserve the centered dock; phone lists fill their pane.
+      expect(Math.abs(geometry.listHeight - geometry.threadHeight)).toBeLessThanOrEqual(1);
+      expect(geometry.listHeight).toBeGreaterThan(0);
+      expect(geometry.listHeight).toBeLessThan(geometry.paneHeight);
+    } else {
+      expect(Math.abs(geometry.listHeight - geometry.paneHeight)).toBeLessThanOrEqual(1);
+    }
     expect(geometry.titleLeft).toBe(18);
     expect(geometry.titleRight).toBeLessThanOrEqual(geometry.actionLeft);
     expect(geometry.actionRight).toBeLessThanOrEqual(width);

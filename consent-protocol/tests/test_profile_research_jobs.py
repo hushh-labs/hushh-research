@@ -177,6 +177,52 @@ async def test_low_confidence_is_reused_without_research_but_still_rechecks_owne
     assert (await restored.status("owner", "fixture-token"))["status"] == "disabled"
 
 
+@pytest.mark.parametrize(
+    "terminal", ["offered", "low_confidence", "exhausted", "throttled_exhausted"]
+)
+async def test_explicit_completed_refresh_gets_new_discovery_but_retains_hourly_limit(terminal):
+    clock = [10_000.0]
+    exhausted = terminal.endswith("exhausted")
+    status = "unavailable" if exhausted else terminal
+    result = {**RESULT, "status": status}
+    if exhausted:
+        result["research_exhausted"] = True
+    if terminal == "throttled_exhausted":
+        result["reason"] = "provider_throttled"
+    offer = AsyncMock(return_value=result)
+    instance = manager(offer=offer, clock=lambda: clock[0])
+    instance.progressive = exhausted
+    await instance.start("owner", "fixture-token")
+    await settle(instance)
+    prior = copy.deepcopy(instance.store.rows["owner"])
+    prior["attempted_combinations"] = [1, 2]
+    prior["work"] = {"old_evidence": True}
+    instance.store.rows["owner"] = copy.deepcopy(prior)
+    assert (await instance.start("owner", "fixture-token"))["status"] == status
+    assert offer.await_count == 1
+
+    clock[0] += 60
+    assert (await instance.start("owner", "fixture-token", refresh_completed=True))[
+        "status"
+    ] == "pending"
+    fresh = instance.store.rows["owner"]
+    assert fresh["job_id"] != prior["job_id"]
+    assert fresh["attempted_combinations"] == [] and "work" not in fresh
+    assert fresh["discovery_started_at"] == clock[0]
+    assert fresh["starts"] == prior["starts"]
+    # A second click while pending coalesces, including the refresh flag.
+    assert (await instance.start("owner", "fixture-token", refresh_completed=True))[
+        "status"
+    ] == "pending"
+    await settle(instance)
+    assert offer.await_count == 2
+    assert len(instance.store.rows["owner"]["starts"]) == 2
+    instance.store.rows["owner"]["starts"].append(clock[0] - 1)
+    refused = await instance.start("owner", "fixture-token", refresh_completed=True)
+    assert refused["status"] == "unavailable" and refused["retry_after_s"] > 0
+    assert offer.await_count == 2
+
+
 async def test_single_failed_search_is_terminal_across_remount_and_cooldown():
     from hushh_mcp.one_adk.profile_research import run_profile_discovery
 
@@ -815,6 +861,80 @@ async def test_owner_decision_inputs_are_sealed_carried_and_never_change_reuse(m
 
 
 @pytest.mark.asyncio
+async def test_public_profile_scope_carries_coalesces_and_refreshes_without_reusing_work(
+    monkeypatch,
+):
+    from hushh_mcp.services import world_model_service as pwm
+
+    monkeypatch.setitem(pwm.POLICY, "provider", "azure_openai_web_search")
+    monkeypatch.setattr(pwm, "azure_bing_consented", lambda _: True)
+    seen = []
+    gate = asyncio.Event()
+
+    async def research(**kwargs):
+        seen.append(copy.deepcopy(kwargs))
+        if len(seen) == 1:
+            await kwargs["on_attempts_start"]((1, 33))
+            await kwargs["on_progress"]({"evidence": "prior profile"})
+            await gate.wait()
+            return {"status": "paused", "pkm_written": False, "restart_required": True}
+        return RESULT
+
+    instance = pwm_manager(monkeypatch, progressive=True, offer=research)
+    profiles = {
+        "urls": ["https://example.test/me", "https://github.com/example"],
+        "permitted_public_sources": True,
+    }
+    await instance.start(
+        "owner", "token", inputs={"public_profiles": profiles}, refresh_completed=True
+    )
+    await asyncio.sleep(0)
+    original = instance.store.rows["owner"]["job_id"]
+    reordered = {**profiles, "urls": list(reversed(profiles["urls"]))}
+    assert (
+        await instance.start(
+            "owner", "token", inputs={"public_profiles": reordered}, refresh_completed=True
+        )
+        == jobs.pending()
+    )
+    changed = {**profiles, "urls": ["https://example.test/another"]}
+    with pytest.raises(pwm.PublicProfilesChanged):
+        await instance.start(
+            "owner", "token", inputs={"public_profiles": changed}, refresh_completed=True
+        )
+    assert instance.store.rows["owner"]["job_id"] == original
+    gate.set()
+    await settle(instance)
+    decisions = {"owner_decisions": {"confirmed": [], "rejected": ["Not me."]}}
+    await instance.start("owner", "token", inputs=decisions)
+    await settle(instance)
+    assert seen[1]["inputs"] == {**decisions, "public_profiles": profiles}
+    assert seen[1]["work"] == {"evidence": "prior profile"}
+    assert instance.store.rows["owner"]["job_id"] == original
+    with pytest.raises(pwm.PublicProfilesChanged):
+        await instance.start("owner", "token", inputs={"public_profiles": changed})
+    prior_starts = instance.store.rows["owner"]["starts"]
+    await instance.start(
+        "owner", "token", inputs={"public_profiles": changed}, refresh_completed=True
+    )
+    await settle(instance)
+    state = instance.store.rows["owner"]
+    assert state["job_id"] != original
+    assert state["starts"][:-1] == prior_starts
+    assert seen[-1]["work"] == {} and seen[-1]["attempts_used"] == ()
+    assert seen[-1]["inputs"] == {**decisions, "public_profiles": changed}
+    # A changed profile never bypasses the owner-wide hourly paid-start limit.
+    state["starts"] = [instance.clock()] * 3
+    third = {**profiles, "urls": ["https://example.test/third"]}
+    count = len(seen)
+    refused = await instance.start(
+        "owner", "token", inputs={"public_profiles": third}, refresh_completed=True
+    )
+    assert refused["status"] == "unavailable" and refused["retry_after_s"] > 0
+    assert len(seen) == count
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("existing", ["missing", "opted_out", "setup_pending", "private"])
 async def test_ensure_enrolls_default_research_but_never_overrides_opt_out(monkeypatch, existing):
     from hushh_mcp.services import world_model_service as pwm
@@ -935,6 +1055,7 @@ async def test_ensure_prepares_again_after_checkpoint_purge_once_last_run_is_old
             "started_at": now.timestamp() - 25 * 3600,
             "finished_at": now.timestamp() - 25 * 3600,
             "consent_generation": "00000000-0000-4000-8000-000000000001",
+            "identity_binding": "owner-bound-identity",
             "result": RESULT,
         }
     # No live checkpoint; the last run's age and outcome decide.
@@ -943,6 +1064,59 @@ async def test_ensure_prepares_again_after_checkpoint_purge_once_last_run_is_old
     assert instance.offer.await_count == (1 if expected == "pending" else 0)
     if active_draft is not None:
         finished.assert_awaited_once_with("owner", active_draft)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["saved", "offered"])
+@pytest.mark.parametrize("changed_binding", [False, True])
+async def test_ensure_reuses_completed_state_only_for_current_identity_policy(
+    monkeypatch, status, changed_binding
+):
+    from datetime import UTC, datetime, timedelta
+
+    from hushh_mcp.services import world_model_service as pwm
+
+    now = datetime(2026, 10, 20, tzinfo=UTC)
+    current = "new-owner-policy" if changed_binding else "owner-bound-identity"
+    monkeypatch.setattr(pwm, "admission", AsyncMock(return_value=(None, current)))
+    monkeypatch.setattr(
+        pwm,
+        "preferences",
+        AsyncMock(
+            return_value={
+                "enabled": True,
+                "generation": "00000000-0000-4000-8000-000000000001",
+                "auto_started_at": now - timedelta(days=2),
+                "active_draft_id": None,
+            }
+        ),
+    )
+    instance = pwm_manager(
+        monkeypatch, clock=now.timestamp, check=AsyncMock(return_value=(None, current))
+    )
+    await instance.store.write(
+        "owner",
+        {
+            "job_id": "00000000-0000-4000-8000-0000000000d1",
+            "status": status,
+            "identity_binding": "owner-bound-identity",
+            "consent_generation": "00000000-0000-4000-8000-000000000001",
+            "started_at": now.timestamp() - 60,
+            "finished_at": now.timestamp() - jobs.TTL_SECONDS - 1,
+            "starts": [now.timestamp() - 60],
+            "attempted_combinations": [1],
+            "budget_scope": instance.budget_scope(),
+            "result": {"status": "saved", "pkm_written": False} if status == "saved" else RESULT,
+        },
+        None,
+    )
+    result = await instance.ensure("owner", "token")
+    assert result["status"] == ("pending" if changed_binding else "saved")
+    await settle(instance)
+    assert instance.offer.await_count == int(changed_binding)
+    if changed_binding:
+        assert instance.offer.call_args.kwargs["attempts_used"] == (1,)
+        assert instance.store.rows["owner"]["starts"] == [now.timestamp() - 60, now.timestamp()]
 
 
 class ProviderDenied(Exception):
@@ -1435,6 +1609,11 @@ async def test_failure_cooldown_is_fifteen_minutes_for_provider_refusals(monkeyp
         assert result["status"] == "unavailable"
         assert result["retry_after_s"] == cooldown - 30
         assert result.get("reason") == ("provider_unavailable" if rejected else None)
+    before = copy.deepcopy(instance.store.rows["owner"])
+    explicit = await instance.start("owner", "fixture-token", refresh_completed=True)
+    assert explicit["status"] == "unavailable"
+    assert explicit["retry_after_s"] == cooldown - 30
+    assert instance.store.rows["owner"] == before
     assert instance.offer.await_count == 1 if not rejected else len(calls) == 1
     now[0] += cooldown - 30
     assert (await instance.start("owner", "fixture-token"))["status"] == "pending"

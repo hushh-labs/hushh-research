@@ -2466,7 +2466,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.connect",
-      "purpose": "Find people, review scoped connection requests, and manage connections. The exact-person reviewPerson query sends nothing automatically; a retained Location task rechecks eligibility only after the owner returns with Continue.",
+      "purpose": "Find people opens by default; My connections is an adjacent local view with an independent accepted-roster search. Circles remains a route-backed surface. Review scoped requests only through the exact-person reviewPerson query; a retained Location task rechecks eligibility only after the owner returns with Continue.",
       "screen": "connect",
       "entryCue": "",
       "proactivity": "ambient",
@@ -2519,10 +2519,18 @@
             "mode": "replace",
             "transitionMode": "contextual"
           }
+        },
+        {
+          "href": "/one/connect?tab=all&view=connections",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
       "kind": "parent",
-      "reason": "Circle creation unwinds its contact step to retained name/type state through a route-scoped Back layer before the authored route parent. Pending membership saves consume Back. Connect modal Escape uses the same callback. Contact invitation overlay Back unwinds batch result to review to selection, preserving selected recipients; a pending composer consumes Back and explicit Close clears its session."
+      "reason": "Circle creation unwinds its contact step to retained name/type state through a route-scoped Back layer before the authored route parent. Pending membership saves consume Back. Connect modal Escape uses the same callback. Contact invitation overlay Back unwinds batch result to review to selection, preserving selected recipients; a pending composer consumes Back and explicit Close clears its session. Find people and My connections are sibling local views; switching them does not author browser history. Circle Add people uses the shared modal sheet Back owner, clears its dismissed selection, and consumes dismissal while the existing membership batch settles. List swipe reveals an action only; delete or leave requires the shared confirmation and a fresh server capability read."
     }
   },
   {
@@ -2888,7 +2896,7 @@
       "playbookId": "route.one.kai",
       "purpose": "Help the person understand and use the kai screen through its generated controls.",
       "screen": "kai_market",
-      "entryCue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
+      "entryCue": "Use Market, Portfolio, or Stocks to choose the active finance view.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_home",
       "happyPathActionIds": [
@@ -3031,7 +3039,7 @@
     "exemptionReason": "Compatibility route only redirects to the canonical /one/kai Finance Market tab.",
     "voicePlaybook": {
       "playbookId": "route.one.kai.market",
-      "purpose": "Help the person move between Market, Portfolio, and Analysis through the shared Finance workspace.",
+      "purpose": "Help the person move between Market, Portfolio, and Stocks through the shared Finance workspace.",
       "screen": "kai_market",
       "entryCue": "",
       "proactivity": "ambient",
@@ -7555,6 +7563,14 @@
         {
           "href": "/people/sample",
           "expected": null
+        },
+        {
+          "href": "/people/sample?from=%2Fone%2Fmessages",
+          "expected": {
+            "href": "/one/messages",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
       "kind": "root",

@@ -237,7 +237,7 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
 
 16. The canonical container tokens are:
 
-- `--app-shell-reading: 720px`
+- `--app-shell-reading: 54rem`
 - `--app-shell-agent: 55rem`
 - `--app-shell-standard: 90rem`
 - `--app-shell-expanded: 96rem`
@@ -391,10 +391,10 @@ Rules:
    - `Thinking` only for optional provider telemetry when available.
    - `Response` only for real assistant/model text from SSE `token` frames or explicit final assistant text.
 3. Do not show placeholder text such as `Preparing response` inside the `Response` region. Waiting states belong to `Progress` or a small status line outside the response body.
-4. Do not nest cards inside cards. The active stream panel is one flat surface; progress, thinking, marketplace opportunities, and response content are sections inside it. Chat Activity is a plain disclosure without a permanent fill, border or elevation. Keep its count, event list, keyboard focus and 44px target; preserve the shared surface default for other progress sections.
+4. Do not nest cards inside cards. The active stream panel is one flat surface; progress, thinking, marketplace opportunities, and response content are sections inside it. Chat Activity is a plain disclosure without a permanent fill, border or elevation. `AppStreamPanel` defaults Activity to this plain appearance so chat callers do not need a presentation override. Keep its count, event list, keyboard focus and 44px target; preserve the shared surface default for other progress sections.
 5. Progress, thinking, and marketplace opportunity lists must use bounded internal scroll with `max-height`, `min-height: 0`, `overflow-y: auto`, and `overscroll-contain`. Long assistant answers use the main chat scroll, not a tiny nested response box.
 6. Marketplace opportunity accordions in Agent Chat receive workspace-preloaded data. The accordion may show a lightweight loading row only while the workspace fetch is genuinely pending.
-7. Mobile chat history and Profile use the opaque theme canvas for their reading surfaces, with shared pane geometry and flat bottom-nav/top-bar control recipes. Keep the modal scrim behind the pane; do not let it tint the reading background or show desktop collapse controls in mobile mode. New chat is a plain action with no resting fill, border or elevation; retain its 44px target, press feedback and keyboard focus.
+7. Chat history titles wrap completely, including long unbroken labels, while preserving age and action targets. Mobile chat history and Profile use the opaque theme canvas for their reading surfaces, with shared pane geometry and flat bottom-nav/top-bar control recipes. Keep the modal scrim behind the pane; do not let it tint the reading background or show desktop collapse controls in mobile mode. New chat is a plain action with no resting fill, border or elevation; retain its 44px target, press feedback and keyboard focus.
 8. Agent Chat session continuity is a surface contract: a cold app launch opens
    a blank Chat without selecting the latest saved conversation. In-app route
    navigation resumes the selected `conversationId` for that browser runtime;
@@ -421,6 +421,15 @@ Rules:
     at 12px. Verify computed fonts, line heights and insets in Chromium and
     WebKit; class-name checks cannot prove visual parity. Conversations, device
     authority and streaming state remain owned by their existing runtimes.
+13. One's browser and recovery Chat header retains the portrait above its name:
+    104px on desktop, 52–64px on phones. On the narrowest phones, shift it only
+    enough to avoid the existing 44px action targets. Keep the mode toggle
+    anchored across One/Puppy switches, the phone model picker in One's profile,
+    and coherent native chrome on its existing compact header reservation.
+    Circle selection rows show available connection date/time, contact source
+    and verified-advisor context without exposing contact strings. Missing
+    context says `Connection details unavailable`; identical metadata does not
+    establish a person's identity.
 
 ## Page Header Contract
 
@@ -507,7 +516,7 @@ Rules:
    `/one/kai?tab=analysis`; route inventories normalize those URLs to
    the shared pathname without discarding their tab state.
 6. Use canonical route constants through `lib/navigation/app-bottom-nav.ts` and `lib/navigation/*-route-tabs.ts`; route files must not build their own shell navigation arrays.
-7. The Agent Bar and bottom navigation share the measured bottom-chrome stack with a 6px resting join. Navigation segments use the shared frame and remain centered with equal widths. Messages uses a consistent 30% list / 70% conversation split from 768px upward, using `--app-messages-sidebar-width` for both People and Circles. Narrow split panes put the list title and its actions on separate rows with aligned pane headers. Short landscape phone viewports below 1024px wide and 500px high retain one pane at a time. The entire shared column sits inside the conversation pane in split mode; its list fills the viewport height while the conversation reserves the measured dock. Single-pane mode retains the viewport-centered dock. Do not offset individual bars or create route-local fixed chrome.
+7. The Agent Bar and bottom navigation share the measured bottom-chrome stack with a 6px resting join. Navigation segments use the shared frame and remain centered with equal widths. Messages uses a consistent 30% list / 70% conversation split from 768px upward, using `--app-messages-sidebar-width` for both People and Circles. Narrow split panes put the list title and its actions on separate rows with aligned pane headers. Short landscape phone viewports below 1024px wide and 500px high retain one pane at a time. Messages uses the same viewport-centered column, width cap and safe-area insets as other pages in both split and single-pane modes; the selected conversation's message composer replaces the launcher. Both lists and conversations reserve the measured dock so their last rows remain reachable above it and the keyboard. Do not offset individual bars or create route-local fixed chrome.
 8. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
 9. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 10. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.
@@ -717,6 +726,38 @@ Rules:
    entity title and one concise metadata line. The body begins with new evidence;
    it must not repeat that identity block, title, subtitle, or implementation
    diagnostics in a nested card.
+
+### Task surface anatomy
+
+`lib/morphy-ux/ui/task-surfaces.tsx` composes the stock Sheet, Drawer, Dialog
+and AlertDialog families. Those primitives retain focus, open state, gestures,
+Back handling, native isolation, motion and portal ownership. New task layouts
+use shared header, toolbar, scrolling body and footer regions; features supply
+controlled content and existing action callbacks. `components/app-ui/sheet-parts`
+provides search, counts and controlled person rows using the existing controls.
+Use the canonical SegmentedTabs for local views.
+
+The task canvas is opaque in both themes. The previous screen is obscured by
+the existing shared blurred/dimmed scrim; do not replace it with a dim-only
+artifact overlay or put glass on the foreground. Native Android retains its
+measured blur-free fallback, credential gates retain their opaque backdrop,
+and non-modal map surfaces retain their explicit overlay policy.
+
+Task corners are 24px, insets are 16px on phones and 24px from 768px, titles
+are 20/28 semibold, descriptions 14/20, and controls have 44px targets. People
+rows use 36px avatars and 20px selection marks. `AdaptiveSheetContent` explicitly
+opts a bottom Sheet into desktop centering at 768px without remounting the
+form; ordinary anchored sheets retain their side. People pickers opt into a
+stable bounded height. Small forms remain content-sized. Keyboard/native
+seats cap the frame; short or enlarged-content tasks scroll the whole frame
+with reachable actions rather than clipping the body. Footer safe-area
+padding is applied once. Existing drag options must be passed through;
+inner-scroll pickers keep their existing drag opt-out.
+
+AdaptiveDetailSurface adopts this anatomy for its Sheet and desktop Dialog
+presentations; its default phone fullscreen Drawer transport remains owned
+by that component. Reference examples do not authorize new routes, mutations,
+relationship semantics, navigation chrome or a parallel overlay implementation.
 
 ## Activity And Notification Contract
 

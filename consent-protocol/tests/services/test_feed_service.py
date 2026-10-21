@@ -94,7 +94,9 @@ class _QueuedDb:
 
     def execute_raw(self, sql: str, params: dict):
         self.raw_calls.append((sql, params))
-        if sql.startswith("\nWITH keyed"):
+        if "AS history_revision" in sql:
+            data = [{"history_revision": "fixture-history-revision"}]
+        elif sql.startswith("\nWITH keyed"):
             query = self.queries.pop(0)
             data = (
                 [{"unread_count": query.count}]
@@ -200,7 +202,9 @@ def test_list_feed_uses_bounded_keyset_pagination_and_exact_unread_count() -> No
     assert [item["id"] for item in result["items"]] == ["10", "9"]
     assert result["next_cursor"] == "9"
     assert result["unread_count"] == 41
-    sql, params = service._db.raw_calls[0]
+    assert result["history_revision"] == "fixture-history-revision"
+    assert service._db.raw_calls[0][1] == {"user_id": "user-1"}
+    sql, params = service._db.raw_calls[1]
     assert params == {"user_id": "user-1", "cursor": 11, "page_size": 3}
     assert "FROM grouped WHERE" in sql
     assert "row_number() OVER (PARTITION BY thread_key ORDER BY id DESC)" in sql
@@ -791,6 +795,53 @@ def test_feed_projection_allows_only_bounded_renderer_metadata() -> None:
     }
 
 
+@pytest.mark.parametrize("authoritative", [True, False, None, "true", 1])
+def test_nocharge_feed_receipt_survives_wire_sanitation_without_trusting_snapshot(authoritative):
+    request_id = "11111111-2222-4333-8444-555555555555"
+    service = FeedService()
+    service._db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "current_existing_access_nocharge": authoritative,
+                    "provider_secret": "must-not-cross",
+                }
+            ]
+        ]
+    )
+    rows = service._with_drive_payment_status(
+        "requester",
+        [
+            {
+                "id": 1,
+                "event_type": "document_share_outcome",
+                "metadata": {
+                    "request_id": request_id,
+                    "current_existing_access_nocharge": True,
+                    "file_name": "private.pdf",
+                },
+            }
+        ],
+    )
+    item = service._to_item(rows[0], "requester")
+    assert item["metadata"].get("current_existing_access_nocharge") is (
+        True if authoritative is True else None
+    )
+    assert "provider_secret" not in str(item)
+    assert "private.pdf" not in str(item)
+    assert (
+        "current_existing_access_nocharge"
+        not in service._to_item(
+            {
+                "id": 2,
+                "event_type": "document_share_outcome",
+                "metadata": {"current_existing_access_nocharge": True},
+            }
+        )["metadata"]
+    )
+
+
 def test_historical_drive_payment_reads_current_requester_scoped_status() -> None:
     request_id = "11111111-2222-4333-8444-555555555555"
     db = _QueuedDb(
@@ -829,6 +880,69 @@ def test_historical_drive_payment_reads_current_requester_scoped_status() -> Non
     assert metadata["current_checkout_expired"] is True
     assert "provider_secret" not in str(metadata)
     assert "private.pdf" not in str(metadata)
+
+
+@pytest.mark.parametrize("viewer", ["owner", "requester"])
+def test_historical_partial_feed_uses_current_delivery_receipts(viewer) -> None:
+    request_id = "11111111-2222-4333-8444-555555555555"
+    service = FeedService()
+    db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "current_request_status": "partial",
+                    "current_delivery_total_count": 20,
+                    "current_delivery_confirmed_count": 20,
+                    "current_delivery_pending_count": 0,
+                    "file_name": "private.pdf",
+                    "semantic_outcome_counts": {"unavailable:unsupported_format": 27},
+                }
+            ]
+        ]
+    )
+    service._db = db
+    rows = service._with_drive_payment_status(
+        viewer,
+        [
+            {
+                "event_type": "document_share_outcome",
+                "metadata": {"request_id": request_id, "user_facing_status": "partial"},
+            }
+        ],
+    )
+    metadata = FeedService._to_item({"id": 1, **rows[0]})["metadata"]
+    assert metadata["user_facing_status"] == "partial"
+    assert metadata["current_delivery_total_count"] == 20
+    assert metadata["current_delivery_confirmed_count"] == 20
+    assert metadata["current_delivery_pending_count"] == 0
+    assert "private.pdf" not in str(metadata)
+    assert "unsupported_format" not in str(metadata)
+    sql, params = db.raw_calls[0]
+    assert params["user_id"] == viewer
+    assert "r.recipient_user_id=:user_id OR r.user_id=:user_id" in sql
+
+
+def test_missing_delivery_lookup_does_not_reuse_snapshot_counts() -> None:
+    service = FeedService()
+    service._db = _QueuedDb(raw_results=[[]])
+    rows = service._with_drive_payment_status(
+        "unrelated",
+        [
+            {
+                "event_type": "document_share_outcome",
+                "metadata": {
+                    "request_id": "11111111-2222-4333-8444-555555555555",
+                    "user_facing_status": "partial",
+                    "current_delivery_total_count": 20,
+                    "current_delivery_confirmed_count": 20,
+                    "current_delivery_pending_count": 0,
+                },
+            }
+        ],
+    )
+    metadata = FeedService._to_item({"id": 1, **rows[0]})["metadata"]
+    assert not any(key.startswith("current_delivery_") for key in metadata)
 
 
 def test_document_feed_projects_owner_setup_and_exact_partial_refund_only_to_each_party() -> None:
@@ -1021,7 +1135,7 @@ def test_direct_message_feed_body_is_only_a_recipient_scoped_transient_preview(
     # The Feed row itself remains plaintext-free; only the authenticated DTO
     # acquires the result of opening the message envelope.
     assert list_query.data[0]["metadata"] == {}
-    sql, params = service._db.raw_calls[1]
+    sql, params = service._db.raw_calls[2]
     assert "feed.user_id = :viewer_user_id" in sql
     assert "conversation.participant_a_user_id = message.sender_user_id" in sql
     assert "conversation.participant_b_user_id = message.sender_user_id" in sql
@@ -1137,7 +1251,7 @@ def test_list_feed_enriches_connection_rows_with_counterpart_photo() -> None:
     assert result["items"][0]["metadata"]["counterpart_photo_url"] == (
         "https://cdn.example.test/kushal.jpg"
     )
-    assert "connection_requests" in service._db.raw_calls[1][0]
+    assert "connection_requests" in service._db.raw_calls[2][0]
     assert "counterpart_user_id" not in result["items"][0]["metadata"]
 
 
@@ -1178,7 +1292,7 @@ def test_list_feed_enriches_location_grant_rows_with_counterpart_photo() -> None
     assert result["items"][0]["metadata"]["counterpart_photo_url"] == (
         "https://cdn.example.test/ankit.jpg"
     )
-    assert "one_location_share_grants" in service._db.raw_calls[1][0]
+    assert "one_location_share_grants" in service._db.raw_calls[2][0]
 
 
 def test_durable_identity_gives_same_person_photo_to_mixed_feed_events() -> None:

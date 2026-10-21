@@ -227,6 +227,7 @@ export default defineConfig({
         /profile-pane-close\.layout\.spec\.ts/,
         /legal-pages\.spec\.ts/,
         /connect-living-circles\.layout\.spec\.ts/,
+        /check-in-task\.layout\.spec\.ts/,
         // boot-surface: the one cold-start surface continues the iOS splash
         // inside the WKWebView, so its centring, zero-shift chain and splash
         // ink parity are measured in the engine the app ships in; own document.

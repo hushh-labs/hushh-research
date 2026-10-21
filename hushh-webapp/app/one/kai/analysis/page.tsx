@@ -18,6 +18,8 @@ import { SurfaceCard, SurfaceCardContent, SurfaceStack } from "@/components/app-
 import { DebateStreamView, type AgentState } from "@/components/kai/debate-stream-view";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { AnalysisHistoryDashboard } from "@/components/kai/views/analysis-history-dashboard";
+import { KaiStocksView } from "@/components/kai/views/kai-stocks-view";
+import { useKaiMarketHome } from "@/components/kai/shared/kai-market-home-context";
 import { KaiAnalysisPreviewView } from "@/components/kai/views/kai-analysis-preview-view";
 import { AnalysisSummaryView } from "@/components/kai/views/analysis-summary-view";
 import { HistoryDetailView } from "@/components/kai/views/history-detail-view";
@@ -53,10 +55,6 @@ import { cn } from "@/lib/utils";
 import { toInvestorLoading, toInvestorMessage } from "@/lib/copy/investor-language";
 import { ApiService, type KaiStockPreviewResponse } from "@/lib/services/api-service";
 import { CacheService } from "@/lib/services/cache-service";
-import {
-  getKaiActivePickSource,
-  setKaiActivePickSource,
-} from "@/lib/kai/pick-source-selection";
 import {
   deriveAnalysisRouteIntent,
   pickCancelledAnalysisReturnEntry,
@@ -165,6 +163,7 @@ export function KaiAnalysisPageContent() {
 
   const { user, userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
+  const { activePickSource } = useKaiMarketHome();
 
   const analysisParams = useKaiSession((s) => s.analysisParams);
   const analysisParamsUpdatedAt = useKaiSession((s) => s.analysisParamsUpdatedAt);
@@ -186,6 +185,7 @@ export function KaiAnalysisPageContent() {
   const [focusedRunTask, setFocusedRunTask] = useState<DebateRunTask | null>(null);
   const [showHistoryWhileActive, setShowHistoryWhileActive] = useState(false);
   const [historyCount, setHistoryCount] = useState(0);
+  const [selectedStockSymbol, setSelectedStockSymbol] = useState<string | null>(null);
   // Landing shows the summary "table"; debate is its own ?view=debate route.
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("summary");
   const workspaceTabRef = useRef<WorkspaceTab>("summary");
@@ -402,7 +402,7 @@ export function KaiAnalysisPageContent() {
     searchParamsRef.current = new URLSearchParams(searchParams.toString());
   }, [searchParams]);
   const handleSelectTicker = useCallback(
-    (ticker: string) => {
+    (ticker: string, pickSource = previewPickSource) => {
       const normalizedTicker = String(ticker || "").trim().toUpperCase();
       if (!normalizedTicker) return;
       setResolvedEntry(null);
@@ -417,7 +417,7 @@ export function KaiAnalysisPageContent() {
       router.push(
         buildKaiAnalysisPreviewRoute({
           ticker: normalizedTicker,
-          pickSource: previewPickSource,
+          pickSource,
         })
       );
     },
@@ -697,6 +697,7 @@ export function KaiAnalysisPageContent() {
     if (showWorkspace) return "";
     return rawTicker;
   }, [searchParams, showWorkspace]);
+  const showStockBrowser = !showWorkspace && !previewTickerFromQuery && !analysisEntryId && !debateId && !activeRunTask && !resolvingEntry;
   const analysisSuggestions = useMemo(() => {
     if (!userId || showWorkspace || previewTickerFromQuery || activeRunTask) {
       return [];
@@ -792,6 +793,7 @@ export function KaiAnalysisPageContent() {
           },
         ]
       : [
+          ...(showStockBrowser ? [{ id: "stocks", title: "Stocks", purpose: "Browse stocks, compare company facts, and open a research preview." }] : []),
           {
             id: "history_dashboard",
             title: "Analysis history",
@@ -799,6 +801,7 @@ export function KaiAnalysisPageContent() {
           },
         ];
     const controls = [
+      ...(showStockBrowser && selectedStockSymbol && vaultKey ? [{ id: "analysis_stock_details_preview", label: `Analyze ${selectedStockSymbol}`, purpose: "Open the selected stock preview before confirming a debate.", actionId: "analysis.start", role: "button" }] : []),
       ...(showWorkspace
         ? [
             { id: "analysis_back_to_history", label: "Back to history", purpose: "Return to history.", actionId: "analysis.back_to_history", role: "button" },
@@ -823,6 +826,7 @@ export function KaiAnalysisPageContent() {
               : ["Detailed review"]),
         ]
       : [
+          ...(showStockBrowser ? ["Stocks"] : []),
           ...(previewTickerFromQuery ? ["Stock preview"] : []),
           ...(activeRunTask ? ["Active analysis banner"] : []),
           "Analysis history",
@@ -830,31 +834,31 @@ export function KaiAnalysisPageContent() {
 
     return {
       screenId: showWorkspace ? "kai_analysis_workspace" : "kai_analysis_history",
-      title: "Analysis",
+      title: showWorkspace ? "Analysis" : "Stocks",
       purpose: showWorkspace
         ? "This workspace runs and reviews ticker analysis across debate, summary, and detailed views."
-        : "This screen keeps saved analysis history, preview cards, and active-analysis return points in one place.",
-      primaryEntity: activeTicker || previewTickerFromQuery || null,
+        : "Browse stocks and company facts, start stock research, and review saved analysis.",
+      primaryEntity: activeTicker || previewTickerFromQuery || selectedStockSymbol || null,
       // A ticker is public and is the whole subject of this screen, so it is
       // safe to say aloud. Without it One knew it was on Analysis but not
       // which stock -- it could not answer "what am I looking at".
-      spokenSubject: activeTicker || previewTickerFromQuery || null,
+      spokenSubject: activeTicker || previewTickerFromQuery || selectedStockSymbol || null,
       sections,
       actions,
       controls,
       concepts: [
         {
           id: "analysis",
-          label: "Analysis",
-          explanation: "Analysis is the research workspace for running and reviewing ticker debates.",
-          aliases: ["analysis", "debate", "research"],
+          label: "Stocks",
+          explanation: "Stocks brings company facts, stock research, and saved debates together.",
+          aliases: ["stocks", "analysis", "debate", "research"],
         },
       ],
-      activeSection: showWorkspace ? workspaceTabLabel : "Analysis history",
+      activeSection: showWorkspace ? workspaceTabLabel : showStockBrowser ? "Stocks" : "Analysis history",
       activeTab: showWorkspace ? workspaceTab : null,
-      selectedEntity: activeTicker || previewTickerFromQuery || null,
+      selectedEntity: activeTicker || previewTickerFromQuery || selectedStockSymbol || null,
       visibleModules,
-      focusedWidget: showWorkspace ? `${workspaceTabLabel} tab` : "Analysis history",
+      focusedWidget: showWorkspace ? `${workspaceTabLabel} tab` : showStockBrowser ? "Stocks" : "Analysis history",
       availableActions: actions.map((action) => action.label),
       activeControlId: activeVoiceControlId,
       lastInteractedControlId: lastVoiceControlId,
@@ -905,6 +909,9 @@ export function KaiAnalysisPageContent() {
     resolvingEntry,
     showHistoryWhileActive,
     showWorkspace,
+    showStockBrowser,
+    selectedStockSymbol,
+    vaultKey,
     stockPreviewError,
     stockPreviewLoading,
     workspaceTab,
@@ -1076,13 +1083,8 @@ export function KaiAnalysisPageContent() {
       setPreviewPickSource(querySource);
       return;
     }
-    setPreviewPickSource(getKaiActivePickSource(userId));
-  }, [previewPickSourceFromQuery, userId]);
-
-  useEffect(() => {
-    if (!userId) return;
-    setKaiActivePickSource(userId, previewPickSource);
-  }, [previewPickSource, userId]);
+    setPreviewPickSource(activePickSource);
+  }, [activePickSource, previewPickSourceFromQuery, userId]);
 
   useEffect(() => {
     if (!previewTickerFromQuery || !userId || !vaultOwnerToken) {
@@ -1170,7 +1172,8 @@ export function KaiAnalysisPageContent() {
 
   if (!vaultKey) {
     return (
-      <div className="w-full min-w-0">
+      <div className="w-full min-w-0 space-y-4">
+        {showStockBrowser ? <KaiStocksView onSelectedSymbolChange={setSelectedStockSymbol} /> : null}
         <NativeTestBeacon
           routeId={ROUTES.KAI_ANALYSIS}
           marker="native-route-kai-analysis"
@@ -1437,16 +1440,17 @@ export function KaiAnalysisPageContent() {
               workspace="analysis"
               title={
                 <span className="inline-flex flex-wrap items-center gap-2">
-                  Analysis
+                  Stocks
                   {historyCount > 0 ? (
                     <Badge variant="secondary" className="text-[10px]">{historyCount}</Badge>
                   ) : null}
                 </span>
               }
-              description="Review saved debates and reopen a previous decision."
+              description="Browse companies and review saved analysis."
           />
           <AppPageContentRegion className="min-w-0 max-w-full">
             <SurfaceStack compact className="min-w-0 max-w-full">
+          {showStockBrowser ? <KaiStocksView onAnalyze={handleSelectTicker} onSelectedSymbolChange={setSelectedStockSymbol} /> : null}
           {missingEntryRouteId && missingEntryRouteId === (analysisEntryId || debateId) ? (
             <SurfaceCard className="w-full" data-testid="kai-analysis-unavailable">
               <SurfaceCardContent className="p-5 text-center">

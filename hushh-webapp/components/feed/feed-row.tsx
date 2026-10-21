@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
-import { formatFeedTimestamp } from "@/lib/feed/feed-timestamp";
+import { FeedRowMetadata, FeedRowTimestamp } from "./feed-row-metadata";
 import type { FeedItem } from "@/lib/services/feed-service";
 
 const SWIPE_LIMIT_PX = 132;
@@ -146,6 +146,7 @@ export const FeedRow = memo(function FeedRow({
   const suppressClickRef = useRef(false);
   const removingRef = useRef(false);
   const hintId = useId();
+  const descriptionId = useId();
   const busy = removing || mutating;
   const removeSign = removeDirection === "left" ? -1 : 1;
 
@@ -268,7 +269,6 @@ export const FeedRow = memo(function FeedRow({
 
   const icon = <FeedGlyph eventType={item.event_type} />;
   const Icon = presentation.icon;
-  const timestamp = formatFeedTimestamp(item.created_at);
   const surfaceLabel = hasRoute
     ? `Open ${presentation.label}`
     : canRemove
@@ -280,7 +280,7 @@ export const FeedRow = memo(function FeedRow({
       data-testid="feed-row"
       data-no-route-swipe
       data-swipe-direction={removeDirection}
-      className="group/feed-row relative isolate overflow-hidden bg-transparent [--type-row-label-size:13px] [--type-row-label-line:1.25] max-[360px]:[--type-row-label-size:12.5px] after:pointer-events-none after:absolute after:bottom-0 after:left-11 after:right-0 after:h-px after:bg-[color:var(--app-separator)] after:content-[''] last:after:hidden"
+      className="group/feed-row relative isolate overflow-hidden bg-transparent after:pointer-events-none after:absolute after:bottom-0 after:left-11 after:right-0 after:h-px after:bg-[color:var(--app-separator)] after:content-[''] last:after:hidden"
     >
       {canRemove ? (
         <>
@@ -311,7 +311,7 @@ export const FeedRow = memo(function FeedRow({
         type="button"
         disabled={busy || (!hasRoute && !canRemove)}
         aria-label={surfaceLabel}
-        aria-describedby={canRemove ? hintId : undefined}
+        aria-describedby={[presentation.description ? descriptionId : null, canRemove ? hintId : null].filter(Boolean).join(" ") || undefined}
         aria-keyshortcuts={canRemove ? "Delete Backspace" : undefined}
         onClick={(event) => {
           if (suppressClickRef.current) {
@@ -338,7 +338,7 @@ export const FeedRow = memo(function FeedRow({
           setConfirmOpen(true);
         }}
         style={{ transform: "translate3d(0px,0,0)" }}
-        className={`relative z-[1] grid min-h-[52px] w-full grid-cols-[30px_minmax(0,1fr)_auto_14px] items-center gap-x-2 border-0 bg-[color:var(--app-card-surface-default-solid)] px-3 py-1.5 text-left text-[color:var(--app-label)] outline-none transition-transform duration-300 ease-[cubic-bezier(.2,.9,.2,1)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)] enabled:cursor-pointer enabled:hover:bg-[color:var(--app-accent-tint)] disabled:cursor-default motion-reduce:transition-none max-[520px]:grid-cols-[30px_minmax(0,1fr)_14px] max-[360px]:gap-x-[7px] max-[360px]:px-[9px] ${canRemove ? "touch-pan-y" : ""}`}
+        className={`relative z-[1] grid min-h-[52px] w-full grid-cols-[30px_minmax(0,1fr)_auto_14px] items-center gap-x-2 border-0 bg-[color:var(--app-card-surface-default-solid)] px-3 py-1.5 text-left text-[color:var(--app-label)] outline-none transition-transform duration-300 ease-[cubic-bezier(.2,.9,.2,1)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)] enabled:cursor-pointer enabled:hover:bg-[color:var(--app-accent-tint)] disabled:cursor-default motion-reduce:transition-none max-[360px]:gap-x-[7px] max-[360px]:px-[9px] ${canRemove ? "touch-pan-y" : ""}`}
       >
         <span className="grid w-[30px] place-items-center">
           {presentation.person ? (
@@ -354,20 +354,11 @@ export const FeedRow = memo(function FeedRow({
             </span>
           )}
         </span>
-        <span className="min-w-0">
-          <span data-slot="settings-row-title" data-feed-unread={!read ? "true" : undefined} className="block truncate text-[13px] leading-[1.25] max-[360px]:text-[12.5px]">
-            {!read ? <span className="sr-only">Unread: </span> : null}
-            {presentation.label}
-          </span>
-          {presentation.description ? (
-            <span data-slot="feed-event-description" className="mt-px block line-clamp-2 text-[11px] leading-[1.35] text-[color:var(--app-secondary-label)] max-[360px]:text-[10px]">
-              {presentation.description}
-            </span>
-          ) : null}
-        </span>
-        <span className="flex items-start gap-1 self-start pt-[3px] max-[520px]:hidden">
-          {!read ? <span data-slot="feed-unread-marker" data-state="unread" aria-hidden="true" className="mt-1 size-1.5 rounded-full bg-[color:var(--app-accent)]" /> : null}
-          {timestamp ? <time data-slot="feed-event-time" dateTime={item.created_at} className="whitespace-nowrap text-[10px] leading-[1.25] tabular-nums text-[color:var(--app-secondary-label)]">{timestamp}</time> : null}
+        <FeedRowMetadata title={<span data-slot="settings-row-title" data-profile-role="name" data-feed-unread={!read ? "true" : undefined} className="block truncate">{!read ? <span className="sr-only">Unread: </span> : null}{presentation.label}</span>}
+          description={presentation.description} descriptionId={descriptionId} />
+        <span className="flex shrink-0 items-center gap-1">
+          {!read ? <span data-slot="feed-unread-marker" data-state="unread" aria-hidden="true" className="size-1.5 rounded-full bg-[color:var(--app-accent)]" /> : null}
+          <FeedRowTimestamp timestamp={item.created_at} />
         </span>
         <span aria-hidden="true" className="grid size-[14px] place-items-center text-[color:var(--app-tertiary-label)]">
           {hasRoute ? <svg viewBox="0 0 24 24" className="size-[14px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m9 6 6 6-6 6" /></svg> : null}
@@ -379,7 +370,7 @@ export const FeedRow = memo(function FeedRow({
           setConfirmOpen(open);
           if (!open) suppressClickRef.current = false;
         }}>
-          <AlertDialogContent size="sm">
+          <AlertDialogContent size="sm" data-profile-type-scale="feed">
             <AlertDialogHeader>
               <AlertDialogTitle>Remove from feed?</AlertDialogTitle>
               <AlertDialogDescription>{presentation.label}</AlertDialogDescription>

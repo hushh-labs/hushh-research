@@ -23,6 +23,7 @@ from api.middlewares.chat_key import CHAT_KEY_REQUIRED_DETAIL, log_chat_key_refu
 from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.command_proposals import require_pod_process
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.hushh_adk.product_activity import product_activity_plugins
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
@@ -657,6 +658,7 @@ def _one_head() -> TimedADKAgent:
         ),
         _shared_sessions(),
         app_name=ONE_APP_NAME,
+        plugins=product_activity_plugins("agent_one"),
         user_id_extractor=_user_id,
     )
     agent.detached_turn_hook = _notify_detached_turn

@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import json
 import time
 import uuid
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedSessionCheckpointStore
 from hushh_mcp.one_adk.profile_research import ProfileReport, ProfileSourceRef
+from hushh_mcp.one_adk.public_sources import public_source_urls
 from hushh_mcp.one_adk.world_model import POLICY, manifest
 from hushh_mcp.runtime_settings import one_profile_research_enabled
 from hushh_mcp.services.world_model_preferences import checkpoint_before_write
@@ -54,31 +53,7 @@ class SourceReviewInput(BaseModel):
     @field_validator("urls")
     @classmethod
     def public_urls(cls, values):
-        if len(set(values)) != len(values):
-            raise ValueError("Supply distinct sources")
-        for value in values:
-            parsed = urlsplit(value)
-            host = parsed.hostname or ""
-            if (
-                len(value) > 2048
-                or parsed.scheme != "https"
-                or not host
-                or "." not in host
-                or parsed.username
-                or parsed.password
-                or parsed.query
-                or parsed.fragment
-                or parsed.port not in {None, 443}
-                or host.endswith((".localhost", ".local", ".internal"))
-            ):
-                raise ValueError("Supply public HTTPS pages without query strings or credentials")
-            try:
-                ipaddress.ip_address(host)
-            except ValueError:
-                pass
-            else:
-                raise ValueError("IP-address sources are not accepted")
-        return values
+        return public_source_urls(values)
 
 
 async def require_owner(user_id, token):

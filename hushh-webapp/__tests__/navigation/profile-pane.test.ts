@@ -63,7 +63,11 @@ describe("Profile pane navigation state", () => {
     pushProfilePaneLocation("/one", window.location.search, profileLegalLocation("privacy"));
     replaceProfilePaneLocation("/one", window.location.search, profileLegalLocation("terms"));
     expect(profileLegalParentForPresentation()).toBe(true);
-    expect(projectNativeProfileLegal("terms", vi.fn(), vi.fn(), true).pages.map(page => page.id)).toEqual(["legal", "terms"]);
+    const legal = projectNativeProfileLegal("terms", vi.fn(), vi.fn(), true);
+    expect(legal.pages.map(page => page.id)).toEqual(["legal", "terms"]);
+    expect(legal.pages[0].sections[0].rows.map(({ id, artworkId }) => ({ id, artworkId }))).toEqual([
+      { id: "legal-open-privacy", artworkId: "privacy" }, { id: "legal-open-terms", artworkId: "terms" },
+    ]);
     // A native return-to-root can replace a deeper entry in place. Depth
     // alone must not invent a Legal parent on the next direct document visit.
     replaceProfilePaneLocation("/one", window.location.search, { panel: null, detail: null });

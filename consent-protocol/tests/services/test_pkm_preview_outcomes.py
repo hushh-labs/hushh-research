@@ -220,12 +220,25 @@ async def test_mixed_valid_and_invented_quotes_are_not_certified_as_complete(mon
             ],
         }
     )
-    downstream = AsyncMock()
+    downstream = AsyncMock(
+        return_value={
+            "intent_frame": {"save_class": "durable", "intent_class": "preference"},
+            "candidate_payload": {"preferences": {"drink": "tea"}},
+            "structure_decision": {"action": "create_domain", "target_domain": "preferences"},
+            "write_mode": "confirm_first",
+            "validation_hints": [],
+            "used_fallback": False,
+        }
+    )
     monkeypatch.setattr(service, "_run_agent_contract", run)
     monkeypatch.setattr(service, "_generate_single_structure_preview", downstream)
     result = await service.generate_structure_preview(
         user_id="fixture-owner", message="I prefer tea."
     )
     assert result["used_fallback"] is True
-    assert result["preview_cards"] == []
-    downstream.assert_not_awaited()
+    assert "segment_quote_unmatched" in result["validation_hints"]
+    assert len(result["preview_cards"]) == 1
+    assert result["preview_cards"][0]["source_text"] == "I prefer tea."
+    downstream.assert_awaited_once()
+    assert downstream.await_args.kwargs["message"] == "I prefer tea."
+    assert not _PREVIEW_CACHE

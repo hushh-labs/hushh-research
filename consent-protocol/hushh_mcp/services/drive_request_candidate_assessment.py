@@ -53,6 +53,22 @@ _READ_CODES = frozenset(
 _EVIDENCE_CODES = frozenset(
     {"source_changed", "content_incomplete", "invalid_content_evidence", "content_too_large"}
 )
+# Only these bounded labels may enter checkpoint diagnostics or operational logs.
+CANDIDATE_OBSERVATION_CODES = (
+    _READ_CODES
+    | _EVIDENCE_CODES
+    | frozenset(
+        {
+            "identity_unresolved",
+            "content_unavailable",
+            "content_verified",
+            "content_excluded",
+            "content_uncertain",
+            "assessment_unavailable",
+            "assessment_invalid",
+        }
+    )
+)
 
 
 @dataclass(frozen=True)
@@ -195,13 +211,15 @@ async def assess_request_candidates(
     this call; each assessment can use only the time left after its read.
     """
     started = monotonic()
+    # A request starts at revision zero, before its first positive review
+    # revision exists. Evidence must retain that exact request revision.
     if (
         not isinstance(user_id, str)
         or not user_id
         or not isinstance(request_id, str)
         or not request_id
         or type(request_revision) is not int
-        or request_revision < 1
+        or request_revision < 0
         or type(connection_generation) is not int
         or connection_generation < 1
         or not isinstance(plan_digest, str)

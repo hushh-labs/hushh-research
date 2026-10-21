@@ -205,6 +205,15 @@ describe("RequesterPaymentSection", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("refreshes a successful no-charge completion without redirecting or showing an error", async () => {
+    state.checkout.mockResolvedValueOnce({ requestId, existingAccess: true });
+    const onChanged = show(payment());
+    fireEvent.click(screen.getByRole("button", { name: "Pay $25" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
+    expect(state.assign).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("shows the countdown and starts the existing Checkout from Pay", async () => {
     state.checkout.mockResolvedValueOnce("https://checkout.stripe.com/c/pay/cs_test");
     show(payment());

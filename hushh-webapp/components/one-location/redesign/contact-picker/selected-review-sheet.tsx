@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { Loader2, UsersRound } from "@/components/icons";
 
-import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import {
   ContactAvatar,
   EmptyStateCard,
@@ -149,13 +148,13 @@ export function SelectedContactsSheet({
                       label={label}
                       photoUrl={recipient.photoUrl}
                       verified={Boolean(recipient.isRia)}
+                      fromContacts={recipient.connectedFromContacts}
                     />
                     <span className="min-w-0 flex-1">
                       <span className="flex min-w-0 items-start gap-1.5">
                         <span className="min-w-0 truncate text-[17px] font-normal leading-[22px] text-foreground">
                           {label}
                         </span>
-                        {recipient.connectedFromContacts ? <ContactSourceBadge /> : null}
                       </span>
                       {subtitle ? (
                         <span className="mt-0.5 block truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">

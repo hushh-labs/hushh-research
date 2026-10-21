@@ -70,7 +70,7 @@ describe("FeedRow", () => {
     ).toBeGreaterThan(0);
     expect(screen.getByText("A routine location share.")).toBeInTheDocument();
     expect(container.querySelector('[data-slot="feed-event-time"]')?.parentElement)
-      .toHaveClass("self-start");
+      .toHaveClass("items-center");
     expect(screen.getByTestId("feed-row").querySelector("button"))
       .toHaveClass("min-h-[52px]");
   });

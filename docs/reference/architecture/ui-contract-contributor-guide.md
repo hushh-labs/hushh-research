@@ -158,3 +158,6 @@ capability and topology copies consistent across their deployment contexts.
 
 Canonical architecture: [route contracts](./route-contracts.md).
 Agent owner: [frontend architecture skill](../../../.agents/skills/frontend-architecture/SKILL.md).
+Connect product inventory: [Connect UI Contract](../../../hushh-webapp/docs/ui-contracts/connect.md).
+Profile and Feed inventories, shared navigation and font usage:
+[Product UI contracts](../../../hushh-webapp/docs/ui-contracts/README.md).

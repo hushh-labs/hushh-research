@@ -259,6 +259,19 @@ def test_profile_and_shortcut_inputs_schedule_connections_browser_pack() -> None
         "hushh-webapp/e2e/shortcut-icons.motion.spec.ts",
         "hushh-webapp/e2e/fixtures/profile-confirmation-back.tsx",
         "hushh-webapp/e2e/fixtures/shortcut-icon-motion.tsx",
+        "hushh-webapp/components/connections/person-profile-page.tsx",
+        "hushh-webapp/components/connections/person-profile-page.module.css",
+        "hushh-webapp/components/connections/person-profile-hero.tsx",
+        "hushh-webapp/e2e/person-profile-actions.layout.spec.ts",
+        "hushh-webapp/e2e/fixtures/person-profile.tsx",
+        "hushh-webapp/e2e/fixtures/person-profile-requests.tsx",
+        "hushh-webapp/e2e/fixtures/person-profile-request-ports.tsx",
+        "hushh-webapp/components/app-ui/illustrated-request-dialog.tsx",
+        "hushh-webapp/components/app-ui/illustrated-request-dialog.module.css",
+        "hushh-webapp/components/consent/document-file-request.tsx",
+        "hushh-webapp/components/consent/document-request-button.tsx",
+        "hushh-webapp/components/consent/request-scope-button.tsx",
+        "hushh-webapp/components/wallet/request-cards-button.tsx",
     ):
         code, calls, output = _run(
             TARGETED,
@@ -268,7 +281,7 @@ def test_profile_and_shortcut_inputs_schedule_connections_browser_pack() -> None
         assert calls.count("run test:connections-layout") == 1, (changed, calls)
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     pack = scripts["test:connections-layout"]
-    for spec in ("e2e/profile-confirmation-back.spec.ts", "e2e/shortcut-icons.motion.spec.ts"):
+    for spec in ("e2e/profile-confirmation-back.spec.ts", "e2e/shortcut-icons.motion.spec.ts", "e2e/person-profile-actions.layout.spec.ts"):
         assert pack.count(spec) == 1
         assert spec in pack.split("--project=chromium")[0]
     assert "--project=chromium --project=webkit" in pack

@@ -44,7 +44,10 @@ from hushh_mcp.services.account_push_erasure import (
     erase_push_registrations,
     push_registration_erasure_queries,
 )
-from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+from hushh_mcp.services.connection_graph_service import (
+    list_connection_graph_viewer_ids,
+    lock_connection_graph_users,
+)
 from hushh_mcp.services.hushh_tech_uat_database_attestation import (
     UAT_DATABASE_ATTESTATION_SQL,
     UAT_INSTANCE,
@@ -171,6 +174,15 @@ class AccountService:
             "ria_claim_dossiers": text("DELETE FROM ria_claim_dossiers WHERE user_id = :user_id"),
             "ria_license_verifications": text(
                 "DELETE FROM ria_license_verifications WHERE user_id = :user_id"
+            ),
+            "one_product_activity_observations": text(
+                "DELETE FROM one_product_activity_observations WHERE user_id=:user_id"
+            ),
+            "one_product_value_receipts": text(
+                "DELETE FROM one_product_value_receipts WHERE user_id=:user_id"
+            ),
+            "one_product_activity_epochs": text(
+                "DELETE FROM one_product_activity_epochs WHERE user_id=:user_id"
             ),
             "email_auth_challenges": text(
                 """DELETE FROM email_auth_challenges WHERE expected_uid=:user_id
@@ -1502,11 +1514,21 @@ class AccountService:
                 params,
             )
             results["pwm_claim_invitations"] = True
+        if self._table_exists(conn, "one_product_activity_epochs"):
+            conn.execute(
+                text(
+                    "UPDATE one_product_activity_epochs SET generation=gen_random_uuid(),started_at=NOW() WHERE user_id=:user_id"
+                ),
+                params,
+            )
+            results["one_product_activity_epochs"] = True
         self._delete_optional_user_tables(
             conn,
             table_names=[
                 "pwm_research_preferences",
                 "one_adk_sessions",
+                "one_product_activity_observations",
+                "one_product_value_receipts",
                 "one_action_directive_ledger",
                 "pod_lifecycle_events",
                 "one_mcp_pending_calls",
@@ -2023,6 +2045,9 @@ class AccountService:
             "marketplace_opportunity_signals": False,
             "one_referral_risk_reviews": False,
             "one_referral_events": False,
+            "one_product_activity_observations": False,
+            "one_product_value_receipts": False,
+            "one_product_activity_epochs": False,
             "one_referral_relationships": False,
             "one_referral_attributions": False,
             "one_referral_codes": False,
@@ -2080,6 +2105,7 @@ class AccountService:
         }
 
         provider_credentials = ProviderCredentialSnapshot(user_id=user_id)
+        graph_viewer_ids: set[str] = set()
         try:
             with get_db_connection() as conn:
                 if backend_only:
@@ -2127,11 +2153,23 @@ class AccountService:
                         table_exists=lambda table_name: self._table_exists(conn, table_name),
                     )
                 self._clear_external_connector_data(conn, user_id, results, permanent=True)
+                # The graph writer barrier is held here. Capture survivors
+                # before deleting edges/memberships, then wake them only after
+                # the erasure transaction has successfully committed.
+                graph_viewer_ids = list_connection_graph_viewer_ids(
+                    conn,
+                    user_id=user_id,
+                    include_pending_requests=True,
+                    table_exists=lambda table_name: self._table_exists(conn, table_name),
+                )
                 self._clear_live_memory_source_journal(conn, user_id, results, permanent=True)
                 self._delete_optional_user_tables(
                     conn,
                     table_names=[
                         "one_adk_sessions",
+                        "one_product_activity_observations",
+                        "one_product_value_receipts",
+                        "one_product_activity_epochs",
                         # Remove challenge bindings before their enrollment lookup.
                         "email_auth_challenges",
                         "email_auth_enrollments",
@@ -2484,6 +2522,13 @@ class AccountService:
 
         # Outside the erasure try-block on purpose: the deletion has committed,
         # and releasing provider grants is bounded best effort that never raises.
+        if graph_viewer_ids:
+            try:
+                from hushh_mcp.services.connections_service import _notify_connection_graph_changed
+
+                _notify_connection_graph_changed(user_ids=graph_viewer_ids)
+            except Exception:  # a failed doorbell cannot undo committed erasure
+                logger.warning("account.graph_sync_failed", exc_info=True)
         results["provider_grant_release"] = (
             {"status": "preserved_backend_only"}
             if backend_only

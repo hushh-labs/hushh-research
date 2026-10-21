@@ -26,6 +26,12 @@ from hushh_mcp.services.drive_owner_search_store import (
     _legacy_single_query,
     validate_reusable_packet,
 )
+from hushh_mcp.services.drive_request_discovery import (
+    DISCOVERY_DELIVERY_POLICY,
+    compile_discovery_queries,
+    discovery_delivery,
+    discovery_evidence,
+)
 from hushh_mcp.services.drive_request_review_policy import (
     AUTOSHARE_SELECTION_POLICY,
     autoshare_selection,
@@ -1784,6 +1790,7 @@ class DriveOwnerSearchService:
         plan_source=None,
         semantic_search=False,
         semantic_model_binding=None,
+        discovery_delivery_enabled=False,
     ):
         """Start or resume the owner-approved request's durable metadata search.
 
@@ -1829,6 +1836,12 @@ class DriveOwnerSearchService:
         query = purpose["purpose"]
         plan = _v1_meeting_note_plan(plan, purpose, v1_live_request=v1_live_request)
         semantic_plan = plan.get("semantic_query")
+        if (
+            type(discovery_delivery_enabled) is not bool
+            or discovery_delivery_enabled
+            and semantic_plan is None
+        ):
+            raise DriveReadError("invalid_argument")
         if semantic_model_binding is not None and semantic_plan is None:
             raise DriveReadError("invalid_argument")
         if bool(semantic_plan is not None) != semantic_search:
@@ -1867,6 +1880,20 @@ class DriveOwnerSearchService:
                 v1_live_request=v1_live_request,
                 brain=parsed_brain,
             )
+        if discovery_delivery_enabled:
+            from hushh_mcp.services.drive_request_semantic_plan import SemanticPlanInputRequired
+
+            try:
+                queries = compile_discovery_queries(
+                    semantic_plan,
+                    file_kind=plan.get("file_kind", "any"),
+                    period_start=purpose.get("periodStart"),
+                    period_end=purpose.get("periodEnd"),
+                    timezone=timezone,
+                    shared_with_me=plan.get("shared_with_me", False),
+                )
+            except SemanticPlanInputRequired:
+                raise DriveReadError("narrow_selection_required") from None
         v1_statement_search = v1_live_request
         # Gear 1 runs when an owner index is wired and the brain has a subject.
         # The create-time page stays a 25-row Drive page; Gear 1 (which may
@@ -1925,6 +1952,11 @@ class DriveOwnerSearchService:
                         **(
                             {"semantic_model_binding": semantic_model_binding}
                             if semantic_model_binding is not None
+                            else {}
+                        ),
+                        **(
+                            {"discovery_delivery_policy": DISCOVERY_DELIVERY_POLICY}
+                            if discovery_delivery_enabled
                             else {}
                         ),
                         "semantic_pending": [],
@@ -2013,9 +2045,11 @@ class DriveOwnerSearchService:
                     else "title_date_then_created_or_modified",
                     "contentPeriodVerified": False,
                     "folderDiscovery": "none_direct_originals"
-                    if direct_originals
+                    if direct_originals or discovery_delivery_enabled
                     else "matching_topic_folders_and_descendants",
-                    "shortcutDiscovery": "excluded" if direct_originals else "resolve_targets",
+                    "shortcutDiscovery": "excluded"
+                    if direct_originals or discovery_delivery_enabled
+                    else "resolve_targets",
                     "resultLimit": result_limit,
                     "orderBy": f"{order_field} desc",
                     **({"planSource": plan_source} if plan_source else {}),
@@ -2191,6 +2225,15 @@ class DriveOwnerSearchService:
         return result
 
     async def _request_candidates(self, job, checkpoint, candidates, *, folder_scoped, drive_id):
+        if discovery_delivery(checkpoint):
+            if folder_scoped:
+                raise DriveReadError("provider_response_invalid")
+            candidates = [
+                item
+                for item in candidates
+                if not isinstance(item, dict)
+                or item.get("mimeType") not in {FOLDER_MIME, SHORTCUT_MIME}
+            ]
         targets = {}
         for candidate in candidates:
             if not isinstance(candidate, dict) or candidate.get("mimeType") != SHORTCUT_MIME:
@@ -2345,6 +2388,8 @@ class DriveOwnerSearchService:
                 # Use the target's verified MIME and timestamps instead.
                 source_drive = None
                 _counter(checkpoint, "resolvedShortcutCount")
+            if match["mime_type"] == FOLDER_MIME and discovery_delivery(checkpoint):
+                continue  # Direct provider matches only; no unfiltered descendants.
             if match["mime_type"] == FOLDER_MIME:
                 if (
                     folder_scoped
@@ -2624,6 +2669,7 @@ class DriveOwnerSearchService:
         """
         from hushh_mcp.services.drive_document_pages import OCR_IMAGE_MIMES
         from hushh_mcp.services.drive_request_candidate_assessment import (
+            CANDIDATE_OBSERVATION_CODES,
             CandidateContent,
             assess_request_candidates,
             verified_evidence_matches,
@@ -2643,7 +2689,13 @@ class DriveOwnerSearchService:
                 )
 
                 await require_private_azure_text_approval(
-                    job["user_id"], expected_generation=current_binding["approval_generation"]
+                    job["user_id"],
+                    expected_generation=current_binding["approval_generation"],
+                    **(
+                        {"scope": "drive_document_requests"}
+                        if current_binding.get("authorization_basis") == "uat_policy"
+                        else {}
+                    ),
                 )
 
         async def read(candidate):
@@ -2749,6 +2801,20 @@ class DriveOwnerSearchService:
             checkpoint["semantic_coverage_incomplete"] = True
         else:
             raise DriveReadError("provider_response_invalid")
+        # Retain closed reason counts in the existing encrypted checkpoint. A
+        # consumed unavailable candidate must not lose its only diagnosis.
+        reason = observation.get("code")
+        if not isinstance(reason, str) or reason not in CANDIDATE_OBSERVATION_CODES:
+            reason = "unclassified"
+        counts = checkpoint.setdefault("semantic_outcome_counts", {})
+        key = f"{decision}:{reason}"
+        counts[key] = counts.get(key, 0) + 1
+        logger.info(
+            "drive_search.candidate decision=%s reason=%s position=%d",
+            decision,
+            reason,
+            position,
+        )
         checkpoint["semantic_assessed"] = position
         checkpoint["semantic_pending"] = pending[1:]
         done = (
@@ -2757,9 +2823,13 @@ class DriveOwnerSearchService:
         return checkpoint, files, False, done
 
     async def _page(self, job, *, page_size_override=None):
-        if job["checkpoint"].get("semantic_plan") is not None and (
-            job["checkpoint"].get("semantic_pending")
-            or job["checkpoint"].get("semantic_discovery_done")
+        if (
+            not discovery_delivery(job["checkpoint"])
+            and job["checkpoint"].get("semantic_plan") is not None
+            and (
+                job["checkpoint"].get("semantic_pending")
+                or job["checkpoint"].get("semantic_discovery_done")
+            )
         ):
             return await self._semantic_assessment_page(job, copy.deepcopy(job["checkpoint"]))
         if (
@@ -2836,7 +2906,11 @@ class DriveOwnerSearchService:
             done = _advance_query(checkpoint) if not drives and not next_token else False
             return checkpoint, [], False, done
         file_page_size = (
-            checkpoint.get("semantic_page_size", PAGE_SIZE)
+            checkpoint.get(
+                "semantic_page_size", checkpoint.get("file_page_size", FILE_LIST_PAGE_SIZE)
+            )
+            if discovery_delivery(checkpoint)
+            else checkpoint.get("semantic_page_size", PAGE_SIZE)
             if checkpoint.get("semantic_plan") is not None
             else PAGE_SIZE
             if checkpoint.get("file_page_size") == PAGE_SIZE or page_size_override == PAGE_SIZE
@@ -2846,6 +2920,15 @@ class DriveOwnerSearchService:
             if checkpoint.get("v1_live_request") is True
             else FILE_LIST_PAGE_SIZE
         )
+        if discovery_delivery(checkpoint):
+            try:
+                index = checkpoint["query_index"]
+                if type(index) is not int or index < 0 or checkpoint["phase"] == "folder_files":
+                    raise ValueError
+                if checkpoint["arguments"] != checkpoint["queries"][index]["arguments"]:
+                    raise ValueError
+            except (KeyError, IndexError, TypeError, ValueError):
+                raise DriveReadError("provider_response_invalid") from None
         args = {**checkpoint["arguments"], "pageSize": file_page_size}
         if phase == "folder_files":
             folder = checkpoint["folder_queue"][0]
@@ -3027,7 +3110,18 @@ class DriveOwnerSearchService:
         if done:
             # Drive, the completeness authority, has finished: no head start.
             checkpoint.pop("local_offset", None)
-        if checkpoint.get("semantic_plan") is not None:
+        if discovery_delivery(checkpoint):
+            for item in files:
+                item.pop("requestEvidence", None)
+                item["discoveryEvidence"] = discovery_evidence(
+                    checkpoint, user_id=job["user_id"], generation=job["generation"], metadata=item
+                )
+            logger.info(
+                "drive_search.delivery policy=%s content_assessment=not_applicable files=%d",
+                DISCOVERY_DELIVERY_POLICY,
+                len(files),
+            )
+        elif checkpoint.get("semantic_plan") is not None:
             seen = set(checkpoint.get("semantic_seen", []))
             pending = []
             for item in files:
@@ -3135,6 +3229,8 @@ class DriveOwnerSearchService:
             checkpoint = job["checkpoint"]
             if checkpoint.get("semantic_pending") and deadline_seconds < 88:
                 # A short scheduler remainder is not a failed provider attempt.
+                if require_current:
+                    await require_current()
                 return finish(await self.store.release(job))
             saved_request = checkpoint.get("request")
             from hushh_mcp.services.drive_request_bulk_service import (
@@ -3263,7 +3359,9 @@ class DriveOwnerSearchService:
                             return finish(state)
                     if result["status"] != "running":
                         return finish(result["status"])
-                    if checkpoint.get("semantic_plan") is not None:
+                    if checkpoint.get("semantic_plan") is not None and not discovery_delivery(
+                        checkpoint
+                    ):
                         # One content assessment per 90s slice fits the existing
                         # 120s lease; progressive sharing runs after each commit.
                         break

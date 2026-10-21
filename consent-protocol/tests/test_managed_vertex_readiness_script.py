@@ -39,6 +39,16 @@ def test_vertex_log_summary_emits_only_validated_diagnostic_fields(tmp_path, tra
                 "error_type": "ClientError",
                 "error": marker,
                 "prompt": marker,
+                "attempts": [
+                    {
+                        "ok": False,
+                        "classification": "provider_unavailable",
+                        "elapsed_ms": 25000,
+                        "dispatched": False,
+                        "error_type": marker,
+                        "error": marker,
+                    }
+                ],
             }
         ],
     }
@@ -89,6 +99,15 @@ def test_vertex_log_summary_emits_only_validated_diagnostic_fields(tmp_path, tra
                     "classification": "provider_unavailable",
                     "resource_exhausted": True,
                     "error_type": "OtherError" if transport == "prefixed_text" else "ClientError",
+                    "attempts": [
+                        {
+                            "ok": False,
+                            "classification": "provider_unavailable",
+                            "elapsed_ms": 25000,
+                            "dispatched": False,
+                            "error_type": "OtherError",
+                        }
+                    ],
                 }
             ],
         },
@@ -97,7 +116,16 @@ def test_vertex_log_summary_emits_only_validated_diagnostic_fields(tmp_path, tra
 
 
 @pytest.mark.parametrize(
-    "defect", ["missing", "malformed", "duplicate", "wrong_type", "unsafe_name", "unsafe_hash"]
+    "defect",
+    [
+        "missing",
+        "malformed",
+        "duplicate",
+        "wrong_type",
+        "unsafe_name",
+        "unsafe_hash",
+        "unsafe_duration",
+    ],
 )
 def test_invalid_vertex_log_summary_fails_closed_but_retains_safe_build_reason(tmp_path, defect):
     marker = "SYNTHETIC_PRIVATE_ERROR_DO_NOT_PRINT"
@@ -121,6 +149,10 @@ def test_invalid_vertex_log_summary_fails_closed_but_retains_safe_build_reason(t
         receipt["probes"][0]["probe"] = marker
     elif defect == "unsafe_hash":
         receipt["config_hash"] = marker
+    elif defect == "unsafe_duration":
+        receipt["probes"][0]["attempts"] = [
+            {"ok": False, "classification": "provider_unavailable", "elapsed_ms": marker}
+        ]
     entry = {"textPayload": "managed_vertex_probe_result " + json.dumps(receipt)}
     raw = (
         marker
@@ -252,6 +284,228 @@ async def test_probe_pacing_preserves_errors_and_stops_on_cancellation(monkeypat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "scenario",
+    ["recovery", "server_recovery", "exhausted", "permission", "schema", "billing", "cancel"],
+)
+async def test_probe_recovery_requires_success_and_preserves_hard_failures(monkeypatch, scenario):
+    spec = importlib.util.spec_from_file_location("probe_recovery_test", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    now = [0.0]
+    starts = []
+    receipts = {}
+
+    async def sleep(delay):
+        now[0] += delay
+
+    async def probe():
+        starts.append(now[0])
+        now[0] += 2
+        if scenario == "cancel":
+            raise asyncio.CancelledError
+        if scenario == "billing":
+            raise RuntimeError("Billing is not enabled")
+        if scenario in {"permission", "schema"}:
+            cause = ValueError("Synthetic invalid schema")
+            if scenario == "permission":
+                cause.status_code = 403
+            raise TimeoutError("Sanitized caller wrapper") from cause
+        if scenario == "exhausted" or len(starts) == 1:
+            if scenario == "server_recovery":
+                cause = RuntimeError("Synthetic provider failure")
+                cause.status_code = 503
+                raise cause
+            raise TimeoutError()
+
+    monkeypatch.setattr(module, "monotonic", lambda: now[0])
+    monkeypatch.setattr(module.asyncio, "sleep", sleep)
+    if scenario == "cancel":
+        with pytest.raises(asyncio.CancelledError):
+            await module._run_paced_probes([("synthetic", probe)], attempts=receipts)
+        assert starts == [0]
+        return
+    outcomes = await module._run_paced_probes([("synthetic", probe)], attempts=receipts)
+    recovered = scenario in {"recovery", "server_recovery"}
+    assert starts == ([0, 30] if recovered or scenario == "exhausted" else [0])
+    assert (outcomes[0] is None) is recovered
+    assert [r["ok"] for r in receipts["synthetic"]] == (
+        [False, True] if recovered else [False] * len(starts)
+    )
+    assert all(r["elapsed_ms"] == 2000 for r in receipts["synthetic"])
+    if scenario in {"permission", "schema"}:
+        assert receipts["synthetic"][0]["classification"] == "candidate_misconfigured"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("warmup_seconds", "recovery_succeeds"), [(30, True), (30, False), (99, True)]
+)
+async def test_gateway_timeout_recovery_requires_positive_reply_and_remaining_budget(
+    monkeypatch, warmup_seconds, recovery_succeeds
+):
+    from google.genai.errors import ServerError
+
+    spec = importlib.util.spec_from_file_location("gateway_probe_recovery_test", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    now = [float(warmup_seconds)]
+    starts = []
+    receipts = {}
+    durations = [0.902, 0.744, 0.899, 2.794, 56.612, 0.161]
+    gateway_error = ServerError(504, {"error": {"message": "Synthetic gateway timeout"}})
+
+    async def sleep(delay):
+        now[0] += delay
+
+    async def probe(index):
+        starts.append((index, now[0]))
+        is_recovery = sum(i == index for i, _ in starts) > 1
+        now[0] += 0.9 if is_recovery and recovery_succeeds else durations[index]
+        if index == 4 and not (is_recovery and recovery_succeeds):
+            raise gateway_error
+
+    monkeypatch.setattr(module, "monotonic", lambda: now[0])
+    monkeypatch.setattr(module.asyncio, "sleep", sleep)
+    outcomes = await module._run_paced_probes(
+        [(str(i), lambda i=i: probe(i)) for i in range(6)],
+        attempts=receipts,
+        deadline=330,
+    )
+    assert [i for i, _ in starts[:6]] == list(range(6))
+    assert all(error is None for i, error in enumerate(outcomes) if i != 4)
+    assert now[0] < 330
+    if warmup_seconds == 99:
+        assert len(starts) == 6
+        assert outcomes[4] is gateway_error
+        assert receipts["4"][-1]["dispatched"] is False
+    else:
+        assert [i for i, _ in starts] == [0, 1, 2, 3, 4, 5, 4]
+        assert starts[-1][1] == pytest.approx(236.612)
+        assert (outcomes[4] is None) is recovery_succeeds
+        assert [r["ok"] for r in receipts["4"]] == [False, recovery_succeeds]
+        assert all(r["dispatched"] is True for r in receipts["4"])
+    assert all(r.get("resource_exhausted") is False for r in receipts["4"] if not r["ok"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("later_hard_failure", [False, True])
+async def test_recovery_budget_preserves_later_verdicts_and_does_not_overschedule(
+    monkeypatch, later_hard_failure
+):
+    spec = importlib.util.spec_from_file_location("probe_sequence_budget_test", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    now = [0.0]
+    starts = []
+    first_errors = {}
+    receipts = {}
+    durations = [25, 25, 25, 30, 130, 25]
+
+    async def sleep(delay):
+        now[0] += delay
+
+    async def probe(index):
+        starts.append(index)
+        now[0] += durations[index]
+        error = (
+            RuntimeError("Synthetic late candidate defect")
+            if (later_hard_failure and index == 5)
+            else TimeoutError()
+        )
+        first_errors.setdefault(index, error)
+        raise error
+
+    monkeypatch.setattr(module, "monotonic", lambda: now[0])
+    monkeypatch.setattr(module.asyncio, "sleep", sleep)
+    outcomes = await module._run_paced_probes(
+        [(str(i), lambda i=i: probe(i)) for i in range(6)], attempts=receipts
+    )
+    assert starts[:6] == list(range(6))
+    assert now[0] <= module.PROBE_SEQUENCE_SECONDS < 420
+    assert all(error is not None for error in outcomes)
+    assert outcomes[1] is first_errors[1]  # unaffordable recovery retains the real failure
+    if later_hard_failure:
+        assert starts == list(range(6))
+        assert isinstance(outcomes[5], RuntimeError)
+        assert module.classify_provider_error(outcomes[5]) == "candidate_misconfigured"
+    else:
+        assert any(not r["dispatched"] for rs in receipts.values() for r in rs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response_kind", ["valid", "empty", "thought_only", "truncated"])
+async def test_direct_text_probe_requires_a_complete_non_thought_reply(monkeypatch, response_kind):
+    monkeypatch.delenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", raising=False)
+    spec = importlib.util.spec_from_file_location("direct_probe_validation_test", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_voice.config import OneVoiceLiveConfig
+
+    response = module.types.GenerateContentResponse(
+        candidates=[]
+        if response_kind == "empty"
+        else [
+            module.types.Candidate(
+                content=module.types.Content(
+                    parts=[module.types.Part(text="OK", thought=response_kind == "thought_only")]
+                ),
+                finish_reason="MAX_TOKENS" if response_kind == "truncated" else "STOP",
+            )
+        ]
+    )
+    client = SimpleNamespace(
+        aio=SimpleNamespace(
+            models=SimpleNamespace(generate_content=AsyncMock(return_value=response))
+        )
+    )
+    binding = module.ManagedGeminiRuntimeBinding(
+        project="synthetic", locations=("global",), auth_mode="vertex_adc"
+    )
+    monkeypatch.setattr(
+        module.ManagedGeminiRuntimeBinding, "from_environment", lambda **kw: binding
+    )
+    monkeypatch.setattr(
+        module.ManagedGeminiRuntimeBinding, "build_direct_client", lambda self: client
+    )
+    monkeypatch.setattr(
+        module, "managed_ai_settings", lambda: SimpleNamespace(project=None, config_hash="a" * 64)
+    )
+    monkeypatch.setattr(module, "_managed_manifest_models", lambda: ("gemini-3.6-flash",))
+    monkeypatch.setattr(module, "_rehearse_command_flow", AsyncMock())
+    monkeypatch.setattr(
+        OneVoiceLiveConfig,
+        "from_environment",
+        lambda: SimpleNamespace(
+            enabled=False, model_id="synthetic", location="global", vertex_project=None
+        ),
+    )
+
+    async def only_direct_probe(labelled, *, attempts=None, deadline=None):
+        outcomes = []
+        for name, probe in labelled:
+            error = None
+            if name.startswith("text:"):
+                try:
+                    await probe()
+                except Exception as caught:
+                    error = caught
+            outcomes.append(error)
+            if attempts is not None:
+                attempts[name] = []
+        return outcomes
+
+    monkeypatch.setattr(module, "_run_paced_probes", only_direct_probe)
+    report = await module.main()
+    direct = next(p for p in report["probes"] if p["probe"].startswith("text:"))
+    assert direct["ok"] is (response_kind == "valid")
+    assert report["ok"] is (response_kind == "valid")
+    client.aio.models.generate_content.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("hard_failure", [False, True])
 async def test_stalled_live_preserves_slower_command_verdicts(
     monkeypatch: pytest.MonkeyPatch, hard_failure: bool
@@ -271,7 +525,14 @@ async def test_stalled_live_preserves_slower_command_verdicts(
     from hushh_mcp.services import action_gateway
 
     async def completed(**kwargs):
-        return None
+        return module.types.GenerateContentResponse(
+            candidates=[
+                module.types.Candidate(
+                    content=module.types.Content(parts=[module.types.Part(text="OK")]),
+                    finish_reason="STOP",
+                )
+            ]
+        )
 
     class AdkModel:
         async def generate_content_async(self, *args, **kwargs):
@@ -379,7 +640,7 @@ async def test_stalled_live_preserves_slower_command_verdicts(
     )
     assert report["advisory"] is (not hard_failure)
     assert len(report["probes"]) == 6
-    assert cancelled == ["live"]
+    assert cancelled == (["live"] if hard_failure else ["live", "live"])
     assert max_active == 1 and active == 0
 
 
@@ -410,7 +671,14 @@ async def test_command_flow_first_use_cost_is_paid_before_provider_deadlines(
     async def provider_reply(**kwargs):
         await asyncio.sleep(0.01)
         return SimpleNamespace(
-            error_code=None, content=SimpleNamespace(parts=[SimpleNamespace(text="OK")])
+            error_code=None,
+            content=SimpleNamespace(parts=[SimpleNamespace(text="OK")]),
+            candidates=[
+                module.types.Candidate(
+                    content=module.types.Content(parts=[module.types.Part(text="OK")]),
+                    finish_reason="STOP",
+                )
+            ],
         )
 
     class AdkModel:

@@ -23,6 +23,7 @@ from google.adk.models.base_llm import BaseLlm  # noqa: E402
 from google.adk.models.llm_request import LlmRequest  # noqa: E402
 from google.adk.models.llm_response import LlmResponse  # noqa: E402
 from google.genai import types  # noqa: E402
+from httpx import TimeoutException  # noqa: E402
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader  # noqa: E402
 from hushh_mcp.runtime_providers import (  # noqa: E402
@@ -39,27 +40,105 @@ from hushh_mcp.runtime_providers.dependency_health import (  # noqa: E402
     summarize,
 )
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name  # noqa: E402
+from hushh_mcp.runtime_providers.vertex_failover import is_retryable_vertex_error  # noqa: E402
 from hushh_mcp.runtime_settings import managed_ai_settings  # noqa: E402
 
 PROBE_TIMEOUT_SECONDS = 25
 PROBE_START_INTERVAL_SECONDS = 30
+MAX_PROBE_ATTEMPTS = 2
+PROBE_SEQUENCE_SECONDS = 330
+
+
+def _is_transient_probe_error(error: Exception) -> bool:
+    """Retry only an observed transport deadline or retryable provider status.
+
+    Availability classification alone also includes billing denials. A sanitized
+    TimeoutError can wrap a permission/schema failure, so inspect its real cause.
+    """
+    if classify_provider_error(error) != PROVIDER_UNAVAILABLE:
+        return False
+    if is_retryable_vertex_error(error):
+        return True
+    current: BaseException = error
+    seen: set[int] = set()
+    while id(current) not in seen:
+        seen.add(id(current))
+        # A gateway deadline may recover on the same target. This readiness-only
+        # retry does not broaden regional failover or turn a failed reply green.
+        if 504 in (getattr(current, "code", None), getattr(current, "status_code", None)):
+            return True
+        cause = current.__cause__ or current.__context__
+        if cause is None or isinstance(cause, asyncio.CancelledError):
+            return isinstance(current, (TimeoutError, TimeoutException, ConnectionError))
+        current = cause
+    return False
 
 
 async def _run_paced_probes(
     labelled: list[tuple[str, Callable[[], Awaitable[None]]]],
+    *,
+    attempts: dict[str, list[dict[str, object]]] | None = None,
+    deadline: float | None = None,
 ) -> list[Exception | None]:
-    """Retain every verdict while avoiding parallel bursts against one project."""
-    outcomes: list[Exception | None] = []
+    """Exercise every target before optional, paced transient recovery.
+
+    The same lazy factory retains its model, project, identity and own deadline.
+    The sequence budget leaves startup/receipt headroom inside the unchanged
+    420-second Cloud Run task. An unstarted call is recorded and cannot pass.
+    """
+    deadline = deadline if deadline is not None else monotonic() + PROBE_SEQUENCE_SECONDS
+    outcomes: list[Exception | None] = [None] * len(labelled)
+    receipts: dict[str, list[dict[str, object]]] = {name: [] for name, _ in labelled}
+    if attempts is not None:
+        attempts.update(receipts)
     next_start = 0.0
-    for _, probe in labelled:
-        delay = max(0.0, next_start - monotonic())
-        if delay:
-            await asyncio.sleep(delay)
-        next_start = monotonic() + PROBE_START_INTERVAL_SECONDS
-        try:
-            outcomes.append(await probe())
-        except Exception as error:
-            outcomes.append(error)
+    for attempt in range(MAX_PROBE_ATTEMPTS):
+        # Recovery cannot make a candidate with a hard fault releasable.
+        if attempt and any(
+            error is not None and classify_provider_error(error) != PROVIDER_UNAVAILABLE
+            for error in outcomes
+        ):
+            break
+        for index, (name, probe) in enumerate(labelled):
+            previous = outcomes[index]
+            if attempt and (previous is None or not _is_transient_probe_error(previous)):
+                continue
+            delay = max(0.0, next_start - monotonic())
+            minimum = PROBE_TIMEOUT_SECONDS if attempt else 0
+            if delay + minimum >= deadline - monotonic():
+                error = previous or TimeoutError("Readiness budget exhausted before dispatch")
+                outcomes[index] = error
+                receipts[name].append(
+                    {
+                        "ok": False,
+                        "dispatched": False,
+                        "elapsed_ms": 0,
+                        "classification": classify_provider_error(error),
+                        "error_type": type(error).__name__,
+                        "resource_exhausted": is_resource_exhausted(error),
+                    }
+                )
+                continue
+            if delay:
+                await asyncio.sleep(delay)
+            started = monotonic()
+            next_start = started + PROBE_START_INTERVAL_SECONDS
+            error: Exception | None = None
+            try:
+                await asyncio.wait_for(probe(), timeout=max(0.0, deadline - started))
+            except Exception as caught:
+                error = caught
+            outcomes[index] = error
+            receipt: dict[str, object] = {
+                "ok": error is None,
+                "dispatched": True,
+                "elapsed_ms": round((monotonic() - started) * 1000),
+                "classification": classify_provider_error(error) if error else DEPENDENCY_OK,
+            }
+            if error is not None:
+                receipt["error_type"] = type(error).__name__
+                receipt["resource_exhausted"] = is_resource_exhausted(error)
+            receipts[name].append(receipt)
     return outcomes
 
 
@@ -236,13 +315,15 @@ async def _probe_scoped_projects() -> dict[str, object]:
             )
         )
 
-    outcomes = await _run_paced_probes(labelled)
+    attempts: dict[str, list[dict[str, object]]] = {}
+    outcomes = await _run_paced_probes(labelled, attempts=attempts)
     probes = []
     for (name, _), outcome in zip(labelled, outcomes, strict=True):
         if isinstance(outcome, BaseException):
             probes.append(
                 {
                     "probe": name,
+                    "attempts": attempts[name],
                     "ok": False,
                     "classification": classify_provider_error(outcome),
                     "resource_exhausted": is_resource_exhausted(outcome),
@@ -251,7 +332,14 @@ async def _probe_scoped_projects() -> dict[str, object]:
                 }
             )
         else:
-            probes.append({"probe": name, "ok": True, "classification": DEPENDENCY_OK})
+            probes.append(
+                {
+                    "probe": name,
+                    "ok": True,
+                    "classification": DEPENDENCY_OK,
+                    "attempts": attempts[name],
+                }
+            )
     failed = [item for item in probes if not item["ok"]]
     classification = summarize([str(item["classification"]) for item in failed])
     chat_ok = next((bool(p["ok"]) for p in probes if str(p["probe"]).startswith("one_chat:")), None)
@@ -277,6 +365,7 @@ async def _probe_scoped_projects() -> dict[str, object]:
 
 
 async def main() -> dict[str, object]:
+    deadline = monotonic() + PROBE_SEQUENCE_SECONDS
     probe_mode = (os.getenv("HUSHH_MANAGED_VERTEX_PROBE_MODE") or "full").strip().lower()
     if probe_mode == "scoped":
         return await _probe_scoped_projects()
@@ -300,7 +389,7 @@ async def main() -> dict[str, object]:
 
     async def probe_text(model: str, location: str) -> None:
         client = binding_for(location).build_direct_client()
-        await asyncio.wait_for(
+        response = await asyncio.wait_for(
             client.aio.models.generate_content(
                 model=model,
                 contents="Reply OK.",
@@ -308,7 +397,7 @@ async def main() -> dict[str, object]:
                     types,
                     model,
                     temperature=0,
-                    max_output_tokens=4,
+                    max_output_tokens=64,
                     thinking_config=types.ThinkingConfig(
                         include_thoughts=False,
                         thinking_level=types.ThinkingLevel.MINIMAL,
@@ -318,6 +407,14 @@ async def main() -> dict[str, object]:
             ),
             timeout=PROBE_TIMEOUT_SECONDS,
         )
+        candidates = response.candidates or []
+        if not candidates or candidates[0].finish_reason not in (None, types.FinishReason.STOP):
+            raise RuntimeError("Managed Vertex text probe returned no complete candidate")
+        content = candidates[0].content
+        if not content or not any(
+            part.text and part.text.strip() and not part.thought for part in content.parts or []
+        ):
+            raise RuntimeError("Managed Vertex text probe returned no usable text")
 
     async def probe_adk_text(model: str, location: str) -> None:
         await _probe_adk_response(binding_for(location).build_adk_model(model), model)
@@ -430,7 +527,8 @@ async def main() -> dict[str, object]:
     # Arm no provider deadline until the command flow's one-time setup is paid;
     # otherwise its synchronous import burst is charged to every other probe.
     await _rehearse_command_flow()
-    outcomes = await _run_paced_probes(labelled)
+    attempts: dict[str, list[dict[str, object]]] = {}
+    outcomes = await _run_paced_probes(labelled, attempts=attempts, deadline=deadline)
 
     probes: list[dict[str, object]] = []
     for (name, _), outcome in zip(labelled, outcomes, strict=True):
@@ -438,6 +536,7 @@ async def main() -> dict[str, object]:
             probes.append(
                 {
                     "probe": name,
+                    "attempts": attempts[name],
                     "ok": False,
                     "classification": classify_provider_error(outcome),
                     "resource_exhausted": is_resource_exhausted(outcome),
@@ -446,7 +545,14 @@ async def main() -> dict[str, object]:
                 }
             )
         else:
-            probes.append({"probe": name, "ok": True, "classification": DEPENDENCY_OK})
+            probes.append(
+                {
+                    "probe": name,
+                    "ok": True,
+                    "classification": DEPENDENCY_OK,
+                    "attempts": attempts[name],
+                }
+            )
 
     failed = [item for item in probes if not item["ok"]]
     classification = summarize([str(item["classification"]) for item in failed])

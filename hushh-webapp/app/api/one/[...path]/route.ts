@@ -94,6 +94,8 @@ function privateResponseHeaders(upstream?: Response): Headers {
   if (!upstream) return headers;
   const retryAfter = upstream.headers.get("retry-after");
   if (retryAfter) headers.set("Retry-After", retryAfter);
+  const pwmUsage = upstream.headers.get("x-hussh-pwm-usage");
+  if (pwmUsage) headers.set("X-Hussh-PWM-Usage", pwmUsage);
   return headers;
 }
 

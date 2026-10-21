@@ -18,14 +18,14 @@ import {
 const ISO_RATIO = 85.6 / 53.98;
 const BOTTOM_SHELL_HEIGHT_PX = 132;
 
-async function expectCompactPrimary(action: Locator) {
+async function expectCompactPrimary(action: Locator, height = 50) {
   const geometry = await action.evaluate(el => {
     const box = el.getBoundingClientRect();
     const parent = el.parentElement!.getBoundingClientRect();
     return { width: box.width, height: box.height, center: box.x + box.width / 2, parentCenter: parent.x + parent.width / 2 };
   });
   expect(geometry.width).toBeCloseTo(244, 0);
-  expect(geometry.height).toBeCloseTo(50, 0);
+  expect(geometry.height).toBeCloseTo(height, 0);
   expect(geometry.center).toBeCloseTo(geometry.parentCenter, 0);
 }
 
@@ -1146,7 +1146,7 @@ for (const width of [390, 1440]) {
     await dialog.getByRole("checkbox", { name: "Share with Test Recipient", exact: true }).check();
     await dialog.getByRole("checkbox", { name: "Share with Trusted Recipient", exact: true }).check();
     await expect(dialog.getByRole("button", { name: "Share with 2", exact: true })).toBeEnabled();
-    await expectCompactPrimary(dialog.getByRole("button", { name: "Share with 2", exact: true }));
+    await expectCompactPrimary(dialog.getByRole("button", { name: "Share with 2", exact: true }), 44);
     await expect(dialog).toContainText("Trusted Circle");
     await expect(dialog.getByRole("button", { name: "15 minutes", exact: true })).toHaveAttribute("aria-pressed", "true");
     await dialog.getByRole("button", { name: "1 hour", exact: true }).click();

@@ -33,7 +33,7 @@ import {
   ChevronDown,
   ChevronUp,
   Clock3,
-  ContactRound,
+  ContactsBookIcon,
   Copy,
   ExternalLink,
   Hand,
@@ -1711,21 +1711,12 @@ function LocalMapPreview({
         </div>
       ) : null}
 
-      {isStale ? (
+      {isStale && staleAction ? (
         <div
-          role="status"
-          className="mx-3.5 mb-3.5 flex min-w-0 flex-col gap-2 rounded-[14px] border border-[color:var(--app-warning-border)] bg-[color:var(--app-warning-tint)] px-3.5 py-3 text-[12px] font-medium text-[color:var(--app-warning-deep)] sm:flex-row sm:items-center sm:justify-between dark:text-[color:var(--app-warning-bright)]"
+          data-testid="one-location-map-refresh-action"
+          className="flex min-w-0 justify-end px-3.5 py-2"
         >
-          <span className="flex min-w-0 items-start gap-2">
-            <AlertTriangle
-              className="mt-0.5 h-4 w-4 shrink-0"
-              aria-hidden="true"
-            />
-            <span className="min-w-0 break-words [overflow-wrap:anywhere]">
-              Location may be stale.
-            </span>
-          </span>
-          {staleAction ? <span className="shrink-0">{staleAction}</span> : null}
+          {staleAction}
         </div>
       ) : null}
     </div>
@@ -3179,7 +3170,16 @@ export function OneLocationAgentPageContent({
     setPagedRecipientsByUserId(
       new Map(latest.map((recipient) => [recipient.userId, recipient])),
     );
-  }, [vaultOwnerToken]);
+    // Only the complete directory can remove retained selections. A missing
+    // person on a bounded/search page is not evidence of a deleted connection.
+    const availableIds = new Set(latest.map((recipient) => recipient.userId));
+    const retainAvailable = (current: string[]) =>
+      connectionGraphRefreshRevisionRef.current === expectedRevision
+        ? current.filter((userId) => availableIds.has(userId))
+        : current;
+    setSelectedRecipientIds(retainAvailable);
+    setSelectedRequestOwnerIds(retainAvailable);
+  }, [setSelectedRecipientIds, vaultOwnerToken]);
 
   useEffect(() => {
     if (!vaultOwnerToken) {
@@ -4320,20 +4320,38 @@ export function OneLocationAgentPageContent({
     };
   }, [auth.userId, openCircleIdForRepair, router, vaultOwnerToken]);
 
-  const isPeopleViewForRepair = searchParams.get("view") === "people";
+  const isAudienceViewForRepair = searchParams.get("view") === "people" ||
+    ["share", "ask", "sos", "sms-contacts"].includes(searchParams.get("action") || "");
   useEffect(() => {
-    if (!auth.userId || !vaultOwnerToken || !isPeopleViewForRepair || openCircleIdForRepair) {
+    if (!auth.userId || !vaultOwnerToken || !isAudienceViewForRepair || openCircleIdForRepair) {
       return;
     }
-    // The people/Circle overview also needs a missed-push repair while it
-    // stays open; the normal focus and notification paths remain immediate.
+    // Every open audience surface needs a missed-push repair, including flows
+    // reached directly from Now. Normal focus/notification paths stay immediate.
+    let inFlight = false;
+    let cancelled = false;
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void refresh({ background: true });
-      }
+      if (document.visibilityState !== "visible" || inFlight) return;
+      inFlight = true;
+      const revision = connectionGraphRefreshRevisionRef.current;
+      void refresh({ background: true })
+        .then(async () => {
+          if (cancelled || connectionGraphRefreshRevisionRef.current !== revision) return;
+          // Workspace recipients are bounded. A searched/selected person can
+          // change outside that first page while its signature stays identical.
+          recipientPageRequestRef.current += 1;
+          shareRecipientPageRequestRef.current += 1;
+          setRecipientDirectoryRevision((current) => current + 1);
+          await Promise.all([reloadRecipientAuthority(revision), refreshSmsRoster()]);
+        })
+        .catch(() => undefined)
+        .finally(() => { inFlight = false; });
     }, 60_000);
-    return () => window.clearInterval(timer);
-  }, [auth.userId, isPeopleViewForRepair, openCircleIdForRepair, refresh, vaultOwnerToken]);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [auth.userId, isAudienceViewForRepair, openCircleIdForRepair, refresh, refreshSmsRoster, reloadRecipientAuthority, vaultOwnerToken]);
 
   const scheduleOneLocationStateRefresh = useCallback(
     (
@@ -14812,7 +14830,7 @@ export function OneLocationAgentPageContent({
                         className="h-10 w-full min-w-0 rounded-[12px] border-black/[0.06] bg-white text-[13px] font-semibold text-[#1c1c1e] shadow-sm hover:bg-[#f2f2f7] hover:text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
                       >
                         {busy !== "contactSync" ? (
-                          <ContactRound
+                          <ContactsBookIcon
                             className="mr-2 h-4 w-4"
                             aria-hidden="true"
                           />
@@ -15717,7 +15735,7 @@ export function OneLocationAgentPageContent({
                                     size="sm"
                                     onClick={() => void handleAskReshare(grant)}
                                     disabled={busy === "request"}
-                                    className="h-8 rounded-full border-amber-500/30 bg-white/70 px-3 text-[12px] font-semibold text-amber-800 hover:bg-white dark:border-amber-300/25 dark:bg-white/10 dark:text-amber-100 dark:hover:bg-white/15"
+                                    className="h-11 rounded-full border-amber-500/30 bg-white/70 px-3 text-[12px] font-semibold text-amber-800 hover:bg-white dark:border-amber-300/25 dark:bg-white/10 dark:text-amber-100 dark:hover:bg-white/15"
                                   >
                                     {busy === "request" ? (
                                       <Loader2

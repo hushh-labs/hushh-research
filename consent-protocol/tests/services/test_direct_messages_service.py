@@ -729,7 +729,7 @@ def test_delete_for_me_uses_the_viewers_participant_visibility_field(monkeypatch
     monkeypatch.setattr(
         service,
         "_message_action_row",
-        lambda *_args: _action_message(sender_user_id="alice"),
+        lambda *_args, **_kwargs: _action_message(sender_user_id="alice"),
     )
     monkeypatch.setattr(
         service,

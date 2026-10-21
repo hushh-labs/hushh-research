@@ -14,6 +14,7 @@ import { CircleChatService, type CircleChatSession } from "@/lib/services/circle
 import type { ChatContent, ChatMessage } from "@/lib/circle-chat/crypto";
 import { ChatImage, ChatSharedFile } from "./circle-chat-media";
 import styles from "./circle-chat-message.module.css";
+import { connectPersonName } from "@/lib/connections/person-label";
 
 export type OpenChatMessage = ChatMessage & { content: ChatContent | null; failed: boolean; localImage?: File };
 export type OutgoingChatMessage = Pick<ChatMessage, "id" | "clientMessageId" | "senderUserId" | "senderName" | "createdAt"> & {
@@ -49,6 +50,8 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
   replyDisabled?: boolean;
 }) {
   const own = message.senderUserId === session.userId;
+  const senderName = connectPersonName({ displayName: message.senderName });
+  const replyName = connectPersonName({ displayName: replyTarget?.senderName });
   const confirmed = "sequence" in message;
   const viewerId = `${message.senderUserId}:${message.clientMessageId ?? message.id}`;
   const showDay = !previous || new Date(message.createdAt).toDateString() !== new Date(previous.createdAt).toDateString();
@@ -95,7 +98,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
   return <li data-chat-message={message.id} className={`${styles.item} ${grouped ? styles.grouped : ""}`}>
     {showDay ? <div className="pb-4 pt-1"><OneChatTimeSeparator dateTime={message.createdAt} label={conversationDayLabel(message.createdAt)} /></div> : null}
     <div className={`${styles.row} ${own ? styles.own : ""}`} data-message-role={own ? "user" : "peer"}>
-      {!own ? <div className={styles.avatar}>{!grouped ? <ConnectionPersonAvatar size="comfortable" className="!size-8" label={message.senderName} photoUrl={message.senderPhotoUrl} /> : null}</div> : null}
+      {!own ? <div className={styles.avatar}>{!grouped ? <ConnectionPersonAvatar size="comfortable" className="!size-8" label={senderName} photoUrl={message.senderPhotoUrl} /> : null}</div> : null}
       <div className={styles.stack}>
         <div className={styles.bubbleWrap}>
           <div className={`${styles.bubble} ${own ? styles.outgoing : styles.incoming}`}
@@ -107,10 +110,10 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
               if (!confirmed || !visible || layoutBlocked) return;
               event.preventDefault(); longPress.cancel(); setMenuOpen(true);
             }}>
-            {!own && !grouped ? <p className={`${styles.sender} ${styles[`sender${senderColor(message.senderUserId)}`]}`}><bdi>{message.senderName}</bdi></p> : null}
+            {!own && !grouped ? <p className={`${styles.sender} ${styles[`sender${senderColor(message.senderUserId)}`]}`}><bdi>{senderName}</bdi></p> : null}
             {deleted ? <p className={styles.failed}>This message was deleted.</p> : message.failed ? <p className={styles.failed}>This message could not be opened on this device.</p> : <>
-              {confirmed && message.replyToMessageId ? replyTarget?.content && !replyTarget.deletedForEveryoneAt && !replyTarget.failed ? <button type="button" className={styles.quote} aria-label={`View original message from ${replyTarget.senderName}`} onClick={() => onJump?.(replyTarget)} disabled={!visible || layoutBlocked}>
-                <strong><bdi>{replyTarget.senderName}</bdi></strong><span dir="auto">{replyTarget.content.text || replyTarget.content.attachment?.name || replyTarget.content.image?.name || "Attachment"}</span>
+              {confirmed && message.replyToMessageId ? replyTarget?.content && !replyTarget.deletedForEveryoneAt && !replyTarget.failed ? <button type="button" className={styles.quote} aria-label={`View original message from ${replyName}`} onClick={() => onJump?.(replyTarget)} disabled={!visible || layoutBlocked}>
+                <strong><bdi>{replyName}</bdi></strong><span dir="auto">{replyTarget.content.text || replyTarget.content.attachment?.name || replyTarget.content.image?.name || "Attachment"}</span>
               </button> : <div className={styles.quote}>Original message unavailable</div> : null}
               {image ? <ChatImage session={session} message={confirmed ? message : undefined} type={image.type} localImage={message.localImage} thumbnail={image.thumbnail}
                 visible={visible} layoutBlocked={layoutBlocked} scrollRoot={scrollRoot} onError={onMediaError} onViewerChange={(open) => onViewerChange(viewerId, open)} /> : null}

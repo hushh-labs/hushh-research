@@ -46,7 +46,9 @@
     "drive_packet_version_sources",
     "drive_packet_listings",
     "calendar_attendance_reviews",
-    "live_memory_source_events"
+    "live_memory_source_events",
+    "one_product_activity_observations",
+    "one_product_value_receipts"
   ],
   "retention_registry": [
     {
@@ -581,15 +583,16 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "google_provider_connections",
+        "google_calendar_additional_accounts",
         "google_service_grants",
         "google_oauth_attempts",
         "google_calendar_action_proposals",
         "calendar_attendance_reviews"
       ],
-      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service and connected Schedule attendance review ledger",
+      "primary_access_path": "Google OAuth connection service, owner/account-scoped additional Calendar credentials, confirmation-bound Calendar live-read/action service, and connected Schedule attendance review ledger",
       "retention_policy": "OAuth attempts expire after ten minutes. Calendar proposals are deleted after execution or failure and are unusable after ten minutes; the next Calendar mutation purges expired proposals. Provider credentials and grants remain only while the user keeps the service connected. Attendance review rows contain only submission metadata and redacted outcomes, expire after ten minutes, and are purged on the next review.",
       "deletion_behavior": "Cascade-delete with the actor profile; service disconnect locally disables the relevant grant and removes its short-lived proposals. Account-level Google revocation is separate because it affects sibling services. Full account deletion snapshots the encrypted refresh token before erasure and, after commit, revokes it at Google best effort (account_deletion_provider_cleanup); a provider failure never rolls back the committed deletion.",
-      "trust_boundary": "AES-GCM encrypted OAuth credential envelopes; no Calendar event cache or PKM projection is written by this v1 service.",
+      "trust_boundary": "AES-GCM encrypted OAuth credential envelopes. The legacy provider row is the default identity; additional Calendar identities have separate account-bound encrypted envelopes and no Mail/Drive grants. No Calendar event cache or PKM projection is written.",
       "plaintext_posture": "encrypted_tokens_and_short_lived_workflow_metadata",
       "expected_row_growth": "low_provider_workflow"
     },
@@ -1159,7 +1162,7 @@
       "primary_access_path": "Default-off owner-protected request/review/approval/delivery/removal routes and finite durable worker entrypoints. One OIDC-protected, default-off bounded UAT sweep sequences indexing, suggestions, permission delivery/reconciliation and notification work; it remains unverified until the scheduler and authenticated acceptance are configured.",
       "retention_policy": "Requests have a 30-day authority lifetime and reviews five minutes; those bounds do not themselves delete records. Encrypted management receipts survive ordinary disconnect/index removal. Hard scheduled retention remains a release prerequisite.",
       "deletion_behavior": "Transactional reset/deletion erases private requests, reviews and app-identity linkage. Recipient erasure preserves only another owner's encrypted exact Google-management facts, not request narratives, filenames, source versions, recipient provider subject or full ACL snapshots. Owner erasure removes those receipts; it never claims to revoke external Google sharing.",
-      "trust_boundary": "DRIVE_SHARING_KEY_V1 is independent of document/OAuth keys. AES-256-GCM envelopes bind owner, resource and purpose. Google IDs, names, live content fingerprints, verified account identity, purpose, coverage, exact approval, the owner's Allow with its price, and permission receipts remain encrypted; only opaque workflow IDs, statuses, source versions, keyed binding digests and workflow timestamps such as owner_allowed_at are plaintext. A confirmation claim and pending work commit atomically before external calls.",
+      "trust_boundary": "DRIVE_SHARING_KEY_V1 is independent of document/OAuth keys. AES-256-GCM envelopes bind owner, resource and purpose. Google IDs, names, live content fingerprints, verified account identity, purpose, coverage, exact approval, the owner's Allow with its price, and permission receipts remain encrypted; only opaque workflow IDs, statuses, source versions, keyed binding digests and workflow timestamps such as owner_allowed_at and server-proven existing_access_waived_at are plaintext. A confirmation claim and pending work commit atomically before external calls.",
       "plaintext_posture": "encrypted_private_request_approval_and_provider_evidence_with_workflow_metadata",
       "expected_row_growth": "up_to_25_operations_per_review_retention_gate_before_enablement"
     },
@@ -1175,7 +1178,7 @@
         "drive_request_payment_refunds"
       ],
       "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective quote from 50 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority.",
-      "retention_policy": "At most one live order and one account-free obligation per request, plus one refund attempt and verified event dedupe receipts. Checkout URLs expire with their Stripe session and are cleared on settlement. The obligation and refund evidence survive request erasure until payment and refund duties are settled under merchant retention policy.",
+      "retention_policy": "At most one live order and one account-free obligation per request, plus one refund attempt and verified event dedupe receipts. Checkout URLs expire with their Stripe session and are cleared on settlement. The obligation and refund evidence, including an opaque existing_access_waived_at marker bound to a retired unpaid checkout, survive request erasure until payment and refund duties are settled under merchant retention policy. The marker permits full late-money reconciliation without treating free preexisting receipts as purchased delivery.",
       "deletion_behavior": "The live order cascades from the request. Before account reset or erasure removes the request, an opaque obligation snapshots delivery state and removes all account linkage; late signed charges and in-flight refunds remain reconcilable. Stripe's own merchant records follow the payment account's retention policy.",
       "trust_boundary": "The retained obligation has only a random request UUID, payer digest, amount (integer cents, 50 to 50000 cents) and currency, Stripe provider IDs, status and timestamps. No account ID, email, filename, search term, request purpose, document ID, content or Checkout URL is retained there. The requester-visible Feed event is never written after erasure. Orders and retained obligations bind an immutable Stripe mode; unproven legacy rows cannot authorize live money. Current-mode processing never reinterprets a test Checkout or refund as live.",
       "plaintext_posture": "opaque_payment_identifiers_bounded_price_and_workflow_status_only",
@@ -2147,6 +2150,23 @@
       "trust_boundary": "Owner ID, enabled flag, disclosure version, generation, and timestamps only. Contains no Drive content, prompt, response, or credentials; an enabled row is scoped to the disclosed private Azure text processing and cannot grant file access.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "at most one row per owner"
+    },
+    {
+      "id": "one_product_activity_observations",
+      "owner": "backend-runtime-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_product_activity_epochs",
+        "one_product_activity_observations",
+        "one_product_value_receipts"
+      ],
+      "primary_access_path": "Production pilot or explicitly expanded registered-contact observer, signed PLG v2 metadata projection, and separately keyed private paginated registered-account audience. Closed generated catalog identifiers only; client reports and SDK returns are distinct from domain outcome authority. Migration 366 adds phase-independent opaque operation correlation; historical rows remain uncorrelated. Migration 367 adds domain-authored Calendar/explicit-consent/direct-Location value receipts and a canonical information-request/Mail-send association; per-agent signed outcome adapters read retained domain evidence.",
+      "retention_policy": "Observation reads enforce a seven-day expiry; existing authenticated Drive work drain purges at most 1000 expired rows per pass. At most 500 observations per owner per UTC day, with explicit limited/best-effort coverage. Epochs remain while the account exists and rotate on reset. Value receipts share the seven-day TTL and reset epoch, with a separate 500-per-owner/day cap and the same bounded purge pass.",
+      "deletion_behavior": "Cascade with actor identity; full delete explicitly removes observations and epochs. Reset rotates the epoch under the existing writer barrier and clears observations, fencing delayed callbacks. Value receipts are explicitly cleared on reset and delete and cascade with the observation epoch; delayed callbacks retain their captured generation.",
+      "trust_boundary": "No authorization, reward, content or task settlement authority. Owner-bound admitted callbacks or authenticated Firebase reports, production lane and explicit pilot UID allowlist or default-off expanded registered-contact admission. Anonymous UID presence alone never admits expanded collection. The independently keyed audience read joins current canonical identity under lifecycle/phone/row barriers without enrollment, identity mutation, messaging consent or delivery. Missing terminals mean possible incomplete observations, not confirmed abandonment. No prompts, arguments, responses, private tool names, provider IDs, routes, coordinates or financial details. RLS denies browser roles. Value receipts are metadata projections after provider acknowledgement or a verified explicit owner decision, never new action authority. They retain no provider IDs, private content, or tokens. Other adapters read domain-owned canonical records; internal stages are not activation journeys.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "bounded_500_observations_and_500_value_receipts_per_owner_per_day_seven_day_ttl"
     }
   ]
 }

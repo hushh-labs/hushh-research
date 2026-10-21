@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   getRequestHistory: vi.fn(),
   getPublic: vi.fn(),
   getViewer: vi.fn(),
+  getRelationship: vi.fn(),
+  getVaultOwnerToken: vi.fn(),
   push: vi.fn(),
   pathname: "/people/actual-public-ref",
   native: true,
@@ -55,7 +57,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
     vaultKey: mocks.vaultKey ?? null,
     vaultOwnerToken: mocks.vaultOwnerToken ?? null,
-    getVaultOwnerToken: () => mocks.vaultOwnerToken,
+    getVaultOwnerToken: mocks.getVaultOwnerToken,
     isVaultUnlocked: mocks.isVaultUnlocked,
   }),
 }));
@@ -64,6 +66,7 @@ vi.mock("@/lib/services/person-profile-service", () => ({
   PersonProfileService: {
     getPublic: mocks.getPublic,
     getViewer: mocks.getViewer,
+    getRelationship: mocks.getRelationship,
     createInformationRequest: vi.fn(),
     connect: vi.fn(),
     cancelConnectionRequest: vi.fn(),
@@ -80,7 +83,7 @@ vi.mock("@/lib/services/drive-packet-service", () => ({
   DrivePacketService: { packets: mocks.packets },
 }));
 vi.mock("@/lib/services/external-connector-service", () => ({
-  ExternalConnectorService: { overview: mocks.connectorOverview },
+  ExternalConnectorService: { overview: mocks.connectorOverview, featureReadiness: mocks.connectorOverview },
 }));
 
 vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({
@@ -207,6 +210,9 @@ vi.mock("@/lib/services/answer-request-service", async (original) => ({
 }));
 
 beforeEach(() => {
+  CacheService.getInstance().clear();
+  mocks.getRelationship.mockReset().mockImplementation(() => new Promise(() => {}));
+  mocks.getVaultOwnerToken.mockReset().mockImplementation(() => mocks.vaultOwnerToken);
   mocks.realDialogs = false;
   mocks.answerGates.mockReset().mockResolvedValue({ requests: false, payments: false, payouts: false });
   mocks.answerCreate.mockReset();
@@ -214,6 +220,7 @@ beforeEach(() => {
 });
 
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
+import { CacheService } from "@/lib/services/cache-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { PersonProfilePage } from "@/components/connections/person-profile-page";
 import { CONNECTION_GRAPH_CHANGED_EVENT } from "@/lib/connections/connection-graph-events";
@@ -498,7 +505,7 @@ describe("PersonProfilePage native profile route", () => {
         (button) =>
           button.getAttribute("aria-label") || button.textContent?.trim(),
       ),
-    ).toEqual(["Request", "Share profile", "Request cards", "Manage access"]);
+    ).toEqual(["Request", "Share profile", "Ask about files", "Request a card", "Manage access"]);
     expect(reviewButton.parentElement).not.toHaveClass("sticky");
     expect(reviewButton.parentElement).not.toHaveClass("bottom-4");
     expect(
@@ -516,7 +523,7 @@ describe("PersonProfilePage native profile route", () => {
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
     const actions = await screen.findByLabelText("Relationship actions");
     await within(actions).findByRole("button", { name: "Ask about files", exact: true });
-    const labels = ["Request files", "Ask about files", "Request scope", "Request cards"];
+    const labels = ["Request files", "Ask about files", "Ask a question", "Request a card"];
     const cards = labels.map((name) => within(actions).getByRole("button", { name, exact: true }));
     expect(cards.every((card) => card.parentElement === cards[0].parentElement)).toBe(true);
     expect(Array.from(actions.querySelectorAll("button"), (button) => button.getAttribute("aria-label") || button.textContent?.trim()))
@@ -526,7 +533,7 @@ describe("PersonProfilePage native profile route", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     fireEvent.click(cards[1]);
-    expect(await screen.findByRole("dialog", { name: "Ask about their Drive" })).toBeVisible();
+    expect(await screen.findByRole("dialog", { name: "Ask about files" })).toBeVisible();
   });
 
   it("sends one eligible Professional root request instead of twelve child requests", async () => {
@@ -1714,13 +1721,38 @@ describe("Request scope during profile authority refresh", () => {
 
   async function openQuestion() {
     const rendered = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={initialProfile} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Request scope", exact: true }));
-    fireEvent.change(await screen.findByLabelText("Question"), { target: { value: "What are your food preferences?" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Ask a question", exact: true }));
+    fireEvent.change(await screen.findByLabelText("Your question"), { target: { value: "What are your food preferences?" } });
     return rendered;
   }
   function answerDoorbell() {
     dispatchConsentStateChanged({ userId: "viewer", source: "answer_request_changed", requestId: `answer_request:${requestId}`, messageId: `pkm_answer_requests:${requestId}:awaiting_owner:synthetic-timestamp` });
   }
+
+  it("admits connected actions while the complete catalog is still loading", async () => {
+    mocks.getRelationship.mockResolvedValue(viewerProfile().relationship);
+    mocks.getViewer.mockReturnValue(new Promise(() => {}));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={initialProfile} />);
+    expect(await screen.findByText("Connected")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Loading profile details" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Ask a question", exact: true }));
+    const field = await screen.findByLabelText("Your question");
+    fireEvent.change(field, { target: { value: "What are your food preferences?" } });
+    expect(screen.getByRole("button", { name: "Send request", exact: true })).toBeEnabled();
+    expect(mocks.answerCreate).not.toHaveBeenCalled();
+  });
+
+  it("converges lightweight readiness on the complete relationship snapshot", async () => {
+    mocks.getRelationship.mockResolvedValue(viewerProfile().relationship);
+    let finish!: (value: ReturnType<typeof viewerProfile>) => void;
+    mocks.getViewer.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={initialProfile} />);
+    expect(await screen.findByText("Connected")).toBeVisible();
+    await act(async () => { finish(viewerProfile({ relationship: { status: "none" }, contactEmail: "old@example.test" })); });
+    expect(await screen.findByText("Not connected")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "old@example.test" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ask a question", exact: true })).toBeNull();
+  });
 
   it.each(["connected", "disconnected", "failed"])("retains accepted confirmation through a %s connection refresh", async (outcome) => {
     let accept!: (value: { requestId: string }) => void;
@@ -1729,11 +1761,11 @@ describe("Request scope during profile authority refresh", () => {
     mocks.answerCreate.mockReturnValue(new Promise((resolve) => { accept = resolve; }));
     await openQuestion();
     fireEvent.click(screen.getByRole("button", { name: "Send request", exact: true }));
-    await waitFor(() => expect(mocks.answerCreate).toHaveBeenCalledWith("viewer-token", "actual-public-ref", { question: "What are your food preferences?" }));
+    await waitFor(() => expect(mocks.answerCreate).toHaveBeenCalledWith("viewer-token", "actual-public-ref", { question: "What are your food preferences?" }, expect.objectContaining({ clientRequestId: expect.any(String), isEffectCurrent: expect.any(Function) })));
     mocks.getViewer.mockReturnValueOnce(new Promise((resolve, reject) => { refresh = resolve; rejectRefresh = reject; }));
     act(answerDoorbell);
     await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
-    expect(screen.queryByRole("button", { name: "Request scope", exact: true })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ask a question", exact: true })).toBeNull();
     expect(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
     await act(async () => { accept({ requestId }); });
     expect(await screen.findByText(/Request sent\./)).toBeVisible();
@@ -1757,7 +1789,7 @@ describe("Request scope during profile authority refresh", () => {
     act(answerDoorbell);
     await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
     const send = screen.getByRole("button", { name: "Send request", exact: true });
-    expect(screen.getByLabelText("Question")).toHaveValue("What are your food preferences?");
+    expect(screen.getByLabelText("Your question")).toHaveValue("What are your food preferences?");
     expect(send).toBeDisabled();
     fireEvent.submit(send.closest("form")!);
     expect(mocks.answerCreate).not.toHaveBeenCalled();
@@ -1767,7 +1799,7 @@ describe("Request scope during profile authority refresh", () => {
     expect(mocks.answerCreate).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(screen.queryByRole("button", { name: "Request scope", exact: true })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ask a question", exact: true })).toBeNull();
     expect(screen.getByRole("button", { name: "Share profile" })).toHaveFocus();
   });
 
@@ -1776,7 +1808,7 @@ describe("Request scope during profile authority refresh", () => {
     mocks.getViewer.mockReturnValueOnce(new Promise(() => {}));
     act(answerDoorbell);
     await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
-    expect(screen.getByLabelText("Question")).toHaveValue("What are your food preferences?");
+    expect(screen.getByLabelText("Your question")).toHaveValue("What are your food preferences?");
     fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByRole("button", { name: "Share profile" })).toHaveFocus();
@@ -1801,8 +1833,8 @@ describe("Request scope during profile authority refresh", () => {
 
       await waitFor(() => expect(screen.queryByText(/Request sent\./)).toBeNull());
       expect(screen.queryByRole("link", { name: "View request" })).toBeNull();
-      fireEvent.click(await screen.findByRole("button", { name: "Request scope", exact: true }));
-      expect(await screen.findByLabelText("Question")).toHaveValue("");
+      fireEvent.click(await screen.findByRole("button", { name: "Ask a question", exact: true }));
+      expect(await screen.findByLabelText("Your question")).toHaveValue("");
       expect(mocks.answerCreate).toHaveBeenCalledTimes(1);
     },
   );

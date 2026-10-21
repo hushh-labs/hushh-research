@@ -209,6 +209,7 @@ function CircleJoinLanding() {
 
   return (
     <AppPageShell
+      data-profile-type-scale="page"
       as="main"
       width="reading"
       fitContent
@@ -216,6 +217,7 @@ function CircleJoinLanding() {
       style={INVITE_MEASURE}
       data-testid="circle-join-landing"
     >
+      <div data-profile-type-scale="circles">
       <PageHeader
         // The description is two lines; letting it share the icon row
         // stretched that row and pushed the tile away from the title.
@@ -230,16 +232,17 @@ function CircleJoinLanding() {
         }
         testId="circle-join-header"
       />
+      </div>
 
       {/* One surface holds everything known about the invitation: the code the
           sender read out, and -- once it resolves -- whose Circle it is. Three
           floating blocks read as three unrelated things. */}
       <section
         className="mt-6 rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] p-5"
-        data-testid="circle-join-card"
+        data-profile-type-scale="circles" data-testid="circle-join-card"
       >
         <CaptionText className="text-muted-foreground">Invite code</CaptionText>
-        <p
+        <p data-profile-role="description"
           className="mt-1 select-all break-all font-mono text-[19px] font-bold uppercase leading-6 tracking-[0.1em]"
           data-testid="circle-join-code"
         >
@@ -249,7 +252,7 @@ function CircleJoinLanding() {
         {showPreview ? (
           <div className="mt-4 border-t border-[color:var(--app-separator)] pt-4">
             {loading ? (
-              <p className="flex items-center gap-2 text-[15px] leading-5 text-muted-foreground">
+              <p data-profile-role="description" className="flex items-center gap-2 text-[15px] leading-5 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 Looking up this Circle
               </p>
@@ -268,7 +271,7 @@ function CircleJoinLanding() {
                 ) : null}
               </div>
             ) : error ? (
-              <p
+              <p data-profile-role="description"
                 className="text-[15px] leading-5 text-[color:var(--app-destructive)]"
                 data-testid="circle-join-error"
               >
@@ -281,7 +284,7 @@ function CircleJoinLanding() {
 
       {/* Pre-mounted so a screen reader announces the lookup result. An element
           that only exists once the message does is never announced. */}
-      <p className="sr-only" role="status" aria-live="polite">
+      <p data-profile-role="description" className="sr-only" role="status" aria-live="polite">
         {loading
           ? "Looking up this Circle"
           : error
@@ -295,6 +298,7 @@ function CircleJoinLanding() {
         // Always offered, even when the lookup failed: the hub can take a
         // retyped code, so a bad preview is never the end of the road.
         <Button
+          data-profile-role="action"
           type="button"
           size="lg"
           className="mt-6 w-full"
@@ -321,16 +325,17 @@ function CircleJoinLanding() {
           {canJoin ? "Join this Circle" : "Open One"}
         </Button>
       ) : auth.loading ? (
-        <p className="mt-6 flex items-center gap-2 text-[15px] leading-5 text-muted-foreground">
+        <p data-profile-role="description" className="mt-6 flex items-center gap-2 text-[15px] leading-5 text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           Checking your account
         </p>
       ) : (
         <>
-          <p className="mt-6 text-[15px] leading-5 text-muted-foreground">
+          <p data-profile-role="description" className="mt-6 text-[15px] leading-5 text-muted-foreground">
             Sign in to see whose Circle this is.
           </p>
           <Button
+          data-profile-role="action"
             asChild
             size="lg"
             className="mt-4 w-full"

@@ -169,6 +169,7 @@ async def offer(
             "primary_endpoint": config["primary_endpoint"],
             "primary_deployment": config["primary_deployment"],
             "primary_token_supplier": token_provider,
+            "owner_public_profiles": (inputs or {}).get("public_profiles"),
         }
     result = await runner(
         identity=identity,
@@ -258,6 +259,10 @@ def _prepare_discovery_start_state(state, *, scope, stored_attempts, clock):
     return {**state, "budget_scope": scope}
 
 
+class PublicProfilesChanged(ValueError):
+    """A different public seed requires an explicit, non-overlapping discovery."""
+
+
 class WorldModelJobs(ProfileResearchJobs):
     log_event = "one.pwm_"
     search_slots = MAX_SEARCHES
@@ -337,12 +342,22 @@ class WorldModelJobs(ProfileResearchJobs):
             return refused
         if current_binding != binding:
             return pending(restart=True)
+        if POLICY["provider"] == "azure_openai_web_search":
+            from hushh_mcp.one_adk.world_model_azure import checkpoint_usage
+
+            usage = checkpoint_usage(state.get("work"), state.get("attempted_combinations", []))
+            if usage is not None:
+                result = {**result, "_provider_usage": usage}
         return {**result, "progress": progress, "validated_facts": facts}
 
-    async def start(self, user_id, consent_token, *, inputs: dict | None = None):
+    async def start(
+        self, user_id, consent_token, *, inputs: dict | None = None, refresh_completed: bool = False
+    ):
         require_access = content_access(user_id, consent_token)
         await require_access()
-        result = await super().start(user_id, consent_token, inputs=inputs)
+        result = await super().start(
+            user_id, consent_token, inputs=inputs, refresh_completed=refresh_completed
+        )
         await require_access()
         return result
 
@@ -367,6 +382,30 @@ class WorldModelJobs(ProfileResearchJobs):
             "budget_scope": self.budget_scope(),
         }
 
+    def prepare_inputs(self, state, inputs, refresh_completed):
+        from hushh_mcp.one_adk.public_sources import OwnerPublicProfiles
+
+        prior = (state or {}).get("inputs") or {}
+        carried = dict(prior if inputs is None else inputs)
+        for field in ("public_profiles", "owner_decisions"):
+            if field not in carried and field in prior:
+                carried[field] = prior[field]
+        profiles = carried.get("public_profiles")
+        if profiles is not None:
+            if POLICY["provider"] != "azure_openai_web_search":
+                raise PublicProfilesChanged("Public profile discovery requires Azure consent")
+            profiles = OwnerPublicProfiles.model_validate(profiles).model_dump()
+            carried["public_profiles"] = profiles
+        same = sorted((prior.get("public_profiles") or {}).get("urls", [])) == sorted(
+            (profiles or {}).get("urls", [])
+        )
+        if not same and (
+            not refresh_completed
+            or (state and state["status"] == "pending" and self.reusable(state))
+        ):
+            raise PublicProfilesChanged("Public profiles changed")
+        return carried or None, same
+
     async def ensure(self, user_id, consent_token, *, owner_decisions=None):
         enrolled = False
         require_access = content_access(user_id, consent_token)
@@ -382,7 +421,7 @@ class WorldModelJobs(ProfileResearchJobs):
                     await enroll_default(user_id, consent_token)
                     enrolled = True
                     await require_access()
-        refused, _ = await admission(user_id, consent_token)
+        refused, binding = await admission(user_id, consent_token)
         if refused:
             self.decision("ensure", "refused", refused, None)
             return refused
@@ -390,8 +429,10 @@ class WorldModelJobs(ProfileResearchJobs):
         await require_access()
         state = await self.store.get(user_id)
         await require_access()
+        current_binding = state is not None and state.get("identity_binding") == binding
         if (
             state is not None
+            and current_binding
             and state.get("status") in {"offered", "low_confidence", "saved"}
             and self.clock() - state.get("finished_at", self.clock()) >= TTL_SECONDS
         ):
@@ -417,6 +458,7 @@ class WorldModelJobs(ProfileResearchJobs):
         if (
             state
             and state["status"] == "saved"
+            and current_binding
             and state.get("consent_generation") == str(consent["generation"])
         ):
             self.decision("ensure", "saved", state["result"], state)

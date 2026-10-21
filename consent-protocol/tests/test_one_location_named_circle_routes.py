@@ -55,6 +55,39 @@ def test_circle_command_body_and_receipt_use_existing_routes(monkeypatch, method
     assert response.headers["cache-control"] == "private, no-store"
 
 
+def test_custom_type_policy_and_create_payload(monkeypatch):
+    client, service, _ = _client(monkeypatch)
+    assert client.get("/api/one/location/circles").json()["customTypePolicy"] == {
+        "version": 1,
+        "maxTypes": 3,
+    }
+    response = client.post(
+        "/api/one/location/circles",
+        json={"name": "Investments", "kind": "other", "customTypeLabel": "Finance"},
+    )
+    assert response.status_code == 200
+    assert service.calls[-1] == (
+        "create",
+        {
+            "owner_user_id": "owner-user",
+            "name": "Investments",
+            "kind": "other",
+            "custom_type_label": "Finance",
+        },
+    )
+
+
+def test_custom_type_delete_uses_authenticated_owner_and_private_response(monkeypatch):
+    client, service, _ = _client(monkeypatch)
+    response = client.request(
+        "DELETE", "/api/one/location/circle-types", json={"customTypeLabel": "Finance"}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"updatedCircleCount": 2}
+    assert service.calls[-1] == ("delete_type", {"owner_user_id": "owner-user", "label": "Finance"})
+    assert response.headers["cache-control"] == "private, no-store"
+
+
 class FakeNamedCircleService:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
@@ -96,6 +129,10 @@ class FakeNamedCircleService:
     def list_circles(self, **kwargs):
         self._record("list", **kwargs)
         return [{key: value for key, value in self.circle.items() if key != "members"}]
+
+    def delete_custom_type(self, **kwargs):
+        self._record("delete_type", **kwargs)
+        return {"updatedCircleCount": 2}
 
     def get_circle(self, **kwargs):
         self._record("get", **kwargs)

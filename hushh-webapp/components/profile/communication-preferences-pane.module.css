@@ -1,5 +1,5 @@
 /* Your account is the Profile pane's type reference: 10px section labels,
-   13px row labels and field values, and 12px supporting text. The shared app
+   13px row labels, and 12px trailing values and supporting text. The shared app
    typography roles carry important declarations in the base layer, so these
    pane-only overrides must live in that same layer to take effect. */
 @layer base {
@@ -53,6 +53,12 @@
   :global(.profile-pane-scroll-root .app-page-shell[data-app-density="compact"]) .paneTypography :global([data-testid="style-settings-note-count"]) {
     color: var(--ios-account-secondary-label) !important;
     font-size: 10px !important;
+  }
+
+  /* The compact inline fields use the account pane's trailing-value size. */
+  :global(.profile-pane-scroll-root .app-page-shell[data-app-density="compact"]) .paneTypography :global(input[data-slot="input"]),
+  :global(.profile-pane-scroll-root .app-page-shell[data-app-density="compact"]) .paneTypography :global([data-slot="select-trigger"]) {
+    font-size: 12px !important;
   }
 
   :global(.profile-pane-scroll-root .app-page-shell[data-app-density="compact"]) .paneTypography :global([data-testid="style-settings-status"]),

@@ -225,7 +225,7 @@ export function AppStreamPanel({
   progressIndeterminate = false,
   statusMessage,
   progressItems = [],
-  activityAppearance = "surface",
+  activityAppearance = "plain",
   thinkingItems = [],
   thinkingContent,
   thinkingTitle = "Reasoning",

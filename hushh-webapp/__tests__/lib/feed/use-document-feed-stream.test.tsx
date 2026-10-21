@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   open: vi.fn(),
   onConsentMutated: vi.fn(),
   onFeedChanged: vi.fn(),
+  onFeedHistoryMutated: vi.fn(),
   dispatchFeedStateChanged: vi.fn(),
   dispatchConsentStateChanged: vi.fn(),
   setPayoutStreamState: vi.fn(),
@@ -22,7 +23,7 @@ vi.mock("@/lib/services/document-feed-transport", () => ({
   observeIdTokenChanges: () => () => {},
 }));
 vi.mock("@/lib/cache/cache-sync-service", () => ({
-  CacheSyncService: { onConsentMutated: mocks.onConsentMutated, onFeedChanged: mocks.onFeedChanged },
+  CacheSyncService: { onConsentMutated: mocks.onConsentMutated, onFeedChanged: mocks.onFeedChanged, onFeedHistoryMutated: mocks.onFeedHistoryMutated },
 }));
 vi.mock("@/lib/feed/feed-events", () => ({ dispatchFeedStateChanged: mocks.dispatchFeedStateChanged }));
 vi.mock("@/lib/consent/consent-events", () => ({
@@ -102,6 +103,18 @@ describe("document Feed stream", () => {
     await flush();
     expect(mocks.open).not.toHaveBeenCalled();
     view.unmount();
+  });
+
+  it("invalidates saved history for a content-free deletion hint", async () => {
+    vi.useFakeTimers();
+    mocks.open.mockResolvedValue(ok(stream('event: feed_changed\ndata: {"reason":"history_mutated"}\n\n')));
+    const user = { uid: "requester", getIdToken: vi.fn().mockResolvedValue("token") };
+    const result = renderHook(() => useDocumentFeedStream(user));
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    expect(mocks.onFeedHistoryMutated).toHaveBeenCalledWith("requester");
+    expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("arrived");
+    expect(mocks.onConsentMutated).not.toHaveBeenCalled();
+    result.unmount();
   });
 
   it("repairs on an opaque event, ignoring malformed request ids", async () => {

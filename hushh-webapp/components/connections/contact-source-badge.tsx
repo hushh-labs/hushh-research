@@ -1,4 +1,4 @@
-import { ContactsBookIcon } from "@/components/icons/ui/people-action-icons";
+import { ContactsBookIcon } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 export function ContactSourceBadge({ className }: { className?: string }) {
@@ -8,7 +8,7 @@ export function ContactSourceBadge({ className }: { className?: string }) {
       aria-label="Connected from your contacts"
       className={cn("inline-flex size-4 shrink-0 items-center justify-center align-middle", className)}
     >
-      <ContactsBookIcon className="size-4" aria-hidden="true" />
+      <ContactsBookIcon className="size-full" aria-hidden="true" />
     </span>
   );
 }

@@ -31,6 +31,7 @@ export interface MarketOverviewDetailPanel {
   delta?: string;
   statusLabel?: string;
   statusTone?: MarketOverviewMetric["tone"];
+  facts?: Array<{ label: string; value: string }>;
   sections?: MarketOverviewDetailSection[];
 }
 
@@ -46,6 +47,8 @@ export interface MarketOverviewMetric {
   icon: LucideIcon;
   /** True when the provider marked this row stale/unavailable. */
   degraded?: boolean;
+  quoteStatus?: string;
+  quotedAt?: string | null;
   /** Real intraday points (chronological). Absent = render no sparkline. */
   sparkline?: number[];
 }

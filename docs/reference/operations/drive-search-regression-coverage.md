@@ -31,6 +31,22 @@ flowchart LR
 Provider candidates are discovery evidence. They enter delivery only after the
 complete request is verified; unavailable coverage remains distinct from no match.
 
+Selected delivery and search coverage are independent. A terminal `partial`
+request can have every selected permission confirmed while other candidates
+remain unverified. Feed and request detail distinguish those outcomes using
+recorded aggregate receipts, including preexisting access, without changing the
+request's durable status, payout or retry authority. Missing delivery proof uses
+neutral copy; unknown permissions remain pending.
+
+Each consumed semantic candidate records a bounded `decision:reason` count in
+`semantic_outcome_counts` inside the existing encrypted search checkpoint.
+Operational candidate telemetry contains only closed decision/reason labels,
+position and the existing opaque correlation tag. It contains no names, file
+identifiers, extracted text or assessment prose. Transient unavailable reads keep
+the candidate pending and do not increment final counts. Older checkpoints
+without these counters cannot reconstruct historical per-candidate reasons.
+
+
 ## Attachment reconciliation
 
 Four supplied inputs were reviewed: original numbered stories (269), native-parity plan, eleven-conflict audit, and proposed 269-test implementation. Every original ID is classified below. The proposed implementation is not imported: its planner copies expected anchors and Boolean mode from the oracle, its evaluator searches a mock text blob, its timezone conversion hardcodes dates, and it exercises no provider pages, encrypted store, consent gate, payment, refund or permission executor.

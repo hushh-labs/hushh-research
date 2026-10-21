@@ -233,7 +233,15 @@ class ConsentLifecycleService:
         denied_metadata = {
             **requester_identity_metadata(metadata),
             **({"bundle_id": bundle_id} if bundle_id else {}),
+            "decision_owner_uid": user_id,
+            "owner_decision": "deny",
         }
+        from hushh_mcp.services.product_value_receipts import (
+            capture_value_epoch,
+            record_owner_decision,
+        )
+
+        value_epoch = await capture_value_epoch(user_id)
         await self._db.insert_event(
             user_id=subject_user_id,
             agent_id=pending["developer"],
@@ -241,6 +249,9 @@ class ConsentLifecycleService:
             action="CONSENT_DENIED",
             request_id=request_id,
             metadata=denied_metadata or None,
+        )
+        await record_owner_decision(
+            user_id=user_id, request_id=request_id, generation=value_epoch, decision="deny"
         )
         logger.info("consent.denied_event_saved")
         return {"status": "denied", "message": f"Consent denied to {developer_label}"}

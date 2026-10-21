@@ -3,6 +3,8 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MapPin } from "lucide-react";
 
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
+import { FeedSmsAlertGroup } from "@/components/feed/feed-sms-alert-group";
+import { groupFeedSmsAlerts } from "@/lib/feed/feed-sms-grouping";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 
 function actionable(overrides: Partial<FeedActionable> = {}): FeedActionable {
@@ -19,6 +21,36 @@ function actionable(overrides: Partial<FeedActionable> = {}): FeedActionable {
 }
 
 describe("FeedActionableRow", () => {
+  it("groups repeat SMS by sender identity and preserves every incident's sent time and live link", () => {
+    const base = actionable({ title: "Same name", person: { displayName: "Same name", photoUrl: null }, smsEmergency: { senderId: "sender-a" }, description: "Emergency SMS · Revoked", displayTimestamp: Date.parse("2026-08-12T09:00:00Z"), sortAt: 1 });
+    const active = { ...base, id: "active", emphasis: "emergency" as const, description: "Emergency SMS · Active", href: "/one/location?grantId=active&open=1&section=shared", chevron: true, sortAt: 2 };
+    const groups = groupFeedSmsAlerts([base, active, active, { ...base, id: "other", smsEmergency: { senderId: "sender-b" } }, { ...base, id: "unknown-a", smsEmergency: { senderId: "" } }, { ...base, id: "unknown-b", smsEmergency: { senderId: "" } }]);
+    expect(groups).toHaveLength(4);
+    const group = groups.find((entry) => entry.id === "sender-a")!;
+    expect(group.items.map((item) => item.id)).toEqual(["active", "a-1"]);
+    expect(group.activeCount).toBe(1);
+    const { container } = render(<FeedSmsAlertGroup group={group} />);
+    expect(screen.getByText("2 recent SMS alerts · 1 active")).toBeVisible();
+    const disclosure = container.querySelector("details")!;
+    fireEvent.click(container.querySelector("summary")!);
+    // jsdom does not implement native details toggling; browser geometry and
+    // keyboard disclosure are covered by the real-component layout fixture.
+    disclosure.open = true;
+    expect(screen.getByRole("link", { name: /Same name.*Emergency SMS · Active/ })).toHaveAttribute("href", active.href);
+    expect(container.querySelectorAll('time[datetime="2026-08-12T09:00:00.000Z"]')).toHaveLength(3);
+    expect(screen.getByText("Emergency SMS · Revoked")).toBeInTheDocument();
+  });
+
+  it("keeps SMS sent time in the text column and never invents a missing time", () => {
+    const { container, rerender } = render(<FeedActionableRow item={actionable({ smsEmergency: { senderId: "sender-a" }, displayTimestamp: Date.parse("2026-08-12T09:00:00Z") })} />);
+    const stamp = container.querySelector("time")!;
+    expect(stamp).toHaveAttribute("datetime", "2026-08-12T09:00:00.000Z");
+    expect(stamp.textContent).toContain("2026");
+    expect(stamp.closest('[data-slot="settings-row-title"]')).not.toBeNull();
+    rerender(<FeedActionableRow item={actionable({ smsEmergency: { senderId: "sender-a" }, displayTimestamp: null })} />);
+    expect(screen.getByText("Sent time unavailable")).toBeInTheDocument();
+    expect(container.querySelector("time")).toBeNull();
+  });
   it("renders emergency SMS with the sender avatar instead of a separate alert icon", () => {
     render(
       <FeedActionableRow
@@ -77,6 +109,24 @@ describe("FeedActionableRow", () => {
     expect(screen.getByText("Routine row")).toBeInTheDocument();
   });
 
+  it("opens the existing full review without deciding the request", () => {
+    const openDetails = vi.fn();
+    const allow = vi.fn();
+    const deny = vi.fn();
+    render(<FeedActionableRow item={actionable({
+      onSelect: openDetails,
+      phoneActions: [{ key: "review", label: "Review", tone: "primary", run: openDetails }],
+      actions: [
+        { key: "deny", label: "Don't allow", tone: "ghost", run: deny },
+        { key: "allow", label: "Allow", tone: "primary", run: allow },
+      ],
+    })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Review", exact: true }));
+    expect(openDetails).toHaveBeenCalledTimes(1);
+    expect(allow).not.toHaveBeenCalled();
+    expect(deny).not.toHaveBeenCalled();
+  });
+
   it("renders a simple upcoming item in the compact Feed rhythm", () => {
     render(
       <FeedActionableRow
@@ -93,7 +143,7 @@ describe("FeedActionableRow", () => {
 
     const row = screen.getByTestId("feed-actionable-calendar:event-1");
     expect(row).toHaveAttribute("data-row-layout", "settings");
-    expect(row).toHaveClass("[--type-row-label-size:13px]");
+    expect(row.querySelector('[data-profile-role="name"]')).toHaveTextContent("Team standup");
     expect(row.querySelector('[data-slot="feed-domain-icon"] svg'))
       .toHaveAttribute("viewBox", "0 0 24 24");
     expect(row.querySelector('[data-slot="feed-event-time"]')).toBeInTheDocument();

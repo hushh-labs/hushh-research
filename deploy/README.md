@@ -257,6 +257,17 @@ structure-agent evaluator is warning-only and does not authorize rollback by
 itself; preservation, provenance, schema, runtime and semantic authority remain
 blocking. Product journeys may still exercise their own model/readiness calls.
 
+Each selected managed Vertex probe requires a usable provider response. A
+transport timeout or retryable provider status permits one recovery attempt
+against the same model, project and identity, paced by the existing 30-second
+start interval. Permission, schema and billing failures are not retried.
+All targets run before optional recovery. A 330-second sequence budget includes
+the command rehearsal and leaves startup/receipt headroom inside the unchanged
+420-second job limit. A recovery that cannot fit is recorded as not dispatched,
+retaining the original failure. Attempt verdicts and durations remain in the
+redacted diagnostic receipt; exhaustion still fails readiness. Per-call deadlines
+and the release admission rules are unchanged.
+
 ## Read-only operator diagnostics
 
 Read-only inspection is allowed when it does not mutate runtime state. Prefer

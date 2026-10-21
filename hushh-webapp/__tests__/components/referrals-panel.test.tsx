@@ -104,6 +104,17 @@ afterEach(() => {
 });
 
 describe("ReferralsPanel", () => {
+  it("uses the approved neutral and accent artwork in the Profile pane", async () => {
+    mockSummary();
+    render(<ReferralsPanel panePresentation />);
+    await screen.findByRole("button", { name: "Copy" });
+    const row = screen.getByText(summary.slug).closest("[data-row-layout]");
+    const svg = row?.querySelector("[data-slot=settings-row-icon] svg");
+    expect(svg).toHaveAttribute("viewBox", "0 0 24 24");
+    expect(svg).toHaveAttribute("stroke", "currentColor");
+    expect(svg?.querySelector(".profile-pane-icon-accent, .profile-pane-icon-accent-fill")).not.toBeNull();
+  });
+
   it("shows the server's counts, never a number it worked out itself", async () => {
     mockSummary();
     render(<ReferralsPanel />);

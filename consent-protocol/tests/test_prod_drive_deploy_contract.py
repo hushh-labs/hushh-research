@@ -447,6 +447,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     current_paths = [
         *old_paths,
         "deploy/email-auth/bind_secrets.sh",
+        "deploy/plg/bind_secrets.sh",
         "scripts/ci/verify-prod-places-readiness.py",
         "scripts/ci/cloudrun-retention.py",
         "scripts/ci/account-deletion-fence-decision.py",

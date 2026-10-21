@@ -14,7 +14,7 @@ export function projectNativeProfileLegal(detail: LegalDocumentType | null,
     rows: (["privacy", "terms"] as const).map(type => {
       const id = `legal-open-${type}`;
       rows.set(id, () => open(type, "push"));
-      return { id, label: LEGAL_DOCUMENTS[type].title, symbol: type === "privacy" ? "checkmark.shield" : "text.document", enabled: true, chevron: true };
+      return { id, artworkId: type, label: LEGAL_DOCUMENTS[type].title, symbol: type === "privacy" ? "checkmark.shield" : "text.document", enabled: true, chevron: true };
     }) }] }];
   if (detail) {
     const { document, links } = projectNativeLegalDocument(detail);

@@ -1,12 +1,20 @@
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { LivingCirclePanelFixture } from "./living-circle-panel";
+import {
+  ConnectCircleHeading,
+  ConnectCircleRow,
+} from "../../components/connect/circles/connect-circle-row";
+import workspaceStyles from "../../components/connect/connect-workspace.module.css";
 import { CircleDiscoveryCard } from "../../components/connect/circle-discovery-card";
 import type {
   CircleStarter,
   ConnectCirclesSnapshot,
 } from "../../components/connect/circle-discovery";
-import type { OneLocationCircleMember, OneLocationCircleSummary } from "../../lib/one-location/types";
+import type {
+  OneLocationCircleMember,
+  OneLocationCircleSummary,
+} from "../../lib/one-location/types";
 import type { ConnectionSummaryEntry } from "../../lib/services/connections-service";
 import {
   AppPageShell,
@@ -33,9 +41,27 @@ const populatedCircle: OneLocationCircleSummary = {
   memberLimit: 100,
 };
 const populatedMembers: OneLocationCircleMember[] = [
-  { userId: "test-owner", displayName: "Taylor Kim", role: "owner", phoneVerified: true, secureLocationReady: true },
-  { userId: "alex", displayName: "Alex Chen", role: "member", phoneVerified: true, secureLocationReady: true },
-  { userId: "jordan", displayName: "Jordan Lee", role: "member", phoneVerified: true, secureLocationReady: true },
+  {
+    userId: "test-owner",
+    displayName: "Taylor Kim",
+    role: "owner",
+    phoneVerified: true,
+    secureLocationReady: true,
+  },
+  {
+    userId: "alex",
+    displayName: "Alex Chen",
+    role: "member",
+    phoneVerified: true,
+    secureLocationReady: true,
+  },
+  {
+    userId: "jordan",
+    displayName: "Jordan Lee",
+    role: "member",
+    phoneVerified: true,
+    secureLocationReady: true,
+  },
 ];
 const loadCircleMembers = async () => populatedMembers;
 function Fixture() {
@@ -52,19 +78,19 @@ function Fixture() {
       state === "populated"
         ? [populatedCircle]
         : state === "connected"
-        ? [
-            ...circles,
-            {
-              id: "trusted",
-              name: "Trusted",
-              kind: "other",
-              systemKind: "trusted",
-              role: "owner",
-              memberCount: 49,
-              memberLimit: null,
-            },
-          ]
-        : circles,
+          ? [
+              ...circles,
+              {
+                id: "trusted",
+                name: "Trusted",
+                kind: "other",
+                systemKind: "trusted",
+                role: "owner",
+                memberCount: 49,
+                memberLimit: null,
+              },
+            ]
+          : circles,
   };
   function create(starter: CircleStarter) {
     setCircles((current) => [
@@ -100,6 +126,52 @@ function Fixture() {
       onSetupCircles={() => setAction("Set up One")}
     />
   );
+  const content = (
+    <>
+      <ConnectCircleHeading
+        title="Your circles"
+        count={snapshot.circles.length}
+        action="create"
+        onAction={() => setAction("Custom circle")}
+      />
+      <div className={workspaceStyles.circleGroup}>
+        {snapshot.circles.map((circle) => (
+          <ConnectCircleRow
+            key={circle.id}
+            title={circle.name}
+            description={`${circle.memberCount} members`}
+            testId={`saved-circle-${circle.id}`}
+            action={null}
+            onOpen={() => setAction(`Open ${circle.id}`)}
+            onDestructive={() => {}}
+          />
+        ))}
+      </div>
+      {card}
+    </>
+  );
+  if (document.documentElement.dataset.circleHeadingActions === "true")
+    return (
+      <AppPageShell width="reading" className={workspaceStyles.workspace}>
+        <AppPageContentRegion>
+          <div className="space-y-4">
+            <ConnectCircleHeading
+              title="Your circles"
+              count={3}
+              action="create"
+              onAction={() => setAction("Custom circle")}
+            />
+            <ConnectCircleHeading
+              title="Joined circles"
+              count={2}
+              action="join"
+              onAction={() => setAction("Join with code")}
+            />
+            <span role="status">{action}</span>
+          </div>
+        </AppPageContentRegion>
+      </AppPageShell>
+    );
   const shell = document.documentElement.dataset.shell === "true";
   return (
     <>
@@ -146,7 +218,12 @@ function Fixture() {
             }}
           >
             <div data-app-shell-top-spacer="true" aria-hidden="true" />
-            <AppPageShell data-connect-page="" fitContent width="agent">
+            <AppPageShell
+              data-connect-page=""
+              fitContent
+              width="reading"
+              className={workspaceStyles.workspace}
+            >
               <AppPageContentRegion className="min-w-0">
                 <div className="relative space-y-3 sm:space-y-4">
                   <div className={document.documentElement.dataset.headerClass}>
@@ -157,7 +234,7 @@ function Fixture() {
                       Connections · Circles
                     </div>
                   </div>
-                  {card}
+                  {content}
                   <p>My connections</p>
                 </div>
               </AppPageContentRegion>
@@ -177,7 +254,11 @@ function Fixture() {
           </div>
         </div>
       ) : (
-        <main className="mx-auto w-full max-w-[52rem] p-4 sm:p-6">{card}</main>
+        <main
+          className={`mx-auto w-full p-4 sm:p-6 ${workspaceStyles.workspace}`}
+        >
+          {content}
+        </main>
       )}
     </>
   );

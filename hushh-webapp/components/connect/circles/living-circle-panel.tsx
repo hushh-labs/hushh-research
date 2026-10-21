@@ -1,14 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import Link from "next/link";
 import { Check, Plus, Trash2, UsersRound } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { PeopleOrbit } from "@/components/connect/people-orbit";
 import { CircleAvatar } from "./circle-photo-editor";
 import { Button } from "@/components/ui/button";
+import { SheetCount, SheetPersonRow, SheetSearch, sheetPartStyles } from "@/components/app-ui/sheet-parts";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
+import { TaskSurfaceToolbar, TaskSurfaceBody, TaskSurfaceFooter } from "@/lib/morphy-ux/ui/task-surfaces";
 import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
+import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { circleInviteSelectionLimit } from "@/lib/one-location/circle-invite-contract";
+import { connectPersonName, connectPersonSelectionDetail } from "@/lib/connections/person-label";
 import type {
   OneLocationCircleEligibleConnection,
   OneLocationCircleMember,
@@ -28,6 +33,7 @@ export function LivingCirclePanel({
   loading,
   error,
   selectedUserIds,
+  selectedPeople = candidates,
   submitting,
   onAdd,
   onSubmit,
@@ -52,6 +58,7 @@ export function LivingCirclePanel({
   loading: boolean;
   error: string | null;
   selectedUserIds: ReadonlySet<string>;
+  selectedPeople?: readonly OneLocationCircleEligibleConnection[];
   submitting: boolean;
   onAdd: (userId: string) => void;
   onSubmit: () => void;
@@ -67,6 +74,11 @@ export function LivingCirclePanel({
   /** First-member setup keeps the next action ahead of the decorative preview. */
   focusOnAdding?: boolean;
 }) {
+  const [peopleView, setPeopleView] = useState("all");
+  const peopleViewId = useId().replace(/:/g, "");
+  const visiblePeople = peopleView === "selected"
+    ? filterPeopleByQuery(selectedPeople.filter(person => selectedUserIds.has(person.userId)), searchQuery, connectPersonName)
+    : candidates;
   const [overCircle, setOverCircle] = useState(false);
   const [overRemoveZone, setOverRemoveZone] = useState(false);
   const [draggingMemberId, setDraggingMemberId] = useState<string | null>(null);
@@ -102,7 +114,7 @@ export function LivingCirclePanel({
         size="profile"
         className="!size-12"
         photoUrl={owner.photoUrl}
-        label={owner.displayName}
+        label={connectPersonName(owner)}
         verified={Boolean(owner.isRia)}
       />
     </span>
@@ -112,8 +124,36 @@ export function LivingCirclePanel({
     </span>
   );
 
+  if (focusOnAdding) return (
+    <section data-testid="connect-circle-add-picker" className="contents" aria-label={`Add people to ${circleName}`}>
+      <TaskSurfaceToolbar>
+        <SheetSearch value={searchQuery} onValueChange={onSearchChange} label="Search connections to add" placeholder="Name, email or phone" />
+        <SegmentedTabs className={sheetPartStyles.tabs} value={peopleView} onValueChange={setPeopleView} ariaLabel="People views" variant="subordinate"
+          tabSetId={peopleViewId} options={[{ value: "all", label: "All connections" }, { value: "selected", label: `Selected (${selectedUserIds.size})` }]} />
+      </TaskSurfaceToolbar>
+      <TaskSurfaceBody role="tabpanel" id={`top-shell-${peopleViewId}-panel-${peopleView}`} aria-labelledby={`top-shell-${peopleViewId}-tab-${peopleView}`}>
+        {error ? <div className="flex items-center justify-between gap-3 py-3" role="status"><p className="text-sm text-muted-foreground">{error}</p><Button type="button" variant="ghost" size="compact" onClick={onRetry}>Retry</Button></div> : null}
+        {loading && !candidates.length && peopleView === "all" ? <p className="py-4 text-sm text-muted-foreground">Loading connections…</p>
+          : remainingCapacity <= 0 ? <p className="py-4 text-sm text-muted-foreground">This circle is full.</p>
+          : visiblePeople.length ? visiblePeople.map(person => <SheetPersonRow key={person.userId}
+            avatar={<ConnectionPersonAvatar size="compact" className="!size-9" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} />}
+            name={connectPersonName(person)} detail={connectPersonSelectionDetail(person)} checked={selectedUserIds.has(person.userId)}
+            onCheckedChange={() => onAdd(person.userId)}
+            disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)}
+            label={`Add ${connectPersonName(person)} to ${circleName}`} />)
+          : !error ? <p className="py-4 text-sm text-muted-foreground">{peopleView === "selected" ? "No people selected." : searchQuery.trim() ? "No matching connections." : "No connections available to add."}</p> : null}
+        {peopleView === "all" && hasMore && !loading && !error && remainingCapacity > 0 ? <Button type="button" variant="ghost" size="compact" className="my-3 w-full" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? "Loading…" : "Load more connections"}</Button> : null}
+      </TaskSurfaceBody>
+      <TaskSurfaceFooter>
+        <SheetCount>{selectedUserIds.size} selected</SheetCount>
+        <Button type="button" size="compact" onClick={onSubmit} disabled={submitting || Boolean(error) || !selectedUserIds.size || selectedUserIds.size > selectionLimit}>{submitting ? "Adding people…" : "Add people"}</Button>
+      </TaskSurfaceFooter>
+    </section>
+  );
+
   return (
     <section
+      data-profile-type-scale="circles"
       data-testid="connect-living-circle-detail"
       aria-label={`${circleName} members`}
       className="overflow-hidden rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-5 sm:px-6 sm:py-6"
@@ -140,7 +180,7 @@ export function LivingCirclePanel({
         <PeopleOrbit
           people={orbitMembers.map((member) => ({
             id: member.userId,
-            name: member.displayName,
+            name: connectPersonName(member),
             photoUrl: member.photoUrl,
             verified: Boolean(member.isRia),
             publicPersonRef: member.publicPersonRef,
@@ -152,8 +192,8 @@ export function LivingCirclePanel({
               <Link
                 data-testid="circle-owner-profile"
                 className="cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
-                title={owner.displayName}
-                aria-label={`Open ${owner.displayName}'s profile`}
+                title={connectPersonName(owner)}
+                aria-label={`Open ${connectPersonName(owner)}'s profile`}
                 href={profileHref(owner.publicPersonRef)}
               >
                 {ownerAvatar}
@@ -182,7 +222,7 @@ export function LivingCirclePanel({
           }
         />
       </div>
-      <p aria-live="polite" className="ui-text-row-description mt-1 text-center text-[color:var(--app-secondary-label)]">
+      <p data-profile-role="description" aria-live="polite" className="ui-text-row-description mt-1 text-center text-[color:var(--app-secondary-label)]">
         {overCircle
           ? "Release to select this person"
           : overRemoveZone
@@ -194,7 +234,7 @@ export function LivingCirclePanel({
                 : `${memberCount} people in this circle`}
       </p>
       {memberCount === 1 && emptySlots > 0 ? (
-        <p className="mt-1 text-center text-xs text-[color:var(--app-secondary-label)]">
+        <p data-profile-role="description" className="mt-1 text-center text-xs text-[color:var(--app-secondary-label)]">
           Room for the people you choose.
         </p>
       ) : null}
@@ -245,8 +285,8 @@ export function LivingCirclePanel({
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <h2 className="ui-text-card-title text-[color:var(--app-primary-label)]">Bring in your connections</h2>
-                  <p className="ui-text-row-description mt-1 text-[color:var(--app-secondary-label)]">
-                    Select people, then add them together. You can also drag someone into the circle to select them.
+                  <p data-profile-role="description" className="ui-text-row-description mt-1 text-[color:var(--app-secondary-label)]">
+                    Select people, then add them together.
                   </p>
                 </div>
                 {remainingCapacity > 0 && (availableCount > 6 || expanded) ? (
@@ -277,36 +317,40 @@ export function LivingCirclePanel({
               ) : null}
               {error ? (
                 <div className="mt-4 flex items-center gap-3" role="status">
-                  <p className="ui-text-row-description text-[color:var(--app-secondary-label)]">{error}</p>
+                  <p data-profile-role="description" className="ui-text-row-description text-[color:var(--app-secondary-label)]">{error}</p>
                   <Button type="button" variant="outline" size="compact" onClick={onRetry}>Retry</Button>
                 </div>
               ) : null}
               {loading && !candidates.length ? (
-                <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">Loading connections…</p>
+                <p data-profile-role="description" className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">Loading connections…</p>
               ) : error && !candidates.length ? null
               : remainingCapacity <= 0 ? (
-                <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">This circle is full.</p>
+                <p data-profile-role="description" className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">This circle is full.</p>
               ) : shownCandidates.length ? (
                 <div className="mt-4 grid grid-cols-1 gap-2 min-[430px]:grid-cols-2">
-                  {shownCandidates.map((person) => (
+                  {shownCandidates.map((person, index) => (
                     <div
                       key={person.userId}
-                      draggable={!submitting && (selectedUserIds.has(person.userId) || selectedUserIds.size < selectionLimit)}
+                      draggable={!focusOnAdding && !submitting && (selectedUserIds.has(person.userId) || selectedUserIds.size < selectionLimit)}
                       onDragStart={(event) => {
                         event.dataTransfer.setData(DRAG_TYPE, person.userId);
                         event.dataTransfer.effectAllowed = "copy";
                       }}
-                      className="flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-2.5 py-2 shadow-[0_2px_12px_-10px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow] duration-200 hover:border-[color:var(--app-accent)] sm:cursor-grab sm:active:cursor-grabbing"
+                      className="flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-2.5 py-2 shadow-[0_2px_12px_-10px_rgba(15,23,42,0.28)] transition-[border-color,box-shadow] duration-200 hover:border-[color:var(--app-accent)] "
                     >
-                      <ConnectionPersonAvatar size="compact" photoUrl={person.photoUrl} label={person.displayName} verified={person.isRia} />
-                      <span className="ui-text-row-description min-w-0 flex-1 truncate text-[color:var(--app-primary-label)]" title={person.displayName}>{person.displayName}</span>
+                      <ConnectionPersonAvatar size="compact" photoUrl={person.photoUrl} label={connectPersonName(person)} verified={person.isRia} />
+                      <span className="min-w-0 flex-1">
+                        <span data-profile-role="name" className="block truncate text-[color:var(--app-primary-label)]" title={connectPersonName(person)}>{connectPersonName(person)}</span>
+                        <span id={`${peopleViewId}-${index}-detail`} className="block text-xs text-[color:var(--app-secondary-label)]">{connectPersonSelectionDetail(person)}</span>
+                      </span>
                       <button
                         type="button"
                         className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full px-2 text-sm font-semibold text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-50"
                         onClick={() => onAdd(person.userId)}
                         disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)}
                         aria-pressed={selectedUserIds.has(person.userId)}
-                        aria-label={`Add ${person.displayName} to ${circleName}`}
+                        aria-label={`Add ${connectPersonName(person)} to ${circleName}`}
+                        aria-describedby={`${peopleViewId}-${index}-detail`}
                       >
                         {selectedUserIds.has(person.userId) ? <Check aria-hidden="true" className="size-4" /> : <Plus aria-hidden="true" className="size-4" />}
                         {selectedUserIds.has(person.userId) ? "Selected" : "Add"}
@@ -315,21 +359,21 @@ export function LivingCirclePanel({
                   ))}
                 </div>
               ) : searchQuery.trim() ? (
-                <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">
+                <p data-profile-role="description" className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">
                   No matching connections.
                 </p>
               ) : (
-                <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">
+                <p data-profile-role="description" className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">
                   No connections available to add. <Link className="font-semibold text-[color:var(--app-accent)] underline-offset-2 hover:underline" href={`${ROUTES.CONNECT}?tab=all`}>Find people</Link>
                 </p>
               )}
               {selectedUserIds.size > 0 || submitting ? (
                 <div className="mt-4 space-y-2">
-                  <p role="status" className="ui-text-row-description text-[color:var(--app-secondary-label)]">
+                  <p data-profile-role="description" role="status" className="ui-text-row-description text-[color:var(--app-secondary-label)]">
                     {submitting ? "Adding selected people…" : `${selectedUserIds.size} selected`}
                   </p>
                   {selectedUserIds.size >= selectionLimit && !submitting ? (
-                    <p className="text-xs text-[color:var(--app-secondary-label)]">You can add up to {selectionLimit} people at a time.</p>
+                    <p data-profile-role="description" className="text-xs text-[color:var(--app-secondary-label)]">You can add up to {selectionLimit} people at a time.</p>
                   ) : null}
                   <Button type="button" className="w-full" onClick={onSubmit} disabled={submitting || Boolean(error) || selectedUserIds.size > selectionLimit}>
                     {submitting ? "Adding people…" : `Add ${selectedUserIds.size} ${selectedUserIds.size === 1 ? "person" : "people"}`}

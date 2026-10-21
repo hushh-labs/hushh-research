@@ -2,11 +2,180 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from hushh_mcp import runtime_settings
+
+
+@pytest.fixture
+def plg_runtime_sync():
+    path = Path(__file__).resolve().parents[2] / "scripts/ops/sync_backend_runtime_secrets.py"
+    spec = importlib.util.spec_from_file_location("plg_runtime_sync", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(
+    ("environment", "candidate", "stored", "expected"),
+    [
+        ("uat", False, {}, (False, False, False, False)),
+        ("production", False, {}, (False, False, False, False)),
+        (
+            "production",
+            True,
+            {
+                "one_plg_export_enabled": True,
+                "one_plg_activity_enabled": "false",
+                "one_plg_activity_all_registered": True,
+                "one_plg_audience_enabled": "true",
+            },
+            (True, False, True, True),
+        ),
+        (
+            "production",
+            False,
+            {"one_plg_export_enabled": "false", "one_plg_activity_enabled": True},
+            (False, True, False, False),
+        ),
+    ],
+)
+def test_plg_flags_survive_actual_config_writer_and_hydration(
+    monkeypatch, plg_runtime_sync, environment, candidate, stored, expected
+):
+    module = plg_runtime_sync
+    project = "hushh-pda" if environment == "production" else "hushh-pda-uat"
+    origin = "https://one.hussh.ai" if environment == "production" else "https://uat.one.hussh.ai"
+    existing = {
+        "environment": environment,
+        "google_cloud_project": project,
+        "unowned_configuration": "must not be retained",
+        "one_plg_export_account_ids": ["synthetic-private-cohort"],
+        **stored,
+    }
+    writes = {}
+    monkeypatch.setattr(module, "_mirror_directory_key", lambda **_: None)
+    monkeypatch.setattr(module, "_resolve_secret", lambda *_: None)
+    monkeypatch.setattr(module, "_sync_oauth_redirects", lambda *_: [])
+    monkeypatch.setattr(
+        module,
+        "_read_secret",
+        lambda _, name: json.dumps(existing) if name == "BACKEND_RUNTIME_CONFIG_JSON" else "",
+    )
+    monkeypatch.setattr(
+        module, "_upsert_secret", lambda _, name, value: writes.update({name: value})
+    )
+
+    def read_existing_config(command, **_kwargs):
+        assert command == [
+            "gcloud",
+            "secrets",
+            "versions",
+            "access",
+            "latest",
+            "--secret",
+            "BACKEND_RUNTIME_CONFIG_JSON",
+            "--project",
+            project,
+        ], "Only the existing configuration read is admitted to this fixture"
+        return subprocess.CompletedProcess(command, 0, json.dumps(existing), "")
+
+    monkeypatch.setattr(module, "_run", read_existing_config)
+    arguments = {
+        "project": project,
+        "environment": environment,
+        "app-frontend-origin": origin,
+        "db-host": "synthetic",
+        "db-port": "5432",
+        "db-name": "synthetic",
+        "consent-sse-enabled": "false",
+        "sync-remote-enabled": "false",
+        "developer-api-enabled": "false",
+        "remote-mcp-enabled": "false",
+        "cors-allowed-origins": origin,
+        "obs-data-stale-ratio-threshold": "0.35",
+    }
+    target = "BACKEND_RUNTIME_CONFIG_JSON"
+    if candidate:
+        target = "BACKEND_RUNTIME_CONFIG_JSON_DRIVE_17_1"
+        arguments["production-drive-candidate-secret"] = target
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(module.__file__)]
+        + [item for key, value in arguments.items() for item in ("--" + key, value)],
+    )
+    assert module.main() == 0
+    actual = json.loads(writes[target])
+    keys = (
+        "one_plg_export_enabled",
+        "one_plg_activity_enabled",
+        "one_plg_activity_all_registered",
+        "one_plg_audience_enabled",
+    )
+    assert tuple(actual[key] for key in keys) == expected
+    assert all(isinstance(actual[key], bool) for key in keys)
+    assert "unowned_configuration" not in actual
+    assert "one_plg_export_account_ids" not in actual
+    if candidate:
+        assert "BACKEND_RUNTIME_CONFIG_JSON" not in writes
+    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
+    for key in keys:
+        monkeypatch.delenv(key.upper(), raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", writes[target])
+    runtime_settings.hydrate_runtime_environment()
+    assert tuple(os.environ[key.upper()] for key in keys) == tuple(
+        str(value).lower() for value in expected
+    )
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "one_plg_export_enabled",
+        "one_plg_activity_enabled",
+        "one_plg_activity_all_registered",
+        "one_plg_audience_enabled",
+    ],
+)
+@pytest.mark.parametrize("value", [None, 0, 1, [], {}, "yes", "True"])
+def test_plg_activation_rejects_ambiguous_values(plg_runtime_sync, key, value):
+    with pytest.raises(ValueError, match="explicit boolean"):
+        plg_runtime_sync._retained_plg_config(
+            {key: value}, project="hushh-pda", environment="production"
+        )
+
+
+@pytest.mark.parametrize(
+    ("project", "environment", "stored_environment", "stored_project"),
+    [
+        ("hushh-pda-uat", "uat", "production", "hushh-pda"),
+        ("hushh-pda-uat", "production", "production", "hushh-pda"),
+        ("hushh-pda", "production", "uat", "hushh-pda"),
+        ("hushh-pda", "production", "production", "hushh-pda-uat"),
+    ],
+)
+@pytest.mark.parametrize(
+    "key",
+    ["one_plg_activity_enabled", "one_plg_activity_all_registered", "one_plg_audience_enabled"],
+)
+def test_plg_activation_cannot_cross_environment_or_project(
+    plg_runtime_sync, project, environment, stored_environment, stored_project, key
+):
+    with pytest.raises(ValueError, match="production environment and project"):
+        plg_runtime_sync._retained_plg_config(
+            {
+                key: True,
+                "environment": stored_environment,
+                "google_cloud_project": stored_project,
+            },
+            project=project,
+            environment=environment,
+        )
 
 
 def test_referral_scheduler_configuration_survives_sync_and_hydration(monkeypatch):

@@ -390,6 +390,9 @@ final class NativeSupportTests: XCTestCase {
                 draftRevision: update, acknowledgedEditRevision: ack, draft: NativeWorldModelDraft(text: ack == 0 ? "Public example" : "Public corrected example"),
                 canSave: true, busy: false, error: "Public validation example", appearance: update == 1 ? "light" : "dark", accentHex: "#007AFF", foregroundHex: "#111111")
         }
+        let profile = NativeWorldModelDraft(urls: "https://public.example/profile", permitted: true)
+        XCTAssertTrue(profile.valid("world-model-public-profiles"))
+        XCTAssertFalse(NativeWorldModelDraft(text: "Wrong payload").valid("world-model-public-profiles"))
         let model = NativeWorldModelFormModel(state(1, 0)), editor = UITextView()
         model.register(editor); model.edit = { _, _, _ in true }; model.choose = { _ in true }
         editor.text = "Public corrected example"; model.capture(editor, field: "text")
@@ -602,7 +605,9 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(Set(NativeProfileArtwork.ids).count, NativeProfileArtwork.ids.count)
         let originalArtwork: Set<String> = ["gemini", "connector-gmail", "connector-google-drive",
             "connector-calendar", "connector-hubspot", "connector-instagram", "connector-linkedin"]
-        let accentedArtwork: Set<String> = ["payouts", "request-pricing", "my-data", "world-model", "accent",
+        let accentedArtwork: Set<String> = ["account", "payouts", "request-pricing", "my-data", "world-model",
+            "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms", "sign-out",
+            "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "vault-methods", "vault-password", "appearance", "accent", "voice",
             "payout-receipt", "payout-warning", "payout-progress", "payout-review"]
         for id in NativeProfileArtwork.ids {
             let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")
@@ -611,14 +616,23 @@ final class NativeSupportTests: XCTestCase {
             XCTAssertEqual(artwork.base.renderingMode, originalArtwork.contains(id) ? .alwaysOriginal : .alwaysTemplate, id)
             XCTAssertEqual(artwork.accent != nil, accentedArtwork.contains(id), id)
         }
-        XCTAssertEqual(NativeProfileArtwork.resolve("account")?.colorHex, "#2563EB")
-        XCTAssertEqual(NativeProfileArtwork.resolve("vault-methods")?.colorHex, "#10B981")
+        for id in accentedArtwork {
+            XCTAssertNil(NativeProfileArtwork.resolve(id)?.colorHex,
+                "Shared Profile outlines use the same semantic foreground as the web, not capability colors: \(id)")
+        }
+        XCTAssertEqual(NativeProfileArtwork.resolve("style-name")?.colorHex, "#2563EB",
+            "Unrelated capability artwork keeps its authored treatment")
         XCTAssertNotNil(NativeProfileArtwork.resolve("gemini"))
         XCTAssertNil(NativeProfileArtwork.resolve("privacy")?.colorHex, "Semantic foreground stays theme-aware")
         XCTAssertNil(NativeProfileArtwork.resolve("../../private"))
         XCTAssertNil(NativeProfileArtwork.resolve("unknown"))
     }
     func testCoherentDeviceAdmissionAndProfileGeometryPreservePlatformFallbacks() {
+        #if !DEBUG && !HUSHH_NATIVE_SHELL_QUALIFICATION
+        XCTAssertFalse(NativeDrawerQualificationPolicy.coherentShell,
+            "Ordinary distribution must not enable the unqualified custom native shell")
+        XCTAssertFalse(NativeDrawerQualificationPolicy.enabled)
+        #endif
         XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.pad, enabled: true, coherentShell: false))
         XCTAssertFalse(NativeDrawerQualificationPolicy.admits(.phone, enabled: false, coherentShell: false))
         XCTAssertTrue(NativeDrawerQualificationPolicy.admits(.pad, enabled: true, coherentShell: true))

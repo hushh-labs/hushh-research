@@ -87,6 +87,64 @@ forwarded. Owner OAuth state, code and credentials remain memory-only. Preserve
 the original authenticated page, and exercise cold recovery separately rather
 than changing Firebase or vault persistence.
 
+### PWM streaming and reviewed-save acceptance
+
+`scripts/verify-reviewer-pwm.mjs` composes this harness for an explicitly
+authorized UAT research-and-save run. It requires the intended verified email,
+matching reviewer UID, bounded mutations, live incremental progress before a
+terminal result, original Azure citations and a supported owner-linked finding.
+It preserves the existing email preference. It never resets a fixture or
+accepts an ambiguous identity to manufacture a save.
+
+An explicit refresh starts a new proof epoch. Automatic `ensure` resumes retain
+that epoch's acknowledgement and stream receipts; a separate response fence
+rejects delayed status responses from before the resume. An old offered draft
+cannot certify a new run, and usage remains bound to the received draft.
+
+The existing Download Memory action supplies the browser-only preservation
+check. Its armed Blob download is intercepted before disk access; the full
+baseline and post-save `one_memory` stay in that browser. Only one exact bullet,
+its accepted owner-declaration claim and authored timestamps may change.
+A matching newer encrypted snapshot receipt, same-session saved row and fresh
+authenticated/unlocked context provide separate persistence checks. The shared
+reviewer's authorized new claim is retained.
+
+GitHub UAT runs opt in with `run_pwm_acceptance`. They require an operator's
+RSA public key in `pwm_evidence_public_key` (base64 DER SPKI); research results
+are sealed using an ephemeral AES-GCM key wrapped with RSA-OAEP-SHA256 before
+artifact upload. The corresponding private key stays with the operator. Logs
+contain fixed stage/status codes only. This does not export old Memory, keys,
+tokens, private baselines or request bodies, even inside the sealed report.
+`pwm_expected_emails` binds the configured reviewer to the intended owner.
+An observed, verified email mismatch is terminal before research or saving;
+closed boolean diagnostics distinguish it from a missing lookup. An older
+lookup response cannot restore admission after a newer mismatch.
+
+When the human explicitly authorizes their existing account rather than the
+configured reviewer, a local operator may call `runPwmAcceptance` once with an
+in-memory `ownerLogin` capsule. The operator supplies a genuine Firebase custom
+token for the verified existing account and its actual vault passphrase. The
+test intercepts only its exact review-session transport; the Firebase SDK and
+backend still verify the credential and the browser still unwraps the vault.
+This mode is refused in CI and records `operator_authorized_existing_owner`.
+It does not change reviewer configuration, create an account, reset a vault,
+or persist credentials. Use a hidden local credential prompt, never chat,
+command arguments, files or evidence artifacts. Separate processes are required
+for separate owner runs.
+`pwm_owner_confirmed_profile` must come from the human's explicit confirmation
+of their exact GitHub profile. Azure's `candidate_for_review` and `uncertain`
+decisions remain unchanged. Only a supported finding citing that exact profile,
+with a selected candidate and no blocking conflicts, is eligible for the existing
+owner-review Yes action. This confirmation does not extend to other social
+accounts or linked repositories. The sealed report records the separate review
+basis and original model identity; it never claims an independent contact link.
+An opaque salted commitment crosses contexts in process memory only, letting
+the cold export prove exact whole-domain equality; it is never an artifact.
+The save rehearsal invokes the existing product Sign out action, requires
+session-cookie deletion and a fresh anonymous landing document, then explicitly
+signs in and unlocks again before cold readback. Its bridge enables automatic
+login and supplies unlock material only on the trusted top-level login entry,
+so logout cannot silently authenticate the landing page again.
 
 ### Additive Memory preservation proof
 

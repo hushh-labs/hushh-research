@@ -738,6 +738,41 @@ class ActorIdentityService:
                 timestamp = timestamp.replace(tzinfo=timezone.utc)
         return datetime.now(timezone.utc) - timestamp >= _IDENTITY_STALE_AFTER
 
+    @staticmethod
+    async def read_provider_phone_fallbacks(conn, *, candidates: dict[str, str]) -> dict[str, str]:
+        """Read-only Firebase fallback; never replace a present canonical row.
+
+        Call after lifecycle barriers and before identity row locks. The shared
+        claim lock uses the existing writer's exact key/namespace and prevents a
+        stale provider number from being projected during a verified transfer.
+        These candidates must come from current Firebase records, not a client.
+        """
+        if len(candidates) > 50:
+            raise ValueError("identity projection exceeds page bound")
+        valid = {
+            uid: phone
+            for uid, phone in candidates.items()
+            if re.fullmatch(r"\+[1-9][0-9]{6,14}", phone)
+        }
+        if not valid:
+            return {}
+        for phone in sorted(set(valid.values())):
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))",
+                f"actor_identity_phone_claim:{phone}",
+            )
+        bindings = await conn.fetch(
+            "SELECT user_id,phone_number FROM actor_identity_cache "
+            "WHERE phone_verified=TRUE AND phone_number=ANY($1::text[])",
+            sorted(set(valid.values())),
+            timeout=5,
+        )
+        return {
+            uid: phone
+            for uid, phone in valid.items()
+            if not any(row["phone_number"] == phone and row["user_id"] != uid for row in bindings)
+        }
+
     async def get_many(self, user_ids: Iterable[str], *, conn=None) -> dict[str, dict[str, Any]]:
         """Read identities; a caller-owned transaction retains authority until commit."""
         normalized_ids = [str(user_id or "").strip() for user_id in user_ids]
@@ -1834,10 +1869,55 @@ class ActorIdentityService:
             email_verified=getattr(user_record, "email_verified", None),
             phone_verified=True if firebase_phone_number else None,
             source="firebase_auth",
+            # Provider snapshots can arrive after a newer OTP claim. Metadata
+            # refresh may repair an incomplete phone, never replace a committed
+            # verified phone. Replacement has an explicit finalization path.
+            preserve_verified_phone=True,
         )
         if updated is None and require_success:
             raise ActorIdentitySyncUnavailableError()
+        # Preserve the existing qualification refresh when the provider agrees
+        # with the committed phone; a mismatched old snapshot grants nothing.
+        if (
+            firebase_phone_number
+            and updated
+            and updated.get("phone_verified") is True
+            and updated.get("phone_number") == firebase_phone_number
+        ):
+            await self._sync_referral_qualification_best_effort(user_id)
         return updated
+
+    async def finalize_verified_phone_from_firebase(
+        self, user_id: str, expected_phone_number: str
+    ) -> dict[str, Any] | None:
+        """Persist an explicitly completed native link, not an ambient refresh.
+
+        The requested value alone is not proof: Firebase must currently hold
+        that exact verified phone for this authenticated UID. Reuse the normal
+        serialized writer, without phone-token authority to transfer an owner.
+        """
+        phone = str(expected_phone_number or "").strip()
+        if not re.fullmatch(r"\+[1-9][0-9]{6,14}", phone):
+            raise ValueError("The verified phone number is invalid.")
+        record = await self._get_firebase_user_record(user_id, require_success=True)
+        if record is None:
+            raise ActorIdentitySyncUnavailableError()
+        if (
+            str(getattr(record, "uid", "")) != user_id
+            or str(getattr(record, "phone_number", "") or "").strip() != phone
+        ):
+            raise ValueError("The verified phone no longer matches this attempt. Please retry.")
+        identity = await self.claim_verified_phone(
+            user_id=user_id, phone_number=phone, source="firebase_auth"
+        )
+        if (
+            identity is None
+            or identity.get("user_id") != user_id
+            or identity.get("phone_verified") is not True
+            or identity.get("phone_number") != phone
+        ):
+            raise ActorIdentitySyncUnavailableError()
+        return identity
 
     @staticmethod
     def validate_display_name(display_name: str) -> str:

@@ -354,6 +354,19 @@ def governed_dispatch(
     policy = json.loads(
         (Path(__file__).resolve().parents[2] / "config/ci-governance.json").read_text()
     )
+    if (
+        environment == "production"
+        and trusted_origin(run, repository, workflow or LANES[environment]["workflow"])
+        and run.get("event") == "workflow_dispatch"
+        and (run.get("actor") or {}).get("login") == "github-actions[bot]"
+    ):
+        from release_cadence import UnsafeRelease
+        from release_cadence_github import recorded_authority
+        try:
+            _, lane = recorded_authority(repository, run)
+            return lane == "deploy"
+        except UnsafeRelease:
+            return False
     return (
         trusted_origin(run, repository, workflow or LANES[environment]["workflow"])
         and run.get("event") == "workflow_dispatch"

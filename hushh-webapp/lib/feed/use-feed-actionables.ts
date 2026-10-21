@@ -30,6 +30,8 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
+import { currentConsentInvalidationEpoch } from "@/lib/cache/consent-read-after-write";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import {
   isConsentChangeWorthRefreshing,
   useFeedLiveRefresh,
@@ -205,6 +207,8 @@ export interface FeedActionable {
   onSelect?: () => void;
   chevron?: boolean;
   actions: FeedActionButton[];
+  /** Phone controls for the same actions or their existing full review surface. */
+  phoneActions?: FeedActionButton[];
   sortAt: number;
   /**
    * Real-world instant to render as the row's local time label.
@@ -215,6 +219,8 @@ export interface FeedActionable {
    * `FeedActionableRow` omits the label entirely rather than fabricating one.
    */
   displayTimestamp?: number | null;
+  /** Presentation identity only; source grants and clear operations stay independent. */
+  smsEmergency?: { senderId: string };
   /**
    * High-priority visual treatment. "emergency" rows (an incoming SMS · Save My
    * Soul alert) render with prominent red styling and sort above everything else.
@@ -380,7 +386,7 @@ export function ownerConsentRequestActionable(
     sortAt: number;
   },
 ): FeedActionable {
-  // The reason stands alone on its own line here, so it keeps its capital.
+  // Preserve the authored reason as supporting copy.
   const reason = String(request.reason || "").trim();
   const decisionActions: FeedActionButton[] = request.complete
     ? [
@@ -421,6 +427,7 @@ export function ownerConsentRequestActionable(
       ? reason || "Waiting for your answer"
       : "Still arriving. Open Details to review it.",
     onSelect: handlers.openDetails,
+    phoneActions: [{ key: "review", label: "Review", tone: "primary", run: handlers.openDetails }],
     actions: [
       {
         key: "details",
@@ -482,13 +489,15 @@ export function isIncomingLocationRequestActionable(
  * end-to-end encrypted; only the emergency intent (`shareKind`) is read here.
  */
 export function isActiveSmsEmergencyGrant(grant: OneLocationGrant): boolean {
+  // Location projects expiry using server time. A handset clock must never
+  // remove a live emergency's map link or make it eligible for Clear.
   return grant.status === "active" && grant.shareKind === "sos";
 }
 
 /**
- * Any SOS grant a contact ever sent, live or revoked. Unlike
- * `isActiveSmsEmergencyGrant`, this keeps a revoked/expired SOS in the "Needs
- * you" feed as a historical alert instead of silently dropping it the instant
+ * Any available SOS grant a contact sent, live or revoked. Unlike
+ * `isActiveSmsEmergencyGrant`, this keeps a revoked/expired SOS in Feed
+ * as a historical alert instead of silently dropping it the instant
  * the sender cancels — a safety event must stay visible until the recipient
  * explicitly clears it.
  */
@@ -585,6 +594,12 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     availableVersion: agentFollow.status?.availableRelease?.version ?? null,
     onResolved: notifyFeedActionResolved,
   });
+  const authGeneration = getAuthSessionGeneration();
+  const consentReadLifecycle = {
+    requestScope: `consent:${authGeneration}`,
+    getRequestVersion: () => currentConsentInvalidationEpoch(userId),
+    isRequestCurrent: () => getAuthSessionGeneration() === authGeneration,
+  };
   const checkoutScope = useRef<{ userId: string | null } | null>(null);
   const checkoutRows = useRef<FeedActionable[]>([]);
   useEffect(() => {
@@ -701,6 +716,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
   }, []);
 
   const consentSummaryResource = useStaleResource({
+    ...consentReadLifecycle,
     cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "one:consents")
       : "consent_center_summary_guest",
@@ -712,7 +728,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     // would re-read the same cached page it was trying to move past.
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken) throw new Error("Sign in to review consents");
+      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to review consents");
       return ConsentCenterService.getSummary({
         idToken,
         userId: user.uid,
@@ -726,6 +742,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
 
   const listedPendingCountRef = useRef<number | null>(null);
   const consentListResource = useStaleResource({
+    ...consentReadLifecycle,
     cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
           userId,
@@ -741,7 +758,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken) throw new Error("Sign in to review consents");
+      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to review consents");
       // A new pending count means a request arrived or left: the service's own
       // cached page predates it, so read past it.
       const countChanged =
@@ -764,6 +781,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
   // actionable summary count (which only describes requests needing action).
   const progressPageSize = 100;
   const receivedOverflowResource = useStaleResource({
+    ...consentReadLifecycle,
     cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
           userId,
@@ -779,7 +797,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken) throw new Error("Sign in to view requests");
+      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
       return ConsentCenterService.listEntries({
         idToken,
         userId: user.uid,
@@ -794,6 +812,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
   // B's sent requests are absent from A's received count and list. Fetching
   // this lane independently is necessary even when Needs you is empty.
   const sentProgressResource = useStaleResource({
+    ...consentReadLifecycle,
     cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
           userId,
@@ -809,7 +828,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken) throw new Error("Sign in to view requests");
+      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
       return ConsentCenterService.listEntries({
         idToken,
         userId: user.uid,
@@ -826,6 +845,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
   // access management. Keep the live status through the remaining background
   // search without changing that bucket or displaying unconfirmed file data.
   const activeProgressResource = useStaleResource({
+    ...consentReadLifecycle,
     cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
           userId,
@@ -841,7 +861,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     retainOnInvalidate: true,
     load: async (options) => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken) throw new Error("Sign in to view requests");
+      if (!user?.uid || !idToken || getAuthSessionGeneration() !== authGeneration) throw new Error("Sign in to view requests");
       return ConsentCenterService.listEntries({
         idToken,
         userId: user.uid,
@@ -1421,6 +1441,14 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     Boolean(userId) && (inProgress.length > 0 || sentPayments.length > 0),
   );
 
+  // A visible live SOS earns a faster server status refresh, including expiry
+  // and revocation. Reuse the shared visible-only clock; never infer an ended
+  // emergency from this device's wall clock.
+  useFeedPendingConsentRefresh(
+    useCallback(() => locationRefresh({ force: true }), [locationRefresh]),
+    Boolean(userId) && (receivedGrants ?? []).some(isActiveSmsEmergencyGrant),
+  );
+
   // Revoked/expired SOS cards stay in the feed as a historical alert instead
   // of vanishing the moment the sender cancels — but there is nothing left to
   // act on, so only the Feed page's existing Clear button removes them (no
@@ -1608,7 +1636,12 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
                     payment.requestId,
                   );
                   if (!current()) return;
-                  window.location.assign(checkoutUrl);
+                  if (typeof checkoutUrl === "string") window.location.assign(checkoutUrl);
+                  else {
+                    CacheSyncService.onConsentMutated(userId);
+                    notifyFeedActionResolved();
+                    await Promise.all([refreshDocumentRequests(), sentProgressRefresh({ force: true })]);
+                  }
                 } catch (cause) {
                   if (!current()) return;
                   toast.error(drivePaymentErrorMessage(cause));
@@ -1628,6 +1661,9 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
         title: displayPayment.title,
         description: displayPayment.description,
         href: paymentIsNonActionable ? payment.href : undefined,
+        onSelect: paymentIsNonActionable ? undefined : () => router.push(buildConsentCenterHref("pending", {
+          requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/feed",
+        })),
         chevron: paymentIsNonActionable,
         actions: paymentAction,
         sortAt:
@@ -1929,33 +1965,21 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
       }
     }
 
-    // SMS · Save My Soul emergency alerts — a share a contact started as an
-    // SOS. Rendered as pinned, emergency-styled cards at the very top of the
-    // feed so a safety alert is never buried under routine activity. A
-    // revoked/expired SOS stays as a historical entry ("Revoked") rather than
-    // vanishing the moment the sender cancels; the Feed page's existing Clear
-    // button (via `clearSmsEmergencies` above) is what removes it — no
-    // separate per-row control here.
+    // Keep each incident and its original sent time. Feed groups these by
+    // sender and separates ended alerts from pending tasks.
     const smsEmergencies = (receivedGrants ?? []).filter(
       (grant) =>
         isSmsEmergencyGrant(grant) &&
+        grant.recipientUserId === userId && grant.ownerUserId !== userId &&
         // A live SOS always shows; only an ended one can be cleared.
         (isActiveSmsEmergencyGrant(grant) || !isClearedSmsEmergency(grant)),
     );
     for (const grant of smsEmergencies) {
       const label = grant.ownerDisplayName?.trim() || "A contact";
-      const isRevoked = !isActiveSmsEmergencyGrant(grant);
-      // A revoked/expired SOS sorts and displays by when it stopped
-      // mattering, not when it was triggered — mirrors the
-      // `revokedAt || updatedAt || expiresAt` "stopped" convention in
-      // lib/one-location/activity.ts, extended with a createdAt fallback so
-      // this is never 0/null.
-      const resolvedAt = isRevoked
-        ? toTimestamp(grant.revokedAt) ||
-          toTimestamp(grant.updatedAt) ||
-          toTimestamp(grant.expiresAt) ||
-          toTimestamp(grant.createdAt)
-        : toTimestamp(grant.createdAt);
+      const isLive = isActiveSmsEmergencyGrant(grant);
+      const sentAt = toDisplayTimestamp(grant.createdAt);
+      const status = isLive ? "Active" : grant.status === "revoked" ? "Revoked"
+        : grant.status === "expired" ? "Expired" : "Ended";
       items.push({
         id: `sms-emergency:${grant.id}`,
         icon: EmergencyRowIcon,
@@ -1967,25 +1991,18 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
                 photoUrl: grant.ownerPhotoUrl ?? null,
               }
             : null,
-        // Only a still-live alert gets the pinned "Live" emergency treatment.
-        // A revoked/expired one renders as a plain "Needs you" row (see
-        // feed-page.tsx); the red siren glyph is all that's left as the
-        // "this was an emergency" signal.
-        emphasis: isRevoked ? undefined : "emergency",
-        // "sent an SMS", not "triggered an SOS". SMS is Save my Soul, this
-        // product's own name for the lane, and the rule that recipient-facing
-        // copy never says "SOS" is already enforced for the notification
-        // copy by one-location-sms-revoke-notification.test.ts. This row was
-        // saying both at once: an "SOS" title above an "Emergency SMS" body.
-        title: `${label} sent an SMS`,
-        description: isRevoked
-          ? "Emergency SMS - Revoked"
-          : "Emergency SMS - Sent.",
-        href: buildOneLocationNotificationHref(grant.id),
-        chevron: true,
+        // Only a still-live alert gets the pinned Live treatment. Ended
+        // incidents remain in the sender's recent-alert disclosure.
+        emphasis: isLive ? "emergency" : undefined,
+        smsEmergency: { senderId: grant.ownerUserId },
+        // SMS is the product's Save My Soul lane.
+        title: label,
+        description: `Emergency SMS · ${status}`,
+        href: isLive ? buildOneLocationNotificationHref(grant.id) : null,
+        chevron: isLive,
         actions: [],
-        sortAt: resolvedAt || firstSeenAt(`sms-emergency:${grant.id}`),
-        displayTimestamp: resolvedAt || null,
+        sortAt: sentAt ?? firstSeenAt(`sms-emergency:${grant.id}`),
+        displayTimestamp: sentAt,
       });
     }
 
@@ -2019,6 +2036,11 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
               }
             : null,
         title: label,
+        onSelect: () => router.push(buildOneLocationWorkflowHref({ requestId: request.id })),
+        phoneActions: [{
+          key: "review", label: "Review", tone: "primary",
+          run: () => router.push(buildOneLocationWorkflowHref({ requestId: request.id })),
+        }],
         // Names the amount, and says when it is extra time on a live share.
         description:
           request.message?.trim() || locationAskPromptLine(request, Date.now()),
@@ -2096,6 +2118,11 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
             : null,
         title: label,
         description: `Invited you to join ${circleName}.`,
+        onSelect: () => router.push(buildOneLocationWorkflowHref({ circleInviteId: invite.id })),
+        phoneActions: [{
+          key: "review", label: "Review", tone: "primary",
+          run: () => router.push(buildOneLocationWorkflowHref({ circleInviteId: invite.id })),
+        }],
         actions: [
           {
             key: "decline",
@@ -2150,7 +2177,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
       const reviewHref = buildConsentCenterHref("pending", {
         requestId: request.id,
       });
-      items.push({
+      const connectionRow: FeedActionable = {
         id: `connection:${request.id}`,
         todo: { source: "connections", title: `Review ${label}'s connection request`, href: reviewHref },
         icon: JoinRowIcon,
@@ -2248,7 +2275,16 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
         sortAt: firstSeenAt(`connection:${request.id}`),
         // Still never fabricate a visible time label from it.
         displayTimestamp: null,
-      });
+      };
+      const reportAction = connectionRow.actions.find(action => action.key === "report");
+      if (reportAction) {
+        connectionRow.onSelect = () => router.push(reviewHref);
+        connectionRow.phoneActions = [reportAction, {
+          key: "review", label: "Review", tone: "primary",
+          run: () => router.push(reviewHref),
+        }];
+      }
+      items.push(connectionRow);
     }
 
     // Kai debates remain visible while running and after completion until the
@@ -2416,6 +2452,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     agentUpdateCard,
     currentCheckout,
     refreshDocumentRequests,
+    sentProgressRefresh,
     consentDecision.allow,
     declineConsentRequest,
     declineDocumentRequest,

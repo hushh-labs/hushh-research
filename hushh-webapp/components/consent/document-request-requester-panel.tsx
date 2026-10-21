@@ -355,7 +355,9 @@ export function DocumentRequestRequesterPanel({
     : null;
   const requestedOn = formatRequestedOn(context?.requestedAt);
   const access = accessTerm(status);
-  const prices = priceFacts(price).filter(Boolean);
+  const prices = delivery?.noChargeReason === "existing_access"
+    ? [<Fact key="no-charge" label="Payment" value="No charge" />]
+    : priceFacts(price).filter(Boolean);
   const recovery = delivery?.recovery ?? null;
   const presented = recovery ? presentRequesterRecovery(recovery) : null;
   const sharedWith = googleEmail
@@ -422,6 +424,9 @@ export function DocumentRequestRequesterPanel({
 
       {delivery && bulkShareId ? (
         <>
+          {delivery.noChargeReason === "existing_access" ? (
+            <BodyText>These files were already available to you. No payment was needed.</BodyText>
+          ) : null}
           {delivery.counts ? (
             <RequesterOutcome counts={delivery.counts} issues={delivery.issues} />
           ) : (

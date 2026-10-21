@@ -34,14 +34,15 @@ function RequestPricingForm({ model }: { model: ReturnType<typeof useDocumentReq
 
   return (
     <section aria-label="Request pricing" className="space-y-3">
-      <SettingsGroup title="Google Drive" density="compact">
+      <SettingsGroup title="Google Drive" density="compact" separatorInset={false} contentClassName="divide-y-0">
         <SettingsRow icon={ProfileAccountPriceIcon} iconTone="capability"
+          className="!min-h-0 [&>.grid]:!min-h-0 [&>.grid]:py-1"
           title="Price per request"
           description={loading ? "Loading price…" : saved?.enabled
             ? `${formatDocumentRequestPrice(saved.amountCents)} per request`
             : saved ? "Ask each time" : "Price unavailable"} />
         {saved ? (
-          <form className="space-y-3 px-3 pb-3" onSubmit={(event) => { event.preventDefault(); void save(true); }}>
+          <form className="space-y-2 px-3 pb-2" onSubmit={(event) => { event.preventDefault(); void save(true); }}>
             <div className="space-y-[var(--app-form-field-gap)]">
               <FormLabel as="label" htmlFor={priceId}>Default price (USD)</FormLabel>
               <Input id={priceId} type="text" inputMode="decimal" value={dollars}

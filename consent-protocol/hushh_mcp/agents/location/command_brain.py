@@ -300,8 +300,11 @@ class LocationCommandBrain:
         )
         # ADK permits single_turn nodes inside a workflow; a root LlmAgent is
         # chat-only. This one-node container adds no model/router or tools.
+        from hushh_mcp.hushh_adk.product_activity import product_activity_plugins
+
         runner = Runner(
             app_name=app_name,
+            plugins=product_activity_plugins("agent_location"),
             agent=SequentialAgent(name="location_command_turn", sub_agents=[agent]),
             session_service=sessions,
             auto_create_session=False,

@@ -146,21 +146,27 @@ class DriveTrustedAutoService:
         request_id = await self.sharing.trusted_request_for_job(user_id=user_id, job_id=job_id)
         if request_id is None:
             return None
-        context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
-        require_current = (
-            (
-                lambda: self.sharing.package_preparation_authority(
-                    user_id=user_id, request_id=request_id
-                )
-            )
-            if context.get("agentPackageRequired")
-            else self._authority(user_id, request_id)
-        )
+        require_current = None
         dates_checked = False
 
         async def guarded():
-            nonlocal dates_checked
+            nonlocal dates_checked, require_current
             try:
+                if require_current is None:
+                    # Resolve request state after run_one claims the job so a
+                    # closed request reaches its lease-release error boundary.
+                    context = await self.sharing.request_bulk_context(
+                        user_id=user_id, request_id=request_id
+                    )
+                    require_current = (
+                        (
+                            lambda: self.sharing.package_preparation_authority(
+                                user_id=user_id, request_id=request_id
+                            )
+                        )
+                        if context.get("agentPackageRequired")
+                        else self._authority(user_id, request_id)
+                    )
                 await require_current()
                 if not dates_checked:
                     context = await self.sharing.request_bulk_context(
@@ -284,6 +290,56 @@ class DriveTrustedAutoService:
         share_service = DriveBulkShareService(
             store=self.bulk, require_owner=require_current, wake=self.wake
         )
+        if (
+            context.get("autoshare")
+            and not context.get("agentPackageRequired")
+            and await self.bulk.final_autoshare_access_candidate(
+                user_id=user_id, request_id=request_id
+            )
+        ):
+            # Freeze the final bounded selection before waiting for payment;
+            # otherwise a second batch can never enter the all-existing proof.
+            for _ in range(5):
+                await require_current()
+                positions = await self.bulk.unclaimed_positions(
+                    user_id=user_id, request_id=request_id, limit=25
+                )
+                if not positions:
+                    break
+                await request_bulk.prepare(
+                    user_id=user_id, request_id=request_id, positions=positions
+                )
+            sources = await self.bulk.autoshare_checkout_sources(
+                user_id=user_id, request_id=request_id
+            )
+            if sources["complete"]:
+                from hushh_mcp.services.drive_package_access_preflight import (
+                    DrivePackageAccessPreflight,
+                )
+
+                access = None
+                try:
+                    access = await DrivePackageAccessPreflight(
+                        sharing=self.sharing, bulk=self.bulk
+                    ).inspect(
+                        user_id=user_id,
+                        request_id=request_id,
+                        require_current=require_current,
+                        files=sources["files"],
+                    )
+                except TimeoutError:
+                    pass
+                except DriveReadError as error:
+                    if not error.retryable:
+                        raise
+                # The optional waiver check cannot permanently park the paid
+                # flow on a transient read. Authority still has to be current.
+                await require_current()
+                if access is not None and access.status == "all_existing":
+                    await self.payment.complete_existing_autoshare(
+                        user_id=user_id, request_id=request_id, result=access
+                    )
+                    return 0
         if context.get("agentPackageRequired"):
             payment_state = await self.payment.payment_state(
                 requester_user_id=context["recipientUserId"], request_id=request_id

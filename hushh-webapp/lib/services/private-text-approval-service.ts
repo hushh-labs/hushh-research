@@ -3,7 +3,7 @@ import { z } from "zod";
 import { PRIVATE_TEXT_DISCLOSURE_VERSION } from "@/lib/legal/private-text-disclosure";
 import { ApiError, apiErrorCode, apiJson } from "@/lib/services/api-client";
 
-const ENDPOINT = "/api/one/models/private-text-approval";
+const ENDPOINT = "/api/one/models/private-text-approval?include_policy=true";
 const approvalSchema = z.object({
   provider: z.literal("azure_openai"),
   disclosure_version: z.literal(PRIVATE_TEXT_DISCLOSURE_VERSION),
@@ -11,6 +11,15 @@ const approvalSchema = z.object({
   generation: z.uuid().nullable(),
   accepted_at: z.string().min(1).nullable(),
   revoked_at: z.string().min(1).nullable(),
+  processing_policy: z.object({
+    enabled: z.boolean(),
+    basis: z.enum(["owner_approval", "uat_policy", "disabled"]),
+    version: z.string().min(1).nullable(),
+    generation: z.uuid().nullable(),
+    scope: z.literal("one_text_chat_and_drive_requests"),
+  }).strict().refine(value => !value.enabled || (
+    value.basis !== "disabled" && value.version !== null && value.generation !== null
+  ), "Processing requires current authority").optional(),
 }).strict().refine(
   value => !value.enabled || (value.generation !== null && value.accepted_at !== null && value.revoked_at === null),
   "Approval requires a persisted acknowledgment",

@@ -1,5 +1,13 @@
 {
   "version": 1,
+  "private_drive_text_uat": {
+    "enabled": true,
+    "policy_id": "6f3464f2-5df4-4d23-864d-11f7b164c051",
+    "version": "uat-managed-text-azure-primary-v2",
+    "provider": "azure_openai",
+    "authority_basis": "administrator_rollout",
+    "scope": "one_text_chat_and_drive_requests"
+  },
   "environments": {
     "local": {
       "project": "hushh-pda-uat",

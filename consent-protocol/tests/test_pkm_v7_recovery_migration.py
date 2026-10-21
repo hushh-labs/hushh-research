@@ -1,5 +1,11 @@
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "db/migrations/098_pkm_v7_recovery_foundation.sql"
@@ -205,11 +211,19 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
     assert '"reviewer_byok": {' in workflow
     assert '"advisory": True,' in workflow
     assert "steps.postdeploy-db-gate.outcome != 'failure'" in workflow
-    assert (
-        workflow.count(
-            "steps.verify-uat-1.outcome == 'success' || steps.verify-uat-2.outcome == 'success'"
-        )
-        == 1
+    steps = {
+        step["id"]: step
+        for step in yaml.safe_load(workflow)["jobs"]["deploy"]["steps"]
+        if "id" in step
+    }
+    semantic_success = (
+        "(steps.verify-uat-1.outcome == 'success' || steps.verify-uat-2.outcome == 'success')"
+    )
+    assert steps["verify-reviewer-byok"]["if"] == (
+        "steps.verification-plan.outputs.run_reviewer_byok == 'true' && " + semantic_success
+    )
+    assert steps["verify-pwm-acceptance"]["if"] == (
+        "inputs.run_pwm_acceptance && " + semantic_success
     )
     assert '"upstream_authority_failed"' in workflow
     assert 'semantic_required = db_outcome != "failure"' in workflow
@@ -217,3 +231,57 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
     assert "verify-pkm-runtime-audit" not in workflow
     assert "PKM_RUNTIME_AUDIT_REQUIRED" not in workflow
     assert "pkm_runtime_audit_failed" not in workflow
+
+
+@pytest.mark.parametrize(
+    ("required", "outcome", "blocked"),
+    [
+        ("false", "failure", False),
+        ("true", "success", False),
+        ("true", "failure", True),
+        ("true", "skipped", True),
+    ],
+)
+def test_explicit_pwm_acceptance_blocks_on_failure_and_seals_owner_evidence(
+    required,
+    outcome,
+    blocked,
+):
+    workflow = yaml.safe_load((ROOT.parent / ".github/workflows/deploy-uat.yml").read_text())
+    steps = workflow["jobs"]["deploy"]["steps"]
+    by_id = {step["id"]: step for step in steps if "id" in step}
+    pwm = by_id["verify-pwm-acceptance"]
+    classifier = by_id["classify-uat-release"]
+    assert classifier["env"]["PWM_ACCEPTANCE_REQUIRED"] == "${{ inputs.run_pwm_acceptance }}"
+    assert (
+        classifier["env"]["PWM_ACCEPTANCE_OUTCOME"] == "${{ steps.verify-pwm-acceptance.outcome }}"
+    )
+    # Run the authored classifier fragment: a skipped required check must fail
+    # just as a failed check does, despite the step's continue-on-error setting.
+    fragment = classifier["run"].split("pwm_required =", 1)[1].split("backend_failure =", 1)[0]
+    fragment = "pwm_required =" + fragment
+    result = subprocess.run(  # noqa: S603 - executes only this checkout's authored classifier.
+        [
+            sys.executable,
+            "-c",
+            "import os, json\nblocking = []\n" + fragment + "\nprint(json.dumps(blocking))",
+        ],
+        env={**os.environ, "PWM_ACCEPTANCE_REQUIRED": required, "PWM_ACCEPTANCE_OUTCOME": outcome},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert ("pwm_acceptance_failed" in json.loads(result.stdout)) is blocked
+    assert pwm["env"]["PWM_EVIDENCE_PUBLIC_KEY"] == "${{ inputs.pwm_evidence_public_key }}"
+    assert pwm["env"]["PWM_EXPECTED_EMAILS"] == "${{ inputs.pwm_expected_emails }}"
+    assert pwm["env"]["PWM_OWNER_CONFIRMED_PROFILE"] == "${{ inputs.pwm_owner_confirmed_profile }}"
+    assert pwm["env"]["REVIEWER_ALLOW_SHARED_MUTATIONS"] == "true"
+    assert pwm["run"] == ("node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-pwm.mjs")
+    upload = next(
+        step for step in steps if step.get("name") == "Upload sealed PWM acceptance evidence"
+    )
+    assert upload["if"] == "always() && inputs.run_pwm_acceptance"
+    assert upload["with"]["path"] == "tmp/pwm-acceptance.sealed.json"
+    assert pwm["env"]["PWM_PROOF_OUTPUT"] == "${{ github.workspace }}/" + upload["with"]["path"]
+    triggers = workflow.get("on", workflow.get(True))
+    assert triggers["workflow_dispatch"]["inputs"]["run_pwm_acceptance"]["default"] is False

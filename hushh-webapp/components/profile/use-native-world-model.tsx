@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { toast } from "sonner";
+import { nativeDrawers } from "@/lib/capacitor/native-drawers";
 import type { NativeDrawerChoice, NativeDrawerRow, NativeProfilePage, NativeWorldModelPageId } from "@/lib/capacitor/native-drawers";
 import type { WorldModelForm } from "@/lib/capacitor/native-profile-world-model-scene";
 import { nativePrivacyObservation } from "@/lib/capacitor/session-privacy";
@@ -47,6 +48,15 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
   active: boolean; owner: string; model: PersonalWorldModelModel; onAccount: () => void; onMemory: () => void;
 }) {
   const visit = useMemo(() => new WorldModelVisit(owner, active), [owner, active]);
+  const [publicProfilesSupported, setPublicProfilesSupported] = useState(false);
+  useEffect(() => {
+    let current = true;
+    setPublicProfilesSupported(false);
+    if (active) void nativeDrawers().getCapabilities().then(capability => {
+      if (current) setPublicProfilesSupported(capability.profileWorldModelPublicProfiles === true);
+    }).catch(() => undefined);
+    return () => { current = false; };
+  }, [active]);
   const [stored, setStored] = useState<{ visit: WorldModelVisit; local: Local } | null>(null);
   const local = stored?.visit === visit ? stored.local : initial();
   const searchSuggestions = useMemo(() => active ? (model.offered?.search_suggestions ?? []).map(nativeSearchSuggestions) : [], [active, model.offered]);
@@ -214,7 +224,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
           options: [{ id: on, label: "On", selected: p[key] }, { id: off, label: "Off", selected: !p[key] }] };
       };
       content.push(toggle("enabled", "Research public pages"), toggle("email_enabled", "Email me when it’s ready"));
-      if (p.enabled && model.result?.status !== "pending" && model.result?.status !== "paused" && !model.spent) content.push(action("refresh", "Check for updates", () => { model.refresh(); choosePanel(null); }));
+      if (p.enabled && model.result?.status !== "pending" && model.result?.status !== "paused" && (!model.spent || model.status.kind === "exhausted")) content.push(action("refresh", "Check for updates", () => { model.refresh(); choosePanel(null); }));
     } else content.push(...read("research-loading", "Checking your settings…"));
     if (model.preferenceFailed) content.push(...read("research-error", "Couldn’t save. Try again."));
     page("world-model-research", "Research and email", content);
@@ -222,6 +232,11 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
     const content = [...read("sources-name", `Your name\n${model.user?.displayName?.trim() || "Not added"}`),
       action("sources-edit", "Add public pages", () => openForm({ scene: "world-model-sources", draft: { urls: source.urls, permitted: source.permitted } }),
         { chevron: true, enabled: !sourceReview.busy && !sourceReview.saveStarted })];
+    if (publicProfilesSupported && model.preferences?.research_provider === "azure_openai_web_search" && model.preferences.enabled &&
+      model.canResearchPublicProfiles) {
+      content.push(...read("public-profile-disclosure", "Use these profiles as starting links for GPT-5 mini research. Azure and Bing receive the public links. You review findings before saving."),
+        action("public-profile-research", "Research your profiles", () => openForm({ scene: "world-model-public-profiles", draft: { urls: source.urls, permitted: source.permitted } }), { chevron: true }));
+    }
     if (source.message) content.push(...read("sources-error", source.message));
     if (source.result && source.result.status !== "offered") content.push(...read("sources-result", source.result.status === "unavailable"
       ? "Public pages couldn’t be opened right now. Try again later."
@@ -230,7 +245,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
           : source.result.status === "insufficient_identity" ? "Add a name and verify an email or phone in your account to begin."
             : "Research is not available for this account yet."));
     page("world-model-sources", "Pages you choose", content);
-    if (sourceReview.result?.status === "offered" && sourceReview.visible && !["saved", "skipped"].includes(sourceReview.phase) && local.form?.value.scene !== "world-model-sources") {
+    if (sourceReview.result?.status === "offered" && sourceReview.visible && !["saved", "skipped"].includes(sourceReview.phase) && local.form?.value.scene !== "world-model-sources" && local.form?.value.scene !== "world-model-public-profiles") {
       const report = sourceReview.result.report, content = [...read("review-summary", `${report.name}\n${report.summary}`)];
       if (sourceReview.result.research) content.push(...read("review-identity", sourceReview.result.research.identity.reason),
         ...sourceReview.result.research.gaps.flatMap((gap, i) => read(`review-gap-${i}`, gap)));
@@ -275,14 +290,14 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
     const d = form.value;
     const staleReview = form.review && !currentReviewTarget(form.review, sourceReview.result);
     const canSave = d.scene === "world-model-fact-edit" ? !staleReview && !!d.draft.text.trim() && d.draft.text.trim() !== form.original.trim() :
-      d.scene === "world-model-sources" ? !!model.user?.displayName?.trim() && !!d.draft.urls.trim() && d.draft.permitted :
+      (d.scene === "world-model-sources" || d.scene === "world-model-public-profiles") ? !!model.user?.displayName?.trim() && !!d.draft.urls.trim() && d.draft.permitted :
         !!d.draft.name.trim() && (!!d.draft.email.trim() || !!d.draft.phone.trim()) && (!d.draft.email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.draft.email.trim())) && (!d.draft.phone.trim() || /^\+[1-9]\d{7,14}$/.test(d.draft.phone.trim()));
     const scene: NativeWorldModelFormModel = { id: form.id, owner: session.ownerId, ready: model.ready && active,
       form: d, revision: form.revision, busy: form.busy || source.busy || invitations.busy,
       error: staleReview ? "These source details changed. Cancel and reopen this editor." : form.error || (d.scene === "world-model-sources" ? source.message : d.scene === "world-model-invitation" ? invitations.message : null) || null, canSave,
       change: next => {
         if (next.scene !== d.scene) return;
-        if (next.scene === "world-model-sources") { source.setUrls(next.draft.urls); source.setPermitted(next.draft.permitted); }
+        if (next.scene === "world-model-sources" || next.scene === "world-model-public-profiles") { source.setUrls(next.draft.urls); source.setPermitted(next.draft.permitted); }
         if (next.scene === "world-model-invitation") { invitations.setName(next.draft.name); invitations.setEmail(next.draft.email); invitations.setPhone(next.draft.phone); }
         change(value => !value.form || value.form.id !== form.id ? value : ({ ...value, form: { ...value.form, value: { scene: next.scene, draft: { ...next.draft } } as WorldModelForm, revision: value.form.revision + 1, error: null } }));
       },
@@ -303,13 +318,20 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
             else return false;
             return visit.current();
           }
+          if (value.scene === "world-model-public-profiles") {
+            const m = latest.model;
+            if (!value.draft.permitted || !value.draft.urls.trim() || m.preferences?.research_provider !== "azure_openai_web_search" ||
+                !m.preferences.enabled || !m.canResearchPublicProfiles) return false;
+            m.researchPublicProfiles(value.draft.urls.split("\n").map(url => url.trim()).filter(Boolean));
+            return true;
+          }
           if (value.scene === "world-model-sources") return await latest.source.prepare(value.draft);
           return await latest.invitations.create(value.draft);
         } catch { change(local => ({ ...local, form: local.form ? { ...local.form, error: "Couldn’t save. Try again." } : null })); return false; }
         finally { visit.pending = false; change(local => ({ ...local, form: local.form ? { ...local.form, busy: false } : null })); }
       },
       close: () => change(value => ({ ...value, form: null })),
-      completed: () => { if (form.fact && !form.review) model.closeDetail(); change(value => ({ ...value, form: null })); },
+      completed: () => { if (d.scene === "world-model-public-profiles") choosePanel(null); if (form.fact && !form.review) model.closeDetail(); change(value => ({ ...value, form: null })); },
       fallback: () => { change(value => ({ ...value, form: null })); toast.error("This editor couldn’t open. Please try again."); },
     };
     return <NativeWorldModelForm key={form.id} model={scene} destinationId={destinationId} />;

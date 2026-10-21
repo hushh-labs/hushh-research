@@ -74,6 +74,31 @@ export function ProfilePaneAppearanceIcon(props: ProfilePaneIconProps) {
   );
 }
 
+/** Original Preferences artwork; shared with the retained pane and native assets. */
+export function ProfilePreferenceAppearanceIcon(props: ProfilePaneIconProps) {
+  return <PaneIcon {...props}>
+    <path d="M4 6h8M16 6h4M4 12h3M11 12h9M4 18h10M18 18h2" />
+    <circle cx="14" cy="6" r="2" className="profile-pane-icon-accent-fill" stroke="none" />
+    <circle cx="9" cy="12" r="2" />
+    <circle cx="16" cy="18" r="2" />
+  </PaneIcon>;
+}
+
+export function ProfilePreferenceAccentIcon(props: ProfilePaneIconProps) {
+  return <PaneIcon {...props}>
+    <path d="M12 3s6 6.6 6 11a6 6 0 0 1-12 0c0-4.4 6-11 6-11Z" />
+    <path d="M9 15.2c.5 1.4 1.5 2.1 3 2.2" className="profile-pane-icon-accent" />
+  </PaneIcon>;
+}
+
+export function ProfilePreferenceVoiceIcon(props: ProfilePaneIconProps) {
+  return <PaneIcon {...props}>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" />
+    <path d="M5 8.5A8 8 0 0 0 8.2 17M19 8.5a8 8 0 0 1-3.2 8.5" className="profile-pane-icon-accent" />
+  </PaneIcon>;
+}
+
 export function ProfilePaneSecurityIcon(props: ProfilePaneIconProps) {
   return (
     <PaneIcon {...props}>

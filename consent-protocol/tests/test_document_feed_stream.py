@@ -275,16 +275,19 @@ async def test_v2_ends_with_a_reconnect_hint_at_its_lifetime(owner_queue):
 
 
 @pytest.mark.asyncio
-async def test_general_feed_writes_ring_a_content_free_feed_changed(owner_queue):
+@pytest.mark.parametrize("reason", [None, "history_mutated", "private headline"])
+async def test_general_feed_writes_ring_a_content_free_feed_changed(owner_queue, reason):
     frames = document_feed_event_generator(
         "owner", CONNECTED, version=2, lifetime_seconds=30, timing=FAST
     )
     await _next(frames)
     await _next(frames)
     owner_queue.queue.put_nowait(
-        {"type": "feed_changed", "user_id": "owner", "title": "private headline"}
+        {"type": "feed_changed", "user_id": "owner", "title": "private headline", "reason": reason}
     )
-    assert await _next(frames) == {"event": "feed_changed", "data": "{}"}
+    event = await _next(frames)
+    assert event["event"] == "feed_changed"
+    assert _payload(event) == ({"reason": "history_mutated"} if reason == "history_mutated" else {})
     await frames.aclose()
 
 

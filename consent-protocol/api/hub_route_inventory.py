@@ -88,6 +88,7 @@ POST /api/connectors/google_drive/sharing/requests/{request_id}/revocation/confi
 POST /api/connectors/google_drive/sharing/requests/{request_id}/revocation/prepare
 POST /api/connectors/google_drive/sharing/rules/{rule_id}/revoke
 [CONNECTOR_ADMIN]
+GET /api/connectors/features
 DELETE /api/connectors/google_drive/documents/{document_id}
 GET /api/connectors/google_drive/live/background
 GET /api/connectors/google_drive/picker/native/callback
@@ -104,6 +105,9 @@ POST /api/connectors/registrations
 
 NETWORK_INVENTORY = """
 [NETWORK]
+DELETE /api/one/location/circle-types
+DELETE /api/one/messages/conversations/{conversation_id}
+GET /api/one/people/{person_ref}/relationship
 DELETE /api/one/wallet/card-access/grants/{grant_id}
 GET /api/one/answer-requests/answerable
 GET /api/one/answer-requests/availability

@@ -366,8 +366,48 @@ test.describe("Inline renderer access on the live map", () => {
         return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
       },
     });
-    css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+    const { transform } = await import("lightningcss");
+    css = transform({ filename: "map-fixture.css", code: Buffer.from(stripAppFontFaces(compiler.build([...candidates])) + productFontStyle()), minify: true }).code.toString();
   });
+
+  for (const width of [320, 390, 1440]) {
+    test(`shared profile photos retain one renderer anchor at ${width}px`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 844 });
+      const errors: string[] = [];
+      page.on("pageerror", error => errors.push(error.message));
+      await page.setContent(`<html><head><style>${css}</style></head><body data-avatars="true"><div id="root"></div></body></html>`);
+      await page.addScriptTag({ content: script });
+      const photo = page.getByTestId("one-location-map-person-avatar-photo");
+      const selfPhoto = page.getByTestId("one-location-map-self-avatar-photo");
+      const sdkMarker = page.getByTestId("sdk-person-marker");
+      await expect(photo).toBeVisible();
+      await expect(selfPhoto).toBeVisible();
+      const box = (await sdkMarker.boundingBox())!;
+      const face = (await photo.boundingBox())!;
+      expect(box.width).toBe(44);
+      expect(box.height).toBe(44);
+      expect(face.width).toBe(36);
+      expect(face.height).toBe(36);
+      expect(Math.abs(box.x + box.width / 2 - width * 0.6)).toBeLessThan(1);
+      expect(Math.abs(box.y + box.height - 844 * 0.45)).toBeLessThan(1);
+      expect(Math.abs(face.x + face.width / 2 - (box.x + box.width / 2))).toBeLessThan(1);
+      await expect(sdkMarker.locator("button")).toHaveCount(0);
+      await photo.click();
+      await expect(page.getByTestId("selections")).toHaveText("1");
+      await sdkMarker.focus();
+      await page.keyboard.press("Enter");
+      await expect(page.getByTestId("selections")).toHaveText("2");
+      await page.getByRole("button", { name: "Pan", exact: true }).click();
+      expect((await sdkMarker.boundingBox())!.x + 22).toBeCloseTo(width * 0.75, 0);
+      await page.getByRole("button", { name: "Cluster", exact: true }).click();
+      await expect(photo).toHaveCount(0);
+      await page.getByRole("button", { name: "Expand", exact: true }).click();
+      await expect(photo).toBeVisible();
+      await expect(photo).toHaveAttribute("src", await selfPhoto.getAttribute("src") as string);
+      expect(errors).toEqual([]);
+      await page.screenshot({ path: testInfo.outputPath("shared-profile-markers.png") });
+    });
+  }
 
   for (const width of [320, 390, 1440]) {
     test(`keeps the production inline action compact and accessible at ${width}px`, async ({ page }, testInfo) => {

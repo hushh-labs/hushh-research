@@ -94,43 +94,16 @@ def _new_requests_use_legacy_flow() -> bool:
 
 
 def _new_semantic_model_binding(connection, *, owner_user_id: str) -> dict | None:
-    """Freeze the Azure pilot only for an owner with current durable approval.
+    """Freeze current owner approval or the scoped UAT administrator default."""
 
-    An unapproved owner's new request retains the existing Gemini semantic
-    contract. A failed approval read aborts request creation; it never grants
-    Azure processing or silently treats an unavailable store as a denial.
-    """
-    from hushh_mcp.services.drive_request_package_assessment import (
-        semantic_request_model_binding,
-    )
+    from hushh_mcp.runtime_providers.managed_text import managed_text_binding, managed_text_policy
 
+    if managed_text_policy() is not None:
+        return managed_text_binding()
     provider = os.getenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini").strip().lower()
     if provider == "gemini":
         return None
-    if provider != "azure_openai" or os.getenv("ENVIRONMENT", "").strip().lower() != "uat":
-        raise ValueError("Invalid Documents semantic provider")
-    from hushh_mcp.services.private_text_processing_approval_service import (
-        PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION,
-    )
-
-    row = (
-        connection.execute(
-            text(
-                """SELECT generation FROM one_private_text_processing_approvals
-            WHERE user_id=:user AND enabled IS TRUE
-              AND disclosure_version=:disclosure AND accepted_at IS NOT NULL
-            FOR SHARE"""
-            ),
-            {"user": owner_user_id, "disclosure": PRIVATE_AZURE_TEXT_DISCLOSURE_VERSION},
-        )
-        .mappings()
-        .first()
-    )
-    if row is None:
-        return None
-    return semantic_request_model_binding(
-        provider="azure_openai", approval_generation=str(row["generation"])
-    )
+    raise ValueError("Azure Documents requires the UAT administrator policy")
 
 
 def _period_conflict_view(private) -> dict:
@@ -783,12 +756,14 @@ class DriveSharingStore(DriveDocumentStore):
             if order
             else {}
         )
-        if row["payment_required"] is not True:
+        if row["payment_required"] is not True and (
+            order is None or order["status"] not in {"paid", "refunded"}
+        ):
             return legacy
         return {
             **legacy,
             "payment": requester_payment_view(
-                payment_required=True,
+                payment_required=row["payment_required"] is True,
                 package_disclosure_required=row.get("agent_package") is True,
                 request_status=row["request_status"],
                 request_expires_at=row["request_expires_at"],
@@ -1056,6 +1031,10 @@ class DriveSharingStore(DriveDocumentStore):
                   JOIN drive_owner_search_jobs j ON j.user_id=r.user_id
                     AND j.client_request_id=r.request_id
                   LEFT JOIN drive_request_payment_orders o ON o.request_id=r.request_id
+                  CROSS JOIN LATERAL (SELECT (j.status='completed' AND NOT j.incomplete_search
+                    AND j.matched BETWEEN 1 AND 120 AND (o.request_id IS NULL OR
+                      (o.status IN ('awaiting_payment','checkout_open','expired')
+                        AND o.paid_at IS NULL AND NOT o.reconciliation_required))) AS candidate) free
                   WHERE r.status='pending' AND r.bulk_search_started_at IS NOT NULL
                     AND (:v1_only=FALSE OR (r.v1_live_request=TRUE
                       AND j.v1_statement_search=TRUE))
@@ -1063,14 +1042,16 @@ class DriveSharingStore(DriveDocumentStore):
                       ('trusted_auto_active','background_preparation_required',
                        'owner_price_required','owner_payout_required','payout_unavailable')
                       OR (r.preparation_error_code='payment_not_ready'
-                        AND o.status='paid' AND o.paid_at IS NOT NULL
-                        AND o.reconciliation_required=FALSE))
+                        AND ((o.status='paid' AND o.paid_at IS NOT NULL
+                        AND o.reconciliation_required=FALSE) OR free.candidate)))
                     AND (r.preparation_next_at<=clock_timestamp()
                       OR (o.status='paid' AND o.paid_at IS NOT NULL
                         AND o.reconciliation_required=FALSE))
                     AND r.expires_at>clock_timestamp()
+                    AND r.access_stop_requested_at IS NULL
                     AND j.status IN ('queued','running','completed')
                     AND (NOT r.payment_required OR o.request_id IS NULL
+                      OR free.candidate
                       OR (o.status='paid' AND o.paid_at IS NOT NULL
                         AND o.reconciliation_required=FALSE))
                   ORDER BY CASE WHEN r.payment_required AND o.status='paid'
@@ -1501,6 +1482,8 @@ class DriveSharingStore(DriveDocumentStore):
                 "trustedAuto": private.get("trusted_auto") is True,
                 "autoshare": autoshare_request(private),
                 "semanticSearch": semantic_search_request(private),
+                "discoveryDelivery": private.get("semantic_search_policy_version") == 2
+                and semantic_search_request(private),
                 "semanticModelBinding": private.get("semantic_model_binding"),
                 "reusablePacket": private.get("reusable_packet"),
             }

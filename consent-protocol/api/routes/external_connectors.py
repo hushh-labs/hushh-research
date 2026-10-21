@@ -837,6 +837,16 @@ def _registry_summary(
     )
 
 
+@router.get("/features")
+async def connector_feature_readiness(token_data: dict = Depends(require_vault_owner_token)):
+    """Small admission projection; connector catalog/provider reads stay independent."""
+    return {
+        "features": connector_features(_user_id(token_data)),
+        "driveAgentPackagesEnabled": os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower()
+        == "true",
+    }
+
+
 @router.get("", response_model=ConnectorsResponse)
 async def list_connectors(token_data: dict = Depends(require_vault_owner_token)):
     user_id = _user_id(token_data)

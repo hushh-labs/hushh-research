@@ -58,7 +58,7 @@ vi.mock("@/components/agent/puppy-resource-monitor", () => ({
 }));
 import type { PuppyStatus } from "@/lib/services/puppy-one-service";
 import { useEffect, useState } from "react";
-import { AgentDockPortal, AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
+import { activeAgentDockSeat, AgentDockPortal, AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
 import { AgentBarSurface, RetainedAgentBar } from "@/components/agent/agent-bar-surface";
 import { NativeDockPortProvider, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
 import type { DockEvent } from "@/lib/capacitor/native-dock";
@@ -117,33 +117,67 @@ describe("HermesChatPanel empty state", () => {
     expect(editor).toHaveValue("Unsent synthetic draft");
   });
   it("shares the retained bar with Cloud while keeping each unsent draft isolated", async () => {
+    const conversations: AgentChatConversation[] = ["a", "b"].map(id => ({
+      id, title: id, status: "active", message_count: 0,
+      created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+    }));
     function CloudComposer({ active }: { active: boolean }) {
       const [draft, setDraft] = useState("");
-      return <AgentDockPortal enabled={active} visible><AgentBarSurface embedded><textarea aria-label="Message One" value={draft} onChange={event => setDraft(event.target.value)} /></AgentBarSurface></AgentDockPortal>;
+      return <AgentDockPortal enabled active={active} visible><AgentBarSurface embedded><textarea aria-label="Message One" value={draft} onChange={event => setDraft(event.target.value)} /></AgentBarSurface></AgentDockPortal>;
     }
-    function Shell({ puppy }: { puppy: boolean }) {
+    function Shell({ puppy, conversation = "a" }: { puppy: boolean; conversation?: string }) {
       return <AgentDockProvider>
         <AgentDockVoiceBoundary><RetainedAgentBar><AgentBarSurface><button>Talk to One</button></AgentBarSurface></RetainedAgentBar></AgentDockVoiceBoundary>
-        <div hidden={!puppy}><HermesChatPanel active={puppy} sharedDock /></div>
+        <div hidden={!puppy}><PuppyOneSurface active={puppy} sharedDock conversations={conversations} activeConversationId={conversation} /></div>
         <div hidden={puppy}><CloudComposer active={!puppy} /></div>
       </AgentDockProvider>;
     }
     mocks.fetchPuppyStatus.mockResolvedValue(CONNECTED);
     mocks.link.current = null;
     const view = render(<Shell puppy={false} />);
-    const seat = view.container.querySelector("[data-agent-dock-composer]");
-    fireEvent.change(screen.getByRole("textbox", { name: "Message One" }), { target: { value: "Cloud-only draft" } });
+    const seat = view.container.querySelector<HTMLDivElement>("[data-agent-dock-composer]")!;
+    const cloud = screen.getByRole("textbox", { name: "Message One" }) as HTMLTextAreaElement;
+    fireEvent.change(cloud, { target: { value: "Cloud-only draft" } });
+    cloud.setSelectionRange(3, 8);
     view.rerender(<Shell puppy />);
     const puppy = await screen.findByRole("textbox", { name: "Message Puppy One" });
     fireEvent.change(puppy, { target: { value: "Puppy-only draft" } });
+    (puppy as HTMLTextAreaElement).setSelectionRange(2, 7);
     expect(puppy.closest("[data-agent-dock-composer]")).toBe(seat);
+    expect(activeAgentDockSeat(seat)).toBe(puppy.closest("[data-agent-dock-embedded]"));
     expect(screen.queryByRole("textbox", { name: "Message One" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Talk to One" })).toBeNull();
+    expect(cloud.closest("[data-agent-dock-owner]")).toHaveAttribute("hidden");
+    expect(cloud.closest("[data-agent-dock-owner]")).toHaveAttribute("inert");
     view.rerender(<Shell puppy={false} />);
-    expect(screen.getByRole("textbox", { name: "Message One" })).toHaveValue("Cloud-only draft");
+    const returnedCloud = screen.getByRole("textbox", { name: "Message One" }) as HTMLTextAreaElement;
+    expect(returnedCloud).toHaveValue("Cloud-only draft");
+    expect(returnedCloud).toBe(cloud);
+    expect([returnedCloud.selectionStart, returnedCloud.selectionEnd]).toEqual([3, 8]);
+    expect(activeAgentDockSeat(seat)).toBe(cloud.closest("[data-agent-dock-embedded]"));
     expect(screen.queryByRole("textbox", { name: "Message Puppy One" })).toBeNull();
+    expect(puppy.closest("[data-agent-dock-owner]")).toHaveAttribute("hidden");
+    expect(puppy.closest("[data-agent-dock-owner]")).toHaveAttribute("inert");
+    fireEvent.keyDown(puppy, { key: "Enter" });
     view.rerender(<Shell puppy />);
-    expect(screen.getByRole("textbox", { name: "Message Puppy One" })).toHaveValue("Puppy-only draft");
+    const returnedPuppy = screen.getByRole("textbox", { name: "Message Puppy One" }) as HTMLTextAreaElement;
+    expect(returnedPuppy).toHaveValue("Puppy-only draft");
+    expect(returnedPuppy).toBe(puppy);
+    expect([returnedPuppy.selectionStart, returnedPuppy.selectionEnd]).toEqual([2, 7]);
+    expect(activeAgentDockSeat(seat)).toBe(puppy.closest("[data-agent-dock-embedded]"));
+    view.rerender(<Shell puppy conversation="b" />);
+    const otherPuppy = screen.getByRole("textbox", { name: "Message Puppy One" }) as HTMLTextAreaElement;
+    expect(otherPuppy).not.toBe(puppy);
+    fireEvent.change(otherPuppy, { target: { value: "Second Puppy draft" } });
+    otherPuppy.setSelectionRange(1, 5);
+    expect(activeAgentDockSeat(seat)).toBe(otherPuppy.closest("[data-agent-dock-embedded]"));
+    view.rerender(<Shell puppy />);
+    expect(screen.getByRole("textbox", { name: "Message Puppy One" })).toBe(puppy);
+    expect(puppy).toHaveValue("Puppy-only draft");
+    expect(activeAgentDockSeat(seat)).toBe(puppy.closest("[data-agent-dock-embedded]"));
+    view.rerender(<Shell puppy conversation="b" />);
+    expect(screen.getByRole("textbox", { name: "Message Puppy One" })).toBe(otherPuppy);
+    expect([otherPuppy.selectionStart, otherPuppy.selectionEnd]).toEqual([1, 5]);
     expect(view.container.querySelectorAll("[data-agent-dock-composer]")).toHaveLength(1);
     expect(mocks.runAgent).not.toHaveBeenCalled();
   });

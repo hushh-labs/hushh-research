@@ -22,12 +22,16 @@ const {
   bootstrapStateMock,
   syncOnboardingJourneyMock,
   shouldBypassLocalPhoneMandateMock,
+  searchParamsMock,
+  syncIdentityMock,
 } = vi.hoisted(() => ({
   replace: vi.fn(),
   resolveAfterLoginMock: vi.fn(),
   bootstrapStateMock: vi.fn(),
   syncOnboardingJourneyMock: vi.fn(),
   shouldBypassLocalPhoneMandateMock: vi.fn(),
+  searchParamsMock: vi.fn(),
+  syncIdentityMock: vi.fn(),
 }));
 
 const user = {
@@ -38,7 +42,7 @@ const user = {
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: searchParamsMock,
 }));
 
 vi.mock("@/components/app-ui/hushh-loader", () => ({
@@ -80,7 +84,7 @@ vi.mock("@/lib/firebase/auth-context", () => ({
 }));
 vi.mock("@/lib/services/account-identity-service", () => ({
   AccountIdentityService: {
-    syncCurrentUser: vi.fn().mockResolvedValue({ phone_verified: false }),
+    syncCurrentUser: syncIdentityMock,
     hasVerifiedPhone: (identity: { phone_verified?: boolean } | null) =>
       identity?.phone_verified === true,
   },
@@ -91,9 +95,6 @@ vi.mock("@/lib/services/onboarding-route-cookie", () => ({
 }));
 vi.mock("@/lib/services/post-auth-route-service", () => ({
   PostAuthRouteService: { resolveAfterLogin: resolveAfterLoginMock },
-}));
-vi.mock("@/lib/services/phone-mandate-service", () => ({
-  shouldBypassPhoneMandateForLocalhost: shouldBypassLocalPhoneMandateMock,
 }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
@@ -124,6 +125,8 @@ describe("PhoneMandatePageContent always asks", () => {
     resolveAfterLoginMock.mockResolvedValue("/one/setup");
     bootstrapStateMock.mockResolvedValue({ setupCompleted: false });
     syncOnboardingJourneyMock.mockResolvedValue(undefined);
+    searchParamsMock.mockReturnValue(new URLSearchParams());
+    syncIdentityMock.mockReset().mockResolvedValue({ phone_verified: false });
   });
 
   it("explicitly checks the real phone requirement instead of the route-audit shortcut", async () => {
@@ -181,6 +184,58 @@ describe("PhoneMandatePageContent always asks", () => {
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
     expect(screen.queryByRole("button", { name: "Complete phone verification" })).toBeNull();
     expect(syncOnboardingJourneyMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["/one/location/invite/real_token", "/circle/join?invite=real_token"])("admits invite verification for an established account and returns to %s", async (target) => {
+    shouldBypassLocalPhoneMandateMock.mockReturnValue(false);
+    searchParamsMock.mockReturnValue(new URLSearchParams({ redirect: target }));
+    resolveAfterLoginMock.mockResolvedValue(target);
+    bootstrapStateMock.mockResolvedValue({ setupCompleted: true });
+    render(<PhoneMandatePageContent />);
+    const complete = await screen.findByRole("button", { name: "Complete phone verification" });
+    expect(replace).not.toHaveBeenCalled();
+    // The generic established-account exemption must not eject this explicit
+    // operation before the user can verify. Completion retains the invitation.
+    expect(resolveAfterLoginMock).not.toHaveBeenCalled();
+    syncIdentityMock.mockResolvedValue({ phone_verified: true });
+    fireEvent.click(complete);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(target));
+    expect(resolveAfterLoginMock).toHaveBeenCalledWith(expect.objectContaining({ redirectPath: target, phoneVerified: true }));
+  });
+
+  it("does not repeat verification when the invite recipient is already verified", async () => {
+    const target = "/circle/join?invite=real_token";
+    shouldBypassLocalPhoneMandateMock.mockReturnValue(false);
+    searchParamsMock.mockReturnValue(new URLSearchParams({ redirect: target }));
+    syncIdentityMock.mockResolvedValue({ phone_verified: true });
+    resolveAfterLoginMock.mockResolvedValue(target);
+    render(<PhoneMandatePageContent />);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(target));
+    expect(screen.queryByRole("button", { name: "Complete phone verification" })).toBeNull();
+  });
+
+  it("retains a fresh recipient's invitation through required One setup after verification", async () => {
+    const target = "/circle/join?invite=real_token";
+    shouldBypassLocalPhoneMandateMock.mockReturnValue(false);
+    searchParamsMock.mockReturnValue(new URLSearchParams({ redirect: target }));
+    bootstrapStateMock.mockResolvedValue({ setupCompleted: false });
+    render(<PhoneMandatePageContent />);
+    const complete = await screen.findByRole("button", { name: "Complete phone verification" });
+    syncIdentityMock.mockResolvedValue({ phone_verified: true });
+    fireEvent.click(complete);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/one/setup?return_to=%2Fcircle%2Fjoin%3Finvite%3Dreal_token"));
+  });
+
+  it("retries an unknown invitation identity without redirecting or opening verification", async () => {
+    shouldBypassLocalPhoneMandateMock.mockReturnValue(false);
+    searchParamsMock.mockReturnValue(new URLSearchParams({ redirect: "/circle/join?invite=real_token" }));
+    syncIdentityMock.mockResolvedValueOnce(null);
+    render(<PhoneMandatePageContent />);
+    await screen.findByRole("heading", { name: "Reconnect to continue securely" });
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Complete phone verification" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByRole("button", { name: "Complete phone verification" });
   });
 
   it("keeps failed admission out of the phone form and supports retry", async () => {

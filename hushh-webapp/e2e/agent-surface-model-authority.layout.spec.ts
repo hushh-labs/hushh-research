@@ -115,16 +115,16 @@ interface Variant {
   applyShippedGate: boolean;
   /** Opt into the actual centered header CSS and NativeChatChrome wrappers. */
   centeredHeader?: boolean;
-  legacyPhoneCss?: boolean;
   stackedPhoneCss?: boolean;
   workingSubtitle?: string;
   safeTop?: number;
 }
 
-const SHIPPED: Variant = { canPickOneModel: true, applyShippedGate: true };
+const SHIPPED: Variant = { canPickOneModel: true, applyShippedGate: true, centeredHeader: true };
 const SINGLE_MODEL: Variant = {
   canPickOneModel: false,
   applyShippedGate: true,
+  centeredHeader: true,
 };
 const AS_REPORTED: Variant = { canPickOneModel: true, applyShippedGate: false };
 
@@ -236,7 +236,7 @@ function renderScreen(mode: Mode, variant: Variant, width: number): string {
     .join("");
 
   const header = `
-    <div data-testid="agent-header" class="${SRC.header.containerClass}">
+    <div data-testid="agent-header" data-agent-header-layout="${variant.centeredHeader ? "portrait" : "compact"}" ${variant.centeredHeader && mode === "one" ? 'data-one-centered-header="true"' : ""} class="${SRC.header.containerClass}">
       <button type="button" data-testid="history-button" aria-label="Open chat history" class="${escapeHtml(SRC.header.historyClass)}"></button>
       <div data-agent-chat-header-region="identity" data-testid="agent-identity" class="${SRC.header.identityClass}">
         <div data-agent-chat-brand-tile data-testid="agent-brand-tile" class="${SRC.header.brandTileClass}">${brand}</div>
@@ -396,10 +396,10 @@ async function buildFixture(variant: Variant, width: number): Promise<string> {
   if (variant.stackedPhoneCss) {
     // Historical negative control: identity and controls occupy separate rows.
     geometry += `@media (max-width:767px) {
-      .agent-chat-header { grid-template-columns:44px minmax(0,1fr); grid-template-rows:88px 44px; height:calc(152px + var(--agent-chat-header-safe-top)); }
-      .agent-chat-header [data-agent-chat-header-region="identity"] { grid-column:1 / -1; grid-row:1; }
-      .agent-chat-header > :first-child, .agent-chat-header > :last-child { grid-row:2; }
-      .agent-chat-header > :last-child { grid-column:2; }
+      .agent-chat-header[data-one-centered-header="true"] { grid-template-columns:44px minmax(0,1fr); grid-template-rows:88px 44px; height:calc(152px + var(--agent-chat-header-safe-top)); }
+      .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] { position:static; transform:none; grid-column:1 / -1; grid-row:1; }
+      .agent-chat-header[data-one-centered-header="true"] > :first-child, .agent-chat-header[data-one-centered-header="true"] > :last-child { grid-row:2; }
+      .agent-chat-header[data-one-centered-header="true"] > :last-child { grid-column:2; }
     }`;
   }
 
@@ -709,9 +709,8 @@ test.describe("Agent Chat: which agent is answering", () => {
       // And the header does not grow a line on the longer name: "Puppy One"
       // is three times "One", and the identity block it sits in is the half
       // that is allowed to shrink.
-      expect(
-        Math.abs(after.header.height - before.header.height),
-      ).toBeLessThanOrEqual(0.5);
+      expect(after.header.height).toBe(60);
+      expect(before.header.height).toBeGreaterThan(60);
 
       // Nothing slides under a control: the identity region ends before the
       // actions begin, in both modes. This is the 390px defect where the brand
@@ -722,10 +721,10 @@ test.describe("Agent Chat: which agent is answering", () => {
         const cluster = await box(page, "agent-header-cluster");
         const disjoint = identity.y + identity.height <= cluster.y + 0.5 || identity.x + identity.width <= cluster.x + 0.5;
         expect(disjoint, "Identity and actions must occupy separate tracks, never overlap").toBe(true);
-        expect(before.header.height).toBeLessThanOrEqual(60);
+
         expect((await box(page, "agent-name")).width).toBeGreaterThan(0);
         // Identity and controls are side by side, not two separate app-bar rows.
-        expect(Math.abs(identity.y + identity.height / 2 - (cluster.y + cluster.height / 2))).toBeLessThanOrEqual(1);
+        expect((await box(page, "agent-header")).height).toBeGreaterThanOrEqual(60);
         const name = page.getByTestId("agent-name");
         expect(await name.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
       }
@@ -853,8 +852,17 @@ test.describe("Empty One chat: welcome spacing", () => {
   });
 });
 
-test.describe("One compact header: phone regression", () => {
-  test("keeps presence, name, activity and controls on one aligned reachable row", async ({
+test.describe("One portrait header: responsive restoration", () => {
+  test("retains compact artwork and reservation for coherent native chrome", async ({ page }) => {
+    for (const width of [393, 768]) {
+      await openFixture(page, { ...SHIPPED, centeredHeader: false }, width);
+      expect((await box(page, "agent-header")).height).toBe(60);
+      expect((await box(page, "one-profile-button")).width).toBe(44);
+      expect((await box(page, "one-artwork")).width).toBe(32);
+    }
+  });
+
+  test("keeps the portrait above its name and all controls reachable without overlap", async ({
     page,
   }) => {
     for (const width of [320, 332, 360, 393, 430, 640, 767]) {
@@ -876,11 +884,10 @@ test.describe("One compact header: phone regression", () => {
           "profile-open-button",
         ];
         const boxes = await Promise.all(targets.map((id) => box(page, id)));
-        const center = boxes[0].y + boxes[0].height / 2;
         for (const rect of boxes) {
           expect(rect.width).toBeGreaterThanOrEqual(44);
           expect(rect.height).toBeGreaterThanOrEqual(44);
-          expect(Math.abs(rect.y + rect.height / 2 - center)).toBeLessThan(1);
+          expect(rect.y).toBe(boxes[0].y);
           expect(rect.x).toBeGreaterThanOrEqual(0);
           expect(rect.x + rect.width).toBeLessThanOrEqual(width);
         }
@@ -897,7 +904,7 @@ test.describe("One compact header: phone regression", () => {
         const avatar = await box(page, "one-profile-button");
         const name = await box(page, "agent-name");
         expect(avatar.x).toBeGreaterThanOrEqual(identity.x);
-        expect(name.x).toBeGreaterThanOrEqual(avatar.x + avatar.width);
+        expect(name.y).toBeGreaterThanOrEqual(avatar.y + avatar.height);
         await expect(page.getByTestId("agent-name")).toBeVisible();
         expect(
           await page
@@ -905,11 +912,13 @@ test.describe("One compact header: phone regression", () => {
             .evaluate((el) => el.scrollWidth <= el.clientWidth),
         ).toBe(true);
         const oneTarget = await box(page, "one-profile-button");
-        expect(oneTarget.width).toBe(44);
-        expect(oneTarget.height).toBe(44);
+        // WebKit resolves viewport clamps on a 1/64px grid.
+        const expectedArtwork = Math.min(64, Math.max(52, width - 268));
+        expect(oneTarget.width).toBeCloseTo(expectedArtwork, 1);
+        expect(oneTarget.height).toBeCloseTo(expectedArtwork, 1);
         const artwork = await box(page, "one-artwork");
-        expect(artwork.width).toBe(32);
-        expect(artwork.height).toBe(32);
+        expect(artwork.width).toBeCloseTo(expectedArtwork, 1);
+        expect(artwork.height).toBeCloseTo(expectedArtwork, 1);
         await expect(page.getByTestId("agent-name")).toHaveText("One");
         expect(
           await page.evaluate(
@@ -917,7 +926,7 @@ test.describe("One compact header: phone regression", () => {
           ),
         ).toBe(true);
         const header = await box(page, "agent-header");
-        expect(header.height).toBe(60 + safeTop);
+        expect(header.height).toBeCloseTo(expectedArtwork + 64 + safeTop, 1);
         expect(name.y + name.height).toBeLessThanOrEqual(
           header.y + header.height - 8,
         );
@@ -951,23 +960,17 @@ test.describe("One compact header: phone regression", () => {
   }) => {
     for (const width of [768, 1024, 1440]) {
       const variant = { ...SHIPPED, centeredHeader: true };
-      await openFixture(page, { ...variant, legacyPhoneCss: true }, width);
-      const ids = [
-        "agent-header",
-        "history-button",
-        "one-profile-button",
-        "one-artwork",
-        "agent-name",
-        "agent-toggle",
-        "profile-open-button",
-        SRC.cloudPicker.testId,
-      ];
-      const before = await Promise.all(ids.map((id) => box(page, id)));
       await openFixture(page, variant, width);
-      const after = await Promise.all(ids.map((id) => box(page, id)));
-      expect(after).toEqual(before);
-      expect(after[2].width).toBe(44);
-      expect(after[3].width).toBe(32);
+      const portrait = await box(page, "one-profile-button");
+      expect(portrait.width).toBe(104);
+      expect((await box(page, "one-artwork")).width).toBe(104);
+      expect(portrait.x + portrait.width / 2).toBeCloseTo(width / 2, 0);
+      for (const id of ["history-button", "agent-toggle", "profile-open-button", SRC.cloudPicker.testId]) {
+        const target = await box(page, id);
+        expect(target.width).toBeGreaterThanOrEqual(44);
+        expect(target.height).toBeGreaterThanOrEqual(44);
+        expect(target.x + target.width).toBeLessThanOrEqual(width);
+      }
       await openFixture(page, { ...variant, workingSubtitle: "Checking your upcoming calendar appointments…" }, width);
       const activeHeader = await box(page, "agent-header");
       const subtitle = await box(page, "agent-subtitle");

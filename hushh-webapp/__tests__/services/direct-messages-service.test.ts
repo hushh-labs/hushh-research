@@ -48,6 +48,16 @@ const conversation = {
 };
 
 describe("DirectMessagesService", () => {
+  it("deletes the whole chat through the authenticated service and verifies the acknowledgment", async () => {
+    apiFetch.mockResolvedValueOnce(Response.json({ conversationId: "chat/1", deleted: true, scope: "me" }));
+    await expect(DirectMessagesService.deleteConversation({ idToken: "auth", conversationId: "chat/1" }))
+      .resolves.toEqual({ conversationId: "chat/1", deleted: true, scope: "me" });
+    expect(apiFetch).toHaveBeenCalledWith("/api/one/messages/conversations/chat%2F1", expect.objectContaining({ method: "DELETE", cache: "no-store", headers: expect.objectContaining({ Authorization: "Bearer auth" }) }));
+    for (const result of [{ conversationId: "other", deleted: true, scope: "me" }, { conversationId: "chat/1", deleted: false, scope: "me" }, { conversationId: "chat/1", deleted: true, scope: "everyone" }]) {
+      apiFetch.mockResolvedValueOnce(Response.json(result));
+      await expect(DirectMessagesService.deleteConversation({ idToken: "auth", conversationId: "chat/1" })).rejects.toThrow("could not be verified");
+    }
+  });
   beforeEach(() => {
     apiFetch.mockReset();
     apiFetchStream.mockReset();

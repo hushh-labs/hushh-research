@@ -276,8 +276,17 @@ Native parity for authenticated flows now includes the verified phone mandate af
   stay provider exists. The route fails closed and must not become a native
   functional screen without updating the provider, inventory, and route
   contracts together.
-- Web, iOS, and Android must all produce the same product truth: a signed-in user without
-  `FirebaseAuth.currentUser.phoneNumber` cannot continue past the mandate.
+- Web, iOS, and Android use the verified app-level backend claim, which need
+  not appear on the primary `FirebaseAuth.currentUser.phoneNumber`. Established
+  vault/setup accounts do not repeat signup verification; unknown reads remain
+  retryable. New incomplete accounts still require a verified phone. Explicit
+  OTP completion requires fresh exact-owner persistence proof, including native
+  finalization with the exact requested E.164 phone in the refresh body. The
+  backend checks the current provider UID/phone and persists through the
+  serialized phone writer. Ordinary metadata refreshes cannot replace a saved
+  phone. Ship the updated shared JavaScript with this backend for native
+  replacement; older clients fail exact-number completion safely. A cached
+  phone hint alone cannot complete verification.
 - Android still requires a documented OTP smoke on device or UAT because the repo does not
   currently ship a dedicated Android OTP automation harness.
 

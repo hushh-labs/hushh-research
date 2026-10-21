@@ -4,10 +4,13 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { FeedRow as RealFeedRow } from "@/components/feed/feed-row";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
+import { bumpFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const user = {
@@ -34,13 +37,22 @@ const mocks = vi.hoisted(() => {
           created_at: "2026-01-02T00:00:00.000Z",
         },
       ],
-      next_cursor: null,
+      next_cursor: null as string | null,
       unread_count: 1,
     },
     refresh: vi.fn().mockResolvedValue(undefined),
+    resourceMissing: false,
+    historyLoading: false,
+    historyError: null as string | null,
+    actionablesLoading: false,
+    actionablesError: null as string | null,
+    progressLoading: false,
+    progressError: null as string | null,
     retryActionables: vi.fn().mockResolvedValue(undefined),
+    actionables: [] as FeedActionable[],
     clearSmsEmergencies: vi.fn(),
     markRead: vi.fn().mockResolvedValue(undefined),
+    list: vi.fn(),
     clear: vi.fn().mockResolvedValue(undefined),
     dismiss: vi.fn().mockResolvedValue({ token: "dismissal-token", itemIds: null }),
     restore: vi.fn().mockResolvedValue(true),
@@ -82,9 +94,9 @@ vi.mock("@/hooks/use-auth", () => ({
 
 vi.mock("@/lib/cache/use-stale-resource", () => ({
   useStaleResource: () => ({
-    data: mocks.data,
-    loading: false,
-    error: null,
+    data: mocks.resourceMissing ? null : mocks.data,
+    loading: mocks.historyLoading,
+    error: mocks.historyError,
     refresh: mocks.refresh,
   }),
 }));
@@ -99,10 +111,10 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
   },
 }));
 
-vi.mock("@/lib/services/cache-service", () => ({
-  CACHE_KEYS: { FEED_LIST: (userId: string) => `feed:${userId}` },
-  CACHE_TTL: { MEDIUM: 5 * 60 * 1000 },
-}));
+vi.mock("@/lib/services/cache-service", async (original) => {
+  const actual = await original<typeof import("@/lib/services/cache-service")>();
+  return { ...actual, CACHE_KEYS: { ...actual.CACHE_KEYS, FEED_LIST: (userId: string) => `feed:${userId}` } };
+});
 
 vi.mock("@/lib/services/feed-service", () => ({
   FeedService: {
@@ -110,7 +122,7 @@ vi.mock("@/lib/services/feed-service", () => ({
     clear: mocks.clear,
     dismiss: mocks.dismiss,
     restore: mocks.restore,
-    list: vi.fn(),
+    list: mocks.list,
   },
 }));
 
@@ -132,9 +144,11 @@ vi.mock("@/lib/feed/use-feed-briefing", () => ({
 
 vi.mock("@/lib/feed/use-feed-actionables", () => ({
   useFeedActionables: () => ({
-    actionables: [],
-    loading: false,
-    error: null,
+    actionables: mocks.actionables,
+    loading: mocks.actionablesLoading,
+    error: mocks.actionablesError,
+    progressLoading: mocks.progressLoading,
+    progressError: mocks.progressError,
     retry: mocks.retryActionables,
     hasClearableSmsEmergencies: true,
     clearSmsEmergencies: mocks.clearSmsEmergencies,
@@ -213,6 +227,18 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 }));
 
 import { FeedPage } from "@/components/feed/feed-page";
+import { CacheService } from "@/lib/services/cache-service";
+
+beforeEach(() => {
+  CacheService.getInstance().clear();
+  mocks.resourceMissing = false;
+  mocks.historyLoading = false;
+  mocks.historyError = null;
+  mocks.actionablesLoading = false;
+  mocks.actionablesError = null;
+  mocks.progressLoading = false;
+  mocks.progressError = null;
+});
 import { resolveLocalOnboardingHandler, prepareLocalOnboardingAction } from "@/lib/agent/local-onboarding-actions";
 
 vi.mock("@/lib/services/connections-service", () => ({
@@ -306,10 +332,30 @@ async function renderAfterAutomaticRead() {
 }
 
 describe("Feed history interactions", () => {
+  it("keeps loaded history usable while another lane is still loading", async () => {
+    mocks.actionablesLoading = true;
+    render(<FeedPage />);
+    await screen.findByText("row-5");
+    expect(screen.getByRole("region", { name: "Needs you status" })).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByText("No activity yet")).toBeNull();
+    expect(screen.queryByLabelText("Loading feed")).toBeNull();
+  });
+
+  it("offers recovery for a failed lane while another cold lane is pending", () => {
+    mocks.resourceMissing = true;
+    mocks.historyLoading = true;
+    mocks.actionablesError = "Unavailable";
+    render(<FeedPage />);
+    expect(screen.getByText("Some activity could not load. Other updates are still loading.")).toBeVisible();
+    expect(screen.queryByText("No activity yet")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(mocks.retryActionables).toHaveBeenCalled();
+  });
   beforeEach(() => {
     window.localStorage.clear();
     vi.clearAllMocks();
     mocks.useRealFeedRow = false;
+    mocks.actionables = [];
     mocks.useActionTestRow = false;
     mocks.currentUser = mocks.user;
     mocks.user.getIdToken.mockResolvedValue("firebase-token");
@@ -333,6 +379,170 @@ describe("Feed history interactions", () => {
       next_cursor: null,
       unread_count: 1,
     };
+  });
+
+  describe("automatic history pagination", () => {
+    const observers: Array<{
+      notify: (visible: boolean) => void;
+      disconnect: ReturnType<typeof vi.fn>;
+      options?: IntersectionObserverInit;
+    }> = [];
+
+    beforeEach(() => {
+      observers.length = 0;
+      mocks.list.mockReset();
+      mocks.data.next_cursor = "older-1";
+      vi.stubGlobal("IntersectionObserver", class {
+        disconnect = vi.fn();
+        constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+          observers.push({
+            notify: (visible) => callback([{ isIntersecting: visible } as IntersectionObserverEntry], this as unknown as IntersectionObserver),
+            disconnect: this.disconnect,
+            options,
+          });
+        }
+        observe() {}
+      });
+    });
+
+    afterEach(() => vi.unstubAllGlobals());
+
+    const olderRow = (id: string) => ({ ...mocks.data.items[0], id });
+
+    it("prefetches at the app scroll end once per page and stops at the final cursor", async () => {
+      let resolvePage!: (page: { items: ReturnType<typeof olderRow>[]; next_cursor: string | null; unread_count: number }) => void;
+      mocks.list.mockImplementationOnce(() => new Promise(resolve => { resolvePage = resolve; }));
+      const root = document.createElement("div");
+      root.dataset.appScrollRoot = "true";
+      document.body.append(root);
+      const view = render(<FeedPage />, { container: root });
+      await waitFor(() => expect(observers.length).toBeGreaterThan(0));
+      const first = observers.at(-1)!;
+      expect(first.options?.root).toBe(root);
+      expect(first.options?.rootMargin).toBe("240px 0px");
+      expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+      act(() => first.notify(false));
+      expect(mocks.list).not.toHaveBeenCalled();
+      act(() => { first.notify(true); first.notify(true); });
+      await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
+      expect(mocks.list).toHaveBeenLastCalledWith({ idToken: "firebase-token", cursor: "older-1", limit: 20, isEffectCurrent: expect.any(Function) });
+      await act(async () => resolvePage({ items: [olderRow("4")], next_cursor: "older-2", unread_count: 0 }));
+      await screen.findByText("row-4");
+      await waitFor(() => expect(observers.at(-1)).not.toBe(first));
+      mocks.list.mockResolvedValueOnce({ items: [olderRow("3")], next_cursor: null, unread_count: 0 });
+      const last = observers.at(-1)!;
+      act(() => last.notify(true));
+      await screen.findByText("row-3");
+      expect(mocks.list).toHaveBeenCalledTimes(2);
+      expect(last.disconnect).toHaveBeenCalled();
+      act(() => { first.notify(true); last.notify(true); });
+      expect(mocks.list).toHaveBeenCalledTimes(2);
+      view.unmount();
+      root.remove();
+    });
+
+    it("discards a pending older page after chat history is invalidated", async () => {
+      let resolvePage!: (value: { items: ReturnType<typeof olderRow>[]; next_cursor: string | null; unread_count: number }) => void;
+      mocks.list.mockImplementationOnce(() => new Promise(resolve => { resolvePage = resolve; }));
+      const view = render(<FeedPage />);
+      await waitFor(() => expect(observers.length).toBeGreaterThan(0));
+      act(() => observers.at(-1)!.notify(true));
+      await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
+      act(() => bumpFeedPresentationRevision(mocks.user.uid));
+      await act(async () => resolvePage({ items: [olderRow("4")], next_cursor: null, unread_count: 0 }));
+      expect(screen.queryByText("row-4")).not.toBeInTheDocument();
+      expect(screen.queryByText("Couldn't load more.")).not.toBeInTheDocument();
+      view.unmount();
+    });
+
+    it("continues usable history while an unrelated lane is slow", async () => {
+      mocks.actionablesLoading = true;
+      mocks.list.mockResolvedValueOnce({ items: [olderRow("4")], next_cursor: null, unread_count: 0 });
+      render(<FeedPage />);
+      await waitFor(() => expect(observers.length).toBeGreaterThan(0));
+      act(() => observers.at(-1)!.notify(true));
+      await screen.findByText("row-4");
+      expect(screen.getByRole("region", { name: "Needs you status" })).toHaveAttribute("aria-busy", "true");
+    });
+
+    it("continues from the restored older-page cursor on a same-session return", async () => {
+      mocks.list.mockResolvedValueOnce({ items: [olderRow("4")], next_cursor: "older-2", unread_count: 0 });
+      const root = document.createElement("div");
+      root.dataset.appScrollRoot = "true";
+      document.body.append(root);
+      const first = render(<FeedPage />, { container: root });
+      await waitFor(() => expect(observers.length).toBeGreaterThan(0));
+      act(() => observers.at(-1)!.notify(true));
+      await screen.findByText("row-4");
+      first.unmount();
+      mocks.list.mockClear();
+      mocks.list.mockResolvedValueOnce({ items: [olderRow("3")], next_cursor: null, unread_count: 0 });
+      const priorCount = observers.length;
+      const secondRoot = document.createElement("div");
+      root.append(secondRoot);
+      const second = render(<FeedPage />, { container: secondRoot });
+      await screen.findByText("row-4");
+      await waitFor(() => expect(observers.length).toBeGreaterThan(priorCount));
+      act(() => observers.at(-1)!.notify(true));
+      await screen.findByText("row-3");
+      expect(mocks.list).toHaveBeenCalledExactlyOnceWith({ idToken: "firebase-token", cursor: "older-2", limit: 20, isEffectCurrent: expect.any(Function) });
+      second.unmount();
+      root.remove();
+    });
+
+    it("pauses automatic reads after an error and resumes through explicit Retry", async () => {
+      mocks.list.mockRejectedValueOnce(new Error("offline"));
+      render(<FeedPage />);
+      await waitFor(() => expect(observers.length).toBeGreaterThan(0));
+      const first = observers.at(-1)!;
+      act(() => first.notify(true));
+      const retry = await screen.findByRole("button", { name: "Retry" });
+      act(() => first.notify(true));
+      expect(mocks.list).toHaveBeenCalledTimes(1);
+      mocks.list.mockResolvedValueOnce({ items: [olderRow("4")], next_cursor: null, unread_count: 0 });
+      fireEvent.click(retry);
+      await screen.findByText("row-4");
+      expect(mocks.list).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("pauses if a backend page repeats its cursor instead of looping", async () => {
+      mocks.list.mockResolvedValueOnce({ items: [olderRow("4")], next_cursor: "older-1", unread_count: 0 });
+      render(<FeedPage />);
+      await waitFor(() => expect(observers.length).toBeGreaterThan(0));
+      const first = observers.at(-1)!;
+      act(() => first.notify(true));
+      await screen.findByRole("button", { name: "Retry" });
+      act(() => first.notify(true));
+      expect(mocks.list).toHaveBeenCalledTimes(1);
+    });
+
+    it("retains the manual fallback when IntersectionObserver is unavailable", async () => {
+      vi.stubGlobal("IntersectionObserver", undefined);
+      mocks.list.mockResolvedValueOnce({ items: [olderRow("4")], next_cursor: null, unread_count: 0 });
+      render(<FeedPage />);
+      fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+      await screen.findByText("row-4");
+      expect(mocks.list).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("keeps ended SMS out of Needs you and groups a live sender's earlier incidents in Live", async () => {
+    const sms = (id: string, sender: string, live = false): FeedActionable => ({
+      id, title: sender, person: { displayName: sender, photoUrl: null },
+      description: live ? "Emergency SMS · Active" : "Emergency SMS · Revoked",
+      icon: () => null, iconTone: "capability", actions: [], sortAt: 1,
+      smsEmergency: { senderId: sender }, emphasis: live ? "emergency" : undefined,
+      displayTimestamp: Date.parse("2026-08-12T09:00:00Z"),
+    });
+    mocks.actionables = [sms("a1", "Alex", true), sms("a2", "Alex"), sms("b1", "Blair"), sms("b2", "Blair"), {
+      id: "request", title: "Pending request", description: "Needs a decision", icon: () => null,
+      iconTone: "capability", actions: [], sortAt: 0,
+    }];
+    await renderAfterAutomaticRead();
+    expect(within(screen.getByRole("region", { name: "Live" })).getByText("2 recent SMS alerts · 1 active")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Recent SMS alerts" })).getByText("2 recent SMS alerts · All ended")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Needs you" })).queryByText(/SMS alerts/)).toBeNull();
   });
 
   it("opens Shared with me when the actual incoming location Feed row is tapped", async () => {
@@ -462,7 +672,7 @@ describe("Feed history interactions", () => {
     expect(screen.queryByText("row-5")).toBeNull();
     await waitFor(() => expect(mocks.clear).toHaveBeenCalledWith({
       idToken: "firebase-token",
-      userId: "feed-user",
+      userId: "feed-user", isEffectCurrent: expect.any(Function),
       upToId: "5",
     }));
     await waitFor(() =>
@@ -494,7 +704,7 @@ describe("Feed history interactions", () => {
 
     expect(mocks.clear).toHaveBeenCalledWith({
       idToken: "firebase-token",
-      userId: "feed-user",
+      userId: "feed-user", isEffectCurrent: expect.any(Function),
       upToId: "5",
     });
     expect(mocks.clear.mock.invocationCallOrder[0]).toBeLessThan(
@@ -531,7 +741,7 @@ describe("Feed history interactions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "row-5" }));
     await waitFor(() => expect(mocks.dismiss).toHaveBeenCalledWith({
-      idToken: "firebase-token", userId: "feed-user", itemId: "5",
+      idToken: "firebase-token", userId: "feed-user", isEffectCurrent: expect.any(Function), itemId: "5",
     }));
     expect(screen.getByRole("button", { name: "row-5" })).toBeInTheDocument();
 
@@ -543,7 +753,7 @@ describe("Feed history interactions", () => {
     expect(undo?.action?.onClick).toBeTypeOf("function");
     await act(async () => { undo?.action?.onClick?.(); });
     await waitFor(() => expect(mocks.restore).toHaveBeenCalledWith({
-      idToken: "firebase-token", userId: "feed-user", itemId: "5",
+      idToken: "firebase-token", userId: "feed-user", isEffectCurrent: expect.any(Function), itemId: "5",
       dismissalToken: "dismissal-token",
     }));
     expect(screen.getByRole("button", { name: "row-5" })).toBeInTheDocument();
@@ -609,7 +819,7 @@ describe("Feed history interactions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "row-6" }));
     await waitFor(() => expect(mocks.dismiss).toHaveBeenCalledWith({
-      idToken: "firebase-token", userId: "feed-user", itemId: "6",
+      idToken: "firebase-token", userId: "feed-user", isEffectCurrent: expect.any(Function), itemId: "6",
     }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "row-6" })).toBeNull());
     expect(screen.queryByRole("button", { name: "row-5" })).toBeNull();
@@ -627,7 +837,7 @@ describe("Feed history interactions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "row-6" }));
     await waitFor(() => expect(mocks.dismiss).toHaveBeenCalledWith({
-      idToken: "firebase-token", userId: "feed-user", itemId: "6",
+      idToken: "firebase-token", userId: "feed-user", isEffectCurrent: expect.any(Function), itemId: "6",
     }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "row-6" })).toBeNull());
     expect(screen.queryByRole("button", { name: "row-5" })).toBeNull();

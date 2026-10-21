@@ -105,11 +105,11 @@ describe("agent chat header layout", () => {
     );
   });
 
-  it("keeps the canonical One mark compact without reducing its hit region", () => {
+  it("keeps portrait sizing behind the ordinary One gate and preserves native compact sizing", () => {
     const header = headerBlock();
     expect(header).toContain("<OnePresenceAvatar");
     expect(header).toContain(
-      'className="size-8 shrink-0"',
+      'className="size-[var(--one-header-artwork-size,32px)] shrink-0"',
     );
     // The handler contains an arrow, so the first `>` is not the tag boundary.
     const trigger = header.match(/<ShellActionSurface\b[\s\S]*?<\/ShellActionSurface>/g)
@@ -117,8 +117,9 @@ describe("agent chat header layout", () => {
     expect(trigger).toBeDefined();
     expect(trigger).toContain("<ShellActionSurface");
     expect(trigger).toContain('variant="icon"');
-    expect(trigger?.match(/className="([^"]*)"/)?.[1].split(/\s+/)).toContain("!size-11");
     expect(trigger).toContain("ripple={false}");
+    expect(trigger?.match(/className="([^"]*)"/)?.[1].split(/\s+/)).toContain("!size-[var(--one-header-artwork-size,44px)]");
+    expect(workspace).toContain('data-one-centered-header={!isPuppySurface && !customNativePresentationEnabled() ? "true" : undefined}');
     expect(header).not.toContain("🤫");
   });
 

@@ -47,6 +47,9 @@ def test_snapshot_reads_only_the_owner_rows_under_a_savepoint():
     conn = _conn_returning(
         {
             "google_provider_connections": [{"refresh_token_ciphertext": "c1"}],
+            "google_calendar_additional_accounts": [
+                {"account_id": "calendar-second", "refresh_token_ciphertext": "c2"}
+            ],
             "kai_gmail_connections": [],
             "user_external_connector_connections": [{"connector_id": "google_drive"}],
         }
@@ -59,9 +62,13 @@ def test_snapshot_reads_only_the_owner_rows_under_a_savepoint():
     conn.begin_nested.assert_called_once()
     assert snapshot.collection_failed is False
     assert snapshot.rows["google_connection"] == ({"refresh_token_ciphertext": "c1"},)
+    assert snapshot.rows["calendar_additional"] == (
+        {"account_id": "calendar-second", "refresh_token_ciphertext": "c2"},
+    )
     assert snapshot.rows["external_connector"] == ({"connector_id": "google_drive"},)
     assert all(call.args[1] == {"user_id": "uid_1"} for call in conn.execute.call_args_list)
     assert "c1" not in repr(snapshot)
+    assert "c2" not in repr(snapshot)
 
 
 def test_snapshot_skips_absent_tables_and_never_raises():

@@ -50,7 +50,7 @@ describe("Connect page layout contract", () => {
       "group.items.map((connection) =>",
     );
     const connectionsPagerStart = source.indexOf(
-      "{connectionsHasMore ?",
+      "{(connectionSearch.active ? connectionSearch.hasMore : connectionsHasMore) ?",
       connectionsMapStart,
     );
     expect(connectionsMapStart).toBeGreaterThan(0);
