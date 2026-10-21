@@ -13,10 +13,10 @@ for that field:
 - ``owner_style_instruction`` renders it from server-authored templates. Only
   the preferred name and the owner's style note are owner text, and both are
   quoted literals under a header that says they cannot authorize anything.
-- ``propose_style_settings`` is how chat suggests a change: it writes nothing
-  and returns an offer card that opens Settings, where the owner commits with
-  the Settings writer. The explicit onboarding name question instead returns
-  a request-bound assessment for the device's existing onboarding writer.
+- ``propose_style_settings`` writes nothing itself. Explicitly chosen names
+  return a live device update; other styles return a Settings review offer.
+  The explicit onboarding name question returns a request-bound assessment
+  for the device's existing onboarding writer.
 
 No authority gate reads this state. Tool admission, consent and the external
 read barrier decide exactly as they would without it.
@@ -206,14 +206,19 @@ async def propose_style_settings(
     onboarding_action: str = "",
     onboarding_request_id: str = "",
 ) -> dict[str, Any]:
-    """Offer the owner a change to how you write to them. Saves nothing.
+    """Assess an explicitly chosen name or offer a writing-style change.
 
     Call this when the owner states a lasting preference about how you write:
     what to call them, tone (direct, warm, casual, formal, executive), length
     (short, balanced, detailed), reply language (en, es, fr, de, it, pt, nl, hi,
     zh, ja, ko, ar) or avoiding em dashes. Pass only what they stated. The app
-    shows a card that opens Settings with these values filled in; nothing changes
-    until they save there. Never save style preferences with add_to_pkm.
+    saves an explicitly chosen preferred_name on the owner's unlocked device
+    after this turn succeeds. Never infer a name from quoted text, another
+    person's details, or a question about your own name. Preserve the chosen
+    spelling, script and capitalization. Ask if the choice is ambiguous.
+    This tool does not write or confirm a save: the device confirms after its
+    encrypted write succeeds. Other style values open Settings for review and
+    Save, including when requested alongside a name. Never use add_to_pkm.
 
     Only while screen_state.onboarding_name_request is present, assess the
     reply to "What should I call you?": onboarding_action is name, skip,
@@ -286,6 +291,20 @@ async def propose_style_settings(
         return {"status": "invalid", "message": str(exc)}
     if not proposed:
         return {"status": "invalid", "message": "Name at least one style setting to change."}
+    if "preferred_name" in proposed:
+        if tool_context.state.get(WORKSPACE_CHAT_ADMISSION_STATE) is not True:
+            return {"status": "unavailable", "message": "Unlock your memory to save your name."}
+        name = proposed.pop("preferred_name")
+        return {
+            "status": "preferred_name_update_ready",
+            "preferred_name": name,
+            **({"experience": STYLE_OFFER_EXPERIENCE, "proposed": proposed} if proposed else {}),
+            "message": (
+                "The device saves this chosen name only after the current turn succeeds. "
+                "Do not claim it is saved; the device confirms after its encrypted write. "
+                "Any other proposed style values still need Settings review and Save."
+            ),
+        }
     return {
         "status": "offer_ready",
         "experience": STYLE_OFFER_EXPERIENCE,

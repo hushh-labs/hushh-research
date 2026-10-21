@@ -2171,16 +2171,34 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 check_policy(broken, broken_clock)
 
-    def test_only_the_capacity_workflows_carry_its_dispatch_events(self):
+    def test_only_the_capacity_workflows_emit_its_dispatch_events(self):
         # A deploy workflow sending a tick would re-couple maintenance to releases.
         workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
         allowed = {"capacity-maintenance.yml", "capacity-maintenance-clock.yml"}
+
+        def check_policy(name, text):
+            if name in allowed:
+                return
+            if name == "release-cadence.yml":
+                # The downstream observer may receive the existing broadcast,
+                # but cannot become another clock/tick producer or alter its wait.
+                subscription = "  repository_dispatch:\n    types: [capacity-maintenance-clock]\n"
+                self.assertIn(subscription, text)
+                text = text.replace(subscription, "", 1)
+            self.assertNotIn("capacity-maintenance-tick", text)
+            self.assertNotIn("capacity-maintenance-clock", text)
+
         for path in sorted(workflows.glob("*.y*ml")):
-            text = path.read_text()
-            if path.name not in allowed:
-                with self.subTest(workflow=path.name):
-                    self.assertNotIn("capacity-maintenance-tick", text)
-                    self.assertNotIn("capacity-maintenance-clock", text)
+            with self.subTest(workflow=path.name):
+                check_policy(path.name, path.read_text())
+        observer = (workflows / "release-cadence.yml").read_text()
+        for broken in (observer + "\nrun: gh api dispatches -f event_type=capacity-maintenance-clock\n",
+                       observer + "\nrun: gh api dispatches -f event_type=capacity-maintenance-tick\n",
+                       observer.replace("types: [capacity-maintenance-clock]", "types: [capacity-maintenance-clock, another]")):
+            with self.assertRaises(AssertionError):
+                check_policy("release-cadence.yml", broken)
+        with self.assertRaises(AssertionError):
+            check_policy("deploy-uat.yml", observer)
 
     def test_direct_deployment_capacity_checks_have_bounded_process_groups(self):
         workflow_dir = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"

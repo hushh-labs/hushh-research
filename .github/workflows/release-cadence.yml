@@ -2,6 +2,9 @@ name: UAT Release Cadence
 
 # A downstream observer only: no job or lock is added to Deploy to UAT.
 on:
+  # Reuse the existing hourly clock's runner-free wait; cron is best effort.
+  repository_dispatch:
+    types: [capacity-maintenance-clock]
   schedule:
     # Revisit deferred Apple reviews without holding any runner between checks.
     - cron: '17 * * * *'

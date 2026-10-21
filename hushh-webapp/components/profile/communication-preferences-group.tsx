@@ -120,6 +120,12 @@ export function CommunicationPreferencesGroup({
         title="How One writes to you"
         description="Writing only. Access and permissions stay unchanged."
         testId="style-settings-group"
+        titleAction={
+          <MorphyButton type="button" size="sm" disabled={!dirty || disabled || unavailable} onClick={onSave}
+            className="min-h-11 shrink-0 px-6" data-testid="style-settings-save">
+            {saving ? "Saving" : "Save"}
+          </MorphyButton>
+        }
       >
         <SettingsRow
           icon={PreferredNameRowIcon}
@@ -212,15 +218,11 @@ export function CommunicationPreferencesGroup({
         </div>
       </SettingsGroup>
       <div className="flex min-h-11 items-center justify-between gap-4 px-4" data-testid="style-settings-footer">
-        <p className="min-w-0 text-sm text-muted-foreground" role="status" data-testid="style-settings-status">
+        <p className="min-w-0 flex-1 text-sm text-muted-foreground" role="status" data-testid="style-settings-status">
           {unavailable
             ? "Couldn't load your writing style. Reopen to try again."
             : suggested ? "Suggested in chat. Check it, then save." : dirty ? "Unsaved changes." : "Saved in your vault."}
         </p>
-        <MorphyButton type="button" size="sm" disabled={!dirty || disabled || unavailable} onClick={onSave}
-          className="min-h-11 shrink-0 px-6" data-testid="style-settings-save">
-          {saving ? "Saving" : "Save"}
-        </MorphyButton>
       </div>
     </div>
   );

@@ -26,6 +26,9 @@ import { OnePresenceAvatar, resolveOnePresenceState } from "@/components/agent/o
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
+import { beginChatPreferredNameTurn } from "@/lib/agent/chat-preferred-name-turn";
+import { saveChatPreferredName } from "@/lib/agent/owner-style-settings-writer";
+import { reconcileChatOnboardingNameChoice } from "@/lib/agent/chat-onboarding/chat-onboarding-session";
 import { AgentChatSessionEpoch } from "@/lib/agent/agent-chat-session-epoch";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import {
@@ -6207,6 +6210,22 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           latestVisibleTurnIdRef.current === debugTurnId &&
           conversationIdRef.current === nameConversationId) ?? null
       : null;
+    const preferredNameTurn = !nameTurn && !options.calendarMeeting && options.source === "typed" && vaultKey
+      ? beginChatPreferredNameTurn({
+          isCurrent: () => !streamAbortController.signal.aborted && !turnStopped &&
+            workspaceOwnerIdRef.current === userId && isVaultSessionEpochCurrent(nameEpoch) &&
+            vaultKeyRef.current === vaultKey &&
+            isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token) &&
+            latestVisibleTurnIdRef.current === debugTurnId &&
+            conversationIdRef.current === nameConversationId,
+          save: (name, beforeEffect, mayPublish) => {
+            if (!reconcileChatOnboardingNameChoice(userId, name)) return Promise.resolve(false);
+            return saveChatPreferredName({
+              userId, vaultKey, vaultOwnerToken: token, name, beforeEffect, mayPublish,
+            });
+          },
+        })
+      : null;
     const pkmContextStartedAt = performance.now();
     performance.mark("hushh:agent-chat:pkm-prepare-start");
     const loadConnectorConfigurations = prepareAgentChatConnectorConfigurations({
@@ -6465,6 +6484,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onQueuedInput: (notice) => {
             if (streamAbortController.signal.aborted) return;
             nameTurn?.finish(false);
+            void preferredNameTurn?.finish(false);
             const settled = liveTurnQueueRef.current?.apply(notice);
             if (!settled) return;
             landJoinedPrompts(settled.joined);
@@ -6472,7 +6492,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onToolStart: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
-            if (!nameTurn || toolEvent.raw?.toolName !== "propose_style_settings")
+            if (toolEvent.raw?.toolName !== "propose_style_settings")
               appendDebugEvent(debugTurnId, "tool_start", toolEvent);
             if (isSilentMemoryToolEvent(toolEvent)) return;
             setActiveToolCalls(current => [...current.filter(item => item.id !== toolEvent.callId),
@@ -6495,7 +6515,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     icon: agentActivityIconForTool(toolEvent.raw?.toolName),
                     brand: connectorBrandForTool(toolEvent.raw?.toolName, toolEvent.raw?.provider ?? toolEvent.slots?.provider) } : item));
             }
-            appendDebugEvent(debugTurnId, "tool_waiting", toolEvent);
+            if (toolEvent.raw?.toolName !== "propose_style_settings")
+              appendDebugEvent(debugTurnId, "tool_waiting", toolEvent);
             const silentMemoryTool = isSilentMemoryToolEvent(toolEvent);
             if (!silentMemoryTool) {
               if (toolEvent.requiresConfirmation || toolEvent.trustedActivationRequired || toolEvent.raw.parked === true) {
@@ -6541,7 +6562,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               upsertTurnStreamEvent(agentToolEventToVisibleStreamEvent("result", toolEvent));
               return;
             }
-            appendDebugEvent(debugTurnId, "tool_result", toolEvent);
+            if (toolEvent.raw?.toolName === "propose_style_settings") {
+              preferredNameTurn?.stage(toolEvent.raw.result, toolEvent.callId);
+            } else {
+              appendDebugEvent(debugTurnId, "tool_result", toolEvent);
+            }
             if (isSilentMemoryToolEvent(toolEvent)) return;
             openGmailEmailDraftFromDirective(toolEvent, assistantMessageId);
             const calendarDirective = getCalendarDirectiveFromToolEvent(toolEvent);
@@ -6698,6 +6723,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return;
       }
       nameTurn?.finish(nameTurnCompleted);
+      void preferredNameTurn?.finish(nameTurnCompleted).then((nameSaved) => {
+        if (nameSaved === true) toast.success("Preferred name saved.");
+        else if (nameSaved === false) toast.error("Couldn't save your name. Please try again.");
+      });
       flushAssistantDelta();
       if (streamResult.conversationId) {
         updateConversationId(streamResult.conversationId);
@@ -6757,6 +6786,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setIsStreaming(false);
     } finally {
       nameTurn?.finish(false);
+      void preferredNameTurn?.finish(false);
       releaseForegroundChatPriority();
       // Detached, cancelled or settled above: never leave this turn timing.
       slowNotice.finish("stopped");
