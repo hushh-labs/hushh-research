@@ -802,6 +802,9 @@ their filename/download behavior. Photo reads remain authenticated and lazy;
 failed loads can retry, retired visits cannot project bytes, and blob URLs are
 released on replacement, removal or unmount. A delayed photo retains an existing
 bottom pin when layout grows; a reader who has scrolled up keeps that position.
+Inline photos decode before display and reserve their bounded dimensions before
+paint, including in WebKit. Failed decoding remains retryable; retiring the
+conversation releases pending preview URLs immediately.
 
 Finishing a validated voice recording sends it through the existing send owner
 without a second attachment-approval step. Cancel/background/retired capture

@@ -168,6 +168,14 @@ function toggleReaction(message: DirectMessage, emoji: string): DirectMessage {
   return { ...message, reactions };
 }
 
+async function decodePhoto(url: string) {
+  const image = new Image();
+  image.src = url;
+  await image.decode();
+  if (!image.naturalWidth || !image.naturalHeight) throw new Error("Invalid photo dimensions.");
+  return { url, width: image.naturalWidth, height: image.naturalHeight };
+}
+
 function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, visitRevision }: {
   message: DirectMessage;
   getIdToken: () => Promise<string>;
@@ -175,7 +183,9 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, v
   isCurrentVisit: () => boolean;
   visitRevision: number;
 }) {
-  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<Awaited<ReturnType<typeof decodePhoto>> | null>(null);
+  const mediaUrl = photo?.url ?? null;
+  const pendingPhotoUrl = useRef<string | null>(null);
   const [opening, setOpening] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
   useBackLayer(ROUTES.ONE_MESSAGES, photoOpen ? 3 : 0, () => {
@@ -186,8 +196,21 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, v
   const visitGuard = useRef(isCurrentVisit);
   visitGuard.current = isCurrentVisit;
   const isCurrent = () => active.current && isCurrentVisit();
-  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  useLayoutEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      if (pendingPhotoUrl.current) URL.revokeObjectURL(pendingPhotoUrl.current);
+      pendingPhotoUrl.current = null;
+    };
+  }, []);
   useEffect(() => () => { if (mediaUrl) URL.revokeObjectURL(mediaUrl); }, [mediaUrl]);
+  const photoLoadHandler = useRef(onPhotoLoad);
+  photoLoadHandler.current = onPhotoLoad;
+  useLayoutEffect(() => {
+    // Reserve the decoded dimensions and restore the pinned transcript before paint.
+    if (mediaUrl && active.current && visitGuard.current()) photoLoadHandler.current();
+  }, [mediaUrl]);
   const attachment = message.attachment;
   const photoRef = useRef<HTMLDivElement>(null);
   const [photoVisible, setPhotoVisible] = useState(false);
@@ -220,8 +243,11 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, v
         isEffectCurrent: effectIsCurrent });
       if (!effectIsCurrent()) return;
       url = URL.createObjectURL(blob);
-      setMediaUrl(url);
+      const decoded = await decodePhoto(url);
+      if (!effectIsCurrent()) return;
+      setPhoto(decoded);
     })().catch(() => {
+      if (url) URL.revokeObjectURL(url);
       // Keep the Open control available for an explicit retry.
     }).finally(() => { if (effectIsCurrent()) setOpening(false); });
     return () => { current = false; if (url) URL.revokeObjectURL(url); };
@@ -250,8 +276,18 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, v
       if (attachment.kind !== "photo") {
         await shareFile({ file: new File([blob], attachment.name, { type: attachment.mimeType }), title: attachment.name, isEffectCurrent: isCurrent });
       } else {
-        if (mediaUrl) URL.revokeObjectURL(mediaUrl);
-        setMediaUrl(URL.createObjectURL(blob));
+        const url = URL.createObjectURL(blob);
+        pendingPhotoUrl.current = url;
+        try {
+          const decoded = await decodePhoto(url);
+          if (!isCurrent()) { URL.revokeObjectURL(url); return; }
+          setPhoto(decoded);
+        } catch (error) {
+          URL.revokeObjectURL(url);
+          throw error;
+        } finally {
+          if (pendingPhotoUrl.current === url) pendingPhotoUrl.current = null;
+        }
       }
     } catch (error) {
       if (isCurrent() && !isShareCancellationError(error)) morphyToast.error("This attachment is unavailable. Try again.");
@@ -262,10 +298,12 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, v
       <button type="button" className={styles.photoMessage} disabled={!mediaUrl && opening}
         aria-label={mediaUrl ? "Open photo" : opening ? "Loading photo" : "Load photo"}
         aria-busy={opening} onClick={() => { if (mediaUrl) setPhotoOpen(true); else void open(); }}>
-        {mediaUrl ? (
+        {photo ? (
           // Encrypted attachments use short-lived blob URLs, which the image optimizer cannot serve.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={mediaUrl} alt="Photo" onLoad={() => { if (isCurrent()) onPhotoLoad(); }} />
+          <img src={photo.url} alt="Photo" width={photo.width} height={photo.height}
+            style={{ width: Math.min(photo.width, 320, 260 * photo.width / photo.height), height: "auto", aspectRatio: `${photo.width}/${photo.height}` }}
+            onLoad={() => { if (isCurrent()) onPhotoLoad(); }} />
         ) : opening ? <Loader2 className="h-6 w-6 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <ImageIcon className="h-6 w-6" aria-hidden="true" />}
       </button>
       <Dialog modal open={photoOpen && isCurrent()} onOpenChange={setPhotoOpen}>

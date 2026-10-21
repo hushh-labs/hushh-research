@@ -321,6 +321,13 @@ describe("DirectMessagesPage", () => {
   });
 
   function arrangePhoto() {
+    const decode = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("Image", class {
+      src = "";
+      naturalWidth = 400;
+      naturalHeight = 300;
+      decode = decode;
+    });
     const observers = new Map<Element, IntersectionObserverCallback>();
     vi.stubGlobal("IntersectionObserver", class {
       constructor(private callback: IntersectionObserverCallback) {}
@@ -337,7 +344,7 @@ describe("DirectMessagesPage", () => {
       const target = [...observers.keys()].find(node => node.querySelector('button[aria-label="Load photo"]'))!;
       act(() => observers.get(target)!([{ target, isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
     };
-    return { create, revoke, enterViewport };
+    return { create, revoke, enterViewport, decode };
   }
 
   it("confirms whole-chat deletion and removes it only after acknowledgment", async () => {
@@ -543,10 +550,11 @@ describe("DirectMessagesPage", () => {
     expect(photo.revoke).toHaveBeenCalledWith("blob:fixture-photo");
   });
 
-  it("keeps Open available after an automatic photo failure and retries explicitly", async () => {
+  it.each(["download", "decode"])("keeps Open available after an automatic photo %s failure and retries explicitly", async (failure) => {
     const photo = arrangePhoto();
-    mocks.getAttachment.mockRejectedValueOnce(new Error("Temporary download failure"))
-      .mockResolvedValueOnce(new Blob(["synthetic-photo"], { type: "image/png" }));
+    mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
+    if (failure === "download") mocks.getAttachment.mockRejectedValueOnce(new Error("Temporary download failure"));
+    else photo.decode.mockRejectedValueOnce(new Error("Temporary decode failure"));
     const view = renderConnectionThread();
     await screen.findByRole("button", { name: "Load photo" });
     photo.enterViewport();
@@ -557,6 +565,28 @@ describe("DirectMessagesPage", () => {
     expect(await screen.findByRole("img", { name: "Photo" })).toHaveAttribute("src", "blob:fixture-photo");
     expect(mocks.getAttachment).toHaveBeenCalledTimes(2);
     view.unmount();
+  });
+
+  it.each(["automatic", "retry"])("releases a decoding photo immediately when its conversation unmounts (%s)", async (mode) => {
+    const photo = arrangePhoto();
+    let finish!: () => void;
+    photo.decode.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }));
+    mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
+    if (mode === "retry") mocks.getAttachment.mockRejectedValueOnce(new Error("Temporary download failure"));
+    const view = renderConnectionThread();
+    await screen.findByRole("button", { name: "Load photo" });
+    photo.enterViewport();
+    if (mode === "retry") {
+      const retry = await screen.findByRole("button", { name: "Load photo" });
+      await waitFor(() => expect(retry).toBeEnabled());
+      fireEvent.click(retry);
+    }
+    await waitFor(() => expect(photo.decode).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("img", { name: "Photo" })).not.toBeInTheDocument();
+    view.unmount();
+    expect(photo.revoke).toHaveBeenCalledWith("blob:fixture-photo");
+    await act(async () => finish());
+    expect(screen.queryByRole("img", { name: "Photo" })).not.toBeInTheDocument();
   });
 
   it("discards a pending inline photo when its conversation unmounts", async () => {
