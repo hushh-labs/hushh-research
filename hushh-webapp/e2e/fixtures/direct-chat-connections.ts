@@ -10,3 +10,9 @@ export const ConnectionsService = {
     return { items, page: 1, hasMore: false, totalCount: items.length };
   },
 };
+
+export class PersonProfileService {
+  static async getViewer(personRef: string) {
+    return { personRef, relationship: { status: "connected" }, contactEmail: null, contactPhoneNumber: null };
+  }
+}
