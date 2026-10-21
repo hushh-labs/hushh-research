@@ -310,10 +310,6 @@
   margin: -7px;
 }
 
-.contactProfileLink {
-  justify-self: center;
-}
-
 .threadTitle {
   display: grid;
   gap: 0.0625rem;
@@ -518,6 +514,22 @@ article[data-message-role="user"] .messageContent {
 }
 
 .messageBubble > p { display: block; overflow-wrap: anywhere; }
+.messageBubble > .messageText {
+  display: inline;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.deletedMessageBubble {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.deletedMessageBubble > .deletedMessage {
+  min-width: 0;
+  white-space: nowrap;
+}
 
 article[data-message-role="user"] .messageBubble {
   border-bottom-right-radius: 0.25rem !important;
@@ -533,16 +545,23 @@ article[data-message-role="user"] .messageBubble {
 
 .messageBubbleMeta {
   display: flex;
-  float: none;
+  float: right;
   align-items: center;
   justify-content: flex-end;
   gap: 0.125rem;
   min-height: 0.875rem;
-  margin: 0.25rem 0 -0.125rem;
+  margin: 0 0 -0.125rem 0.5rem;
   color: color-mix(in oklab, currentColor 68%, transparent);
   font-size: 0.6875rem;
   line-height: 1;
   white-space: nowrap;
+  transform: translateY(10px);
+}
+
+.deletedMessageBubble .messageBubbleMeta {
+  float: none;
+  margin: 0;
+  transform: translateY(8px);
 }
 
 .messageBubbleMeta time {
@@ -1733,11 +1752,6 @@ article[data-message-role] .messageActions .messageActionButton { background: ra
 .voiceWaveform svg { display: block; width: 100%; height: 32px; }
 .voiceWaveform span { display: block; font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; }
 .voiceSpeedButton { flex: none; min-width: 44px; min-height: 44px; font-size: 12px; color: var(--chat-accent); }
-.contactInfoDialog { --app-accent: #0071e3; width: min(440px, calc(100vw - 32px)); padding: 16px; border: 1px solid var(--chat-line, var(--border)); border-radius: 18px; box-shadow: none; background: var(--chat-surface, var(--background)); font-family: var(--font-app-body); }
-.contactInfoAvatar { margin-inline: auto; width: 64px; height: 64px; }
-.contactInfoDialog > h3, .contactInfoDialog > p { margin: 0; text-align: center; overflow-wrap: anywhere; }
-.contactInfoDialog > p { color: var(--chat-muted, var(--muted-foreground)); }
-.contactInfoDialog > button { min-height: 44px; }
 .attachmentPreview { display: flex; width: 100%; align-items: center; gap: 8px; padding: 4px 8px; color: var(--foreground); font-size: 12px; }
 .attachmentPreview span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attachmentPreview button { flex: none; min-width: 44px; min-height: 44px; }
@@ -1861,10 +1875,6 @@ article[data-message-role] .messageActions .messageActionButton { background: ra
   box-shadow: none;
 }
 
-.contactDetails { display: grid; gap: 12px; min-width: 0; margin: 0; }
-.contactDetails dt { color: var(--chat-muted, var(--muted-foreground)); font-size: 12px; }
-.contactDetails dd { margin: 0; overflow-wrap: anywhere; }
-.contactDetails a { display: inline-flex; align-items: center; min-height: 44px; color: var(--chat-accent, var(--app-accent)); }
 .photoDraftPreview { position: relative; flex-basis: 100%; width: 100%; max-width: 100%; }
 .photoDraftPreview img { display: block; max-width: min(240px, 100%); max-height: 180px; object-fit: contain; border-radius: 12px; }
 .photoDraftPreview > button { position: absolute; top: 4px; right: 8px; width: 44px; border-radius: 50%; background: var(--chat-surface, var(--background)); }

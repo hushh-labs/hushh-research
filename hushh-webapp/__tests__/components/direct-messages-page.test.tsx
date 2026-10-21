@@ -356,7 +356,7 @@ describe("DirectMessagesPage", () => {
     fireEvent.keyDown(within(group).getByRole("button", { name: "Chat options" }), { key: "Enter" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete chat" }));
     const dialog = screen.getByRole("alertdialog");
-    expect(dialog).toHaveTextContent("The other person keeps their copy");
+    expect(dialog).toHaveTextContent("Deletes this chat for you only.");
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete chat", exact: true }));
     await waitFor(() => expect(mocks.deleteConversation).toHaveBeenCalledTimes(1));
     expect(group).toBeInTheDocument();
@@ -473,9 +473,6 @@ describe("DirectMessagesPage", () => {
     expect(await screen.findByText(visibleMessage.content)).toBeVisible();
     const profileLinks = () => screen.getAllByRole("link", { name: "View Ankit Kumar Singh's profile" });
     expect(profileLinks()).toHaveLength(2);
-    await openContactInfo();
-    expect(within(screen.getByRole("dialog")).getByRole("link", { name: "View Ankit Kumar Singh's profile" }))
-      .toHaveAttribute("href", "/people/person-1?from=%2Fone%2Fmessages");
     for (const link of document.querySelectorAll('a[aria-label="View Ankit Kumar Singh\'s profile"]')) {
       expect(link).toHaveAttribute("href", "/people/person-1?from=%2Fone%2Fmessages");
     }
@@ -645,48 +642,18 @@ describe("DirectMessagesPage", () => {
     expect(mocks.sendMessage.mock.calls[1]![0].attachment).toBe(original.attachment);
   });
 
-  async function openContactInfo() {
-    const options = await screen.findByRole("button", { name: "Conversation options", exact: true });
-    await waitFor(() => expect(options).toBeEnabled());
-    fireEvent.keyDown(options, { key: "Enter" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Contact info", exact: true }));
-  }
-
-  it("opens authorized contact details from the conversation menu and retires them on connection changes", async () => {
-    mocks.getViewerProfile.mockResolvedValue({ personRef: "person-1", relationship: { status: "connected" },
-      contactEmail: "ankit@example.com", contactPhoneNumber: "+15551234567" });
+  it("opens search directly without a conversation menu or contact-details read", async () => {
     renderConnectionThread();
-    const identity = await screen.findByRole("link", { name: "View Ankit Kumar Singh's profile", exact: true });
-    expect(identity).toHaveTextContent("Ankit Kumar Singh");
-    await openContactInfo();
-    expect(await screen.findByRole("link", { name: "ankit@example.com" })).toHaveAttribute("href", "mailto:ankit@example.com");
-    expect(screen.getByRole("link", { name: "+15551234567" })).toHaveAttribute("href", "tel:+15551234567");
-    expect(mocks.getViewerProfile).toHaveBeenCalledWith("person-1", "test-token");
-    mocks.getViewerProfile.mockResolvedValue({ personRef: "person-1", relationship: { status: "none" },
-      contactEmail: "must-not-project@example.com", contactPhoneNumber: "+15551234567" });
-    act(() => window.dispatchEvent(new CustomEvent("hushh:connection-graph-changed", { detail: { userId: "viewer-1", changedAt: Date.now() } })));
-    await waitFor(() => expect(mocks.getViewerProfile).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(within(screen.getByRole("dialog")).queryByText(/Loading contact details/)).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.queryByRole("link", { name: "ankit@example.com" })).not.toBeInTheDocument());
-    expect(screen.queryByRole("link", { name: "must-not-project@example.com" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "+15551234567" })).not.toBeInTheDocument();
-  });
-
-  it("does not request contact details for a read-only thread or project a late result after closing", async () => {
-    let finish!: (value: unknown) => void;
-    mocks.getViewerProfile.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-    const view = renderConnectionThread();
-    await openContactInfo();
-    await waitFor(() => expect(mocks.getViewerProfile).toHaveBeenCalledOnce());
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    await act(async () => finish({ personRef: "person-1", relationship: { status: "connected" }, contactEmail: "late@example.com" }));
-    expect(screen.queryByText("late@example.com")).not.toBeInTheDocument();
-    view.unmount();
-    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [visibleMessage], canSend: false, disconnectedNotice: "Blocked", nextBefore: null });
-    renderConnectionThread();
-    await openContactInfo();
-    expect(await screen.findByRole("dialog")).toHaveTextContent("Blocked");
-    expect(mocks.getViewerProfile).toHaveBeenCalledOnce();
+    const search = await screen.findByRole("button", { name: "Search messages", exact: true });
+    await waitFor(() => expect(search).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "Conversation options" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Contact info" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Search messages", exact: true }));
+    expect(screen.getByRole("searchbox", { name: "Search messages" })).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "Contact info" })).not.toBeInTheDocument();
+    expect(mocks.getViewerProfile).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("link", { name: "View Ankit Kumar Singh's profile" })[0])
+      .toHaveAttribute("href", "/people/person-1?from=%2Fone%2Fmessages");
   });
 
   it("acknowledges received inbox bodies, without treating sender messages or push hints as delivery", async () => {
@@ -981,7 +948,6 @@ describe("DirectMessagesPage", () => {
     renderConnectionThread();
 
     expect(await screen.findByText("Budget review tomorrow")).toBeVisible();
-    await openContactInfo();
     fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
     fireEvent.change(screen.getByRole("searchbox", { name: "Search messages" }), {
       target: { value: "budget" },
@@ -1005,7 +971,6 @@ describe("DirectMessagesPage", () => {
     expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
     expect(document.body).not.toHaveTextContent("synthetic-encrypted-payload");
-    await openContactInfo();
     fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
     fireEvent.change(screen.getByRole("searchbox", { name: "Search messages" }), { target: { value: "synthetic-encrypted-payload" } });
     expect(screen.queryByRole("region", { name: "Shared payment card" })).toBeNull();
