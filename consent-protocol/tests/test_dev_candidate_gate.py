@@ -498,3 +498,15 @@ def test_preview_failure_receipt_never_contains_provider_exception_details(monke
     assert report["failure_stage"] == "serving_revision" and report["http_status"] == 403
     assert "synthetic-private-token" not in receipt.read_text()
     assert "provider.invalid" not in receipt.read_text()
+
+
+def test_dev_secret_sync_retains_its_own_environment_policy():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    sync = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Sync canonical hosted runtime secrets"
+    )
+    assert '--project "${{ env.GCP_PROJECT_ID }}"' in sync["run"]
+    assert "--environment dev" in sync["run"]
+    assert "--environment uat" not in sync["run"]

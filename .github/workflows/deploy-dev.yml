@@ -407,7 +407,7 @@ jobs:
           fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
-            --environment uat \
+            --environment dev \
             --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}" \
             --db-host "cloudsql-socket" \
             --db-port "5432" \

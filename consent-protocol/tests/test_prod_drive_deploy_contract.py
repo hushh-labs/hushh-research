@@ -449,6 +449,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     current_paths = [
         *old_paths,
         "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ops/runtime_config_retention.py",
         "scripts/ops/scope_commerce_runtime_policy.py",
         "scripts/ops/shared_files_runtime_policy.py",
         "scripts/ops/passkey_domain_policy.py",

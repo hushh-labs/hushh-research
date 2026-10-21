@@ -18,6 +18,7 @@ from hushh_mcp.services.agent_chat_service import AgentChatMessage
 
 
 def test_managed_text_runtime_uses_explicit_vertex_contract(monkeypatch):
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "local")
     monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "asia-southeast1")

@@ -47,7 +47,7 @@ retains its disclosed boundary.
 ### Retained Shared deletion
 
 The synthetic account, vault and original library remain fenced after
-`409 FILES_ERASURE_WAITING_FOR_WRITES`. A bounded read-only provider probe confirms 412 / conditionNotMet at If-Match; retained bytes do not match the exact write digest. This is not terminal proof. The write fence remains unchanged; no provider cancellation or SQL transition was repeated.
+`409 FILES_ERASURE_WAITING_FOR_WRITES`. Bounded exact-session status and cancellation observations both return 412 / conditionNotMet at If-Match; retained bytes do not match the expected write digest. Neither is terminal proof. The write fence is unchanged; no object deletion or SQL override occurred.
 No SQL override, direct provider deletion or blind retry is permitted. Its earlier
 32 KiB upload/Move/download/Undo used operator authentication/phone fixtures, not
 ordinary Google/CAPTCHA/SMS onboarding. The old RAM-only passphrase is gone;
@@ -69,84 +69,39 @@ their stated receipt dates. No new application deployment or owner install occur
 
 ### Current local implementation
 
-Fresh main `7dd979013e` is integrated without replacing authored files wholesale. Streamed exports, connector account/vault fencing, SOS recovery, Azure playback and exact provider receipts remain intact. The Profile header keeps main’s smaller painted controls and 44px targets; ten focused Chromium/WebKit cases and UI contracts pass. The earlier combined seams pass 743 backend and 381 frontend checks plus typecheck; native exports retain buffered transport and the corrected four-minute request bound.
+Main through `7dd979013e` and frozen ADK `914e7c044c` are integrated with the
+private-agent work. Streamed exports, dual-principal connector fencing, SOS,
+Azure playback, exact provider receipts and Profile controls are preserved.
+The combined seams pass 743 backend, 381 frontend and ten focused browser cases,
+plus typecheck and UI contracts. Counts overlap earlier core verification.
 
-Hosted [candidate validation](https://github.com/hushh-labs/hushh-research/actions/runs/39642204133)
-found an omitted main reduced-transparency rule, an update-test ordering race and
-a 22-minute Protocol timeout. The rule is restored; both Chromium and WebKit
-light/dark cases pass. The test now awaits its polling effect; 43 focused Settings
-and update cases pass. Azure Browser review uses the canonical owner-cloud check,
-with backend qualification still required. Protocol retains all tests and serial
-database isolation; its measured timeout envelope is now 32 minutes within a
-35-minute job. Exact candidate `58181b7b88` passed 23 hosted jobs, including Protocol, web/native builds, security and the other browser packs. Browser pack three exceeded its thirty-minute limit twice after completed groups passed; final mobile results were interrupted. The next candidate retains every test and worker limit across four browser shards, with native collection proving the partition. Hosted success remains required.
+[Exact-candidate validation](https://github.com/hushh-labs/hushh-research/actions/runs/39670721881)
+exposed four backend failures: stale connector fixtures, a local-profile assumption
+and a missing transitive deployment helper. Their focused repairs pass 124 checks.
+An asynchronous Wallet cleanup assertion now waits for actual revocation; 17
+nearest cases pass. The corrected candidate still requires exact-SHA hosted success.
+Earlier core-mirror failures and targeted replays are retained; no full local suite
+is repeated for these bounded corrections.
 
-The GCP Browser configuration offer now binds an optional approved dev inference
-bridge to the exact runtime identity, discloses its processing project and verifies
-the installed setting. Image-only updates preserve absence. The 101 focused
-configuration, bridge-authority and image-update checks pass; installed access is
-still unverified. The deployment secret synchronizer now preserves only an explicitly configured, environment-pinned dev bridge; 86 nearest configuration/hydration checks pass and the original omission fails its regression. The bridge is not implicitly activated.
+Browser source includes owner-bound ADK execution, durable identifier-only delivery,
+exact review, takeover, cancellation, encrypted continuation and remembered sessions.
+Selected PKM uses only approved encrypted exports; byte-verified attachments remain
+private until Save to Files. Operating details stay in the Browser reference.
+The serial consumer may delay Files work during a bounded Browser task.
+Dev 966/969/970 approval and schema requirements remain deployment gates.
 
-Browser implementation is committed at `80731a80b3`; main through `7dd979013e`
-and frozen ADK `914e7c044c` are preserved in the combined ancestry. This candidate
-remains uninstalled. Exact download ingress now preserves Browser control and Files
-authority, with malformed and neighboring paths refused.
-Browser joins now include durable identifier-only delivery through the existing
-Files queue, asynchronous input review, native ADK handback, encrypted remembered
-sessions and exact owner-approved configuration on Cloud Run and Container Apps.
-No additional queue or worker identity is created; one background consumer is
-serial, and a Browser task may delay queued Files work for up to fifteen minutes.
-GCP replacement reads back the existing queue, worker identity and scoped IAM
-before drain and again before replacement. Dev migration 970 adds Azure Browser
-admission only; isolated SQL tests are not a live migration receipt.
+The dev bridge is explicit, bound to the exact workload identity and verified by
+its configuration operation. Image updates preserve its absence. Secret sync now
+retains only an existing environment-pinned dev policy; 86 nearest checks and the
+original-code negative pass. The approved policy still needs dev publication.
 
-Selected PKM loading now accepts only existing owner-approved V2 exports encrypted
-to the current pod key, with exact grant and source revisions; unavailable exports
-do not fall back to replica reads. Ordinary HTTP attachments up to 4 MiB stay in
-pod memory until explicit **Save to Files**, with decrypted byte verification.
-Stop joins an admitted save; Files completion reuses its consented organization
-outbox and reports queue failure separately from saved bytes. Reconnect never
-refetches a lost attachment or reruns a completed goal. These new joins still need installed owner acceptance.
-
-Local core verification preserves original failures and resumes only affected stages.
-The first parallel manifest passed 22,130 tests; repaired cases and 388 database
-setup cases pass on replay. The serial stage passed 1,587 cases; all 79 affected
-cases pass in a disposable CI-equivalent PostgreSQL instance, then verified removed.
-Counts overlap. Main's changed seams passed 950 plus 342 cases, with every remaining
-failure resolved by targeted replay. The uncached readiness and absent provider
-location paths now retain their typed public contract.
-
-Governance, package validation, PKM integration (191 frontend and 400 backend cases
-across the initial run and repaired path assertion), 495 Back cases, refreshed UI
-receipts, typecheck, lint and production frontend build pass. Bandit reports zero
-medium/high findings. Final typecheck passes all 395 selected source files; the exact-SHA hosted aggregate
-remains required before dispatch. Hosted [run 39606317983](https://github.com/hushh-labs/hushh-research/actions/runs/39606317983)
-passed backend, both native builds, web build, security and governance, then failed
-frontend authority fixtures and browser mounts. Local repairs retain the original
-failures. Main's subsequent messaging union passes 69 focused cases and 12 Chrome/
-WebKit cases, preserving both media behavior and owner isolation. The next exact
-candidate still requires terminal hosted success. Preferred-name integration also
-passes 192 frontend cases and 78 private/style cases. Signed pod chat now admits
-closed writing preferences without granting workspace connector authority; only
-the owner's device confirms an encrypted name save. Counts overlap other suites.
-The subsequent authority/Mail merge passes 248 affected frontend cases after
-fixture repair, 202 backend authority/lifecycle cases, 20 exact graph-evolution
-cases and ten responsive browser cases. SSO initialization refusals remain
-retryable, and old Gemini-only confirmation descriptions are rejected by exact
-graph revision. This remains source evidence, not installed acceptance.
-
-Component image `sha256:2bfbf9da…dad8db81` now renders both public pages and confirms
-supervisor exit on Cloud Run (startup 6.951 s) and Container Apps (1.719 s).
-Source archive, disposable services/groups and scoped grants were removed with
-readback. Earlier scratch/import failures are retained; build-time restricted-
-module imports now catch the packaging defect. These are component receipts,
-not installed owner acceptance or full-runtime capacity. The combined candidate
-has completed main/ADK intake; exact-SHA hosted CI remains before dev dispatch.
-
-VM hosting is superseded by the agreed Container Apps configuration. Historical
-VM receipts do not authorize a customer hosting transition. No owner resources,
-placements or selected capacities were changed by this local continuation.
-The affected private Wiki release decision was corrected and read back on
-2026-10-21.
+Four native Playwright shards preserve every browser test and worker limit; native
+collection proves a complete, disjoint partition. The previous three-shard run
+exceeded its time limit twice. The main-owned workflow also needs the compatible
+reviewer-path repair in [operations PR #8320](https://github.com/hushh-labs/hushh-research/pull/8320),
+which leaves required verification intact. No application deployment or owner
+installation has occurred. VM hosting is superseded; historical VM receipts do
+not authorize a transition. The private Wiki decision was updated and read back.
 
 ## Performance and economics
 

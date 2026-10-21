@@ -16891,7 +16891,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_prod_drive_deploy_contract.py",
       "symbol": "test_older_target_keeps_release_tooling_but_cannot_enable_drive",
-      "value": 212
+      "value": 213
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -21733,7 +21733,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_adk_text_runtime.py",
       "symbol": null,
-      "value": 1199
+      "value": 1200
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26243,7 +26243,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_prod_drive_deploy_contract.py",
       "symbol": null,
-      "value": 602
+      "value": 603
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -83086,6 +83086,37 @@
         "source_sha256": "4fe42c72c7108a6d4d34ec87a471545512e0bc648ebcb5334ec644373a5d4a3d",
         "reviewer": "adk_frontend_conflicts",
         "review": "Main header geometry and four light/dark width scenarios coexist with retained native Preferences tests. Back, Close, focus and owner handlers are unchanged; 44px targets retained. Ten actual Chromium/WebKit cases and UI contracts pass. Source review, not installed acceptance."
+      }
+    ]
+  },
+  "hosted_fixture_boundary_review_20261021": {
+    "candidate": "08fed9d6aa02fbb006e8561672fd9ae8048e07ff",
+    "failed_run": 39670721881,
+    "policy": "Exactly three reviewed existing ceilings; no new API module or global-budget adoption. Connector integration cases moved to existing owning route suite.",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/test_one_adk_text_runtime.py||module exceeds the advisory operon budget",
+        "before": 1199,
+        "after": 1200,
+        "source_sha256": "2086a8dc0fac1ffe55d75bd3a9629b6f3f67044e81586439f34b25a3c3ca60be",
+        "reviewer": "agent_layout_audit",
+        "review": "One-line correction of observed hosted failure; explicit local fixture context or actual restored transitive deployment dependency. All production model/consent gates and global budgets preserved."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_prod_drive_deploy_contract.py||module exceeds the advisory operon budget",
+        "before": 602,
+        "after": 603,
+        "source_sha256": "d3b35ca2a7f342ac08d461c17a49ca9470ded943923fb30a4e35ddb2beaf3e3f",
+        "reviewer": "agent_layout_audit",
+        "review": "One-line correction of observed hosted failure; explicit local fixture context or actual restored transitive deployment dependency. All production model/consent gates and global budgets preserved."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_prod_drive_deploy_contract.py|test_older_target_keeps_release_tooling_but_cannot_enable_drive|function exceeds the advisory gene budget",
+        "before": 212,
+        "after": 213,
+        "source_sha256": "d3b35ca2a7f342ac08d461c17a49ca9470ded943923fb30a4e35ddb2beaf3e3f",
+        "reviewer": "agent_layout_audit",
+        "review": "One-line correction of observed hosted failure; explicit local fixture context or actual restored transitive deployment dependency. All production model/consent gates and global budgets preserved."
       }
     ]
   }
