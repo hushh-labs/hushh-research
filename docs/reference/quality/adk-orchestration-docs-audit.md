@@ -64,12 +64,12 @@ their stated receipt dates. No new application deployment or owner install occur
 | Dev app | Source `28a0fa109175`; hub `consent-protocol-00186-5zw` / image `d80e03ebc21a`; web `hushh-webapp-00154-jzm` / image `c7f92a59242b`; both 100% | Verified ADC readback 17:16 UTC; [exact-SHA CI](https://github.com/hushh-labs/hushh-research/actions/runs/39122438292), [governed dev rollout](https://github.com/hushh-labs/hushh-research/actions/runs/39125450154) succeeded |
 | Personal Azure pod | `2026.10-dev.25+991a06ccbc01.4a3b29a7`; digest `sha256:4a3b29a74641d7eac470da43d18f01c5039f4c0327ed84811ce2f0bfa939ac9a`; revision `ca-hussh-one-pod--u36234007817f` | `op_b9a279571aaf47bcaffdbc4689c80d6c` verified 03:19:39 UTC; exact predecessor `250aea9e…fc69f1`; same identity and 1 vCPU / 2 GiB, min 0 / max 1 |
 | Schema / rollback | 65 rows, 964 applied, no required-contract/checksum mismatch; history cleanup deferred | Captured hub rollback `00185-f9z` / `e9482e4319ad`; web `00153-7ck` / `991a06ccbc01`. Application rollback cannot restore deleted history |
-| Local integration | Browser `80731a80b3`; frozen ADK `914e7c044c`; main through `a8f03c0b6c` integrated | Histories and nine unrelated edits preserved. Main's managed Azure capabilities coexist with owner-pod authority and disabled Azure pod voice. Local validation is recorded below; hosted CI and installed acceptance remain separate |
+| Local integration | Browser `80731a80b3`; frozen ADK `914e7c044c`; main through `7dd979013e` integrated | Histories and nine unrelated edits preserved. Main's managed Azure capabilities coexist with owner-pod authority and disabled Azure pod voice. Local validation is recorded below; hosted CI and installed acceptance remain separate |
 | Browser component qualification | Image `sha256:b48f66b6…b32fbf24a4`: ordinary GCP frames/start 7.145 s, Azure frames/start 1.555 s; both confirmed Stop. Native ACA Luna research 19.460 s, five model round trips at capacity 50 | Synthetic grants, excludes owner HTTP acceptance and full-pod capacity. Capacity 1 returned 429; original failure retained. GCP native Gemini 3.8 research subsequently completed in 96.713 s through the approved bridge: three model round trips, two native actions and two screenshot continuations. This is one component sample, not a latency target pass. Disposable resources and temporary model/RBAC verified removed |
 
 ### Current local implementation
 
-Fresh main `a8f03c0b6c` is integrated without replacing authored files wholesale. Streamed exports, connector account/vault fencing, SOS recovery, Azure playback and exact provider receipts remain intact. The combined seams pass 743 backend and 381 frontend checks plus typecheck; native exports retain buffered transport and the corrected four-minute request bound.
+Fresh main `7dd979013e` is integrated without replacing authored files wholesale. Streamed exports, connector account/vault fencing, SOS recovery, Azure playback and exact provider receipts remain intact. The Profile header keeps main’s smaller painted controls and 44px targets; ten focused Chromium/WebKit cases and UI contracts pass. The earlier combined seams pass 743 backend and 381 frontend checks plus typecheck; native exports retain buffered transport and the corrected four-minute request bound.
 
 Hosted [candidate validation](https://github.com/hushh-labs/hushh-research/actions/runs/39642204133)
 found an omitted main reduced-transparency rule, an update-test ordering race and
@@ -86,7 +86,7 @@ the installed setting. Image-only updates preserve absence. The 101 focused
 configuration, bridge-authority and image-update checks pass; installed access is
 still unverified. The deployment secret synchronizer now preserves only an explicitly configured, environment-pinned dev bridge; 86 nearest configuration/hydration checks pass and the original omission fails its regression. The bridge is not implicitly activated.
 
-Browser implementation is committed at `80731a80b3`; main through `a8f03c0b6c`
+Browser implementation is committed at `80731a80b3`; main through `7dd979013e`
 and frozen ADK `914e7c044c` are preserved in the combined ancestry. This candidate
 remains uninstalled. Exact download ingress now preserves Browser control and Files
 authority, with malformed and neighboring paths refused.

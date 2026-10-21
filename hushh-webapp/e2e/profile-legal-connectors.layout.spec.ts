@@ -145,7 +145,50 @@ async function mount(
 const pane = (page: Page) => page.getByTestId("profile-pane");
 const paneTitle = (page: Page) => pane(page).locator("h2").first();
 
-test("Profile chrome and Preferences keep their grid while the panel follows a pull", async ({ page }) => {
+for (const theme of ["light", "dark"] as const) for (const width of [390, 1440]) {
+  test(`Profile header has one smaller round surface per control at ${width}px ${theme}`, async ({ page }) => {
+    const errors = await mount(page, { width, theme, at: "/one?profile_pane=1&profile_panel=account" });
+    await expect(paneTitle(page)).toHaveText("Your account");
+    const close = pane(page).getByRole("button", { name: "Close Profile", exact: true });
+    const back = pane(page).getByRole("button", { name: "Back in Profile", exact: true });
+    const material = () => pane(page).evaluate(node => {
+      const slot = node.querySelector('.profile-pane-close')!;
+      const style = getComputedStyle(slot);
+      return { background: style.backgroundColor, border: style.borderTopWidth, transform: style.transform };
+    });
+    for (const control of [back, close]) {
+      const geometry = await control.evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        const circle = getComputedStyle(node, "::before");
+        const ripple = node.querySelector('.morphy-ripple-host')!.getBoundingClientRect();
+        return { width: rect.width, height: rect.height, background: style.backgroundColor,
+          border: style.borderTopWidth, diameter: rect.width - parseFloat(circle.left) - parseFloat(circle.right),
+          radius: circle.borderRadius, rippleWidth: ripple.width };
+      });
+      expect(geometry.width).toBe(44);
+      expect(geometry.height).toBe(44);
+      expect(geometry.background).toBe("rgba(0, 0, 0, 0)");
+      expect(geometry.border).toBe("0px");
+      expect(geometry.diameter).toBeCloseTo(44 * 0.78, 1);
+      expect(geometry.rippleWidth).toBeCloseTo(44 * 0.78, 1);
+      expect(geometry.radius).toBe("50%");
+    }
+    await close.hover();
+    await expect.poll(material).toEqual({ background: "rgba(0, 0, 0, 0)", border: "0px", transform: "none" });
+    await pane(page).locator('.profile-pane-header').screenshot({ path: test.info().outputPath("profile-header.png") });
+    // The retained invisible outer edge still activates Back, not just the
+    // smaller painted circle. Closing then remains available from the keyboard.
+    await back.click({ position: { x: 1, y: 22 } });
+    await expect(paneTitle(page)).toHaveText("Profile");
+    await close.focus();
+    await page.keyboard.press("Enter");
+    await expect(pane(page)).not.toBeVisible();
+    expect(errors).toEqual([]);
+  });
+}
+
+test("Profile header, Preferences and body follow one whole-panel pull without replaying entrance", async ({ page }) => {
   await mount(page, { at: "/one?profile_pane=1&profile_panel=preferences" });
   const preferences = pane(page).locator("[data-profile-appearance-preferences]");
   await expect(preferences.getByText("Appearance", { exact: true })).toBeVisible();

@@ -6,6 +6,7 @@ import { appHaptic } from "@/lib/capacitor/app-haptics";
 import { useNativePanelPresentation } from "@/lib/capacitor/native-panel-presentation";
 import { NativeChatChrome } from "@/components/app-ui/native-chat-chrome";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import headerStyles from "./profile-pane-header-controls.module.css";
 import { presentationMotionDuration, renderedDrawerOffset } from "@/components/app-ui/drawer-motion";
 import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
 import { useNativeFullWindowOverlayReady } from "@/lib/capacitor/native-presentation-regions";
@@ -403,7 +404,9 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
                     appHaptic("light");
                     backProfilePane(pathname, searchParams);
                   }}
-                  className="size-11"
+                  className={headerStyles.action}
+                  contentClassName={headerStyles.glyph}
+                  rippleClassName={headerStyles.ripple}
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </ShellActionSurface>
@@ -433,14 +436,16 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
           context={panePresentationKey} eligible={false}
           onActivate={() => onOpenChange(false)}
           style={{ right: "max(1rem, env(safe-area-inset-right, 0px))" }}
-          className="profile-pane-close absolute top-[calc(1rem+env(safe-area-inset-top))] z-10 flex size-11 items-center justify-center">
+          className={`profile-pane-close ${headerStyles.closeSlot} absolute top-[calc(1rem+env(safe-area-inset-top))] z-10 flex size-11 items-center justify-center`}>
         <SheetClose asChild>
           <ShellActionSurface
             ref={closeRef}
             type="button"
             aria-label="Close Profile"
             onClick={() => appHaptic("light")}
-            className="size-11"
+            className={headerStyles.action}
+            contentClassName={headerStyles.glyph}
+            rippleClassName={headerStyles.ripple}
           >
             <X className="h-4 w-4" />
           </ShellActionSurface>
