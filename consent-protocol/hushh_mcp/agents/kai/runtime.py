@@ -20,6 +20,9 @@ from hushh_mcp.runtime_providers.gemini_config import (
     resolve_fleet_model_name,
     thinking_config_for,
 )
+from hushh_mcp.runtime_providers.managed_azure_text import (
+    adk_model_for_client,
+)
 
 _MANIFEST_PATH = Path(__file__).with_name("agent.yaml")
 _PORTFOLIO_OPTIMIZER_GENE_ID = "agent_kai_portfolio_optimizer"
@@ -343,7 +346,7 @@ async def run_kai_portfolio_optimizer(
     agent = build_single_turn_agent(
         gene,
         output_schema=PORTFOLIO_OPTIMIZER_SCHEMA,
-        model=Gemini(model=model_name, client=client),
+        model=adk_model_for_client(client, model_name, legacy_factory=Gemini),
     )
     result = await run_single_turn(
         agent,

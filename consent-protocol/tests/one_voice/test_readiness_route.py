@@ -292,3 +292,38 @@ def test_retired_paths_stay_retired_while_live_is_enabled(monkeypatch):
     assert client.post("/api/one/adk/relay-session").status_code == 410
     with client.websocket_connect("/api/one/adk/live") as ws:
         assert ws.receive_json() == {"type": "error", "code": "ONE_LIVE_RETIRED"}
+
+
+@pytest.mark.parametrize("unavailable", ["azure_openai", "vertex"])
+def test_readiness_keeps_older_clients_on_the_selected_provider_and_separates_health_caches(
+    monkeypatch, unavailable
+):
+    azure = OneVoiceLiveConfig(
+        enabled=True,
+        model_id="synthetic-realtime",
+        location="azure-global",
+        provider="azure_openai",
+    )
+    vertex = OneVoiceLiveConfig(enabled=True, model_id=LIVE_MODEL, location="us-central1")
+    monkeypatch.setattr(OneVoiceLiveConfig, "from_environment", lambda: azure)
+    seen = []
+
+    async def probe(config):
+        seen.append(config.provider)
+        if config.provider == unavailable:
+            raise ConnectionError("synthetic outage")
+
+    monkeypatch.setattr(voice, "_probe_live_connect", probe)
+    client = TestClient(_app())
+    modern = client.get("/api/one/voice/readiness?playback=1").json()
+    legacy = client.get("/api/one/voice/readiness").json()
+    assert modern == legacy
+    assert legacy["enabled"] is (unavailable != "azure_openai")
+    assert legacy["model"] == azure.model_id
+    assert seen == ["azure_openai"]
+    # A real administrator processor change must not reuse Azure's cache.
+    monkeypatch.setattr(OneVoiceLiveConfig, "from_environment", lambda: vertex)
+    switched = client.get("/api/one/voice/readiness").json()
+    assert switched["enabled"] is (unavailable != "vertex")
+    assert switched["model"] == vertex.model_id
+    assert seen == ["azure_openai", "vertex"]

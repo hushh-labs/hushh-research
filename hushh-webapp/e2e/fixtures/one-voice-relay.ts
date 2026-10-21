@@ -130,7 +130,7 @@ export async function mockVoiceRelay(
   }> = [];
   const queue = [...steps];
 
-  await page.route("**/api/one/voice/readiness", async (route) => {
+  await page.route("**/api/one/voice/readiness*", async (route) => {
     state.readinessCalls += 1;
     await route.fulfill({
       status: 200,

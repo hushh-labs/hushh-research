@@ -6,7 +6,9 @@
     "version": "uat-managed-text-azure-primary-v2",
     "provider": "azure_openai",
     "authority_basis": "administrator_rollout",
-    "scope": "one_text_chat_and_drive_requests"
+    "scope": "one_text_chat_and_drive_requests",
+    "alternate_provider": "vertex",
+    "readiness": "any_usable_text"
   },
   "environments": {
     "local": {
@@ -74,7 +76,7 @@
   },
   "pwm_research_uat": {
     "provider": "azure_openai_web_search",
-    "owner_source_provider": "vertex_url_context",
+    "owner_source_provider": "public_https",
     "search_invocations": 8,
     "model_calls": 16,
     "slice_seconds": 240,
@@ -97,5 +99,47 @@
       "phi_endpoint": "https://ankitkumarsingh97593-4165-resour.services.ai.azure.com/openai/v1/",
       "phi_deployment": "pwm-phi-4-mini-eval"
     }
+  },
+  "managed_runtime_uat": {
+    "policy_id": "0185d31a-f655-4ac3-bbed-d243b2d82d86",
+    "version": "uat-managed-azure-capabilities-v1",
+    "authority_basis": "administrator_rollout",
+    "scope": "managed_runtime_capabilities",
+    "azure": {
+      "realtime": {
+        "deployment": "uat-realtime-mini",
+        "model": "gpt-realtime-2.1-mini",
+        "version": "2026-07-07"
+      },
+      "transcription": {
+        "deployment": "uat-transcribe-mini",
+        "model": "gpt-4o-mini-transcribe",
+        "version": "2025-12-15"
+      },
+      "speech": {
+        "deployment": "uat-speech-mini",
+        "model": "gpt-4o-mini-tts",
+        "version": "2025-12-15"
+      },
+      "embedding": {
+        "deployment": "uat-embedding-small",
+        "model": "text-embedding-3-small",
+        "version": "1"
+      },
+      "embedding_dimensions": 768,
+      "voice": "coral"
+    },
+    "required_capabilities": [
+      "structured_text",
+      "image_input",
+      "pdf_input",
+      "public_search",
+      "public_source",
+      "location_transcription",
+      "location_semantics",
+      "narration",
+      "live_audio",
+      "embeddings"
+    ]
   }
 }

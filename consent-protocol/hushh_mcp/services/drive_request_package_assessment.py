@@ -46,8 +46,18 @@ def semantic_request_model_binding(
     from hushh_mcp.runtime_providers.managed_text import managed_text_binding, managed_text_policy
     from hushh_mcp.runtime_settings import managed_ai_settings
 
-    if provider is None and managed_text_policy() is not None:
-        return managed_text_binding()
+    if authorization_basis not in {None, "uat_policy"}:
+        raise ValueError("Invalid Documents authorization basis")
+    active_policy = managed_text_policy()
+    if authorization_basis == "uat_policy" and active_policy is None:
+        raise ValueError("Documents UAT processing policy changed")
+    if active_policy is not None and (provider is None or authorization_basis == "uat_policy"):
+        current = managed_text_binding()
+        if provider is not None and (
+            provider != current["provider"] or approval_generation != current["approval_generation"]
+        ):
+            raise ValueError("Documents UAT processing policy changed")
+        return current
     provider = (
         (
             os.environ.get("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini")
@@ -171,7 +181,7 @@ async def private_semantic_request_model(
         if model_binding is None
         else validate_semantic_model_binding(model_binding)
     )
-    if binding["provider"] == "gemini":
+    if binding["provider"] == "gemini" and binding.get("authorization_basis") != "uat_policy":
         from hushh_mcp.runtime_providers.managed_text import managed_text_policy
 
         if managed_text_policy() is not None:

@@ -156,6 +156,7 @@ export interface VoiceLiveClientLike {
     status: "opened" | "failed" | "ignored",
   ): boolean;
   interrupt(): boolean;
+  acknowledgePlayback?(turnId: string, itemId: string, playedMs: number): boolean;
 }
 
 export interface VoiceCaptureLike {
@@ -167,11 +168,12 @@ export interface VoiceCaptureLike {
 }
 
 export interface VoicePlaybackLike {
-  enqueue(pcm16: Uint8Array, turnId: string): boolean;
+  enqueue(pcm16: Uint8Array, turnId: string, itemId?: string): boolean;
   flush(): void;
   fenceTurn(turnId: string): void;
   onSpeakingChanged(callback: (speaking: boolean) => void): () => void;
   onPlaybackStarted(callback: (turnId: string) => void): () => void;
+  onPlaybackProgress?(callback: (turnId: string, itemId: string, playedMs: number) => void): () => void;
   close(): void;
 }
 
@@ -1153,6 +1155,7 @@ export function VoiceSessionProvider({
             const queued = session.playback.enqueue(
               pcm16,
               frame.turn_id,
+              frame.item_id,
             );
             // A rejected chunk has no playback-stop callback to reopen the mic.
             if (queued && frame.narration === true)
@@ -1490,6 +1493,12 @@ export function VoiceSessionProvider({
           dispatch({ type: "speaking", speaking });
         }),
       );
+      if (playback.onPlaybackProgress) {
+        session.unsubscribes.push(playback.onPlaybackProgress((turnId, itemId, playedMs) => {
+          if (sessionRef.current === session && !session.tornDown)
+            session.client.acknowledgePlayback?.(turnId, itemId, playedMs);
+        }));
+      }
       session.unsubscribes.push(
         playback.onPlaybackStarted((turnId) => {
           if (sessionRef.current !== session || session.tornDown) return;

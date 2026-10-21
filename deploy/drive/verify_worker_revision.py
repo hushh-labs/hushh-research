@@ -53,6 +53,7 @@ def verify_revision(
     scanner_amd64_digest: str,
     drain_enabled: str | None = None,
     semantic_model_provider: str | None = None,
+    managed_text_provider: str | None = None,
     max_instances: str | None = None,
     concurrency: str | None = None,
 ) -> None:
@@ -80,6 +81,24 @@ def verify_revision(
     }:
         raise ValueError("Drive worker container set mismatch")
     images = {item["name"]: item.get("image") for item in containers}
+    if managed_text_provider is not None:
+        worker = next(item for item in containers if item["name"] == "drive-worker")
+        selected = [
+            item.get("value")
+            for item in worker.get("env", [])
+            if item.get("name") == "HUSHH_UAT_MANAGED_TEXT_PROVIDER"
+        ]
+        if managed_text_provider not in {"azure_openai", "vertex"} or selected != [
+            managed_text_provider
+        ]:
+            raise ValueError("Drive worker managed text provider mismatch")
+        full = [
+            item.get("value")
+            for item in worker.get("env", [])
+            if item.get("name") == "HUSHH_UAT_MANAGED_AI_PROVIDER"
+        ]
+        if full != [managed_text_provider]:
+            raise ValueError("Drive worker managed capability provider mismatch")
     if semantic_model_provider is not None:
         worker = next(item for item in containers if item["name"] == "drive-worker")
         providers = [
@@ -122,6 +141,7 @@ def main() -> int:
             scanner_amd64_digest=os.environ["EXPECTED_SCANNER_AMD64_DIGEST"],
             drain_enabled=os.environ.get("EXPECTED_DRAIN_ENABLED"),
             semantic_model_provider=os.environ.get("EXPECTED_SEMANTIC_MODEL_PROVIDER"),
+            managed_text_provider=os.environ.get("EXPECTED_MANAGED_TEXT_PROVIDER"),
             max_instances=os.environ.get("EXPECTED_MAX_INSTANCES"),
             concurrency=os.environ.get("EXPECTED_CONCURRENCY"),
         )

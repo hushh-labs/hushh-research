@@ -40,6 +40,39 @@ def request(*contents, **config):
     )
 
 
+def test_actual_crm_nullable_objects_are_closed_before_nullable_wrapping():
+    from hushh_mcp.agents.connected_systems.runtime import CRM_SCHEMA_MAPPING_SCHEMA
+    from hushh_mcp.runtime_providers.azure_adk import _schema
+
+    schema = _schema(CRM_SCHEMA_MAPPING_SCHEMA, strict=True)
+    objects = []
+
+    def inspect(node):
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                objects.append(node)
+            for child in node.values():
+                inspect(child)
+        elif isinstance(node, list):
+            for child in node:
+                inspect(child)
+
+    inspect(schema)
+    assert len(objects) >= 7
+    assert all(
+        node.get("additionalProperties") is False
+        and set(node["required"]) == set(node.get("properties", {}))
+        for node in objects
+    )
+
+
+async def test_untyped_object_gene_preserves_dynamic_keys_with_json_object_mode():
+    adapter, client, _, _ = model([response(message('{"dynamic_key":{"value":42}}'))])
+    results = [item async for item in adapter.generate_content_async(request(response_schema=dict))]
+    assert client.requests[0]["text"]["format"] == {"type": "json_object"}
+    assert json.loads(results[0].content.parts[0].text) == {"dynamic_key": {"value": 42}}
+
+
 def tools():
     return [
         types.Tool(
@@ -579,7 +612,7 @@ async def test_private_authority_is_rechecked_after_token_before_every_send(stre
         )
     result = [item async for item in adapter.generate_content_async(request(), stream=stream)]
     assert result[-1].turn_complete and len(client.requests) == 1
-    assert order[-2:] == ["token", "guard"]
+    assert order[-3:] == ["token", "guard", "guard"]
 
 
 @pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
@@ -647,7 +680,7 @@ async def test_managed_uat_azure_first_fallback_targets_gemini_without_replaying
     assert result[-1].content.parts[0].text == "Arbitrary topic result"
     assert calls == [("azure", "synthetic-deployment"), ("gemini", "gemini-fallback")]
     assert req.model_dump() == before
-    assert guard.await_count == 2  # Revalidation before each provider, no tool rerun.
+    assert guard.await_count == 3  # Each provider plus completion; no tool rerun.
 
 
 @pytest.mark.parametrize(
@@ -878,3 +911,312 @@ async def test_managed_healthy_stream_can_finish_after_its_first_output_deadline
     result = [item async for item in wrapped.generate_content_async(request(), stream=True)]
     assert [item.partial for item in result] == [True, False]
     fallback.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("status", "may_fallback"), [(429, True), (503, True), (401, False), (403, False)]
+)
+async def test_vertex_primary_uses_real_sdk_status_and_reports_only_actual_completion(
+    monkeypatch, status, may_fallback
+):
+    from unittest.mock import AsyncMock
+
+    from google.adk.models.llm_response import LlmResponse
+    from google.genai import errors
+
+    from hushh_mcp.runtime_providers import managed_text as managed
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    calls, completed = [], []
+    error_type = errors.ServerError if status >= 500 else errors.ClientError
+    failure = error_type(
+        status, {"error": {"code": status, "message": "Synthetic provider failure"}}
+    )
+
+    async def vertex(req, stream=False):
+        calls.append("vertex")
+        raise failure
+        yield
+
+    async def azure(self, req, stream=False):
+        calls.append("azure_openai")
+        yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="Ready")]))
+
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", azure)
+    base, *_ = model([])
+    wrapped = managed.ManagedPrimaryTextModel(
+        **base.model_dump(exclude={"api_key", "client"}),
+        token_supplier=lambda: "synthetic",
+        require_current=AsyncMock(),
+        policy_generation=managed.managed_text_policy()["generation"],
+        processing_scope="one_text_chat",
+        primary_provider="vertex",
+        fallback_model=SimpleNamespace(model="gemini-alternate", generate_content_async=vertex),
+        completion_observer=completed.append,
+    )
+    if may_fallback:
+        results = [item async for item in wrapped.generate_content_async(request())]
+        assert results[-1].content.parts[0].text == "Ready"
+        assert calls == ["vertex", "azure_openai"]
+        assert completed == [
+            {"provider": "azure_openai", "model": "synthetic-deployment", "location": ""}
+        ]
+    else:
+        with pytest.raises(errors.APIError):
+            [item async for item in wrapped.generate_content_async(request())]
+        assert calls == ["vertex"]
+        assert completed == []
+
+
+async def test_azure_success_does_not_initialize_unused_alternate_and_revocation_has_no_output(
+    monkeypatch,
+):
+    from google.adk.models.llm_response import LlmResponse
+
+    from hushh_mcp.runtime_providers import managed_text as managed
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    revoked = False
+    alternate = Mock(side_effect=AssertionError("Unused alternate initialized"))
+    completed = []
+
+    async def current():
+        if revoked:
+            raise PermissionError("Synthetic revocation")
+
+    async def azure(self, req, stream=False):
+        yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="Ready")]))
+
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", azure)
+    base, *_ = model([])
+    wrapped = managed.ManagedPrimaryTextModel(
+        **base.model_dump(exclude={"api_key", "client"}),
+        token_supplier=lambda: "synthetic",
+        require_current=current,
+        policy_generation=managed.managed_text_policy()["generation"],
+        processing_scope="one_text_chat",
+        fallback_factory=alternate,
+        completion_observer=completed.append,
+    )
+    assert len([item async for item in wrapped.generate_content_async(request())]) == 1
+    assert completed[0]["provider"] == "azure_openai"
+    alternate.assert_not_called()
+
+    async def revoked_before_completion(self, req, stream=False):
+        nonlocal revoked
+        revoked = True
+        yield LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text="Must not escape")])
+        )
+
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", revoked_before_completion)
+    completed.clear()
+    received = []
+    with pytest.raises(managed.ManagedTextAuthorityError):
+        async for item in wrapped.generate_content_async(request()):
+            received.append(item)
+    assert received == completed == []
+    alternate.assert_not_called()
+
+
+async def test_generated_sdk_facade_preserves_schema_usage_and_streams_text_exactly_once():
+    from hushh_mcp.runtime_providers.managed_azure_text import ManagedAzureTextClient
+
+    complete = response(message('{"title":"Observed"}'))
+    events = Stream(
+        [
+            {"type": "response.output_text.delta", "delta": '{"title":'},
+            {"type": "response.output_text.delta", "delta": '"Observed"}'},
+            {"type": "response.completed", "response": complete},
+        ]
+    )
+    adapter, client, _, _ = model([complete, events])
+    facade = ManagedAzureTextClient(model_factory=lambda *_args, **_kwargs: adapter)
+    config = types.GenerateContentConfig(
+        response_json_schema={
+            "type": "object",
+            "properties": {"title": {"type": "string"}},
+            "required": ["title"],
+            "additionalProperties": False,
+        }
+    )
+    from hushh_mcp.constants import GEMINI_MODEL
+
+    answer = await facade.aio.models.generate_content(
+        model=GEMINI_MODEL, contents="Synthetic", config=config
+    )
+    assert isinstance(answer, types.GenerateContentResponse)
+    assert answer.parsed == {"title": "Observed"}
+    assert (
+        answer.model_version == "synthetic-version"
+        and answer.usage_metadata.total_token_count == 20
+    )
+    stream = await facade.aio.models.generate_content_stream(
+        model=GEMINI_MODEL, contents="Synthetic", config=config
+    )
+    chunks = [chunk async for chunk in stream]
+    assert "".join(chunk.text or "" for chunk in chunks) == answer.text
+    assert all(chunk.parsed is None for chunk in chunks[:-1])
+    assert chunks[-1].parsed == answer.parsed and chunks[-1].usage_metadata == answer.usage_metadata
+    assert events.closed and client.closed == 2
+
+
+async def test_generated_sdk_facade_cancellation_closes_the_actual_transport():
+    from hushh_mcp.constants import GEMINI_MODEL
+    from hushh_mcp.runtime_providers.managed_azure_text import ManagedAzureTextClient
+
+    events = Stream(blocked=True)
+    adapter, client, _, _ = model([events])
+    facade = ManagedAzureTextClient(model_factory=lambda *_args, **_kwargs: adapter)
+    stream = await facade.aio.models.generate_content_stream(
+        model=GEMINI_MODEL, contents="Synthetic"
+    )
+    task = asyncio.create_task(anext(stream))
+    await events.started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert events.closed and client.closed == 1
+
+
+async def test_admitted_inline_media_preserves_order_and_never_creates_provider_files():
+    import base64
+
+    adapter, client, _, _ = model([response(message("Read"))])
+    pdf = b"%PDF-1.4\nsynthetic\n%%EOF"
+    png = b"\x89PNG\r\n\x1a\nsynthetic"
+    prompt = types.Content(
+        role="user",
+        parts=[
+            types.Part(text="Before"),
+            types.Part.from_bytes(data=pdf, mime_type="application/pdf"),
+            types.Part(text="Between"),
+            types.Part.from_bytes(data=png, mime_type="image/png"),
+            types.Part.from_bytes(data=b"name,value\nsynthetic,1", mime_type="text/csv"),
+            types.Part(text="After"),
+        ],
+    )
+    _ = [item async for item in adapter.generate_content_async(request(prompt))]
+    wire = client.requests[0]
+    assert wire["store"] is False
+    parts = wire["input"][0]["content"]
+    assert [part["type"] for part in parts] == [
+        "input_text",
+        "input_file",
+        "input_text",
+        "input_image",
+        "input_text",
+        "input_text",
+    ]
+    assert (
+        parts[0]["text"] == "Before"
+        and parts[2]["text"] == "Between"
+        and parts[-1]["text"] == "After"
+    )
+    assert parts[1]["file_data"] == "data:application/pdf;base64," + base64.b64encode(pdf).decode()
+    assert "file_id" not in parts[1] and "file_url" not in parts[1]
+
+
+async def test_native_search_requires_actual_completed_provider_citations_not_prompt_urls():
+    from tests.test_azure_web_receipts import response as search_response
+
+    raw = search_response()
+    raw["model"] = "actual-azure-model"
+    adapter, client, _, _ = model([raw, {**raw, "tool_usage": {}}])
+    adapter.allow_web_search = True
+    value = request(tools=[types.Tool(google_search=types.GoogleSearch())])
+    (answer,) = [item async for item in adapter.generate_content_async(value)]
+    assert [c.web.uri for c in answer.grounding_metadata.grounding_chunks] == [
+        "https://example.test/team/owner"
+    ]
+    assert client.requests[0]["tools"] == [{"type": "web_search", "external_web_access": False}]
+    with pytest.raises(ValueError, match="billable"):
+        _ = [item async for item in adapter.generate_content_async(value)]
+
+
+async def test_managed_embedding_contract_rejects_same_dimensions_with_bad_indices(monkeypatch):
+    from hushh_mcp.runtime_providers import managed_azure as ports
+
+    policy = {"provider": "azure_openai", "config_fingerprint": "f" * 64, "generation": "g"}
+    monkeypatch.setattr(ports, "load_managed_runtime_policy", lambda: policy)
+    binding = ports.ManagedAzureBinding(
+        endpoint="https://synthetic.openai.azure.com/openai/v1/",
+        tenant_id="synthetic",
+        client_id="synthetic",
+        policy_fingerprint=policy["config_fingerprint"],
+        generation="g",
+        token_supplier=lambda: "synthetic-token",
+        capabilities={
+            "embedding": {"deployment": "synthetic-embedding"},
+            "embedding_dimensions": 768,
+        },
+    )
+
+    class EmbeddingClient(Client):
+        def __init__(self, outputs):
+            super().__init__(outputs)
+            self.embeddings = self
+
+    vector = [1.0] + [0.0] * 767
+    client = EmbeddingClient(
+        [
+            SimpleNamespace(
+                data=[
+                    SimpleNamespace(index=1, embedding=vector),
+                    SimpleNamespace(index=0, embedding=vector),
+                ]
+            ),
+            SimpleNamespace(
+                data=[
+                    SimpleNamespace(index=0, embedding=vector),
+                    SimpleNamespace(index=0, embedding=vector),
+                ]
+            ),
+        ]
+    )
+
+    def factory(**_kwargs):
+        return client
+
+    assert await ports.embed_texts(binding, ["one", "two"], timeout=1, client_factory=factory) == [
+        vector,
+        vector,
+    ]
+    with pytest.raises(ValueError, match="index"):
+        await ports.embed_texts(binding, ["one", "two"], timeout=1, client_factory=factory)
+    assert client.requests[0]["dimensions"] == 768
+    policy["generation"] = "changed"
+    with pytest.raises(RuntimeError, match="selection changed"):
+        await ports.embed_texts(binding, ["one"], timeout=1, client_factory=factory)
+    assert len(client.requests) == 2
+
+
+async def test_actual_adk_search_child_uses_provider_aware_tool_and_received_citations():
+    from hushh_mcp.hushh_adk.turn import run_specialist_adk_turn
+    from hushh_mcp.one_adk.agent_tree import build_google_search_agent
+    from tests.test_azure_web_receipts import response as search_response
+
+    raw = search_response()
+    raw["model"] = "actual-azure-version"
+    adapter, client, _, _ = model([raw])
+    adapter.allow_web_search = True
+    agent = build_google_search_agent(model=adapter)
+    observations = []
+
+    async def observe(callback_context, llm_response):
+        observations.append(llm_response.grounding_metadata)
+
+    agent.after_model_callback = observe
+    result = await run_specialist_adk_turn(
+        agent=agent,
+        app_name="synthetic_search",
+        user_id="synthetic-public-reader",
+        consent_token="",
+        message="Search for a synthetic public page",
+        max_llm_calls=1,
+    )
+    assert result.final_text == "Public team page confirms the owner [1]."
+    assert observations[0].grounding_chunks[0].web.uri == "https://example.test/team/owner"
+    assert client.requests[0]["tools"] == [{"type": "web_search", "external_web_access": False}]

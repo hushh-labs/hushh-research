@@ -150,7 +150,11 @@ async def get_preference(*, user_id: str) -> dict[str, Any]:
             "choices": [
                 {
                     "model_id": binding["deployment"],
-                    "label": "Azure · managed in UAT",
+                    "label": (
+                        "Azure · managed in UAT"
+                        if binding["provider"] == "azure_openai"
+                        else "Vertex · managed in UAT"
+                    ),
                     "is_default": True,
                     "is_active": True,
                 }

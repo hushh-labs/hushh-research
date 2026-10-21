@@ -510,6 +510,15 @@ def test_semantic_provider_policy_preserves_default_and_invalidates_azure_bindin
         "approval_generation": None,
     }
     assert service.assessment_policy_version(selected) == old
+    managed_vertex = {
+        **selected,
+        "authorization_basis": "uat_policy",
+        "approval_generation": "generation-one",
+    }
+    assert service.assessment_policy_version(managed_vertex) != old
+    assert service.assessment_policy_version(
+        {**managed_vertex, "approval_generation": "changed"}
+    ) != service.assessment_policy_version(managed_vertex)
     selected.update(
         provider="azure_openai", deployment="synthetic-azure", approval_generation="generation-one"
     )
@@ -540,12 +549,18 @@ def test_malformed_semantic_binding_fails_closed_before_model_resolution(field):
 
 
 @pytest.mark.parametrize("assemble", [False, True])
-async def test_legacy_package_genes_never_dispatch_an_azure_bound_request(monkeypatch, assemble):
+@pytest.mark.parametrize(
+    "binding",
+    [{"provider": "azure_openai"}, {"provider": "gemini", "authorization_basis": "uat_policy"}],
+)
+async def test_legacy_package_genes_never_dispatch_an_azure_bound_request(
+    monkeypatch, assemble, binding
+):
     from hushh_mcp.services import drive_request_package_assessment as assessment
 
     monkeypatch.setattr(assessment, "validate_semantic_model_binding", lambda value: value)
     work = job(0 if assemble else 1)
-    work["checkpoint"] = {"semantic_model_binding": {"provider": "azure_openai"}}
+    work["checkpoint"] = {"semantic_model_binding": binding}
     service, store, reader, assessor, final, _ = setup_work(work)
     assert await service.run_one(user_id="owner", job_id="job") == "unavailable"
     reader.read_compilation_match.assert_not_awaited()
@@ -596,7 +611,10 @@ async def test_private_semantic_binding_keeps_one_approval_generation_and_compos
         await model.require_current()
 
 
-def test_uat_policy_binding_is_explicit_frozen_and_invalidated_on_policy_change(monkeypatch):
+@pytest.mark.parametrize("provider", ["azure_openai", "vertex"])
+def test_uat_policy_binding_is_explicit_frozen_and_invalidated_on_policy_change(
+    monkeypatch, provider
+):
     from hushh_mcp.services import drive_request_package_assessment as assessment
     from hushh_mcp.services import private_text_processing_approval_service as approval
     from hushh_mcp.services.drive_request_package_service import assessment_policy_version
@@ -604,22 +622,32 @@ def test_uat_policy_binding_is_explicit_frozen_and_invalidated_on_policy_change(
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
     monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
+    from hushh_mcp.runtime_providers import managed_text
+
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", provider)
+    selected = "azure_openai" if provider == "azure_openai" else "gemini"
     generation = approval.private_drive_text_policy()["generation"]
     binding = assessment.semantic_request_model_binding(
-        provider="azure_openai", approval_generation=generation, authorization_basis="uat_policy"
+        provider=selected, approval_generation=generation, authorization_basis="uat_policy"
     )
     assert assessment.validate_semantic_model_binding(binding) == binding
     legacy = {k: v for k, v in binding.items() if k != "authorization_basis"}
-    assert assessment.validate_semantic_model_binding(legacy) == legacy
-    assert assessment_policy_version(binding) != assessment_policy_version(legacy)
+    if provider == "azure_openai":
+        assert assessment.validate_semantic_model_binding(legacy) == legacy
+        assert assessment_policy_version(binding) != assessment_policy_version(legacy)
+    else:
+        with pytest.raises(ValueError):
+            assessment.validate_semantic_model_binding(legacy)
     assert assessment.validate_semantic_model_binding(None)["provider"] == "gemini"
     for invalid in ("administrator", "owner_approval", None, True):
         with pytest.raises(ValueError):
             assessment.validate_semantic_model_binding({**binding, "authorization_basis": invalid})
+    monkeypatch.setattr(managed_text, "managed_text_policy", lambda: None)
     monkeypatch.setattr(approval, "private_drive_text_policy", lambda: None)
     with pytest.raises(ValueError, match="policy changed"):
         assessment.validate_semantic_model_binding(binding)
-    assert assessment.validate_semantic_model_binding(legacy) == legacy
+    if provider == "azure_openai":
+        assert assessment.validate_semantic_model_binding(legacy) == legacy
 
 
 @pytest.mark.parametrize(

@@ -299,6 +299,7 @@ def test_there_is_no_parameter_a_credential_could_arrive_through():
         "binding_factory",
         "model",
         "location",
+        "provider",
     }
     for forbidden in ("consent_token", "vault_owner_token", "gmail", "user_id", "session"):
         assert forbidden not in accepted

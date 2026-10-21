@@ -33,6 +33,10 @@ from hushh_mcp.runtime_providers import (
     build_managed_runtime_client,
 )
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+from hushh_mcp.runtime_providers.managed_azure_text import (
+    ManagedAzureTextClient,
+    adk_model_for_client,
+)
 from hushh_mcp.services.business_directory_profile import (
     business_merge_schema,
     business_structure_schema,
@@ -1645,7 +1649,7 @@ class PKMAgentLabService:
         try:
             from google.genai import Client
 
-            return isinstance(self.client, Client)
+            return isinstance(self.client, (Client, ManagedAzureTextClient))
         except Exception:
             return False
 
@@ -1714,9 +1718,10 @@ class PKMAgentLabService:
                 try:
                     from google.adk.models import Gemini
 
-                    adk_model = Gemini(
-                        model=model_override or _manifest_model_name(manifest) or GEMINI_MODEL,
-                        client=self.client,
+                    adk_model = adk_model_for_client(
+                        self.client,
+                        model_override or _manifest_model_name(manifest) or GEMINI_MODEL,
+                        legacy_factory=Gemini,
                     )
                     agent = build_single_turn_agent(
                         manifest,

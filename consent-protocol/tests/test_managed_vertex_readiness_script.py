@@ -796,6 +796,8 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
     monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "false")
     monkeypatch.delenv("HUSHH_ONE_VOICE_VERTEX_PROJECT", raising=False)
     monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "scoped")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "vertex")
     monkeypatch.setattr(
         module,
         "_managed_manifest_models",
@@ -877,6 +879,8 @@ async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
     monkeypatch.delenv("HUSHH_ONE_CHAT_VERTEX_PROJECT", raising=False)
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "scoped")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "vertex")
     monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "true")
     monkeypatch.setenv("VERTEX_LIVE_MODEL_ID", "gemini-live-2.5-flash-native-audio")
     monkeypatch.setenv("VERTEX_LIVE_LOCATION", "us-central1")
