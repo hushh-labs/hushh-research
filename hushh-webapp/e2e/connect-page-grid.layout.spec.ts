@@ -435,7 +435,79 @@ for (const width of [320, 393, 1440]) {
   });
 }
 
+for (const width of [393, 1440]) {
+  for (const dark of [false, true]) {
+    test(`Connect search borders stay neutral at rest, hover and focus at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
+      await open(page, width, dark);
+      await settle(page, width);
+      const color = dark ? "rgb(245, 245, 247)" : "rgb(29, 29, 31)";
+      const check = async (field: ReturnType<Page["getByRole"]>) => {
+        await field.scrollIntoViewIfNeeded();
+        await expect(field).toHaveValue("");
+        await expect(field).toHaveCSS("border-top-width", "1px");
+        await expect(field).toHaveCSS("border-top-color", color);
+        await field.hover();
+        await expect(field).toHaveCSS("border-top-color", color);
+        await field.focus();
+        await expect(field).toHaveCSS("border-top-color", color);
+        await expect(field).toHaveCSS("border-top-width", "1px");
+        await expect(field).toHaveCSS("outline-style", "none");
+        await expect(field).toHaveCSS("outline-width", "0px");
+        await expect(field).toHaveCSS("box-shadow", "none");
+        await field.fill("Avery");
+        await expect(field).toHaveCSS("border-top-color", color);
+        await expect(field).toHaveCSS("outline-width", "0px");
+        await field.fill("");
+        await field.blur();
+        await expect(field).toHaveCSS("border-top-color", color);
+      };
+      await check(page.getByRole("textbox", { name: "Search people", exact: true }));
+      await page.getByRole("tab", { name: /My connections/ }).click();
+      await check(page.getByRole("searchbox", { name: "Search my connections by name, email or phone" }));
+      await page.evaluate(() => { document.documentElement.dataset.realCircles = "1"; });
+      await page.getByRole("tab", { name: "Circles", exact: true }).click();
+      await check(page.getByRole("searchbox", { name: "Search your and joined circles" }));
+    });
+  }
+}
+
 // ---- Profile type roles (profile-ui skill) ------------------------------------
+for (const width of [320, 393, 1440]) {
+  test(`Custom Circle types and spaced menus preserve circles at ${width}px`, async ({ page }) => {
+    await open(page, width, false, undefined, () => {
+      document.documentElement.dataset.realCircles = "1";
+      document.documentElement.dataset.customCircles = "1";
+    });
+    await settle(page, width);
+    await page.getByRole("tab", { name: "Circles", exact: true }).click();
+    const group = page.getByRole("region", { name: "Finance circles", exact: true });
+    await expect(group.getByText("Investments", { exact: true })).toBeVisible();
+    await group.getByRole("button", { name: "Options for Investments" }).click();
+    const openAction = page.getByRole("button", { name: "Open circle", exact: true });
+    const deleteAction = page.getByRole("button", { name: "Delete circle", exact: true });
+    await expect(openAction).toHaveCSS("min-height", "44px");
+    await expect(deleteAction).toHaveCSS("min-height", "44px");
+    await expect(openAction.locator("..")).toHaveCSS("row-gap", "4px");
+    // Chromium can report 43.99997px after the popover's scale animation.
+    // Keep the CSS target exact and allow only floating-point geometry noise.
+    await expect.poll(() => openAction.evaluate(node => node.getBoundingClientRect().height)).toBeCloseTo(44, 2);
+    const geometry = await openAction.evaluate((node) => {
+      const first = node.getBoundingClientRect();
+      const second = node.nextElementSibling!.getBoundingClientRect();
+      return { firstHeight: first.height, secondHeight: second.height, gap: second.y - first.bottom };
+    });
+    expect(geometry.firstHeight).toBeCloseTo(44, 2);
+    expect(geometry.secondHeight).toBeCloseTo(44, 2);
+    expect(geometry.gap).toBeGreaterThanOrEqual(4 - 0.01);
+    await page.keyboard.press("Escape");
+    await group.getByRole("button", { name: "Delete Finance type" }).click();
+    await expect(page.getByRole("alertdialog")).toContainText("Your circles and their members will stay");
+    await page.getByRole("button", { name: "Delete type", exact: true }).click();
+    await expect(group).toBeHidden();
+    await expect(page.getByTestId("connect-circle-group-owned").getByText("Investments", { exact: true })).toBeVisible();
+  });
+}
+
 // Values are the Profile pane's, read from the running native app on 2026-10-18.
 const read = (page: Page, selector: string, index = 0) =>
   page.locator(selector).nth(index).evaluate((node) => {

@@ -39954,7 +39954,7 @@
   "mcp_compatible": true,
   "model_projections": {
     "location": {
-      "brain_revision": "6b5d5cba5d004a489d67a601",
+      "brain_revision": "3967766bea6b662174e3b5cb",
       "capabilities": [
         {
           "candidate_id": "location.accept_circle_invite",
@@ -42824,7 +42824,7 @@
           "label": "Location backend inventory"
         }
       ],
-      "known_unbound_implementation_count": 76,
+      "known_unbound_implementation_count": 77,
       "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
       "package_id": "location.brain",
       "package_version": 2,
@@ -42890,7 +42890,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "c6db9be8c48a2f412bc3011c604eeacf535924d60b1fd720b60273ba10dfa7c2",
+      "projection_digest": "0098e9b34f9d3a3dd60893e58c681b2f6d670b04e6bdd6e75e883b9725b5ad1c",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42909,7 +42909,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
       },
-      "source_revision": "88e824b5f2a3a37d",
+      "source_revision": "d42b3ae73085154e",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -44427,7 +44427,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "88e824b5f2a3a37d",
+    "source_revision": "d42b3ae73085154e",
     "web": {
       "actions": [
         {
@@ -44470,7 +44470,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "084f42a44761397a20b3a4c22df507cd6e5ae58b828cc1e6611029fad3039a20",
+      "projection_digest": "81661fafec9c8672463befae145c865627c541ddd86c2141af5fa61139c77449",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -44489,7 +44489,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
       },
-      "source_revision": "88e824b5f2a3a37d",
+      "source_revision": "d42b3ae73085154e",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -46046,7 +46046,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "88e824b5f2a3a37d",
+  "revision": "d42b3ae73085154e",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -47925,8 +47925,14 @@
   "semantic_diff": {
     "added": [],
     "breaking": [],
-    "changed": [],
-    "compatible": [],
+    "changed": [
+      "brains:location",
+      "services:service.location",
+      "workflows:workflow.setup.location"
+    ],
+    "compatible": [
+      "workflows:workflow.setup.location"
+    ],
     "deprecated": [],
     "from_revision": "9503b7156b53ae3c",
     "migrated": [],
@@ -48850,6 +48856,16 @@
         {
           "authorization": "vault_owner",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.location.delete.delete_named_location_circle_type",
+          "kind": "backend_api_endpoint",
+          "method": "DELETE",
+          "operation_name": "delete_named_location_circle_type",
+          "path": "/api/one/location/circle-types",
+          "service_id": "location"
+        },
+        {
+          "authorization": "vault_owner",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.location.get.list_named_location_circles",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -49765,7 +49781,7 @@
       "capability_id": "service.location",
       "catalog_coverage": {
         "all_discovered_capabilities_classified": true,
-        "blocked_endpoint_count": 76,
+        "blocked_endpoint_count": 77,
         "declared_capability_count": 73
       },
       "completion": {
@@ -49777,7 +49793,7 @@
       "executor_hierarchy": [
         {
           "action_ids": [],
-          "discovered_endpoint_count": 76,
+          "discovered_endpoint_count": 77,
           "kind": "backend_api",
           "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
           "status": "adapter_required"
@@ -49876,7 +49892,7 @@
       ],
       "kind": "service",
       "knowledge_package": {
-        "brain_revision": "6b5d5cba5d004a489d67a601",
+        "brain_revision": "3967766bea6b662174e3b5cb",
         "catalog_status": "complete_and_compiled",
         "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "package_id": "location.brain",
@@ -50177,9 +50193,9 @@
     "route_orchestration_index": "eb37a8bb7a3a30b196366cc330aafb5810c39efb8a411f39970d63652fb49733",
     "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
   },
-  "source_revision": "88e824b5f2a3a37d",
+  "source_revision": "d42b3ae73085154e",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "88e824b5f2a3a37d",
+    "current_graph_revision": "d42b3ae73085154e",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -51576,7 +51592,7 @@
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "66407f6994814d614757572e20b4c068c439c5afedbb410cd9ce3604da95a410",
+        "workflow_digest": "0771acb921eb2e35924fdb845b87c93ff4919bd3dd6092ae95d9c760aeab61c9",
         "workflow_id": "workflow.setup.location",
         "workflow_version": 2
       },
@@ -53002,6 +53018,16 @@
           "method": "POST",
           "operation_name": "decline_named_circle_member_invite",
           "path": "/api/one/location/circle-member-invites/{invite_id}/decline",
+          "service_id": "location"
+        },
+        {
+          "authorization": "vault_owner",
+          "binding_status": "discovered_unbound",
+          "capability_id": "api.location.delete.delete_named_location_circle_type",
+          "kind": "backend_api_endpoint",
+          "method": "DELETE",
+          "operation_name": "delete_named_location_circle_type",
+          "path": "/api/one/location/circle-types",
           "service_id": "location"
         },
         {
@@ -55330,7 +55356,7 @@
         "executor_hierarchy": [
           {
             "action_ids": [],
-            "discovered_endpoint_count": 76,
+            "discovered_endpoint_count": 77,
             "kind": "backend_api",
             "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
             "status": "adapter_required"

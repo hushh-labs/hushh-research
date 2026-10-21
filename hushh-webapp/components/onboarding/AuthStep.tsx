@@ -956,7 +956,7 @@ export function AuthStep({
         {
           id: "apple",
           label: "Continue with Apple",
-          icon: <AppleIcon className="size-6" />,
+          icon: <AppleIcon className={cn("size-6", lightStyles.appleProviderIcon)} />,
           onClick: () => handleProviderLogin("apple", { initiator: "tap" }),
         },
       ]
@@ -964,7 +964,7 @@ export function AuthStep({
         {
           id: "apple",
           label: "Continue with Apple",
-          icon: <AppleIcon className="size-6" />,
+          icon: <AppleIcon className={cn("size-6", lightStyles.appleProviderIcon)} />,
           onClick: () => handleProviderLogin("apple", { initiator: "tap" }),
         },
         {
@@ -980,7 +980,7 @@ export function AuthStep({
   if (isWeb()) {
     authOptions.push({
       id: "microsoft", label: "Continue with Microsoft",
-      icon: <span aria-hidden="true" className="grid size-6 grid-cols-2 gap-[2px]">
+      icon: <span aria-hidden="true" className={cn("grid size-6 grid-cols-2 gap-[2px]", lightStyles.microsoftProviderIcon)}>
         {["#f25022", "#7fba00", "#00a4ef", "#ffb900"].map((color) => <span key={color} style={{ backgroundColor: color }} />)}
       </span>,
       onClick: () => handleProviderLogin("microsoft", { initiator: "tap" }),

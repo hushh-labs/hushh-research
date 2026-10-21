@@ -64,10 +64,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Sheet,
-  SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { TaskSheetContent, TaskSurfaceBody } from "@/lib/morphy-ux/ui/task-surfaces";
+import sheetStyles from "./nearby-check-in-sheet.module.css";
 import { Switch } from "@/components/ui/switch";
 import {
   useLocalOnboardingActionHandler,
@@ -2532,7 +2534,7 @@ export function NearbyCheckInSheet({
   return (
     <>
       <Sheet modal={false} open={open && presentationReady} onOpenChange={onOpenChange}>
-        <SheetContent
+        <TaskSheetContent
           side="bottom"
           // Handle-only, not the whole body.
           //
@@ -2571,7 +2573,7 @@ export function NearbyCheckInSheet({
               "--check-in-rail-width": `${CHECK_IN_PANEL_DESKTOP_WIDTH_REM}rem`,
             } as CSSProperties
           }
-          className="max-h-[calc(100dvh-env(safe-area-inset-top)-8.5rem-var(--kb-height,0px))] gap-0 overflow-hidden px-0 pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[var(--check-in-rail-width)] md:rounded-none md:rounded-l-[var(--app-card-radius-feature)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right"
+          className={cn(sheetStyles.rail, "max-h-[calc(100dvh-env(safe-area-inset-top)-8.5rem-var(--kb-height,0px))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[var(--check-in-rail-width)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right")}
           data-testid="one-location-nearby-check-in-sheet"
           data-one-location-nearby-check-in-sheet=""
         >
@@ -2581,22 +2583,22 @@ export function NearbyCheckInSheet({
             on the screen, beside the title. Admission to nearby check-in is
             already gated by a build flag and a server cohort, so nobody
             reaches this sheet who was not meant to. */}
-          <SheetHeader className="gap-0 border-b border-border/60 px-5 py-4 text-left">
-            <div className="flex min-h-9 flex-col justify-center gap-1 pr-10">
+          <SheetHeader className="border-b border-border/60">
+            <div className="flex min-h-9 flex-col justify-center gap-1">
               <SheetTitle asChild>
                 <h1 className={CHECK_IN_DRAWER_TITLE_CLASSNAME}>
                   Check in nearby
                 </h1>
               </SheetTitle>
               {!state.presence && viewState !== "completed" ? (
-                <p className="ui-text-page-subtitle">
+                <SheetDescription>
                   Let people at the same place know you&apos;re there.
-                </p>
+                </SheetDescription>
               ) : null}
             </div>
           </SheetHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+          <TaskSurfaceBody className={sheetStyles.body}>
             {rendererAccess}
             <p className="sr-only" aria-live="polite" aria-atomic="true">
               {state.presence
@@ -2652,7 +2654,7 @@ export function NearbyCheckInSheet({
                       <Check className="h-4 w-4" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <h2 className={CHECK_IN_SECTION_TITLE_CLASSNAME}>
+                      <h2 className={CHECK_IN_SUBSECTION_TITLE_CLASSNAME}>
                         Check-in ended
                       </h2>
                       {completedCheckIn?.placeLabel ? (
@@ -2890,11 +2892,11 @@ export function NearbyCheckInSheet({
                       <Check className="h-4 w-4" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <h2 className={CHECK_IN_SECTION_TITLE_CLASSNAME}>
+                      <h2 className={CHECK_IN_SUBSECTION_TITLE_CLASSNAME}>
                         Checked in
                       </h2>
                       <p
-                        className="mt-0.5 truncate text-sm font-medium"
+                        className="mt-0.5 break-words text-sm font-medium leading-5"
                         title={state.presence.placeLabel || undefined}
                       >
                         {state.presence.placeLabel || "Your place"}
@@ -2950,7 +2952,7 @@ export function NearbyCheckInSheet({
                   primary={
                     <Button
                       type="button"
-                      size="prominent"
+                      size="standard"
                       variant={CHECK_OUT_BUTTON_VARIANT}
                       disabled={busy !== null}
                       onClick={() => void checkout()}
@@ -3465,8 +3467,8 @@ export function NearbyCheckInSheet({
                 </Button>
               </div>
             )}
-          </div>
-        </SheetContent>
+          </TaskSurfaceBody>
+        </TaskSheetContent>
       </Sheet>
       <Sheet
         open={addTimeOpen}
@@ -3474,17 +3476,18 @@ export function NearbyCheckInSheet({
           if (busy === null) setAddTimeOpen(nextOpen);
         }}
       >
-        <SheetContent
+        <TaskSheetContent
           side="bottom"
-          className="mx-auto w-full gap-0 rounded-t-[var(--app-card-radius-feature)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:max-w-md md:left-auto md:right-6 md:max-w-sm md:rounded-[var(--app-card-radius-feature)]"
+          size="sm"
+          className="mx-auto w-full sm:max-w-md md:left-auto md:right-6 md:max-w-sm md:rounded-[var(--app-card-radius-feature)]"
           aria-describedby={undefined}
         >
-          <SheetHeader className="px-0 pb-3 text-left">
-            <SheetTitle className={CHECK_IN_SECTION_TITLE_CLASSNAME}>
+          <SheetHeader>
+            <SheetTitle className={CHECK_IN_DRAWER_TITLE_CLASSNAME}>
               Add time
             </SheetTitle>
           </SheetHeader>
-          <div className="grid grid-cols-2 gap-2">
+          <div className={sheetStyles.extension}>
             {([30, 60] as const).map((increment) => (
               <Button
                 key={increment}
@@ -3501,7 +3504,7 @@ export function NearbyCheckInSheet({
               </Button>
             ))}
           </div>
-        </SheetContent>
+        </TaskSheetContent>
       </Sheet>
     </>
   );

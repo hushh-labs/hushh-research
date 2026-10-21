@@ -16,7 +16,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { KeyRound, Search } from "@/components/icons";
+import { KeyRound, Search, Trash2 } from "@/components/icons";
+import { customCircleTypeGroups } from "@/lib/one-location/circle-types";
 import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
@@ -262,6 +263,7 @@ export function ConnectCirclesTab({
     token: string | null;
     ownerId: string | null;
     circles: OneLocationCircleSummary[];
+    customTypePolicy?: { version: number; maxTypes: number };
   }>({ token: null, ownerId: null, circles: [] });
   const loadedForSession =
     loaded.token === vaultOwnerToken && loaded.ownerId === currentUserId;
@@ -359,13 +361,14 @@ export function ConnectCirclesTab({
         });
     void provision
       .catch(() => undefined)
-      .then(() => OneLocationService.listCircles(vaultOwnerToken))
-      .then((next) => {
+      .then(() => OneLocationService.listCircleWorkspace(vaultOwnerToken))
+      .then((workspace) => {
         if (cancelled) return;
         setLoaded({
           token: vaultOwnerToken,
           ownerId: currentUserId,
-          circles: next,
+          circles: workspace.circles,
+          customTypePolicy: workspace.customTypePolicy,
         });
         setLoading(false);
       })
@@ -413,6 +416,10 @@ export function ConnectCirclesTab({
     listSessionRef.current = { currentUserId, vaultOwnerToken };
   }
   const listSession = listSessionRef.current;
+  const customTypesSupported = loadedForSession && loaded.customTypePolicy?.version === 1 && loaded.customTypePolicy.maxTypes === 3;
+  const allCustomGroups = useMemo(() => customCircleTypeGroups(circles), [circles]);
+  const [pendingTypeDraft, setPendingTypeDraft] = useState<{ session: typeof listSession; label: string } | null>(null);
+  const pendingType = pendingTypeDraft?.session === listSession ? pendingTypeDraft.label : null;
   type PendingCircle = {
     circle: OneLocationCircleSummary;
     action: "delete" | "leave";
@@ -452,7 +459,7 @@ export function ConnectCirclesTab({
     () =>
       orderCircles(
         circles.filter((circle) =>
-          circle.name
+          `${circle.name} ${circle.customTypeLabel ?? ""}`
             .toLocaleLowerCase()
             .includes(circleQuery.trim().toLocaleLowerCase()),
         ),
@@ -563,13 +570,15 @@ export function ConnectCirclesTab({
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "visible" || inFlight) return;
       inFlight = true;
-      void OneLocationService.listCircles(vaultOwnerToken)
-        .then((next) => {
+      void OneLocationService.listCircleWorkspace(vaultOwnerToken)
+        .then((workspace) => {
           if (cancelled) return;
+          const next = workspace.circles;
           setLoaded({
             token: vaultOwnerToken,
             ownerId: currentUserId,
             circles: next,
+            customTypePolicy: workspace.customTypePolicy,
           });
           setError(null);
           setLoading(false);
@@ -594,7 +603,7 @@ export function ConnectCirclesTab({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [circleIdParam, currentUserId, isActive, vaultOwnerToken]);
+  }, [circleIdParam, currentUserId, isActive, vaultOwnerToken, reloadToken, refreshToken]);
 
   const closeFlow = useCallback(
     (refreshList = true) => {
@@ -655,6 +664,8 @@ export function ConnectCirclesTab({
       <CreateCircleFlow
         key={`${currentUserId}:${vaultOwnerToken}`}
         busy={busy}
+        customTypes={allCustomGroups.map(group => group.label)}
+        customTypesSupported={customTypesSupported}
         pathname={ROUTES.CONNECT}
         backLayerQuery={createDialogOpen ? {} : { action: "create-circle" }}
         onLoadPeople={actions.loadEligibleConnectionsPage}
@@ -662,9 +673,9 @@ export function ConnectCirclesTab({
           await withBusy(() => actions.inviteConnections(circleId, userIds));
           announceCircleMutation("location_circle_member_added", circleId);
         }}
-        onSubmit={async (name, kind, existingCircleId) => {
+        onSubmit={async (name, kind, existingCircleId, customTypeLabel) => {
           const circle = await withBusy(() =>
-            actions.createCircle(name, kind, existingCircleId),
+            actions.createCircle(name, kind, existingCircleId, customTypeLabel),
           );
           if (!existingCircleId)
             trackEvent("one_location_circle_created", {
@@ -969,6 +980,10 @@ export function ConnectCirclesTab({
     );
   };
 
+  const customGroups = customCircleTypeGroups(owned);
+  const customIds = new Set(customGroups.flatMap(group => group.circles.map(circle => circle.id)));
+  const ordinaryOwned = owned.filter(circle => !customIds.has(circle.id));
+
   return (
     <div className="space-y-4" data-profile-type-scale="circles" data-testid="connect-circles-tab">
       {vaultOwnerToken ? (
@@ -1022,15 +1037,15 @@ export function ConnectCirclesTab({
         </SettingsGroup>
       ) : (
         <>
-          {owned.length ? (
+          {ordinaryOwned.length ? (
             <section data-testid="connect-circle-group-owned">
               <div
                 className={`${CONNECT_CIRCLE_GRID_CLASSNAME} ${styles.circleGroup}`}
               >
-                {owned.map(renderCircleRow)}
+                {ordinaryOwned.map(renderCircleRow)}
               </div>
             </section>
-          ) : (
+          ) : owned.length ? null : (
             <div className="py-5 text-center">
               <h3 className="text-sm font-semibold">
                 {circleQuery
@@ -1061,8 +1076,51 @@ export function ConnectCirclesTab({
               </div>
             </section>
           ) : null}
+          {customGroups.map(group => (
+            <section key={group.label.toLocaleLowerCase()} aria-label={`${group.label} circles`}>
+              <div className={styles.circleHeading}>
+                <h2>{group.label} <span className={styles.count}>{group.circles.length}</span></h2>
+                {customTypesSupported ? <Button type="button" variant="none" effect="fade" size="icon-touch"
+                  aria-label={`Delete ${group.label} type`} disabled={busy}
+                  onClick={() => setPendingTypeDraft({ session: listSession, label: group.label })}>
+                  <Trash2 aria-hidden="true" className="size-4" />
+                </Button> : null}
+              </div>
+              <div className={`${CONNECT_CIRCLE_GRID_CLASSNAME} ${styles.circleGroup}`}>
+                {group.circles.map(renderCircleRow)}
+              </div>
+            </section>
+          ))}
         </>
       )}
+      <AlertDialog open={pendingType !== null} onOpenChange={open => { if (!open && !listMutationRef.current) setPendingTypeDraft(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {pendingType} type?</AlertDialogTitle>
+            <AlertDialogDescription>Your circles and their members will stay. These circles will use Other, and you can create a new type.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={busy} onClick={event => {
+              event.preventDefault();
+              if (!pendingType || !vaultOwnerToken || !customTypesSupported || listMutationRef.current) return;
+              listMutationRef.current = true;
+              const session = listSession;
+              setBusy(true);
+              const operation = OneLocationService.deleteCircleType({ vaultOwnerToken, customTypeLabel: pendingType }).then(() => {
+                if (listSessionRef.current !== session) return;
+                setPendingTypeDraft(null);
+                setReloadToken(value => value + 1);
+                announceCircleMutation("location_circle_type_deleted");
+              });
+              morphyToast.promise(operation, { loading: "Deleting type…", success: "Type deleted. Your circles are kept.", error: "Could not delete this type. Try again." });
+              void operation.catch(() => undefined).finally(() => {
+                if (listSessionRef.current === session) { listMutationRef.current = false; setBusy(false); }
+              });
+            }}>Delete type</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={pendingCircle !== null}
         onOpenChange={(open) => {
