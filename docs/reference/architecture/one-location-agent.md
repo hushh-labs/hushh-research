@@ -114,6 +114,13 @@ results still report partial failures. The earlier connection lifecycle fix
 (PR #8272) repaired key bootstrap and roster invalidation, but did not remove the
 inherited SMS phone gate or compact this disclosure.
 
+The authored SOS action meanings fit the existing model-catalog budget while
+retaining exact audience confirmation, encrypted publication and verified delivery
+before a sent claim. The capability evolution ledger rejects paused command runs
+for the four revised actions pinned to graph `65ab266e1b246630`; those commands
+need fresh preparation under the current graph. This does not revoke an already
+active SOS share or prevent a fresh Stop SOS request.
+
 The introduction has three steps: Features, an optional Save a place step, then the
 existing Circle invite, copy/share, Join and Find contacts finale. Continue on
 Features asks for device location and a position once, only to centre the pin;

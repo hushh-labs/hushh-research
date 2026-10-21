@@ -7214,7 +7214,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Opens the Save My Soul contacts screen, where you choose who is alerted when you raise an SOS. SMS is short for Save My Soul; no text message is sent -- contacts get a push notification, an email fallback, and a live location share.",
+      "description": "Opens Save My Soul contacts to choose SOS recipients. SMS means Save My Soul: push, email fallback and live location, without carrier texts.",
       "execution": {
         "binding_ref": "route:/one/location?action=sms-contacts",
         "executor": {
@@ -8577,7 +8577,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Reloads the selected Save My Soul Circle and its current receiving readiness. Does not request location permission, change members or send an alert.",
+      "description": "Reloads the selected Save My Soul Circle and receiving readiness without requesting GPS, changing members or sending.",
       "execution": {
         "binding_ref": "semantic_action:location.refresh_sms_contacts",
         "executor": {
@@ -9938,7 +9938,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Ends the Save My Soul alert that is currently running and revokes the live SOS location shares it created. It does not tell anyone you are safe and does not change ordinary location sharing. In One Voice it shows a tap-confirmation card naming the shares it will end; shares that cannot be verified as ended are reported as still possibly live.",
+      "description": "Stops the active Save My Soul alert and revokes its SOS shares. Does not announce safety or change ordinary sharing. One Voice requires a tap-confirmation card naming the shares; unverified endings remain possibly live.",
       "execution": {
         "binding_ref": "semantic_action:location.stop_sos",
         "executor": {
@@ -10280,7 +10280,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Adds one person to the list who are alerted and receive your live location if you trigger an SOS. Only people who have finished Location setup can be added.",
+      "description": "Adds an eligible connected person with a receiving key to your SOS contacts for alerts and live location. Phone and Location onboarding are optional.",
       "execution": {
         "binding_ref": "semantic_action:location.add_emergency_contact",
         "executor": {
@@ -13325,7 +13325,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Sends a Save My Soul alert to the emergency contacts: one 8-hour precise-location share per contact who can receive it. From a typed command this opens the authored review screen and cannot report an alert as sent. In One Voice it shows a tap-confirmation card naming exactly who will be alerted; the tap arms the shares, the device publishes the encrypted position, and the server verifies delivery before anything is reported as sent. It does not call emergency services.",
+      "description": "Creates an 8-hour precise-location SOS share per ready emergency contact. Typed commands only open review and cannot report sent. One Voice requires a tap-confirmation card naming the exact audience, device publication of encrypted location and server delivery verification before reporting sent. Does not call emergency services.",
       "execution": {
         "binding_ref": "semantic_action:location.trigger_sos",
         "executor": {
@@ -40701,7 +40701,7 @@
   "mcp_compatible": true,
   "model_projections": {
     "location": {
-      "brain_revision": "9bd8d29542431b7ed3f1bb56",
+      "brain_revision": "d75349bff78bb33163520e89",
       "capabilities": [
         {
           "candidate_id": "location.accept_circle_invite",
@@ -40761,7 +40761,7 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Adds one person to the list who are alerted and receive your live location if you trigger an SOS. Only people who have finished Location setup can be added.",
+          "semantic_boundary": "Adds an eligible connected person with a receiving key to your SOS contacts for alerts and live location. Phone and Location onboarding are optional.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -41404,7 +41404,7 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Opens the Save My Soul contacts screen, where you choose who is alerted when you raise an SOS. SMS is short for Save My Soul; no text message is sent -- contacts get a push notification, an email fallback, and a live location share.",
+          "semantic_boundary": "Opens Save My Soul contacts to choose SOS recipients. SMS means Save My Soul: push, email fallback and live location, without carrier texts.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -41479,7 +41479,7 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Reloads the selected Save My Soul Circle and its current receiving readiness. Does not request location permission, change members or send an alert.",
+          "semantic_boundary": "Reloads the selected Save My Soul Circle and receiving readiness without requesting GPS, changing members or sending.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -41993,7 +41993,7 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Ends the Save My Soul alert that is currently running and revokes the live SOS location shares it created. It does not tell anyone you are safe and does not change ordinary location sharing. In One Voice it shows a tap-confirmation card naming the shares it will end; shares that cannot be verified as ended are reported as still possibly live.",
+          "semantic_boundary": "Stops the active Save My Soul alert and revokes its SOS shares. Does not announce safety or change ordinary sharing. One Voice requires a tap-confirmation card naming the shares; unverified endings remain possibly live.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -42014,7 +42014,7 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Sends a Save My Soul alert to the emergency contacts: one 8-hour precise-location share per contact who can receive it. From a typed command this opens the authored review screen and cannot report an alert as sent. In One Voice it shows a tap-confirmation card naming exactly who will be alerted; the tap arms the shares, the device publishes the encrypted position, and the server verifies delivery before anything is reported as sent. It does not call emergency services.",
+          "semantic_boundary": "Creates an 8-hour precise-location SOS share per ready emergency contact. Typed commands only open review and cannot report sent. One Voice requires a tap-confirmation card naming the exact audience, device publication of encrypted location and server delivery verification before reporting sent. Does not call emergency services.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -42182,7 +42182,7 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Adds one person to the list who are alerted and receive your live location if you trigger an SOS. Only people who have finished Location setup can be added.",
+          "semantic_boundary": "Adds an eligible connected person with a receiving key to your SOS contacts for alerts and live location. Phone and Location onboarding are optional.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -42825,7 +42825,7 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Opens the Save My Soul contacts screen, where you choose who is alerted when you raise an SOS. SMS is short for Save My Soul; no text message is sent -- contacts get a push notification, an email fallback, and a live location share.",
+          "semantic_boundary": "Opens Save My Soul contacts to choose SOS recipients. SMS means Save My Soul: push, email fallback and live location, without carrier texts.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -42900,7 +42900,7 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Reloads the selected Save My Soul Circle and its current receiving readiness. Does not request location permission, change members or send an alert.",
+          "semantic_boundary": "Reloads the selected Save My Soul Circle and receiving readiness without requesting GPS, changing members or sending.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -43414,7 +43414,7 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Ends the Save My Soul alert that is currently running and revokes the live SOS location shares it created. It does not tell anyone you are safe and does not change ordinary location sharing. In One Voice it shows a tap-confirmation card naming the shares it will end; shares that cannot be verified as ended are reported as still possibly live.",
+          "semantic_boundary": "Stops the active Save My Soul alert and revokes its SOS shares. Does not announce safety or change ordinary sharing. One Voice requires a tap-confirmation card naming the shares; unverified endings remain possibly live.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -43435,7 +43435,7 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Sends a Save My Soul alert to the emergency contacts: one 8-hour precise-location share per contact who can receive it. From a typed command this opens the authored review screen and cannot report an alert as sent. In One Voice it shows a tap-confirmation card naming exactly who will be alerted; the tap arms the shares, the device publishes the encrypted position, and the server verifies delivery before anything is reported as sent. It does not call emergency services.",
+          "semantic_boundary": "Creates an 8-hour precise-location SOS share per ready emergency contact. Typed commands only open review and cannot report sent. One Voice requires a tap-confirmation card naming the exact audience, device publication of encrypted location and server delivery verification before reporting sent. Does not call emergency services.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -43667,7 +43667,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "0e79bd44e3b79e67b24df9fb861489241bfe1a8335a1c895cffa933748b320ed",
+      "projection_digest": "598eb69ecdd80e9f3e42e7f0d2501eeca51877e6dd9896d38471427ea7f5874a",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -43677,7 +43677,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "15e25c4335dfbf911e16cd03c0e2036a932977ac204f1c6ae127f3083a65d74f",
+        "capability_graph_evolution": "f78ef87ad0ab500b9057279ac41fc60abb599f907e460b7d64ceb0ba1aef0a91",
         "capability_runtime_compiler": "69638086287c46cf6f52c0e73a5e19dd3e427880de170572b97e2ebe4a8967fb",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "c09e8987cf11a0c73a23a2bb39fe93edeca9235ac3f1a9ddd1af8f0f42dd612e",
@@ -43686,7 +43686,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "784e546fca47d30419f5766585516e7c6da62874e4d18fe9c8f916ec1c5dd8a3"
       },
-      "source_revision": "d2fb4bf373169b8d",
+      "source_revision": "ba18c0e75894966d",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -45204,7 +45204,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "d2fb4bf373169b8d",
+    "source_revision": "ba18c0e75894966d",
     "web": {
       "actions": [
         {
@@ -45247,7 +45247,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "53f80ca65199f6ba0bb739652d824806e089221ad04a96626c99f92bf1b24b7c",
+      "projection_digest": "987e405491f0c9410c9e63482546b1afdae83deb93c9371e2cd225e6ff82219f",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -45257,7 +45257,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "15e25c4335dfbf911e16cd03c0e2036a932977ac204f1c6ae127f3083a65d74f",
+        "capability_graph_evolution": "f78ef87ad0ab500b9057279ac41fc60abb599f907e460b7d64ceb0ba1aef0a91",
         "capability_runtime_compiler": "69638086287c46cf6f52c0e73a5e19dd3e427880de170572b97e2ebe4a8967fb",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "c09e8987cf11a0c73a23a2bb39fe93edeca9235ac3f1a9ddd1af8f0f42dd612e",
@@ -45266,7 +45266,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "784e546fca47d30419f5766585516e7c6da62874e4d18fe9c8f916ec1c5dd8a3"
       },
-      "source_revision": "d2fb4bf373169b8d",
+      "source_revision": "ba18c0e75894966d",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -46823,7 +46823,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "d2fb4bf373169b8d",
+  "revision": "ba18c0e75894966d",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -48728,6 +48728,10 @@
     ],
     "breaking": [],
     "changed": [
+      "actions:location.add_emergency_contact",
+      "actions:location.open_sms_contacts",
+      "actions:location.stop_sos",
+      "actions:location.trigger_sos",
       "brains:location",
       "screens:screen:/one/location",
       "services:service.location",
@@ -48736,7 +48740,12 @@
     "compatible": [
       "workflows:workflow.setup.location"
     ],
-    "deprecated": [],
+    "deprecated": [
+      "actions:location.add_emergency_contact",
+      "actions:location.open_sms_contacts",
+      "actions:location.stop_sos",
+      "actions:location.trigger_sos"
+    ],
     "from_revision": "65ab266e1b246630",
     "migrated": [],
     "removed": []
@@ -50700,7 +50709,7 @@
       ],
       "kind": "service",
       "knowledge_package": {
-        "brain_revision": "9bd8d29542431b7ed3f1bb56",
+        "brain_revision": "d75349bff78bb33163520e89",
         "catalog_status": "complete_and_compiled",
         "package_digest": "a122c04c4d0a4df17b384f321a55183966d48e6c077e5b5def7973d20d0fa14f",
         "package_id": "location.brain",
@@ -50989,10 +50998,10 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "15e25c4335dfbf911e16cd03c0e2036a932977ac204f1c6ae127f3083a65d74f",
+    "capability_graph_evolution": "f78ef87ad0ab500b9057279ac41fc60abb599f907e460b7d64ceb0ba1aef0a91",
     "capability_runtime_compiler": "69638086287c46cf6f52c0e73a5e19dd3e427880de170572b97e2ebe4a8967fb",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "641c3e0b5908f05cb3bf6b071667e9f71959e984b89262ebe8d3296e7154a9a0",
+    "kai_action_gateway": "5a73d34fa64beb1a2b6275852c57a532fbea82cbcfd2dd9a4cf25087d1d85edf",
     "location_agent_manifest": "c09e8987cf11a0c73a23a2bb39fe93edeca9235ac3f1a9ddd1af8f0f42dd612e",
     "location_knowledge_package": "a122c04c4d0a4df17b384f321a55183966d48e6c077e5b5def7973d20d0fa14f",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -51001,9 +51010,9 @@
     "route_orchestration_index": "3a63e0e92217f200c98f90350190aa9075ba228d4361b51d8b3671b859e4d960",
     "service_knowledge_packages": "784e546fca47d30419f5766585516e7c6da62874e4d18fe9c8f916ec1c5dd8a3"
   },
-  "source_revision": "d2fb4bf373169b8d",
+  "source_revision": "ba18c0e75894966d",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "d2fb4bf373169b8d",
+    "current_graph_revision": "ba18c0e75894966d",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -51191,6 +51200,7 @@
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
           "d1893c1a136dc255",
+          "d2fb4bf373169b8d",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
@@ -51431,6 +51441,7 @@
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
           "d1893c1a136dc255",
+          "d2fb4bf373169b8d",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
@@ -51613,6 +51624,7 @@
           "c846a385fad8df04",
           "ca45fcf41af6e723",
           "d01f9a7a5198c5c9",
+          "d2fb4bf373169b8d",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d42b3ae73085154e",
@@ -51911,6 +51923,7 @@
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
           "d1893c1a136dc255",
+          "d2fb4bf373169b8d",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
@@ -52151,6 +52164,7 @@
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
           "d1893c1a136dc255",
+          "d2fb4bf373169b8d",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
@@ -52391,6 +52405,7 @@
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
           "d1893c1a136dc255",
+          "d2fb4bf373169b8d",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
@@ -52631,6 +52646,7 @@
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
           "d1893c1a136dc255",
+          "d2fb4bf373169b8d",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
