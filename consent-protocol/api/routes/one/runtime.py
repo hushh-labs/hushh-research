@@ -298,7 +298,7 @@ async def select_managed_gemini(
     return ManagedGeminiSelectionResponse(
         status=readiness.status,
         model=readiness.model,
-        location=readiness.location,
+        location=readiness.location or "",
         agentScheduled=bool(verdict.get("scheduled")),
         agentReason=str(verdict.get("reason") or ""),
     )

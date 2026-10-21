@@ -2,9 +2,10 @@
 
 **Status:** authorized execution, refreshed 2026-10-21 UTC. Continue on the
 infrastructure branch; preserve concurrent work and the active ADK tree. Prior
-main/ADK integration remains preserved. Fresh main `0d92c413d0` and frozen ADK
-`914e7c044c` are now integrated through local `47bc0245d7`; peer edits and the
-active ADK worktree remain unchanged. Freeze the regenerated combined candidate.
+main/ADK integration remains preserved. Main through `f0eca1f983` and frozen ADK `914e7c044c` are integrated through
+`e25cd5f0eb`. Main's new Azure managed-provider selection is preserved alongside
+private-pod admission, Browser phase history and release publication. Nine peer
+edits and the active ADK worktree remain unchanged.
 
 One and Browser share the owner's image, container, non-root identity and
 lifecycle. GCP remains Cloud Run with Chromium's sandbox enabled; Azure remains
@@ -57,10 +58,13 @@ resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 
-- Fresh main `0d92c413d0` is integrated by `c2269a8da8`, preserving its
+- Main through `f0eca1f983` is integrated by `e25cd5f0eb`, preserving its
   Profile/mobile, consent, deletion, PLG, Calendar and migrations 365–369 alongside
   pod authority. New content routes retain Shared-only admission; signed PLG
-  operational exports retain their separate bounds and disabled defaults.
+  operational exports retain their separate bounds and disabled defaults. The
+  managed Azure provider update keeps its required admission aggregate. One Vertex
+  probe records its actual result before cleanup; UAT evaluates both providers,
+  while other environments retain predeployment Vertex refusal.
 - Frozen ADK `914e7c044c` is integrated by `47bc0245d7`. Its native Profile
   preparation and visit fencing retain lazy plugin registration, current public-
   profile forms, pod AI selection and owner controls. Regenerate projections

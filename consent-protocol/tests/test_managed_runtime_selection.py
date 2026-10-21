@@ -73,15 +73,17 @@ def _not_ready():
 # -- the connection has to prove itself -------------------------------------------
 
 
-async def test_a_verified_managed_runtime_starts_the_agent(monkeypatch):
+@pytest.mark.parametrize("location", ["global", None])
+async def test_a_verified_managed_runtime_starts_the_agent(monkeypatch, location):
     gate = _Gate()
-    monkeypatch.setattr(runtime_route, "_probe_managed_gemini", _ready())
+    monkeypatch.setattr(runtime_route, "_probe_managed_gemini", _ready(location))
     monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
 
     result = await runtime_route.select_managed_gemini(request=None, firebase_uid="u1")
 
     assert result.status == "ready"
     assert result.agentScheduled is True
+    assert result.location == (location or "")
     assert gate.calls[0]["user_id"] == "u1"
 
 

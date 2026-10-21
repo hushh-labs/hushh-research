@@ -63,14 +63,15 @@ from this local implementation pass. No new deployment or owner install occurred
 | Dev app | Source `28a0fa109175`; hub `consent-protocol-00186-5zw` / image `d80e03ebc21a`; web `hushh-webapp-00154-jzm` / image `c7f92a59242b`; both 100% | ADC readback 12:21 UTC; [exact-SHA CI](https://github.com/hushh-labs/hushh-research/actions/runs/39122438292), [governed dev rollout](https://github.com/hushh-labs/hushh-research/actions/runs/39125450154) succeeded |
 | Personal Azure pod | `2026.10-dev.25+991a06ccbc01.4a3b29a7`; digest `sha256:4a3b29a74641d7eac470da43d18f01c5039f4c0327ed84811ce2f0bfa939ac9a`; revision `ca-hussh-one-pod--u36234007817f` | `op_b9a279571aaf47bcaffdbc4689c80d6c` verified 03:19:39 UTC; exact predecessor `250aea9e…fc69f1`; same identity and 1 vCPU / 2 GiB, min 0 / max 1 |
 | Schema / rollback | 65 rows, 964 applied, no required-contract/checksum mismatch; history cleanup deferred | Captured hub rollback `00185-f9z` / `e9482e4319ad`; web `00153-7ck` / `991a06ccbc01`. Application rollback cannot restore deleted history |
-| Local integration | Browser checkpoint `80731a80b3`; fresh main `0d92c413d0` integrated by `c2269a8da8`; frozen ADK `914e7c044c` integrated by `47bc0245d7` | Both histories preserved; active ADK and concurrent unrelated edits preserved. Focused checks below are local; final core/hosted CI and installed acceptance remain pending. Older core receipts do not validate this candidate |
+| Local integration | Browser `80731a80b3`; frozen ADK `914e7c044c`; main through `f0eca1f983` integrated by `e25cd5f0eb` | Histories and nine unrelated edits preserved. Main's managed Azure capabilities coexist with owner-pod authority and disabled Azure pod voice. Local validation is recorded below; hosted CI and installed acceptance remain separate |
 | Browser component qualification | Image `sha256:b48f66b6…b32fbf24a4`: ordinary GCP frames/start 7.145 s, Azure frames/start 1.555 s; both confirmed Stop. Native ACA Luna research 19.460 s, five model round trips at capacity 50 | Synthetic grants, excludes owner HTTP acceptance and full-pod capacity. Capacity 1 returned 429; original failure retained. GCP native Gemini 3.8 research subsequently completed in 96.713 s through the approved bridge: three model round trips, two native actions and two screenshot continuations. This is one component sample, not a latency target pass. Disposable resources and temporary model/RBAC verified removed |
 
 ### Current local implementation
 
-Browser implementation is committed at `80731a80b3`; the combined main/ADK intake
-is committed through `47bc0245d7`. Final generated receipts and evidence are being
-refreshed. This candidate remains uninstalled.
+Browser implementation is committed at `80731a80b3`; main through `f0eca1f983`
+and frozen ADK `914e7c044c` are preserved in the combined ancestry. This candidate
+remains uninstalled. Exact download ingress now preserves Browser control and Files
+authority, with malformed and neighboring paths refused.
 Browser joins now include durable identifier-only delivery through the existing
 Files queue, asynchronous input review, native ADK handback, encrypted remembered
 sessions and exact owner-approved configuration on Cloud Run and Container Apps.
@@ -88,20 +89,19 @@ Stop joins an admitted save; Files completion reuses its consented organization
 outbox and reports queue failure separately from saved bytes. Reconnect never
 refetches a lost attachment or reruns a completed goal. These new joins still need installed owner acceptance.
 
-Current focused receipts: **343 Browser/Files/route checks**, followed by **91**
-modular authority cases and **38** native/launcher cases after the final repairs;
-**33 frontend checks** and affected typechecks pass. Counts overlap. Takeover
-refuses old-epoch frames; restoring the old cancellation order fails its regression.
-The combined architecture ratchet preserves historical debt and unchanged budgets;
-only exact, independently reviewed inheritance and regression ceilings were added. Main intake passed 256
-focused frontend and 495 Back cases. Backend focused checks recorded 520 passes
-and nine failures; all nine passed after the refresh-forwarding, fixture and
-release-helper repairs. ADK privacy/Profile checks recorded 337 passes plus one
-stale structural assertion; its eight-case owning file passes after checking the
-actual opaque visual cover and both document fences. Typecheck and the 40-case
-reviewer owning gate pass. The retired-visit referral regression failed on old code
-and its repaired 32-case suite passes; release cadence and predecessor suites pass
-29 and 33 cases. Counts overlap; none is installed acceptance.
+Local core verification preserves original failures and resumes only affected stages.
+The first parallel manifest passed 22,130 tests; repaired cases and 388 database
+setup cases pass on replay. The serial stage passed 1,587 cases; all 79 affected
+cases pass in a disposable CI-equivalent PostgreSQL instance, then verified removed.
+Counts overlap. Main's changed seams passed 950 plus 342 cases, with every remaining
+failure resolved by targeted replay. The uncached readiness and absent provider
+location paths now retain their typed public contract.
+
+Governance, package validation, PKM integration (191 frontend and 400 backend cases
+across the initial run and repaired path assertion), 495 Back cases, refreshed UI
+receipts, typecheck, lint and production frontend build pass. Bandit reports zero
+medium/high findings. The final source typecheck and exact-SHA hosted aggregate
+must pass before dispatch. This is local evidence, not installed acceptance.
 
 Component image `sha256:2bfbf9da…dad8db81` now renders both public pages and confirms
 supervisor exit on Cloud Run (startup 6.951 s) and Container Apps (1.719 s).
@@ -109,13 +109,13 @@ Source archive, disposable services/groups and scoped grants were removed with
 readback. Earlier scratch/import failures are retained; build-time restricted-
 module imports now catch the packaging defect. These are component receipts,
 not installed owner acceptance or full-runtime capacity. The combined candidate
-has completed the frozen main/ADK intake; core mirror and exact-SHA CI remain.
+has completed main/ADK intake; exact-SHA hosted CI remains before dev dispatch.
 
 VM hosting is superseded by the agreed Container Apps configuration. Historical
 VM receipts do not authorize a customer hosting transition. No owner resources,
 placements or selected capacities were changed by this local continuation.
-The private Wiki correction now reads back after transport errors. Write
-acknowledgement and durable backup remain unconfirmed.
+The affected private Wiki release decision was corrected and read back on
+2026-10-21.
 
 ## Performance and economics
 
@@ -145,8 +145,8 @@ paid work; spending thresholds warn without stopping service.
    Files organization, GCP recorded commands/connectors and retained erasure.
    Use three cold and three warm samples only for relevant startup changes;
    historical percentiles remain historical. No model sweep or artificial keepalive.
-3. **Release owner:** freeze the combined main/ADK candidate; run the core
-   mirror and exact-SHA hosted CI; govern the image-build and qualified-metadata
+3. **Release owner:** finish the final typecheck on the combined candidate, obtain
+   exact-SHA hosted CI, then govern the image-build and qualified-metadata
    publication runs, then separately approved pod installs. Decide readiness from journey receipts, not source or health flags.
 
 Reuse unchanged Puppy evidence: 320 Chromium/WebKit responsive cases, shared
