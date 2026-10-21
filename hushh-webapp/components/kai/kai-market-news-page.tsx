@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink, Loader2, RefreshCcw } from "@/components/icons";
 
 import {
@@ -176,7 +176,7 @@ export function KaiMarketNewsPage() {
   const cacheKey = userId
     ? CACHE_KEYS.KAI_MARKET_NEWS(userId, scope, null, PAGE_SIZE, 7)
     : "kai_market_news_guest";
-  const [additionalPages, setAdditionalPages] = useState<KaiMarketNewsPage[]>([]);
+  const [paging, setPaging] = useState<{ feedKey: string; pages: KaiMarketNewsPage[] }>({ feedKey: "", pages: [] });
   const [loadingMore, setLoadingMore] = useState(false);
   const [resyncMessage, setResyncMessage] = useState<string | null>(null);
 
@@ -197,20 +197,32 @@ export function KaiMarketNewsPage() {
       }),
   });
 
+  const feedKey = JSON.stringify([cacheKey, firstPageResource.data?.snapshot_id]);
+  const feedLifecycle = useRef({ key: feedKey, generation: 0 });
+  if (feedLifecycle.current.key !== feedKey) {
+    feedLifecycle.current = { key: feedKey, generation: feedLifecycle.current.generation + 1 };
+  }
   useEffect(() => {
-    setAdditionalPages([]);
+    const generation = feedLifecycle.current.generation;
+    setPaging({ feedKey, pages: [] });
+    setLoadingMore(false);
     setResyncMessage(null);
-  }, [scope, firstPageResource.data?.snapshot_id]);
+    return () => {
+      if (feedLifecycle.current.generation === generation) feedLifecycle.current.generation += 1;
+    };
+  }, [feedKey]);
 
   const allPages = useMemo(
-    () => [firstPageResource.data, ...additionalPages],
-    [additionalPages, firstPageResource.data],
+    () => [firstPageResource.data, ...(paging.feedKey === feedKey ? paging.pages : [])],
+    [feedKey, paging, firstPageResource.data],
   );
   const rows = useMemo(() => dedupePages(allPages), [allPages]);
   const lastPage = allPages.at(-1) ?? null;
 
   const loadMore = useCallback(async () => {
     if (!userId || loadingMore || !lastPage?.has_more || !lastPage.next_cursor) return;
+    const generation = feedLifecycle.current.generation;
+    const isCurrentFeed = () => feedLifecycle.current.generation === generation;
     setLoadingMore(true);
     setResyncMessage(null);
     try {
@@ -223,26 +235,30 @@ export function KaiMarketNewsPage() {
         limit: PAGE_SIZE,
         backgroundRefresh: true,
       });
-      if (!nextPage) return;
-      setAdditionalPages((current) => {
+      if (!isCurrentFeed() || !nextPage) return;
+      setPaging((current) => {
+        if (!isCurrentFeed()) return current;
         const snapshotId = firstPageResource.data?.snapshot_id;
-        if (!snapshotId || nextPage.snapshot_id !== snapshotId) return [];
-        if (current.some((page) => page.next_cursor === nextPage.next_cursor)) return current;
-        return [...current, nextPage];
+        if (!snapshotId || nextPage.snapshot_id !== snapshotId) return current;
+        const pages = current.feedKey === feedKey ? current.pages : [];
+        if (pages.some((page) => page.next_cursor === nextPage.next_cursor)) return current;
+        return { feedKey, pages: [...pages, nextPage] };
       });
     } catch (error) {
+      if (!isCurrentFeed()) return;
       if (error instanceof MarketNewsSnapshotChangedError) {
-        setAdditionalPages([]);
+        setPaging({ feedKey, pages: [] });
         setResyncMessage("The market news feed refreshed. Showing the latest headlines.");
         await firstPageResource.refresh({ force: true });
         return;
       }
       setResyncMessage("Couldn’t load more headlines just now. Please try again.");
     } finally {
-      setLoadingMore(false);
+      if (isCurrentFeed()) setLoadingMore(false);
     }
   }, [
     firstPageResource,
+    feedKey,
     lastPage?.has_more,
     lastPage?.next_cursor,
     loadingMore,
@@ -344,8 +360,8 @@ export function KaiMarketNewsPage() {
           </SurfaceCard>
         </section>
 
-        {firstPageResource.error && rows.length ? (
-          <p className="mt-3 text-sm text-muted-foreground">Showing saved headlines while the latest refresh is unavailable.</p>
+        {(firstPageResource.error || firstPageResource.data?.stale) && rows.length ? (
+          <p className="mt-3 text-sm text-muted-foreground">Showing saved headlines. Refresh for the latest coverage.</p>
         ) : null}
       </AppPageContentRegion>
     </AppPageShell>

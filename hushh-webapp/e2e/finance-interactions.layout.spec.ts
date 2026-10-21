@@ -294,6 +294,28 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
   }
 }
 
+for (const result of ["success", "error"]) {
+  test(`All news ignores an obsolete page ${result} after its snapshot changes`, async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 932 });
+    await page.route("http://localhost/finance-market-news-fixture", route => route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body data-defer-news="true"><div id="root"></div></body></html>`,
+    }));
+    await page.goto("http://localhost/finance-market-news-fixture");
+    await page.addScriptTag({ content: marketScript });
+    await page.getByRole("button", { name: "Load more", exact: true }).click();
+    await expect(page.locator("body")).toHaveAttribute("data-news-pending", "true");
+    await page.evaluate(() => window.dispatchEvent(new Event("finance-fixture-replace-news")));
+    await expect(page.getByText("Latest replacement headlines", { exact: true })).toBeVisible();
+    await page.evaluate(outcome => window.dispatchEvent(new CustomEvent("finance-fixture-complete-news", { detail: outcome })), result);
+    await expect(page.locator("body")).toHaveAttribute("data-news-pending", "false");
+    await expect(page.locator("article")).toHaveCount(1);
+    await expect(page.getByText("More headlines from the same snapshot", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("status")).toHaveCount(0);
+    await expect(page.locator("body")).not.toHaveAttribute("data-news-refreshed", "true");
+  });
+}
+
 test.afterAll(() => {
   if (fixtureOutDir) fs.rmSync(fixtureOutDir, { recursive: true, force: true });
 });

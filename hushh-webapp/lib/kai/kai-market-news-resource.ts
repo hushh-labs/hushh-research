@@ -97,16 +97,18 @@ export class KaiMarketNewsResourceService {
     const cache = CacheService.getInstance();
     const cacheKey = cacheKeyFor({ ...params, userId });
     const memory = cache.peek<KaiMarketNewsPage>(cacheKey);
-    if (!params.forceRefresh && memory?.isFresh) {
+    if (!params.forceRefresh && memory?.isFresh && !memory.data.stale) {
       log("cache_hit", params, { tier: "memory" });
       return memory.data;
     }
     if (!params.forceRefresh && memory?.data) {
+      const saved = { ...memory.data, stale: true };
+      cache.set(cacheKey, saved, 0);
       log("stale_hit", params, { tier: "memory" });
       if (params.backgroundRefresh !== false) {
         void this.refresh({ ...params, userId }).catch(() => undefined);
       }
-      return memory.data;
+      return saved;
     }
 
     if (!params.forceRefresh) {
@@ -115,12 +117,13 @@ export class KaiMarketNewsResourceService {
         resourceKey: deviceResourceKeyFor({ ...params, userId }),
       });
       if (device) {
-        cache.set(cacheKey, device, CACHE_TTL.MEDIUM);
+        const restored = { ...device, stale: true };
+        cache.set(cacheKey, restored, 0);
         log("device_hit", params, { tier: "device" });
         if (params.backgroundRefresh !== false) {
           void this.refresh({ ...params, userId }).catch(() => undefined);
         }
-        return device;
+        return restored;
       }
     }
 
@@ -183,7 +186,9 @@ export class KaiMarketNewsResourceService {
         }
         if (fallback) {
           log("refresh_failure_stale_fallback", normalized);
-          return fallback;
+          const saved = { ...fallback, stale: true };
+          cache.set(cacheKey, saved, 0);
+          return saved;
         }
         log("network_fetch", normalized, { result: "error" });
         throw error;

@@ -1,4 +1,5 @@
 import { getLocalMarketPreviewPayload } from "../../components/kai/shared/local-market-preview";
+import { useEffect, useState } from "react";
 import type { KaiMarketNewsPage } from "../../lib/services/api-service";
 
 // Only information, identity and transport are synthetic. The Market page,
@@ -61,7 +62,15 @@ const newsPage: KaiMarketNewsPage = {
 export function useAuth() { return { user: isNewsFixture() ? { uid: "market-news-layout" } : null, loading: false }; }
 export function useVault() { return { vaultKey: null, vaultOwnerToken: null }; }
 export function useStaleResource() {
-  return { data: isNewsFixture() ? newsPage : payload, loading: false, refreshing: false, error: null,
+  const [data, setData] = useState(isNewsFixture() ? newsPage : payload);
+  useEffect(() => {
+    const replace = () => setData({ ...newsPage, snapshot_id: "replacement-feed", items: [{
+      ...newsPage.items[0]!, title: "Latest replacement headlines", url: "https://example.com/replacement",
+    }] });
+    window.addEventListener("finance-fixture-replace-news", replace);
+    return () => window.removeEventListener("finance-fixture-replace-news", replace);
+  }, []);
+  return { data, loading: false, refreshing: false, error: null,
     refresh: async () => { document.body.dataset.newsRefreshed = "true"; },
   };
 }
@@ -69,9 +78,20 @@ export function useKaiFinancialResource() { return { data: null }; }
 export const KaiFinancialResourceService = {};
 export const KaiMarketHomeResourceService = { resolveTrackedSymbols: () => [] };
 export const KaiMarketNewsResourceService = {
-  getStaleFirst: async () => ({ ...newsPage, has_more: false, next_cursor: null, items: [{
-    ...newsPage.items[0], title: "More headlines from the same snapshot", url: "https://example.com/market-news-more",
-  }] }),
+  getStaleFirst: async (): Promise<KaiMarketNewsPage> => {
+    const next = { ...newsPage, has_more: false, next_cursor: null, items: [{
+      ...newsPage.items[0]!, title: "More headlines from the same snapshot", url: "https://example.com/market-news-more",
+    }] };
+    if (document.body.dataset.deferNews !== "true") return next;
+    document.body.dataset.newsPending = "true";
+    return await new Promise((resolve, reject) => {
+      window.addEventListener("finance-fixture-complete-news", (event) => {
+        document.body.dataset.newsPending = "false";
+        if ((event as CustomEvent).detail === "error") reject(new MarketNewsSnapshotChangedError());
+        else resolve(next);
+      }, { once: true });
+    });
+  },
 };
 export class MarketNewsSnapshotChangedError extends Error {}
 export function usePublishVoiceSurfaceMetadata() {}

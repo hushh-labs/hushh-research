@@ -29,7 +29,7 @@ vi.mock("@/lib/cache/request-audit-log", () => ({
 }));
 
 import { KaiMarketNewsResourceService } from "@/lib/kai/kai-market-news-resource";
-import { CacheService } from "@/lib/services/cache-service";
+import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 
 const page = {
   items: [
@@ -103,5 +103,27 @@ describe("KaiMarketNewsResourceService", () => {
       limit: 20,
       daysBack: 7,
     });
+  });
+
+  it("retains headlines on a failed refresh without presenting the saved page as fresh", async () => {
+    const request = { userId: "user-1", mode: "baseline" as const };
+    await KaiMarketNewsResourceService.getStaleFirst(request);
+    mocks.baseline.mockRejectedValueOnce(new Error("offline"));
+    const saved = await KaiMarketNewsResourceService.getStaleFirst({ ...request, forceRefresh: true });
+    expect(saved).toMatchObject({ items: page.items, snapshot_id: page.snapshot_id, generated_at: page.generated_at, stale: true });
+    const cached = CacheService.getInstance().peek(CACHE_KEYS.KAI_MARKET_NEWS("user-1", "baseline", null, 12, 7));
+    expect(cached?.ttl).toBe(0);
+    expect(cached?.data).toMatchObject({ stale: true });
+    expect(mocks.deviceWrite).toHaveBeenCalledOnce();
+    const latest = await KaiMarketNewsResourceService.getStaleFirst({ ...request, forceRefresh: true });
+    expect(latest?.stale).toBe(false);
+  });
+
+  it("marks restored device headlines stale until an authoritative refresh succeeds", async () => {
+    mocks.deviceRead.mockResolvedValue(page);
+    const saved = await KaiMarketNewsResourceService.getStaleFirst({ userId: "user-1", mode: "baseline", backgroundRefresh: false });
+    expect(saved?.stale).toBe(true);
+    expect(saved?.generated_at).toBe(page.generated_at);
+    expect(mocks.baseline).not.toHaveBeenCalled();
   });
 });
