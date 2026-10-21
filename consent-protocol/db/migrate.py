@@ -826,29 +826,13 @@ async def create_tickers(pool: asyncpg.Pool):
 
 
 async def create_ticker_facts_snapshot(pool: asyncpg.Pool):
-    """Create SEC fundamentals snapshot table for ticker analysis context."""
-    print("📊 Creating ticker_facts_snapshot table...")
-    await pool.execute("""
-        CREATE TABLE IF NOT EXISTS ticker_facts_snapshot (
-            ticker TEXT PRIMARY KEY REFERENCES tickers(ticker) ON DELETE CASCADE,
-            cik TEXT NOT NULL,
-            as_of_date DATE,
-            shares_outstanding NUMERIC,
-            public_float_usd NUMERIC,
-            revenue_ttm_usd NUMERIC,
-            net_income_ttm_usd NUMERIC,
-            assets_usd NUMERIC,
-            liabilities_usd NUMERIC,
-            eps_diluted_ttm NUMERIC,
-            source TEXT NOT NULL DEFAULT 'sec_companyfacts',
-            source_updated_at TIMESTAMPTZ NOT NULL,
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-    """)
-    await pool.execute(
-        "CREATE INDEX IF NOT EXISTS idx_ticker_facts_source_updated_at ON ticker_facts_snapshot(source_updated_at DESC)"
-    )
-    print("✅ ticker_facts_snapshot ready!")
+    """Compatibility migration name; SEC facts now use kai_market_cache_entries.
+
+    Do not create a second persistence authority. Existing deployments may retain
+    the old table until an operator verifies it is empty and approves retirement.
+    Bootstrap never deletes existing records.
+    """
+    print("SEC fundamentals use kai_market_cache_entries; legacy snapshot creation retired.")
 
 
 async def create_ticker_enrichment_runs(pool: asyncpg.Pool):
