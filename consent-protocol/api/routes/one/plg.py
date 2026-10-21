@@ -21,7 +21,11 @@ from api.middleware import require_firebase_auth_read_only
 from api.utils.firebase_auth import current_auth_lane
 from hushh_mcp.services import product_activity
 from hushh_mcp.services.plg_audience import AudienceCursorError, AudienceRequest, audience_page
-from hushh_mcp.services.plg_customer_cohort import CohortRequest, customer_cohort_page
+from hushh_mcp.services.plg_customer_cohort import (
+    CohortCursorError,
+    CohortRequest,
+    customer_cohort_page,
+)
 from hushh_mcp.services.plg_evidence import PilotRequest, snapshot
 
 router = APIRouter(prefix="/api/one/plg", tags=["One PLG integration"])
@@ -148,6 +152,8 @@ async def export_customer_cohort(request: Request):
         result = await asyncio.wait_for(
             customer_cohort_page(payload, secret, datetime.now(timezone.utc)), timeout=25
         )
+    except CohortCursorError:
+        raise HTTPException(400, "Invalid customer cohort cursor", headers=NO_STORE) from None
     except Exception:
         raise HTTPException(503, "Customer cohort unavailable", headers=NO_STORE) from None
     return JSONResponse(result, headers=NO_STORE)

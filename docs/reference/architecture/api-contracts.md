@@ -285,7 +285,7 @@ Reapplying 366 leaves retained rows uncorrelated; it cannot reconstruct history.
 customer reporting. It shares audience read authority with the distinct HMAC
 purpose `customer-cohort`; it grants no campaign, write or sending authority.
 Production project/lane checks apply. Each page scans at most 50 canonical
-production identities in stable `COLLATE "C"` key order, checks current Firebase
+production identities in indexed primary-key collation order, checks current Firebase
 registration, provider identifiers, verified aliases and deletion barriers, and
 returns only eligible analytics hashes and Firebase creation timestamps (nullable).
 The hash matches the client contract: first 32 hexadecimal characters of SHA256

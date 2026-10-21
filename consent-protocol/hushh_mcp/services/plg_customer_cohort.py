@@ -23,6 +23,10 @@ PURPOSE = "one-production-customer-cohort-v1"
 PAGE_SIZE = 50
 
 
+class CohortCursorError(ValueError):
+    """Caller must restart traversal with a new policy/window."""
+
+
 class CohortRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     cursor: str | None = Field(default=None, min_length=1, max_length=2048)
@@ -54,7 +58,7 @@ def _cursor(value: str | None, secret: str, revision: str, now: datetime):
             raise ValueError("Invalid customer cohort cursor")
         return row["last"], at
     except Exception:
-        raise ValueError("Invalid customer cohort cursor") from None
+        raise CohortCursorError("Invalid customer cohort cursor") from None
 
 
 async def customer_cohort_page(request: CohortRequest, secret: str, now: datetime) -> dict:
@@ -63,14 +67,16 @@ async def customer_cohort_page(request: CohortRequest, secret: str, now: datetim
     pool = await get_pool()
     async with pool.acquire(timeout=3) as conn:
         page = await conn.fetch(
-            'SELECT user_id FROM actor_identity_cache WHERE user_id COLLATE "C" > $1 AND created_at <= $2 '
-            'ORDER BY user_id COLLATE "C" LIMIT 51',
+            "SELECT user_id FROM actor_identity_cache WHERE user_id > $1 AND created_at <= $2 "
+            "ORDER BY user_id LIMIT 51",
             last,
             at,
             timeout=5,
         )
     ids = [row["user_id"] for row in page[:PAGE_SIZE]]
-    if len(page) > PAGE_SIZE + 1 or ids != sorted(set(ids)) or any(uid <= last for uid in ids):
+    # Use the same database primary-key collation for both comparison and order.
+    # Python lexical order can differ, and forcing C would bypass the PK index.
+    if len(page) > PAGE_SIZE + 1 or len(set(ids)) != len(ids):
         raise RuntimeError("Invalid customer cohort source page")
     current = await current_reporting_records(ids)
     rows = []

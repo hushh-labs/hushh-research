@@ -110,7 +110,18 @@ class ReportingPolicy:
         return {"scope": "production_registered_contacts", "policyRevision": self.revision}
 
 
+class ReportingPolicyUnavailable(RuntimeError):
+    """A server policy outage, never caller request validation."""
+
+
 def reporting_policy() -> ReportingPolicy:
+    try:
+        return _reporting_policy()
+    except (ValueError, TypeError):
+        raise ReportingPolicyUnavailable("Customer reporting policy unavailable") from None
+
+
+def _reporting_policy() -> ReportingPolicy:
     """The explicit roster is secret-backed and required; bad/missing policy fails closed."""
     raw = os.getenv("ONE_PLG_REPORTING_POLICY_JSON", "")
     if not raw or len(raw) > 250_000:

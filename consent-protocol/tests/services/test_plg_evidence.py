@@ -75,7 +75,7 @@ def test_reporting_policy_requires_production_identity_and_explicit_internal_evi
         assert not policy.eligible("customer", identity, [alias])
     assert len(policy.revision) == 64 and "staff" not in json.dumps(policy.proof())
     monkeypatch.delenv("ONE_PLG_REPORTING_POLICY_JSON")
-    with pytest.raises(ValueError, match="policy unavailable"):
+    with pytest.raises(reporting.ReportingPolicyUnavailable, match="policy unavailable"):
         reporting.reporting_policy()
 
 
@@ -199,6 +199,16 @@ def test_customer_cohort_route_has_distinct_read_authority(client, monkeypatch):
         ).status_code
         == 200
     )
+    source.side_effect = cohort.CohortCursorError("private cursor details")
+    assert (
+        post(
+            client, {"cursor": "bad"}, purpose="customer-cohort", route="customer-cohort"
+        ).status_code
+        == 400
+    )
+    source.side_effect = reporting.ReportingPolicyUnavailable("private config details")
+    failed = post(client, {"cursor": None}, purpose="customer-cohort", route="customer-cohort")
+    assert failed.status_code == 503 and "private config" not in failed.text
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
     assert (
         post(
@@ -206,14 +216,15 @@ def test_customer_cohort_route_has_distinct_read_authority(client, monkeypatch):
         ).status_code
         == 404
     )
-    assert source.call_count == 1
+    assert source.call_count == 3
 
 
 @pytest.mark.asyncio
 async def test_customer_cohort_excludes_internal_aliases_and_tombstones_without_private_exports(
     monkeypatch, reporting_roster
 ):
-    ids = ["alias", "company", "customer", "deleted", "missing", "provider", "staff"]
+    # Simulate database collation order that differs from Python lexical order.
+    ids = ["company", "customer", "alias", "deleted", "missing", "provider", "staff"]
     registered = (NOW - timedelta(days=30)).isoformat()
     connection = SimpleNamespace(execute=AsyncMock())
     connection.fetch = AsyncMock(return_value=[{"user_id": uid} for uid in ids])
@@ -256,7 +267,9 @@ async def test_customer_cohort_excludes_internal_aliases_and_tombstones_without_
     assert result["scanned"] == 7 and result["excluded"] == 6 and result["nextCursor"] is None
     assert "@" not in json.dumps(result) and "deleted" not in json.dumps(result)
     sql, last, at = connection.fetch.call_args.args
-    assert sql.count('COLLATE "C"') == 2 and last == "" and at == NOW
+    assert (
+        'COLLATE "C"' not in sql and "ORDER BY user_id LIMIT 51" in sql and last == "" and at == NOW
+    )
     # Continuation hides even the last denied UID and binds the policy and window.
     revision = reporting.reporting_policy().revision
     cursor = cohort._cipher(SECRET).seal(
@@ -287,6 +300,10 @@ def test_validation_and_provider_errors_never_echo_identifiers_or_private_detail
     assert result.status_code == 503
     assert "PRIVATE_DB_CONTENT" not in result.text
     assert result.headers["cache-control"] == "private, no-store"
+    monkeypatch.setattr(plg, "snapshot", evidence.snapshot)
+    monkeypatch.setenv("ONE_PLG_REPORTING_POLICY_JSON", "malformed")
+    result = post(client, {"accounts": [], "version": 2, "customerReporting": True})
+    assert result.status_code == 503 and "malformed" not in result.text
 
 
 @pytest.mark.asyncio
