@@ -87,6 +87,20 @@ async function box(locator: Locator) {
 
 const onGrid = (value: number, unit: number) => Math.abs(value / unit - Math.round(value / unit)) < 0.02;
 
+test("Save is visible beside the name settings on a short phone screen", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await open(page, "light", "suggested");
+  const save = page.getByRole("button", { name: "Save", exact: true });
+  await expect(save).toBeInViewport();
+  await expect(save).toBeEnabled();
+  const name = await box(page.getByRole("textbox", { name: "Name One calls you" }));
+  const action = await box(save);
+  expect(action.y + action.height).toBeLessThanOrEqual(name.y);
+  expect(action.width).toBeGreaterThanOrEqual(44);
+  expect(action.height).toBeGreaterThanOrEqual(44);
+  expect(await page.getByTestId("style-settings-group").getByRole("button", { name: "Save", exact: true }).count()).toBe(1);
+});
+
 type Geometry = {
   rowPadding: number[][];
   rowHeights: number[];
@@ -141,9 +155,9 @@ async function measure(page: Page): Promise<Geometry> {
       noteInsets: [rect(textarea).left - rect(note).left, rect(note).right - rect(textarea).right],
       footerInsets: [
         rect(footer.querySelector("[data-testid='style-settings-status']")!).left - rect(group).left,
-        rect(group).right - rect(footer.querySelector("[data-testid='style-settings-save']")!).right,
+        rect(group).right - rect(footer.querySelector("[data-testid='style-settings-status']")!).right,
       ],
-      saveHeight: rect(footer.querySelector("[data-testid='style-settings-save']")!).height,
+      saveHeight: rect(root.querySelector("[data-testid='style-settings-save']")!).height,
       overflow: [...root.querySelectorAll("*")].some((node) => {
         const bounds = rect(node);
         return bounds.width > 0 && (bounds.left < rootBox.left - 1 || bounds.right > rootBox.right + 1);

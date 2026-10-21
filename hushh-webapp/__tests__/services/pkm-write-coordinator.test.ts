@@ -156,6 +156,20 @@ describe("PkmWriteCoordinator", () => {
     vi.clearAllMocks();
   });
 
+  it("carries the merged write's publication fence through an already-dispatched response", async () => {
+    stubNoUpgradeNeeded();
+    stubWriteContext();
+    let current = true;
+    const mayPublish = () => current;
+    pkmStoreMergedDomainWithPreparedBlobMock.mockImplementationOnce(async (request) => {
+      current = false;
+      expect(request.mayPublish()).toBe(false);
+      return { success: true };
+    });
+    await PkmWriteCoordinator.saveMergedDomain({ ...BASE_PARAMS, mayPublish, build: BUILD_CALLBACK });
+    expect(pkmStoreMergedDomainWithPreparedBlobMock).toHaveBeenCalledWith(expect.objectContaining({ mayPublish }));
+  });
+
   describe("background prepared writes", () => {
     const automatic = { authorizationMode: "product_default_auto_save_policy" as const,
       surface: "chat" as const, source: "agent_chat_auto_save", autoSavePolicyVersion: 1,

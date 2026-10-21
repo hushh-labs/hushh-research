@@ -108,6 +108,58 @@ it.each(["Create new chat", "Start new chat"])("allows %s to reset a locked-vaul
 }, 15_000);
 
 describe("full Calendar workspace with real AG-UI stream handling", { timeout: 30000 }, () => {
+  it.each(["completed", "failed", "stale", "meeting"] as const)("commits an ordinary chosen name only from an eligible %s stream", async outcome => {
+    fixture.captureReady = true;
+    const ingestion = await import("@/lib/pkm/pkm-natural-language-ingestion");
+    vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockResolvedValue({ cards: [] } as never);
+    let channel!: ReadableStreamDefaultController<Uint8Array>;
+    const encoder = new TextEncoder();
+    const fetchStream = vi.spyOn(ApiService, "apiFetchStream").mockResolvedValue(new Response(
+      new ReadableStream<Uint8Array>({ start(controller) { channel = controller; } }),
+      { headers: { "Content-Type": "text/event-stream" } },
+    ));
+    workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    if (outcome === "meeting") {
+      const { CalendarInsightsService } = await import("@/lib/services/calendar-insights-service");
+      vi.spyOn(CalendarInsightsService, "read").mockResolvedValue({ title: "Meeting", sources: [] });
+      act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarRequest: {
+        ownerId: "owner", request: "Summarize this meeting.",
+        meeting: { calendar_id: "primary", event_id: "event", expected_account_email: "owner@example.com" },
+      } }); });
+    } else {
+      fireEvent.change(composer, { target: { value: "Please call me Ruby" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    }
+    await waitFor(() => expect(fetchStream).toHaveBeenCalledOnce());
+    const push = (event: Record<string, unknown>) => act(() => channel.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)));
+    const writes = () => vi.mocked(PkmWriteCoordinator.saveMergedDomain).mock.calls
+      .filter(([params]) => params.confirmation.source === "one_chat_preferred_name");
+    push({ type: "RUN_STARTED", threadId: "same-conversation", runId: "ordinary-name" });
+    push({ type: "TOOL_CALL_START", toolCallId: "name-call", toolCallName: "propose_style_settings" });
+    push({ type: "TOOL_CALL_ARGS", toolCallId: "name-call", delta: "{}" });
+    push({ type: "TOOL_CALL_END", toolCallId: "name-call" });
+    push({ type: "TOOL_CALL_RESULT", toolCallId: "name-call", messageId: "name-result", role: "tool",
+      content: JSON.stringify({ status: "preferred_name_update_ready", preferred_name: "Ruby" }) });
+    expect(writes()).toHaveLength(0);
+    if (outcome === "stale") advanceVaultSessionEpoch();
+    push(outcome === "failed" ? { type: "RUN_ERROR", code: "MODEL_FAILED", message: "Please try again." }
+      : { type: "RUN_FINISHED", threadId: "same-conversation", runId: "ordinary-name" });
+    await act(async () => { channel.close(); });
+    if (outcome === "completed") {
+      await waitFor(() => expect(writes()).toHaveLength(1));
+      const request = writes()[0][0];
+      expect(request.mayPublish?.()).toBe(true);
+      advanceVaultSessionEpoch();
+      expect(request.mayPublish?.()).toBe(false);
+      await expect(request.beforeEffect?.()).rejects.toMatchObject({ name: "AbortError" });
+    } else {
+      await waitFor(() => expect(screen.getByRole("button", { name: "Send message" })).toBeInTheDocument());
+      expect(writes()).toHaveLength(0);
+    }
+    expect(screen.queryByRole("button", { name: "Review in Settings" })).toBeNull();
+  });
+
   it.each(["completed", "failed"] as const)("applies a semantic onboarding name only after a %s stream", async outcome => {
     fixture.nameOnboarding = true;
     const started = reduceChatOnboarding(null, { type: "start", displayName: "Owner", firstName: "Owner", anchor: null }).state;

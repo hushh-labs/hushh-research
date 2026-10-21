@@ -87,7 +87,7 @@ test.beforeAll(async () => {
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
 });
 
-async function mount(page: Page, theme: "light" | "dark", journey = false) {
+async function mount(page: Page, theme: "light" | "dark", journey: boolean | "ordinary" = false) {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("http://localhost/chat-onboarding*", (route) =>
@@ -96,12 +96,52 @@ async function mount(page: Page, theme: "light" | "dark", journey = false) {
       body: `<!doctype html><html class="${theme}"><head><title>Chat onboarding layout contract</title><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
     }),
   );
-  await page.goto(`http://localhost/chat-onboarding${journey ? "?name-journey" : ""}`);
+  await page.goto(`http://localhost/chat-onboarding${journey === "ordinary" ? "?ordinary-name" : journey ? "?name-journey" : ""}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   await expect(journey ? page.getByLabel("Chat profile name") : page.getByTestId("transcript")).toBeVisible();
   return errors;
 }
+
+test("an ordinary chat name saves encrypted memory, updates the label and survives re-entry", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let encrypted: unknown = null;
+  let revision = 0;
+  let failWrite = true;
+  const writes: string[] = [];
+  await page.route("**/__fixture/identity", async route => {
+    if (route.request().method() === "PUT") {
+      writes.push(route.request().postData()!);
+      if (failWrite) { failWrite = false; await route.fulfill({ status: 500 }); return; }
+      encrypted = route.request().postDataJSON().encrypted;
+      revision++;
+    }
+    await route.fulfill({ json: { encrypted, revision } });
+  });
+  await page.route("**/__fixture/one", route => route.fulfill({ json: {
+    status: "preferred_name_update_ready", preferred_name: "Ruby",
+  } }));
+  const errors = await mount(page, "light", "ordinary");
+  const submit = async () => {
+    await page.getByRole("textbox", { name: "Your reply" }).fill("Please call me Ruby");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+  };
+  await submit();
+  await expect(page.getByRole("status")).toHaveText("Couldn't save your name. Please try again.");
+  await expect(page.getByLabel("Chat profile name")).toHaveText("One");
+  await submit();
+  await expect(page.getByRole("status")).toHaveText("Preferred name saved.");
+  await expect(page.getByLabel("Chat profile name")).toHaveText("Ruby");
+  expect(writes).toHaveLength(2);
+  for (const write of writes) {
+    expect(write).not.toContain("Ruby");
+    expect(JSON.parse(write).encrypted.algorithm).toBe("aes-256-gcm");
+  }
+  await page.reload();
+  await page.addScriptTag({ content: script });
+  await expect(page.getByLabel("Chat profile name")).toHaveText("Ruby");
+  expect(errors).toEqual([]);
+});
 
 test("preferred name entry saves privately, refreshes the profile label, and recovers from failure", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });

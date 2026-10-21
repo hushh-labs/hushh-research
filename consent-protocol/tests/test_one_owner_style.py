@@ -241,6 +241,49 @@ def _name_question_context(**overrides):
     return SimpleNamespace(state=state)
 
 
+@pytest.mark.parametrize("name", ["Ruby", "Rootman", "李 小龍", "نور"])
+@pytest.mark.parametrize("surface", ["shared", "pod"])
+async def test_chat_chosen_name_is_a_device_update_not_a_backend_write(name, surface):
+    from hushh_mcp.one_adk.owner_style import STATE_POD_STYLE_OWNER
+
+    context = _name_question_context()
+    if surface == "pod":
+        context.state["temp:hussh:workspace_chat_admission"] = False
+        context.state[STATE_POD_STYLE_OWNER] = "owner"
+    before = json.dumps(context.state, sort_keys=True)
+    result = await propose_style_settings(context, preferred_name=name)
+    assert result["status"] == "preferred_name_update_ready"
+    assert result["preferred_name"] == name
+    assert "proposed" not in result and "experience" not in result
+    assert json.dumps(context.state, sort_keys=True) == before
+
+
+async def test_chat_name_with_style_keeps_style_as_a_separate_review():
+    result = await propose_style_settings(
+        _name_question_context(), preferred_name="Ruby", tone="warm", avoid_em_dashes=False
+    )
+    assert result["status"] == "preferred_name_update_ready"
+    assert result["proposed"] == {"tone": "warm", "avoid_em_dashes": False}
+    assert "preferred_name" not in result["proposed"]
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {agent_tree.STATE_USER_ID: "anonymous:owner"},
+        {STATE_EXECUTION_SURFACE: "voice"},
+        {"temp:hussh:workspace_chat_admission": False},
+        {"temp:hussh:workspace_chat_admission": False, "temp:hussh:pod_style_owner": "other-owner"},
+    ],
+)
+async def test_chat_name_update_requires_the_unlocked_owner_typed_surface(overrides):
+    result = await propose_style_settings(
+        _name_question_context(**overrides), preferred_name="Ruby"
+    )
+    assert result["status"] == "unavailable"
+    assert "preferred_name" not in result
+
+
 @pytest.mark.parametrize("name", ["Roopmann", "Love", "李 小龍", "نور", "Zoë 🦋", "A" * 64])
 async def test_name_question_returns_only_the_semantic_answer_without_writing(name):
     context = _name_question_context()
@@ -322,6 +365,6 @@ async def test_name_assessment_nonce_is_correlation_not_authority():
         onboarding_request_id="b" * 32,
     )
     assert result["status"] == "unavailable"
-    # An ordinary preference remains a Settings offer, even on this screen.
+    # Without onboarding arguments the live device name contract applies.
     result = await propose_style_settings(_name_question_context(), preferred_name="Kay")
-    assert result["status"] == "offer_ready"
+    assert result["status"] == "preferred_name_update_ready"

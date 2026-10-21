@@ -12,6 +12,8 @@ import {
 } from "../../components/agent/chat-onboarding/chat-onboarding-transcript";
 import { useChatOnboarding, type ChatOnboardingController } from "../../lib/agent/chat-onboarding/use-chat-onboarding";
 import { useOneDisplayName } from "../../lib/agent/use-one-display-name";
+import { beginChatPreferredNameTurn } from "../../lib/agent/chat-preferred-name-turn";
+import { saveChatPreferredName } from "../../lib/agent/owner-style-settings-writer";
 import { ApiService } from "@/lib/services/api-service";
 import type { ChatOnboardingTurn } from "../../lib/agent/chat-onboarding/chat-onboarding-machine";
 import {
@@ -118,6 +120,7 @@ function Harness() {
 }
 
 function NameJourney() {
+  const ordinary = window.location.search.includes("ordinary-name");
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
@@ -125,23 +128,36 @@ function NameJourney() {
   const name = useOneDisplayName();
   const controller = useChatOnboarding({
     userId: "synthetic-owner", displayName: "Owner", vaultKey: "ab".repeat(32),
-    vaultOwnerToken: "synthetic-owner-token", isVaultUnlocked: true, startSignal: true,
+    vaultOwnerToken: "synthetic-owner-token", isVaultUnlocked: true, startSignal: !ordinary,
     messages: [], conversationId: "synthetic-chat", visiblePrompts: [],
     onFocusComposer: () => input.current?.focus(),
   });
   async function submit() {
     if (!text.trim() || sending || controller.busy) return;
-    const turn = controller.beginNameTurn?.(() => true);
+    const turn = ordinary ? null : controller.beginNameTurn?.(() => true);
+    const nameTurn = ordinary ? beginChatPreferredNameTurn({
+      isCurrent: () => true,
+      save: (chosen, beforeEffect, mayPublish) => saveChatPreferredName({
+        userId: "synthetic-owner", vaultKey: "ab".repeat(32),
+        vaultOwnerToken: "synthetic-owner-token", name: chosen, beforeEffect, mayPublish,
+      }),
+    }) : null;
     setSending(true);
     setMessage("");
     try {
       const response = await ApiService.apiFetch("/__fixture/one", { method: "POST", body: JSON.stringify({ text, ...turn?.screenState }) });
       if (!response.ok) throw new Error("Synthetic turn failure");
-      turn?.stage(await response.json(), "name-call");
+      const result = await response.json();
+      turn?.stage(result, "name-call");
+      nameTurn?.stage(result, "name-call");
       turn?.finish(true);
+      const saved = await nameTurn?.finish(true);
+      if (saved === true) setMessage("Preferred name saved.");
+      else if (saved === false) setMessage("Couldn't save your name. Please try again.");
       setText("");
     } catch {
       turn?.finish(false);
+      void nameTurn?.finish(false);
       setMessage("I couldn't read that reply. Please try again.");
     } finally { setSending(false); }
   }
@@ -160,5 +176,5 @@ function NameJourney() {
 }
 
 createRoot(document.getElementById("root")!).render(
-  window.location.search.includes("name-journey") ? <NameJourney /> : <Harness />,
+  /name-journey|ordinary-name/.test(window.location.search) ? <NameJourney /> : <Harness />,
 );

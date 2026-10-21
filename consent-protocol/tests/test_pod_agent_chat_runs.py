@@ -151,6 +151,35 @@ async def test_receipt_tools_use_the_same_closed_contract_in_the_private_pod(cha
 
 
 @pytest.mark.parametrize(
+    "style", [{"preferred_name": "Synthetic name"}, {"scope": "all"}, {"preferred_name": "x" * 65}]
+)
+async def test_private_chat_admits_only_closed_style_without_workspace_connector_authority(style):
+    from hushh_mcp.one_adk.owner_style import (
+        STATE_OWNER_STYLE,
+        STATE_POD_STYLE_OWNER,
+        resolve_owner_style,
+    )
+
+    turn = _turn(communicationPreferences=style)
+    turn.state = {
+        STATE_POD_STYLE_OWNER: "forged-owner",
+        "temp:hussh:workspace_chat_admission": True,
+    }
+    if style != {"preferred_name": "Synthetic name"}:
+        with pytest.raises(HTTPException) as refused:
+            pod_agent_chat.trusted_state(turn, _owner())
+        assert refused.value.status_code == 400
+        return
+    state, options = pod_agent_chat.trusted_state(turn, _owner())
+    assert state[STATE_POD_STYLE_OWNER] == "owner-a"
+    assert state["temp:hussh:workspace_chat_admission"] is False
+    assert state[STATE_OWNER_STYLE].startswith("one_secret_ref:")
+    assert resolve_owner_style(state.get) == style
+    assert "Synthetic name" not in str(state) + str(options)
+    assert "communicationPreferences" not in turn.forwarded_props
+
+
+@pytest.mark.parametrize(
     "session_owner,session_id",
     [
         ("owner-a", "conv-1"),

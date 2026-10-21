@@ -54,7 +54,8 @@
     "kyc_identity_document_file": {"feature": "kyc", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
 
     "one_chat_onboarding": {"feature": "settings", "class": "feature", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
-    "$comment_style_settings": "Settings > Preferences > How One writes to you (hushh-webapp/lib/agent/owner-style-settings-writer.ts, OWNER_STYLE_SETTINGS_SOURCE). Chat only proposes a style change; the owner commits it here.",
+    "one_chat_preferred_name": {"feature": "settings", "class": "feature", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
+    "$comment_style_settings": "Settings > Preferences > How One writes to you (hushh-webapp/lib/agent/owner-style-settings-writer.ts, OWNER_STYLE_SETTINGS_SOURCE). Explicit preferred-name choices also commit on device from live typed chat; other style changes need Settings Save.",
     "one_settings_communication_preferences": {"feature": "settings", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
 
     "one_wallet_add": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
@@ -217,7 +218,7 @@
       "branch_prefix": "communication_preferences",
       "except": [],
       "owner_feature": "settings",
-      "writer_ids": ["one_chat_onboarding", "one_settings_communication_preferences"],
+      "writer_ids": ["one_chat_onboarding", "one_chat_preferred_name", "one_settings_communication_preferences"],
       "agent_memory_sibling": "identity.agent_memory",
       "offer_action": {"route_pattern": "/one/profile/preferences", "action_id": "route.profile", "label_template": "Change {label} in Preferences"},
       "shareable": "policy",

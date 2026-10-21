@@ -3384,6 +3384,7 @@ export class PersonalKnowledgeModelService {
     locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
     kycReplyAuthorization?: KycReplyAuthorizationV1;
     beforeEffect?: () => Promise<void>;
+    mayPublish?: () => boolean;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
     cacheFullBlob?: boolean;
@@ -3452,18 +3453,21 @@ export class PersonalKnowledgeModelService {
       locationFinalizeAuthorization: params.locationFinalizeAuthorization,
       kycReplyAuthorization: params.kycReplyAuthorization,
       beforeEffect: params.beforeEffect,
+      mayPublish: params.mayPublish,
       syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
     });
 
-    if (result.success && params.domain === "financial") {
+    const mayPublish = params.mayPublish?.() ?? true;
+    if (result.success && mayPublish && params.domain === "financial") {
       void this.maybeSyncTickersFromFinancialBlob({
         userId: params.userId,
         fullBlob: merged.fullBlob,
         vaultOwnerToken: params.vaultOwnerToken,
+        isEffectCurrent: params.mayPublish,
       });
     }
-    if (result.success && params.cacheFullBlob !== false) {
+    if (result.success && mayPublish && params.cacheFullBlob !== false) {
       const encryptedBlobForCache: EncryptedUserBlob = {
         ...merged.encryptedBlob,
         dataVersion: result.dataVersion,

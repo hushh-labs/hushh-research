@@ -31,6 +31,12 @@ from hushh_mcp.one_adk.history_projection import _call_providers, project_conver
 from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
+from hushh_mcp.one_adk.owner_style import (
+    STATE_OWNER_STYLE,
+    STATE_POD_STYLE_OWNER,
+    OwnerStyleError,
+    admit_owner_style,
+)
 from hushh_mcp.one_adk.pod_agui_context import PodChatContext
 from hushh_mcp.one_adk.pod_agui_lifetime import _ACTIVE_THREADS
 from hushh_mcp.one_adk.pod_chat_stream import (
@@ -147,7 +153,13 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         raise HTTPException(400, detail={"code": "POD_CHAT_SPECIALIST_FOCUS_INVALID"}) from None
     screen_context = forwarded.get("screenContext")
     screen = sanitize_agent_context(screen_context if isinstance(screen_context, dict) else {})
+    try:
+        owner_style = admit_owner_style(forwarded, owner_admitted=True)
+    except OwnerStyleError:
+        raise HTTPException(400, detail="Communication preferences are invalid.") from None
     state = {
+        STATE_OWNER_STYLE: owner_style,
+        STATE_POD_STYLE_OWNER: owner.owner,
         STATE_TURN_LOCATION: admit_turn_location(forwarded),
         STATE_MCP_APPROVAL: admit_resume_receipt(
             forwarded, owner_id=owner.owner, conversation_id=input.thread_id
