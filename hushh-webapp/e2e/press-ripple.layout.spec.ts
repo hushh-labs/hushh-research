@@ -100,25 +100,47 @@ async function openFixture(page: Page, reducedMotion: "reduce" | "no-preference"
   await expect(page.getByRole("button", { name: "Continue with email", exact: true })).toBeVisible();
 }
 
-test("provider icons and labels form one centered group at phone and desktop widths", async ({ page }, testInfo) => {
+test("provider icons share the Google scale and labels share one start at phone and desktop widths", async ({ page }, testInfo) => {
   for (const width of [320, 393, 402, 430, 1440]) {
     await openFixture(page, "reduce");
     await page.setViewportSize({ width, height: 900 });
     await awaitProductFont(page);
+    const starts: { icon: number; label: number }[] = [];
     for (const button of await page.getByTestId("auth-providers").getByRole("button").all()) {
       const geometry = await button.evaluate(element => {
         const box = element.getBoundingClientRect();
         const group = element.querySelector("[data-auth-provider-content]")!.getBoundingClientRect();
-        const icon = element.querySelector("[data-auth-provider-icon] > :first-child")!.getBoundingClientRect();
+        const slot = element.querySelector("[data-auth-provider-icon]")!.getBoundingClientRect();
+        const art = element.querySelector("[data-auth-provider-icon] > :first-child")!;
+        let inkSize: number;
+        if (art.tagName.toLowerCase() === "svg") {
+          const svg = art as SVGSVGElement;
+          const ink = svg.getBBox();
+          const matrix = svg.getScreenCTM()!;
+          const style = getComputedStyle(svg);
+          const stroke = style.stroke === "none" ? 0 : parseFloat(style.strokeWidth);
+          inkSize = Math.max((ink.width + stroke) * Math.hypot(matrix.a, matrix.b),
+            (ink.height + stroke) * Math.hypot(matrix.c, matrix.d));
+        } else {
+          const ink = art.getBoundingClientRect();
+          inkSize = Math.max(ink.width, ink.height);
+        }
         const label = element.querySelector("[data-auth-provider-content] > span:last-child")!.getBoundingClientRect();
-        return { box: box.toJSON(), group: group.toJSON(), icon: icon.toJSON(), label: label.toJSON() };
+        return { box: box.toJSON(), group: group.toJSON(), slot: slot.toJSON(), label: label.toJSON(), inkSize };
       });
       expect(Math.abs(geometry.group.x + geometry.group.width / 2 - geometry.box.x - geometry.box.width / 2)).toBeLessThanOrEqual(1);
-      expect(Math.abs(geometry.icon.y + geometry.icon.height / 2 - geometry.label.y - geometry.label.height / 2)).toBeLessThanOrEqual(1);
-      expect(geometry.label.x - geometry.icon.right).toBeCloseTo(12, 0);
-      expect(geometry.icon.width).toBe(24);
+      expect(Math.abs(geometry.slot.y + geometry.slot.height / 2 - geometry.label.y - geometry.label.height / 2)).toBeLessThanOrEqual(1);
+      expect(geometry.label.x - geometry.slot.right).toBeCloseTo(12, 0);
+      expect(geometry.slot.width).toBe(24);
+      expect(geometry.slot.height).toBe(24);
+      expect(geometry.inkSize).toBeCloseTo(22, 0);
+      expect(geometry.box.height).toBe(53);
+      expect(geometry.label.right).toBeLessThanOrEqual(geometry.box.right - 18);
       expect(geometry.group.width).toBeLessThan(geometry.box.width);
+      starts.push({ icon: geometry.slot.x, label: geometry.label.x });
     }
+    expect(Math.max(...starts.map(item => item.icon)) - Math.min(...starts.map(item => item.icon))).toBeLessThanOrEqual(1);
+    expect(Math.max(...starts.map(item => item.label)) - Math.min(...starts.map(item => item.label))).toBeLessThanOrEqual(1);
     if (width === 393) await page.getByTestId("auth-providers").screenshot({ path: testInfo.outputPath("provider-cta-393.png") });
   }
 });
