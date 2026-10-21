@@ -222,14 +222,16 @@ in the generated catalog; segments are `all`, `possible_incomplete`, `failed`,
 Query is at most 100 characters, grace is 15–1440 minutes (default 60), and
 cursor is optional. A page traverses at most 25 current Firebase records.
 Disabled, deprovisioned, unclassified/anonymous and tombstoned accounts are
-excluded. This is the registered-account directory, not proof of customer or
+excluded. Customer reporting additionally requires a saved production canonical
+contact and the secret-backed staff/test policy below. This is account-level
+production membership evidence, not proof of unique people, deliberate usage or
 marketing eligibility. Source failures fail the page with sanitized 503.
 
 Only explicit Firebase getters are projected. Exported SDK records, password
 hashes/salts, custom claims, tokens and provider objects are never serialized.
 Canonical identity row presence owns the entire saved name/email/phone projection;
-null or cleared fields never fall back to stale provider fields. For genuinely
-absent canonical rows, current provider contact details may fill the view.
+null or cleared fields never fall back to stale provider fields. Auth-only
+accounts without a production canonical contact are withheld from customer reporting.
 Only verified full E.164 phone numbers are shown; a number bound to another
 canonical owner suppresses provider fallback. Lifecycle barriers (171 then 198),
 the existing phone-claim lock (namespace 0), shared identity row locks and epoch
@@ -264,7 +266,7 @@ hides retained execution counts, timestamps and behavioral segments.
 only with `ONE_PLG_ACTIVITY_ENABLED=true`, production lane and project
 `hushh-pda`. Admission and writes additionally require a canonical registered
 contact (nonempty email or verified phone); an anonymous UID/spine alone is
-insufficient. Auth-only directory accounts remain visible while normal identity
+insufficient. Auth-only accounts are withheld from customer reporting while normal identity
 warmup has not yet established that baseline. With this flag off, the original
 1–100 UID pilot behavior is preserved. Both new flags default false. The existing
 500-observation/day cap, seven-day TTL, reset/deletion and service-only RLS remain.
@@ -276,6 +278,54 @@ writers and readers, then verify prerequisites before separately enabling flags.
 Rollback: disable expanded collection/audience, deploy the previous writer that
 does not reference `operation_key`, then apply the registered 366 rollback.
 Reapplying 366 leaves retained rows uncorrelated; it cannot reconstruct history.
+
+### Customer reporting exclusions
+
+`POST /api/one/plg/customer-cohort` is a private read projection for aggregate
+customer reporting. It shares audience read authority with the distinct HMAC
+purpose `customer-cohort`; it grants no campaign, write or sending authority.
+Production project/lane checks apply. Each page scans at most 50 canonical
+production identities in indexed primary-key collation order, checks current Firebase
+registration, provider identifiers, verified aliases and deletion barriers, and
+returns only eligible analytics hashes and Firebase creation timestamps (nullable).
+The hash matches the client contract: first 32 hexadecimal characters of SHA256
+of `hushh-observability-v1:<uid>`. No names, raw UIDs, emails, phone numbers, tokens
+or denied identifiers are exported. AES-GCM cursors hide the keyset position and
+bind the policy revision and ten-minute traversal window. Traversal is live,
+not a transaction-wide snapshot. Missing pages, source failures or policy drift
+must withhold the full aggregate, never publish partial zeros. The consumer must
+enforce expiry and apply positive account membership before event aggregation;
+anonymous events cannot be attached retrospectively through device identifiers.
+Registration dates must not be inferred from identity-cache creation timestamps.
+
+The audience reader requires `ONE_PLG_REPORTING_POLICY_JSON`, stored in Secret
+Manager and bound by the existing production PLG deploy helper. The strict JSON
+schema is `{version:1, excludedAccountIds:[], excludedEmails:[], excludedDomains:[]}`.
+Use confirmed exact identities and company domains; never commit the roster or
+classify a name as fake. Existing inner-team, senior-team and QA email rosters and
+`REVIEWER_UID` also contribute to the policy. Missing/malformed policy fails closed.
+
+Exclusions compare canonical email, current Firebase email, linked-provider emails
+and active verified aliases. A production canonical email or verified E.164 phone
+is required; sharing Firebase authentication alone does not prove production
+membership. Auth-only accounts are unverified, not automatically UAT-only.
+Excluded identities are filtered before activity/outcome queries. Collection,
+product access, canonical identities and account lifecycle are unchanged.
+
+Audience responses include `customerReporting:{scope:"production_registered_contacts",
+policyRevision:<sha256>}`. Snapshot callers request `customerReporting:true` for
+the same policy/proof and per-account `reportingEligible` boolean. Excluded rows
+carry empty tasks/outcomes and no activity, with `deleted:false` unless a real
+lifecycle tombstone exists. Snapshot identity resolution is a bounded read-only
+Firebase lookup, fails on unavailable/wrong-project identity sources, and never
+serializes auth export fields. Legacy snapshot callers retain the existing contract.
+
+Matrix PR #133 requires these proofs, invalidates classification when a recipient
+changes, fences concurrent source reads, and withholds proofs from old policy
+revisions or older than 24 hours. Stage the policy and release/verify this backend
+before deploying that strict consumer. Policy exclusion is not account deletion,
+and no missing historical activity is synthesized. Disabling the audience reader
+or reverting both reader/consumer together is the safe reporting rollback.
 
 ## Verified account phone retention
 

@@ -11,19 +11,24 @@ HELPER = Path(__file__).resolve().parents[2] / "deploy/plg/bind_secrets.sh"
 
 
 @pytest.mark.parametrize(
-    ("profile", "state", "audience", "expected"),
+    ("profile", "state", "audience", "policy", "expected"),
     [
-        ("production", "ENABLED", "DISABLED", 2),
-        ("production", "DISABLED", "DISABLED", 0),
-        ("production", "", "DISABLED", 0),
-        ("production", "error", "DISABLED", 0),
-        ("production", "DISABLED", "ENABLED", 1),
-        ("production", "ENABLED", "ENABLED", 3),
-        ("uat", "ENABLED", "ENABLED", 0),
-        ("dev", "ENABLED", "ENABLED", 0),
+        ("production", "ENABLED", "DISABLED", "DISABLED", 2),
+        ("production", "DISABLED", "DISABLED", "DISABLED", 0),
+        ("production", "", "DISABLED", "DISABLED", 0),
+        ("production", "error", "DISABLED", "DISABLED", 0),
+        ("production", "DISABLED", "ENABLED", "DISABLED", 1),
+        ("production", "ENABLED", "ENABLED", "DISABLED", 3),
+        ("production", "DISABLED", "ENABLED", "ENABLED", 2),
+        ("production", "ENABLED", "ENABLED", "ENABLED", 4),
+        ("production", "ENABLED", "ENABLED", "error", 3),
+        ("uat", "ENABLED", "ENABLED", "ENABLED", 0),
+        ("dev", "ENABLED", "ENABLED", "ENABLED", 0),
     ],
 )
-def test_binding_pair_requires_enabled_versions_in_production(profile, state, audience, expected):
+def test_binding_pair_requires_enabled_versions_in_production(
+    profile, state, audience, policy, expected
+):
     bash = shutil.which("bash")
     if os.name == "nt":
         candidate = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
@@ -40,6 +45,9 @@ gcloud() {
     printf '%s\n' "$PLG_TEST_SECOND_STATE"
   elif [[ "$*" == *'--secret=ONE_PLG_AUDIENCE_SECRET'* ]]; then
     printf '%s\n' "$PLG_TEST_AUDIENCE_STATE"
+  elif [[ "$*" == *'--secret=ONE_PLG_REPORTING_POLICY_JSON'* ]]; then
+    [[ "$PLG_TEST_POLICY_STATE" != error ]] || return 1
+    printf '%s\n' "$PLG_TEST_POLICY_STATE"
   else
     printf '%s\n' ENABLED
   fi
@@ -48,7 +56,12 @@ source "$1" "$2" test-project
 """
     result = subprocess.run(  # noqa: S603 -- fixed helper and synthetic CLI, no cloud access
         [bash, "-c", script, "plg-bindings", HELPER.as_posix(), profile],
-        env={**os.environ, "PLG_TEST_SECOND_STATE": state, "PLG_TEST_AUDIENCE_STATE": audience},
+        env={
+            **os.environ,
+            "PLG_TEST_SECOND_STATE": state,
+            "PLG_TEST_AUDIENCE_STATE": audience,
+            "PLG_TEST_POLICY_STATE": policy,
+        },
         capture_output=True,
         text=True,
         timeout=10,
@@ -63,4 +76,6 @@ source "$1" "$2" test-project
         ]
     if profile == "production" and audience == "ENABLED":
         bindings += ["ONE_PLG_AUDIENCE_SECRET:ONE_PLG_AUDIENCE_SECRET"]
+    if profile == "production" and policy == "ENABLED":
+        bindings += ["ONE_PLG_REPORTING_POLICY_JSON:ONE_PLG_REPORTING_POLICY_JSON"]
     assert result.stdout.splitlines() == bindings
