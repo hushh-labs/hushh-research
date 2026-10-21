@@ -1,4 +1,4 @@
-"""Refresh incomplete SMS identity shadows before the existing policy gates.
+"""Repair absent account projections before the existing SMS policy gates.
 
 Membership authorizes the lookup, never phone verification or location access.
 The canonical identity writer preserves app-verified claims and phone uniqueness.
@@ -26,7 +26,7 @@ async def refresh_sms_recipient_identities(
     recipient_user_id: str | None = None,
     adding_contact: bool = False,
 ) -> None:
-    def incomplete_recipients() -> list[str]:
+    def missing_recipients() -> list[str]:
         if adding_contact and recipient_user_id:
             ids = (
                 [recipient_user_id]
@@ -39,33 +39,41 @@ async def refresh_sms_recipient_identities(
             ids = service.list_sms_contact_ids(owner_user_id=owner_user_id)
             if recipient_user_id is not None:
                 ids = [uid for uid in ids if uid == recipient_user_id]
-        incomplete = []
+        missing = []
         for uid in dict.fromkeys(ids):
             if uid == owner_user_id:
                 continue
-            identity = service._identity_row(uid) or {}
-            if not (identity.get("phone_verified") and identity.get("phone_number")):
-                incomplete.append(uid)
-        return incomplete
+            if not service._identity_row(uid):
+                missing.append(uid)
+        return missing
 
-    ids = await asyncio.to_thread(incomplete_recipients)
+    ids = await asyncio.to_thread(missing_recipients)
     if not ids:
         return
     identity_service = ActorIdentityService()
 
     async def refresh(uid: str) -> None:
         try:
-            await identity_service.sync_verified_phone_from_firebase(uid)
+            await identity_service.sync_from_firebase(uid, force=True, require_success=True)
         except Exception:
             # A provider/cache outage cannot prevent other contacts from
             # being attempted. Unrepaired recipients still fail the original
-            # phone/key/relationship gate; never fabricate verification.
+            # identity/key/relationship gates; never fabricate an identity.
             logger.warning("one.location.sms_identity_refresh_unavailable")
 
-    try:
+    async def repair_known_actors() -> None:
+        # Reuse canonical profile admission and the tombstone-fenced identity
+        # writer. A stale roster must never manufacture a new account spine.
+        known = await identity_service._known_actor_ids(ids)
         # Start every member of this owner-scoped SMS roster together. A slow
         # provider lookup must not consume the budget before later members start.
-        # The shared deadline bounds waiting without fabricating verification.
-        await asyncio.wait_for(asyncio.gather(*(refresh(uid) for uid in ids)), timeout=3)
+        # Existing projected accounts, including phone-less accounts, never
+        # depend on this provider recovery or its deadline.
+        await asyncio.gather(*(refresh(uid) for uid in ids if uid in known))
+
+    try:
+        await asyncio.wait_for(repair_known_actors(), timeout=3)
     except TimeoutError:
         logger.warning("one.location.sms_identity_refresh_deadline")
+    except Exception:
+        logger.warning("one.location.sms_identity_refresh_unavailable")

@@ -554,9 +554,7 @@ export function CheckInFlow({
                           </span>
                           {!ready ? (
                             <span className={cn(MUTED_TEXT, "block")}>
-                              {!recipient.phoneVerified
-                                ? "Needs a verified phone"
-                                : "Needs to open Location once"}
+                              Location receiving unavailable
                             </span>
                           ) : null}
                         </span>

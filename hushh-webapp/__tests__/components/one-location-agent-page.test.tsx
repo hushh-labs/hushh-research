@@ -88,6 +88,7 @@ const {
   mockCreateCircleInvite,
   mockEnsureSmsSystemCircle,
   mockGetSmsContacts,
+  mockGetSmsRecipientRoster,
   mockCreateNamedCircleMemberInvites,
   mockListNamedCircleEligibleConnections,
   mockListNamedCircleEligibleConnectionsPage,
@@ -158,6 +159,7 @@ const {
   mockCreateCircleInvite: vi.fn(),
   mockEnsureSmsSystemCircle: vi.fn(),
   mockGetSmsContacts: vi.fn(),
+  mockGetSmsRecipientRoster: vi.fn(),
   mockCreateNamedCircleMemberInvites: vi.fn(),
   mockListNamedCircleEligibleConnections: vi.fn(),
   mockListNamedCircleEligibleConnectionsPage: vi.fn(),
@@ -472,15 +474,7 @@ vi.mock("@/lib/one-location/service", () => ({
     listCircleMembersPage: mockListCircleMembersPage,
     ensureSmsSystemCircle: mockEnsureSmsSystemCircle,
     getSmsContacts: mockGetSmsContacts,
-    getSmsRecipientRoster: async (token: string) => {
-      const smsContactUserIds = await mockGetSmsContacts(token);
-      return {
-        smsContactUserIds,
-        recipients: locationState().recipients.filter((recipient) =>
-          smsContactUserIds.includes(recipient.userId),
-        ),
-      };
-    },
+    getSmsRecipientRoster: mockGetSmsRecipientRoster,
     createNamedCircle: vi.fn().mockResolvedValue({
       id: "circle_onboarding",
       name: "Test's Circle",
@@ -1351,6 +1345,10 @@ describe("OneLocationAgentPage", () => {
     mockRefreshPublicInviteLocation.mockResolvedValue({});
     mockEnsureSmsSystemCircle.mockResolvedValue({ members: [] });
     mockGetSmsContacts.mockResolvedValue([]);
+    mockGetSmsRecipientRoster.mockImplementation(async (token: string) => {
+      const smsContactUserIds = await mockGetSmsContacts(token);
+      return { smsContactUserIds, recipients: locationState().recipients.filter((recipient) => smsContactUserIds.includes(recipient.userId)) };
+    });
     mockCreateNamedCircleMemberInvites.mockResolvedValue([]);
     mockListNamedCircleEligibleConnections.mockResolvedValue({
       eligibleConnections: [],
@@ -4463,6 +4461,36 @@ describe("OneLocationAgentPage", () => {
         sourceCircleId: "circle-1",
       }),
     );
+  });
+
+  it("automatically reconciles pending SMS receiving metadata without prompting, sending or requesting GPS", async () => {
+    vi.useFakeTimers();
+    const visibility = document.visibilityState;
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    try {
+      mockGetSmsContacts.mockResolvedValue(["user_b"]);
+      const ready = locationState().recipients.find((recipient) => recipient.userId === "user_b")!;
+      mockGetSmsRecipientRoster.mockResolvedValue({ smsContactUserIds: ["user_b"], recipients: [{ ...ready, canReceiveLocation: false, keyId: null, publicKeyJwk: null }] });
+      mockLocationSearchParams("action=sos");
+      const view = render(<OneLocationAgentPage />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      await skipLocationEntryFlow({ expectMain: false });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      mockGetSmsRecipientRoster.mockClear();
+      mockGetSmsRecipientRoster.mockResolvedValue({ smsContactUserIds: ["user_b"], recipients: [ready] });
+      await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+      expect(mockGetSmsRecipientRoster).toHaveBeenCalled();
+      expect(screen.queryByText(/needs? attention|unlock once|account verification/i)).toBeNull();
+      expect(mockCreateGrant).not.toHaveBeenCalled();
+      expect(mockRequestLocationPermission).not.toHaveBeenCalled();
+      const calls = mockGetSmsRecipientRoster.mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+      expect(mockGetSmsRecipientRoster).toHaveBeenCalledTimes(calls);
+      view.unmount();
+    } finally {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: visibility });
+      vi.useRealTimers();
+    }
   });
 
   it("reconciles the live SOS roster after adding a person to SMS Circle", async () => {

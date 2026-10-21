@@ -220,6 +220,7 @@ describe("VaultProvider app-resume expiry recovery", () => {
     vi.spyOn(Date, "now").mockRestore();
     vi.setSystemTime(NOW);
     mocks.issueVaultOwnerToken.mockResolvedValue({ token: "renewed-token", expiresAt: NOW + 86_400_000, scope: "vault.owner", renewalValidated: true });
+    setVisibility("visible");
     renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock long-lived" }));
     await act(async () => { await vi.advanceTimersByTimeAsync(300_000); });
@@ -227,6 +228,24 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(currentVault.getVaultOwnerToken()).toBe("renewed-token");
     expect(currentVault.getVaultKey()).toBe("vault-key");
     expect(currentVault.ownerTokenStatus).toBe("valid");
+    expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenLastCalledWith({
+      userId: "vault-owner", vaultOwnerToken: "renewed-token", vaultKey: "vault-key",
+    });
+  });
+
+  it("repairs receiving while Chat stays visible after the fast retry window and stops on lock", async () => {
+    vi.useFakeTimers();
+    setVisibility("visible");
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock long-lived" }));
+    mocks.queueLocationRecipientKeyBootstrap.mockClear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenCalledExactlyOnceWith({
+      userId: "vault-owner", vaultOwnerToken: "vault-token", vaultKey: "vault-key",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Lock" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenCalledTimes(1);
   });
 
   // Timers count awake time only: after overnight sleep the renewal timer has

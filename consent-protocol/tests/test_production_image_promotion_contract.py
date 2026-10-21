@@ -255,7 +255,11 @@ def test_preserved_readiness_keeps_production_vertex_gate(tmp_path, monkeypatch,
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     build_id = "00000000-0000-4000-8000-000000000001"
-    monkeypatch.setattr(module, "Path", lambda value: tmp_path if value == "/workspace/managed-readiness" else Path(value))
+    monkeypatch.setattr(
+        module,
+        "Path",
+        lambda value: tmp_path if value == "/workspace/managed-readiness" else Path(value),
+    )
     monkeypatch.setenv("READINESS_BUILD_ID", build_id)
     monkeypatch.setenv("READINESS_ENVIRONMENT", "production")
     monkeypatch.setenv("READINESS_STEP_EXIT", "1" if receipt == "failed" else "0")

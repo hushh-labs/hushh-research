@@ -1,12 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockApiJson } = vi.hoisted(() => ({
+const { mockApiJson, mockIdToken } = vi.hoisted(() => ({
   mockApiJson: vi.fn(),
+  mockIdToken: vi.fn(),
 }));
+
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getIdTokenWithRetry: mockIdToken } }));
 
 vi.mock("@/lib/services/api-client", () => ({
   apiJson: mockApiJson,
 }));
+
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 import { OneKycService } from "@/lib/services/one-kyc-service";
 
@@ -15,7 +21,9 @@ const KYC_CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM";
 describe("OneKycService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    publishValidatedAuthSessionOwner("user_1");
     mockApiJson.mockResolvedValue({});
+    mockIdToken.mockResolvedValue("firebase-token");
   });
 
   it("registers the public connector without sending the private key", async () => {
@@ -35,8 +43,11 @@ describe("OneKycService", () => {
 
     expect(mockApiJson).toHaveBeenCalledWith("/api/one/kyc/client-connector", {
       method: "POST",
+      beforeDispatch: expect.any(Function),
+      isEffectCurrent: expect.any(Function),
       headers: {
-        Authorization: "Bearer vault-token",
+        Authorization: "Bearer firebase-token",
+        "X-Hushh-Consent": "vault-token",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -48,6 +59,47 @@ describe("OneKycService", () => {
       }),
     });
     expect(mockApiJson.mock.calls[0]?.[1]?.body).not.toContain("private-key");
+  });
+
+  it("reads a connector with same-owner Firebase and vault credentials", async () => {
+    await OneKycService.getClientConnector({ userId: "user_1", vaultOwnerToken: "vault-token" });
+    expect(mockIdToken).toHaveBeenCalledWith({ expectedUserId: "user_1" });
+    expect(mockApiJson).toHaveBeenCalledWith("/api/one/kyc/client-connector?user_id=user_1", {
+      beforeDispatch: expect.any(Function),
+      isEffectCurrent: expect.any(Function),
+      headers: { Authorization: "Bearer firebase-token", "X-Hushh-Consent": "vault-token", "Content-Type": "application/json" },
+    });
+  });
+
+  it("waits for a matching account session before sending connector authority", async () => {
+    mockIdToken.mockResolvedValue(null);
+    await expect(OneKycService.getClientConnector({ userId: "user_1", vaultOwnerToken: "vault-token" })).rejects.toThrow("session is still restoring");
+    expect(mockApiJson).not.toHaveBeenCalled();
+  });
+
+  it("refuses a connector read while the vault is locked", async () => {
+    await expect(OneKycService.getClientConnector({ userId: "user_1", vaultOwnerToken: "" })).rejects.toThrow("Unlock your vault");
+    expect(mockApiJson).not.toHaveBeenCalled();
+  });
+
+  it.each(["account", "vault"])("refuses a delayed token after %s replacement", async (boundary) => {
+    let resolve!: (token: string) => void;
+    mockIdToken.mockReturnValueOnce(new Promise<string>(done => { resolve = done; }));
+    const pending = OneKycService.getClientConnector({ userId: "user_1", vaultOwnerToken: "vault-token" });
+    if (boundary === "account") publishValidatedAuthSessionOwner("user_2");
+    else advanceVaultSessionEpoch();
+    resolve("firebase-token");
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockApiJson).not.toHaveBeenCalled();
+  });
+
+  it("rechecks the vault at the existing transport dispatch boundary", async () => {
+    mockApiJson.mockImplementationOnce(async (_path, options) => {
+      advanceVaultSessionEpoch();
+      expect(options.isEffectCurrent()).toBe(false);
+      await options.beforeDispatch();
+    });
+    await expect(OneKycService.getClientConnector({ userId: "user_1", vaultOwnerToken: "vault-token" })).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("sends the approved body only to the transient send-approved endpoint", async () => {

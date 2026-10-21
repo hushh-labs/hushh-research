@@ -842,27 +842,9 @@ def _classify_share_kind(reason: str | None) -> str:
     return "check_in"
 
 
-def requires_recipient_phone_verification(
-    *,
-    share_kind: str | None,
-    reason: str | None,
-) -> bool:
-    """Keep the verified-phone gate on the emergency SMS lane only.
-
-    Ordinary private shares are authorized by an active One relationship and
-    encrypted to the recipient's active Location key.  Requiring an unrelated
-    phone claim after the recipient picker has already proved both facts makes
-    a connected, cryptographically ready Google-only account impossible to
-    share with.  SOS is different: its recipient list is explicitly the SMS
-    contact list, so that lane keeps the verified-phone requirement.
-
-    Classify legacy callers from ``reason`` exactly as grant creation does, so
-    an older ``sos_panic`` request cannot bypass the SMS protection merely by
-    omitting ``shareKind``.
-    """
-
-    resolved_kind = share_kind or _classify_share_kind(reason)
-    return _is_sos_lane(resolved_kind)
+def is_sos_share(*, share_kind: str | None, reason: str | None) -> bool:
+    """Classify current and legacy emergency requests through the grant owner."""
+    return _is_sos_lane(share_kind or _classify_share_kind(reason))
 
 
 def _is_until_stopped_share(duration_mode: str | None) -> bool:
@@ -1223,17 +1205,23 @@ class OneLocationAgentService:
         return min(max_workers, worker_limit)
 
     def _run_batched_read_queries(
-        self, tasks: list[tuple[str, str, dict[str, Any]]], *, require_complete: bool = False
+        self,
+        tasks: list[tuple[str, str, dict[str, Any]]],
+        *,
+        require_complete: bool = False,
+        required_sections: frozenset[str] = frozenset(),
     ) -> dict[str, list[dict[str, Any]]]:
         """One instrumented statement for authored, independent read projections.
 
         Retain each section's ordering, caps and bound owner predicate. A failed
         optional section falls back to the existing independently degraded reads;
-        complete inventory keeps its strict repeatable-read path. No cache or
-        additional persistence authority is introduced.
+        required sections still raise on fallback failure, and complete inventory
+        keeps its strict repeatable-read path. No new persistence is introduced.
         """
         if require_complete or not tasks:
-            return self._run_read_queries_parallel(tasks, require_complete=require_complete)
+            return self._run_read_queries_parallel(
+                tasks, require_complete=require_complete, required_sections=required_sections
+            )
         projections = []
         values: dict[str, Any] = {}
         for index, (_, query, params) in enumerate(tasks):
@@ -1275,7 +1263,7 @@ class OneLocationAgentService:
             return result
         except Exception as exc:  # additive schema rollout: preserve healthy sections
             logger.warning("one_location.read_batch_fallback error_type=%s", type(exc).__name__)
-            return self._run_read_queries_parallel(tasks)
+            return self._run_read_queries_parallel(tasks, required_sections=required_sections)
 
     def _run_read_queries_parallel(
         self,
@@ -1283,6 +1271,7 @@ class OneLocationAgentService:
         *,
         max_workers: int = 8,
         require_complete: bool = False,
+        required_sections: frozenset[str] = frozenset(),
     ) -> dict[str, list[dict[str, Any]]]:
         """Run several independent, read-only SQL queries concurrently.
 
@@ -1299,7 +1288,7 @@ class OneLocationAgentService:
         `get_db().execute_raw`, so concurrent calls are safe -- there is no
         shared connection/cursor state across tasks.
 
-        A failing task degrades to `[]` and is logged rather than raised --
+        An optional failing task degrades to `[]` and is logged rather than raised --
         the same resilience a sequential per-section try/except gave before
         this existed. One bad section must never fail the rest of the page.
         Each worker runs inside a copy of the
@@ -1342,7 +1331,11 @@ class OneLocationAgentService:
                 key = future_to_key[future]
                 try:
                     results[key] = future.result()
-                except Exception as exc:  # noqa: BLE001 - degrade, never fail the page
+                except Exception as exc:  # noqa: BLE001 - only optional sections degrade
+                    if key in required_sections:
+                        # An unavailable private-key backup must never look
+                        # absent: bootstrap could replace the account key.
+                        raise
                     logger.warning(
                         "one_location.parallel_query_failed section=%s error=%s",
                         key,
@@ -5714,7 +5707,9 @@ class OneLocationAgentService:
                 "Choose a different connection as an SMS contact.",
                 status_code=422,
             )
-        self._recipient_key_row(recipient_user_id=contact_user_id, require_phone_verified=True)
+        # Save My Soul is delivered to an account in One, not to a phone.
+        # The Circle writer still validates the selected active relationship.
+        self._recipient_key_row(recipient_user_id=contact_user_id, require_phone_verified=False)
         result = self._sms_circle_service().set_sms_contact(
             owner_user_id=owner_user_id,
             contact_user_id=contact_user_id,
@@ -6314,7 +6309,7 @@ class OneLocationAgentService:
         reason: str | None = None,
         share_kind: str | None = None,
         source_circle_id: str | None = None,
-        require_recipient_phone_verified: bool = True,
+        require_recipient_phone_verified: bool = False,
         enforce_connection: bool = False,
         require_owned_source_circle: bool = False,
         source: str | None = None,
@@ -6582,7 +6577,7 @@ class OneLocationAgentService:
         reason: str | None = None,
         share_kind: str | None = None,
         source_circle_id: str | None = None,
-        require_recipient_phone_verified: bool = True,
+        require_recipient_phone_verified: bool = False,
         enforce_connection: bool = False,
     ) -> dict[str, Any]:
         """Atomically replace a grant and persist its first ciphertext envelope.
@@ -9569,6 +9564,7 @@ class OneLocationAgentService:
         _sections = self._run_batched_read_queries(
             state_queries,
             **({"require_complete": True} if require_complete else {}),
+            required_sections=frozenset() if consent_only else frozenset({"my_recipient_key"}),
         )
         owner_grants = _sections.get("owner_grants", [])
         received_grants = _sections.get("received_grants", [])

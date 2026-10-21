@@ -818,7 +818,7 @@ export function SaveMySoul() {
               <EmptyState
                 icon={<PhoneCall className="h-6 w-6" aria-hidden />}
                 title="No emergency contacts yet"
-                description="Nobody would be alerted. Add at least one connected person with a verified phone."
+                description="Nobody would be alerted. Add at least one connection ready to receive location."
                 action={
                   <Button asChild size="sm">
                     <Link href={hrefForLocationAction("sms-contacts")}>
