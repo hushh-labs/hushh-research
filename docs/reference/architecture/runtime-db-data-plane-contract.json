@@ -45,7 +45,8 @@
     "calendar_attendance_reviews",
     "live_memory_source_events",
     "one_product_activity_observations",
-    "one_product_value_receipts"
+    "one_product_value_receipts",
+    "drive_group_index"
   ],
   "retention_registry": [
     {
@@ -1992,6 +1993,22 @@
       "trust_boundary": "No authorization, reward, content or task settlement authority. Owner-bound admitted callbacks or authenticated Firebase reports, production lane and explicit pilot UID allowlist or default-off expanded registered-contact admission. Anonymous UID presence alone never admits expanded collection. The independently keyed audience read joins current canonical identity under lifecycle/phone/row barriers without enrollment, identity mutation, messaging consent or delivery. Missing terminals mean possible incomplete observations, not confirmed abandonment. No prompts, arguments, responses, private tool names, provider IDs, routes, coordinates or financial details. RLS denies browser roles. Value receipts are metadata projections after provider acknowledgement or a verified explicit owner decision, never new action authority. They retain no provider IDs, private content, or tokens. Other adapters read domain-owned canonical records; internal stages are not activation journeys.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "bounded_500_observations_and_500_value_receipts_per_owner_per_day_seven_day_ttl"
+    },
+    {
+      "id": "drive_four_group_index",
+      "owner": "backend-runtime-governance",
+      "data_class": "provider_cache",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "drive_group_index_state",
+        "drive_group_index"
+      ],
+      "primary_access_path": "Default-off, cohort-admitted Vault Owner routes expose state, fiscal folders and bounded file pages, accept explicit preparation opt-in, and erase entries. The separately callable DriveGroupIndexJob uses current live Drive grants, generation/revision-fenced renewable leases and at most 100 changed files per commit. It is not registered with DriveWorkDrain or a scheduler. No direct client database access.",
+      "retention_policy": "Retain the derived sealed index while the connection generation exists, until owner erase or connection revocation/change. Pausing retains entries. No age-based TTL or scheduled retention is implemented. A complete uncapped inventory prunes absent files; partial or capped inventories never prune. Organizer placements are refreshable from Drive, but owner overrides are not reconstructible from the provider and are preserved by behavioral rollback. This server projection is not canonical PKM memory.",
+      "deletion_behavior": "Owner erase removes all index entries, withdraws opt-in and invalidates leases, but retains the reset state row with its time zone and revision. The migration trigger deletes both tables' rows on connection-generation change or revocation; connector deletion cascades to both tables. Account reset uses that generation/revocation path and account deletion removes the connector. Migration 368 refreshes account-deletion write guards. These are source contracts, not deployed account-erasure evidence.",
+      "trust_boundary": "Separate server-key processing domain under DRIVE_DOCUMENT_KEY_V1, not client-key BYOK or zero knowledge. Drive file IDs, names, links and retained text starts/vectors are AES-256-GCM sealed with purpose, owner, source reference and connection generation as associated data. Source references are owner-keyed HMACs. Shelf/candidate/confidence/reason/model and provider revisions, deciding dates, counts, opt-in, time zone and lease state remain queryable personal metadata. Only kept entries retain text starts/vectors. Placements confer no sharing, consent, search or provider-write authority; explicit opt-in, live grant, cohort, background preference and lease revisions remain authoritative.",
+      "plaintext_posture": "server_sealed_private_file_metadata_and_kept_text_vectors_with_queryable_organizing_and_workflow_metadata",
+      "expected_row_growth": "One state row and at most 10000 indexed entries per owner in the current worker; batches up to 100 files, at most 100 inventory pages. No age compaction or scheduler is claimed."
     }
   ]
 }

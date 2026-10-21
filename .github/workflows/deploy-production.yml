@@ -592,6 +592,7 @@ jobs:
             --google-drive-live "${{ steps.drive-mode.outputs.active }}" \
             --google-drive-picker "${{ steps.drive-mode.outputs.active }}" \
             --drive-document-indexing "${{ steps.drive-mode.outputs.active }}" \
+            --drive-four-group-index "false" \
             --drive-document-sharing "${{ steps.drive-mode.outputs.active }}" \
             --google-drive-chat-reads "${{ steps.drive-mode.outputs.active }}" \
             --connector-production-all-users "${{ steps.drive-mode.outputs.active }}" \

@@ -49,6 +49,7 @@ export type ConnectorFeatures = Partial<
     | "google_drive_live"
     | "google_drive_picker"
     | "drive_document_indexing"
+    | "drive_four_group_index"
     | "drive_document_sharing"
     | "gmail_chat_reads"
     | "google_drive_chat_reads"

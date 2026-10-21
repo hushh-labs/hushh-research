@@ -3525,6 +3525,8 @@ from that credential, and rechecks it after storage I/O. Responses and authored
 errors are `private, no-store`. With `DRIVE_FOUR_GROUP_INDEX_ENABLED` off (the
 default), every endpoint returns 404 before storage construction. This is a
 virtual, sealed server index; it never mutates Drive, writes PKM or grants sharing.
+An enabled global switch still requires the existing environment-specific owner
+cohort; admission is rechecked after storage I/O and before lease renewal/commit.
 The existing connector catch-all web proxy forwards these endpoints. Web/native
 UI and service callers are deferred to the page slice.
 
@@ -3539,7 +3541,7 @@ The live Drive policy and generation remain authoritative. Background OFF pauses
 preparation; opt-in, background revision, lease expiry and connection changes fence
 late commits. Only a complete, uncapped listing permits deletion of absent files.
 The fiscal rule is title date, created time, then modified time in the owner's
-zone. Kept files have no fiscal folder. See [implementation and pending release
+zone. Kept files have no fiscal folder. See [implementation and local release
 registration](../one/drive-four-group-index.md#slice-3-storage-worker-and-owner-api).
 
 ### Owner Drive searches

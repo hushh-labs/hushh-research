@@ -27,6 +27,8 @@ tests/test_drive_uat_registry_provisioning.py
 tests/services/test_google_drive_adapter.py
 tests/services/test_drive_document_selection.py
 tests/services/test_drive_ingestion.py
+tests/services/test_drive_groups.py
+tests/services/test_drive_group_index_postgres.py
 tests/services/test_drive_document_processor.py
 tests/services/test_drive_document_retrieval.py
 tests/services/test_drive_document_worker.py
@@ -50,6 +52,7 @@ tests/services/test_google_drive_permission_adapter.py
 tests/services/test_drive_sharing_contract.py
 tests/test_runtime_settings_maps.py
 tests/test_drive_sharing_routes.py
+tests/test_drive_groups_routes.py
 tests/test_drive_searches_routes.py
 tests/services/test_drive_live_reader.py
 tests/services/test_drive_candidate_selection.py

@@ -754,6 +754,10 @@ jobs:
             echo "Selected SHA cannot preserve enabled email OTP; disable EMAIL_AUTH_ENABLED_UAT for an older approved release." >&2
             exit 1
           fi
+          drive_group_args=()
+          if grep -q -- '--drive-four-group-index' scripts/ops/sync_backend_runtime_secrets.py; then
+            drive_group_args=(--drive-four-group-index "false")
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment uat \
@@ -781,6 +785,7 @@ jobs:
             --google-drive-live "$UAT_GOOGLE_DRIVE_LIVE" \
             --google-drive-picker "$UAT_GOOGLE_DRIVE_PICKER" \
             --drive-document-indexing "$UAT_DRIVE_DOCUMENT_INDEXING" \
+            "${drive_group_args[@]}" \
             --drive-document-sharing "$UAT_DRIVE_DOCUMENT_SHARING" \
             --drive-agent-packages-enabled "$UAT_DRIVE_AGENT_PACKAGES_ENABLED" \
             --gmail-chat-reads "$UAT_GMAIL_CHAT_READS" \

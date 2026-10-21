@@ -403,9 +403,14 @@ jobs:
               --phase resources --report-path /tmp/dev-runtime-secret-sync.json
             exit 0
           fi
+          drive_group_args=()
+          if grep -q -- '--drive-four-group-index' scripts/ops/sync_backend_runtime_secrets.py; then
+            drive_group_args=(--drive-four-group-index "false")
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment uat \
+            "${drive_group_args[@]}" \
             --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}" \
             --db-host "cloudsql-socket" \
             --db-port "5432" \

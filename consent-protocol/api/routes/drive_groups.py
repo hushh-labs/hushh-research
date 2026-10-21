@@ -7,6 +7,7 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from api.routes.drive_sharing import NO_STORE, Owner, _owner
+from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_group_index_store import DISCLOSURE, DriveGroupIndexStore
 from hushh_mcp.services.drive_groups.contract import GroupIndexDisabled, four_group_index_enabled
 from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
@@ -82,12 +83,12 @@ def _store():
 
 async def _call(owner: Owner, operation):
     await owner.require_current()
-    if not four_group_index_enabled():
+    if not connector_feature_enabled("drive_four_group_index", owner.user_id):
         raise _error("group_index_disabled")
     try:
         result = await operation()
         await owner.require_current()
-        if not four_group_index_enabled():
+        if not connector_feature_enabled("drive_four_group_index", owner.user_id):
             raise _error("group_index_disabled")
         return result
     except GroupIndexDisabled:

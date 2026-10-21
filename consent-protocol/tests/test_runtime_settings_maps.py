@@ -105,6 +105,9 @@ def test_plg_flags_survive_actual_config_writer_and_hydration(
     )
     assert tuple(actual[key] for key in keys) == expected
     assert all(isinstance(actual[key], bool) for key in keys)
+    # New Drive preparation must stay off when unrelated config is rewritten,
+    # including a production candidate whose established Drive mode is active.
+    assert actual["drive_four_group_index"] == "false"
     assert "unowned_configuration" not in actual
     assert "one_plg_export_account_ids" not in actual
     if candidate:

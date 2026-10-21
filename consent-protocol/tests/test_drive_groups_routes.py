@@ -30,6 +30,9 @@ ENDPOINTS = [
 @pytest.fixture
 def setup(monkeypatch):
     monkeypatch.setenv(FLAG, "true")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    monkeypatch.setenv("CONNECTOR_UAT_ALL_USERS", "false")
     app = FastAPI()
     app.include_router(routes.router)
     store = SimpleNamespace(
@@ -51,6 +54,16 @@ def unlock(app):
         "user_id": "owner",
         "token": "synthetic-owner",
     }
+
+
+def test_enabled_global_flag_cannot_admit_an_owner_outside_the_cohort(setup, monkeypatch):
+    client, app, store, _ = setup
+    unlock(app)
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "another-owner")
+    response = client.get(BASE)
+    assert response.status_code == 404
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert all(not method.called for method in vars(store).values())
 
 
 @pytest.mark.parametrize("method,suffix,body", ENDPOINTS)

@@ -30,7 +30,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import text
 
-from hushh_mcp.services.connector_feature_admission import connector_feature_owner_cohort
+from hushh_mcp.services.connector_feature_admission import (
+    connector_feature_enabled,
+    connector_feature_owner_cohort,
+)
 from hushh_mcp.services.drive_document_store import DriveDocumentCipher
 from hushh_mcp.services.drive_groups.contract import (
     EMBEDDING_DIMENSIONS,
@@ -132,8 +135,10 @@ class DriveGroupIndexStore(DriveLivePreferences):
         self.sealer = sealer or DriveGroupCipher()
 
     @staticmethod
-    def _require_flag() -> None:
-        if not four_group_index_enabled():
+    def _require_flag(user_id: str) -> None:
+        if not four_group_index_enabled() or not connector_feature_enabled(
+            "drive_four_group_index", user_id
+        ):
             raise GroupIndexDisabled("the Drive four-group index is off")
 
     def _processing(self, connection, user_id: str, generation: int, revision: int | None = None):
@@ -158,7 +163,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
         self, *, user_id: str, enabled: bool, disclosure: str | None, time_zone: str = "UTC"
     ) -> dict:
         """The owner's opt-in. Turning it on needs the exact disclosure; off pauses, never deletes."""
-        self._require_flag()
+        self._require_flag(user_id)
         if type(enabled) is not bool or enabled and disclosure != DISCLOSURE:
             raise DriveReadError("confirmation_required")
         _zone(time_zone)
@@ -198,7 +203,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
             return []
 
         def operation(connection):
-            cohort = connector_feature_owner_cohort("google_drive_live")
+            cohort = connector_feature_owner_cohort("google_drive_live", "drive_four_group_index")
             if cohort == ():
                 return []
             return list(
@@ -227,7 +232,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
         return await self._transaction(operation)
 
     async def claim(self, *, user_id: str) -> dict | None:
-        self._require_flag()
+        self._require_flag(user_id)
 
         def operation(connection):
             current = self.live_active(connection, user_id=user_id)
@@ -249,6 +254,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
         return await self._transaction(operation)
 
     def _job(self, connection, job: dict) -> dict:
+        self._require_flag(job["user_id"])
         row, preference = self._processing(
             connection, job["user_id"], job["connection_generation"], job["revision"]
         )
@@ -265,12 +271,12 @@ class DriveGroupIndexStore(DriveLivePreferences):
         return current
 
     async def require_current(self, job: dict) -> None:
-        self._require_flag()
+        self._require_flag(job["user_id"])
         await self._transaction(lambda connection: self._job(connection, job))
 
     async def renew(self, job: dict) -> None:
         """Extend only a live lease, rechecking every authority revision first."""
-        self._require_flag()
+        self._require_flag(job["user_id"])
 
         def operation(connection):
             self._job(connection, job)
@@ -358,7 +364,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
         ``keep`` is the set of references present in a complete listing; every other
         row of this owner is a file that no longer exists and is removed.
         """
-        self._require_flag()
+        self._require_flag(job["user_id"])
         if (
             len(entries) > MAX_BATCH
             or not 0 <= listed <= 10_000_000
@@ -494,6 +500,8 @@ class DriveGroupIndexStore(DriveLivePreferences):
         await self._transaction(operation)
 
     async def status(self, *, user_id: str) -> dict:
+        self._require_flag(user_id)
+
         def operation(connection):
             self.live_active(connection, user_id=user_id, read_only=True)
             state = self._row(
@@ -545,6 +553,8 @@ class DriveGroupIndexStore(DriveLivePreferences):
         }
 
     async def folders(self, *, user_id: str) -> list[dict]:
+        self._require_flag(user_id)
+
         def operation(connection):
             self.live_active(connection, user_id=user_id, read_only=True)
             zone = self._row(
@@ -591,6 +601,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
         ``period`` is None for every file on the shelf, "undated" for those with no
         usable date, or a quarter key such as "FY26-Q1".
         """
+        self._require_flag(user_id)
         wanted = parse_period(period) if period not in (None, "undated") else None
         if (
             shelf not in (*GROUP_IDS, KEPT)
@@ -675,6 +686,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
 
     async def erase(self, *, user_id: str) -> dict:
         """The owner's delete: every placed entry goes and the opt-in is withdrawn."""
+        self._require_flag(user_id)
 
         def operation(connection):
             self.live_active(connection, user_id=user_id, management=True)

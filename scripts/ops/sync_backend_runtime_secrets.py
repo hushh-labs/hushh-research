@@ -24,6 +24,7 @@ CONNECTOR_ROLLOUT_FLAGS = (
     "google_drive_live",
     "google_drive_picker",
     "drive_document_indexing",
+    "drive_four_group_index",
     "drive_document_sharing",
     "drive_agent_packages_enabled",
     "gmail_chat_reads",
@@ -295,23 +296,15 @@ def _retained_referral_config(
         "production": ("hushh-pda", "https://api.hushh.ai"),
     }
     expected = lanes.get(environment)
-    if (
-        expected is None
-        or project != expected[0]
-        or existing.get("environment") != environment
-    ):
-        raise ValueError(
-            "Referral drain configuration belongs to a different environment"
-        )
+    if expected is None or project != expected[0] or existing.get("environment") != environment:
+        raise ValueError("Referral drain configuration belongs to a different environment")
     expected_values = (
         expected[1],
         project,
         f"referral-scoring-sched@{project}.iam.gserviceaccount.com",
     )
     if tuple(existing.get(key) for key in keys[1:]) != expected_values:
-        raise ValueError(
-            "Referral drain scheduler identity does not match its environment"
-        )
+        raise ValueError("Referral drain scheduler identity does not match its environment")
     return {keys[0]: True, **dict(zip(keys[1:], expected_values, strict=True))}
 
 
@@ -341,9 +334,7 @@ def _retained_plg_config(
         or existing.get("environment") != "production"
         or existing.get("google_cloud_project") != "hushh-pda"
     ):
-        raise ValueError(
-            "PLG activation belongs only to the production environment and project"
-        )
+        raise ValueError("PLG activation belongs only to the production environment and project")
     return retained
 
 
@@ -389,6 +380,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "google_drive_live": getattr(args, "google_drive_live", "false"),
         "google_drive_picker": getattr(args, "google_drive_picker", "false"),
         "drive_document_indexing": getattr(args, "drive_document_indexing", "false"),
+        "drive_four_group_index": getattr(args, "drive_four_group_index", "false"),
         "drive_document_sharing": getattr(args, "drive_document_sharing", "false"),
         "drive_agent_packages_enabled": getattr(args, "drive_agent_packages_enabled", "false"),
         "gmail_chat_reads": getattr(args, "gmail_chat_reads", "false"),
@@ -572,8 +564,11 @@ def main() -> int:
     parser.add_argument("--google-drive-live", default="false", choices=["true", "false"])
     parser.add_argument("--google-drive-picker", default="false", choices=["true", "false"])
     parser.add_argument("--drive-document-indexing", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-four-group-index", default="false", choices=["true", "false"])
     parser.add_argument("--drive-document-sharing", default="false", choices=["true", "false"])
-    parser.add_argument("--drive-agent-packages-enabled", default="false", choices=["true", "false"])
+    parser.add_argument(
+        "--drive-agent-packages-enabled", default="false", choices=["true", "false"]
+    )
     parser.add_argument("--gmail-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--google-drive-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--curated-mcp-connectors", default="false", choices=["true", "false"])
@@ -768,8 +763,8 @@ def main() -> int:
                 environment=args.environment,
             )
         )
-    backend_runtime_config, candidate_runtime_config = (
-        _split_production_drive_candidate_config(args, backend_runtime_config)
+    backend_runtime_config, candidate_runtime_config = _split_production_drive_candidate_config(
+        args, backend_runtime_config
     )
     if candidate_runtime_config is None:
         _upsert_secret(

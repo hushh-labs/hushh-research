@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 367,
+  "expected_migration_version": 368,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -95,7 +95,8 @@
     "guard_wallet_card_request",
     "mirror_drive_request_payment_obligation",
     "mark_drive_bulk_share_v1_removal_source",
-    "queue_system_push"
+    "queue_system_push",
+    "invalidate_drive_group_index"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -925,6 +926,47 @@
       "active",
       "activated_at",
       "revoked_at",
+      "updated_at"
+    ],
+    "drive_group_index": [
+      "user_id",
+      "connector_id",
+      "connection_generation",
+      "source_ref",
+      "shelf",
+      "candidate",
+      "confidence",
+      "reason",
+      "group_source",
+      "model_version",
+      "title_day",
+      "created_time",
+      "modified_time",
+      "source_modified",
+      "entry_envelope",
+      "indexed_at",
+      "updated_at",
+      "source_version"
+    ],
+    "drive_group_index_state": [
+      "user_id",
+      "connector_id",
+      "connection_generation",
+      "processing_enabled",
+      "disclosure_version",
+      "time_zone",
+      "revision",
+      "lease_id",
+      "lease_expires_at",
+      "next_at",
+      "attempt_count",
+      "last_error_code",
+      "listed_files",
+      "listing_complete",
+      "limited",
+      "model_version",
+      "last_run_at",
+      "initial_completed_at",
       "updated_at"
     ],
     "drive_live_preferences": [

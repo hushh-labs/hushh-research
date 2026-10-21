@@ -909,6 +909,17 @@
       "primary_access_path": "Vault Owner review may create a versioned, revocable rule for one verified recipient, one exact request purpose and unchanged contents of named Drive files. Each automatic repeat grant rechecks the active rule, recipient, connection generation, file identity, observed content fingerprint and current provider version."
     },
     {
+      "data_class": "provider_cache",
+      "exact_tables": [
+        "drive_group_index_state",
+        "drive_group_index"
+      ],
+      "id": "drive_four_group_index",
+      "lifecycle_status": "customer0",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Default-off, cohort-admitted Vault Owner routes expose state, fiscal folders and bounded file pages, accept explicit preparation opt-in, and erase entries. The separately callable DriveGroupIndexJob uses current live Drive grants, generation/revision-fenced renewable leases and at most 100 changed files per commit. It is not registered with DriveWorkDrain or a scheduler. No direct client database access."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "drive_live_preferences"
@@ -6548,7 +6559,7 @@
     "action_gateway": "b6f231c66a4338f4acb6433be0a1c45e85cd16fe544e6973803a9a31f5e4a84e",
     "agent_registry": "e25643ad6e87284d55a07d33c53a4a0abcaec437d5214be8a9d1ed5b71654b00",
     "cache_manifest": "7b44ca869116d3fe4b1a9dd589a06cd863e81465e5ae708513b7d0636862703e",
-    "data_plane": "83c53899f8afd2a0ae0fd5aa2142a9bfd0eb25046b4d557c7cc52a7ef49ba84e",
+    "data_plane": "6bd774b96a54b15a4917d3278bfb6844d1463fa70100275074a627319006c5f3",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "89cfeabb190475072e5d3aebe5f0b8d1838ea0565560fc2e7ad133a231396e40",
     "route_index": "eb37a8bb7a3a30b196366cc330aafb5810c39efb8a411f39970d63652fb49733",
@@ -6567,6 +6578,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 154,
     "semantic_routes": 17,
-    "table_families": 113
+    "table_families": 114
   }
 }

@@ -41,8 +41,8 @@ REASONS: Final = frozenset(
     {"placed", "fits_none", "low_confidence", "low_margin", "disagreement", "no_evidence"}
 )
 
-# Dark by default: with no value the aid refuses to run. Deploy registration of
-# this flag is a separate, reviewed change to the shared deploy files.
+# Global kill-switch, dark by default. Owner-bound runtime entrypoints also
+# enforce connector_feature_admission; this leaf switch grants no authority.
 FLAG: Final = "DRIVE_FOUR_GROUP_INDEX_ENABLED"
 
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -101,6 +102,31 @@ def rows(groups, table="drive_group_index"):
 async def test_the_migration_replays_and_the_database_refuses_inconsistent_rows(groups):
     with groups.db.engine.begin() as connection:
         connection.exec_driver_sql(MIGRATION.read_text(), execution_options={"no_parameters": True})
+        actual = {
+            table: set(
+                connection.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns"
+                        " WHERE table_schema=current_schema() AND table_name=:table"
+                    ),
+                    {"table": table},
+                ).scalars()
+            )
+            for table in ("drive_group_index", "drive_group_index_state")
+        }
+        assert connection.execute(
+            text("SELECT to_regprocedure('invalidate_drive_group_index()')")
+        ).scalar()
+    for lane in ("uat_integrated_schema", "prod_core_schema", "dev_minimum_schema"):
+        contract = json.loads((MIGRATION.parents[1] / "contracts" / f"{lane}.json").read_text())
+        assert contract["expected_migration_version"] >= 368
+        assert "invalidate_drive_group_index" in contract["required_functions"]
+        for table, columns in actual.items():
+            assert columns <= set(contract["required_tables"][table])
+        assert "source_version" in contract["required_tables"]["drive_group_index"]
+    manifest = json.loads((MIGRATION.parents[1] / "release_migration_manifest.json").read_text())
+    assert manifest["ordered_migrations"].count(MIGRATION.name) == 1
+    assert (MIGRATION.parent / manifest["rollback_migrations"][MIGRATION.name]).is_file()
     await opted_in(groups)
     with pytest.raises(IntegrityError):
         # The aid keeps a file exactly when it did not place it.
@@ -373,6 +399,43 @@ async def test_final_owner_shelf_cannot_regain_a_kept_head_or_embedding(groups):
     assert stored["shelf"] == "personal_documents" and stored["group_source"] == "owner"
     assert groups.sealer.open_entry(stored)["head"] is None
     assert groups.sealer.open_entry(stored)["vec"] is None
+
+
+async def test_behavioral_rollback_preserves_owner_entries_and_invalidates_inflight_work(groups):
+    claimed = await opted_in(groups)
+    await commit(groups, claimed, [entry("owner-move", "personal_documents")])
+    with groups.db.engine.begin() as connection:
+        connection.execute(text("UPDATE drive_group_index SET group_source='owner'"))
+    stored = rows(groups)
+    inflight = await groups.claim(user_id="owner")
+    rollback = MIGRATION.parent / "rollback" / "368_drive_group_index.rollback.sql"
+    for _ in range(2):
+        with groups.db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                rollback.read_text(), execution_options={"no_parameters": True}
+            )
+    assert rows(groups) == stored
+    state = rows(groups, "drive_group_index_state")[0]
+    assert not state["processing_enabled"] and state["lease_id"] is None
+    with pytest.raises(DriveReadError, match="group_index_processing_required"):
+        await groups.require_current(inflight)
+    # Replaying the additive up migration does not opt the owner back in.
+    with groups.db.engine.begin() as connection:
+        connection.exec_driver_sql(MIGRATION.read_text(), execution_options={"no_parameters": True})
+    assert not (await groups.status(user_id="owner"))["enabled"]
+    assert rows(groups) == stored
+
+
+async def test_cohort_revocation_blocks_due_selection_renewal_and_commit(groups, monkeypatch):
+    claimed = await opted_in(groups)
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "another-owner")
+    assert await groups.due_owners() == []
+    for operation in (groups.require_current, groups.renew):
+        with pytest.raises(GroupIndexDisabled):
+            await operation(claimed)
+    with pytest.raises(GroupIndexDisabled):
+        await commit(groups, claimed, [entry("late", "personal_documents")])
+    assert rows(groups) == []
 
 
 def provider_file(identity="file-a"):
