@@ -2,7 +2,11 @@
 
 **Status:** authorized execution, refreshed 2026-10-21 UTC. Continue on the
 infrastructure branch; preserve concurrent work and the active ADK tree. Prior
-main/ADK integration remains preserved. Main through `7dd979013e` and frozen ADK `914e7c044c` are integrated. The latest union preserves main’s responsive Profile header, streamed account exports, dual-principal connector fencing, SOS recovery, Azure playback and exact provider receipts alongside the private-agent authorities. Main's messaging and Azure managed-provider selection is preserved alongside
+main/ADK integration remains preserved. Frozen executable candidate `67a64533ac`
+integrates main through `89516ab01d` and ADK `914e7c044c`. The later metadata
+publication source additionally incorporates operations-only main `ec7c61577f` and
+the focused Shared Files terminal-erasure repair; it reuses the qualified Browser
+image and original provenance. The latest union preserves main’s responsive Profile header, streamed account exports, dual-principal connector fencing, SOS recovery, Azure playback and exact provider receipts alongside the private-agent authorities. Main's messaging and Azure managed-provider selection is preserved alongside
 private-pod admission, Browser phase history and release publication. Nine peer
 edits and the active ADK worktree remain unchanged.
 
@@ -17,13 +21,23 @@ approval/takeover/login/reconnect, delivery, capacity and installed acceptance
 remain separate gates. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
 owns current source and serving evidence; qualification does not enable a pod.
 
-Fresh main/ADK source intake is complete. The local core mirror is complete; targeted repairs preserve its original failures.
-Remaining execution order: corrected exact-SHA hosted CI → governed image build → measured common capacity
-and agreed core lifecycle → exact-image qualification → governed metadata publication → exact owner installations → combined acceptance → **Admin SOP main merge and
+The local core mirror and clean merged web-core check are complete; targeted
+repairs preserve their original failures. Exact-SHA hosted validation is running.
+Remaining execution order: terminal hosted CI → governed image build → exact-image
+Browser and predecessor-recovery qualification → governed metadata publication →
+exact owner-approved configuration/installations → measured full-runtime capacity
+and combined core acceptance → **Admin SOP main merge and
 landed-SHA validation/dev receipt**. Main integration is now explicitly authorized
 after those gates. UAT/production, stable publication and automatic owner upgrades
 remain unauthorized. General scheduled-task expansion and coding activation are
 outside this Browser-plus-core gate; preserve supported schedules.
+
+Qualification probes do not establish full-pod capacity. Measure overlap and
+headroom on the normally started, admitted runtime after its exact approval;
+keep the main gate closed until that evidence passes. The metadata publication
+reuses the qualified image and its original source provenance rather than
+building the same executable again. Reconcile later dependency-relevant main
+changes in that planned source phase, preserving concurrent work.
 
 GCP dev uses the approved personal Gemini bridge because native organization AI
 is restricted. More IAM grants cannot repair the recorded provider dunning denial.
@@ -57,7 +71,9 @@ resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 
-- Main through `7dd979013e` is integrated, preserving its
+- Main through `ec7c61577f` is integrated. Its final capacity-recovery changes
+  preserve manual authorization and durable predecessor/successor reconciliation;
+  they change no pod executable or dependency. The union preserves main’s
   Profile/mobile, consent, deletion, PLG, Calendar and migrations 365–369 alongside
   pod authority. New content routes retain Shared-only admission; signed PLG
   operational exports retain their separate bounds and disabled defaults. The

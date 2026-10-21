@@ -4489,7 +4489,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 3039,
+  "finding_count": 3042,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -26008,7 +26008,7 @@
       "limit": 500,
       "path": "scripts/ci/runtime-capacity-budget.py",
       "symbol": null,
-      "value": 884
+      "value": 889
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26153,7 +26153,7 @@
       "limit": 250,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": "RuntimeCapacityBudgetTest",
-      "value": 611
+      "value": 626
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26171,7 +26171,7 @@
       "limit": 80,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": "test_post_release_checks_retained_capacity_without_next_candidate",
-      "value": 130
+      "value": 145
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27602,7 +27602,7 @@
       "limit": 80,
       "path": "scripts/ci/runtime-capacity-budget.py",
       "symbol": "evaluate",
-      "value": 112
+      "value": 117
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27719,7 +27719,7 @@
       "limit": 500,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": null,
-      "value": 676
+      "value": 691
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -27904,7 +27904,7 @@
       "limit": 250,
       "path": "scripts/ci/test_pending_uat_retention_state.py",
       "symbol": "PendingUatStateTests",
-      "value": 304
+      "value": 318
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -31820,7 +31820,7 @@
       "limit": 250,
       "path": "scripts/ci/test_production_capacity_bridge.py",
       "symbol": "BridgeTests",
-      "value": 317
+      "value": 512
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -31829,7 +31829,7 @@
       "limit": 80,
       "path": "scripts/ci/production-capacity-bridge.py",
       "symbol": "maintain",
-      "value": 209
+      "value": 291
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -31847,7 +31847,34 @@
       "limit": 500,
       "path": "scripts/ci/production-capacity-bridge.py",
       "symbol": null,
-      "value": 654
+      "value": 814
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_production_capacity_bridge.py|test_unhealthy_predecessor_is_preserved_and_only_the_observed_successor_is_reconciled|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_production_capacity_bridge.py",
+      "symbol": "test_unhealthy_predecessor_is_preserved_and_only_the_observed_successor_is_reconciled",
+      "value": 148
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/production-capacity-bridge.py|clone_template|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/production-capacity-bridge.py",
+      "symbol": "clone_template",
+      "value": 97
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|scripts/ci/test_production_capacity_bridge.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "scripts/ci/test_production_capacity_bridge.py",
+      "symbol": null,
+      "value": 622
     }
   ],
   "inspected_files": 6625,
@@ -83446,6 +83473,120 @@
         "source_sha256": "cc85c3bda33eb362b6c71a9648d8ee88b9ac29ef5f92fd965cf158d8301d88e8",
         "reviewer": "ci_delta_review + agent_layout_audit",
         "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      }
+    ]
+  },
+  "main_ec7_capacity_recovery_review_20261021": {
+    "frozen_main": "ec7c61577ffc167a2cfa10535d89c1f4a1653492",
+    "integration_parent": "ad601a28d83011df44c436c45f94c6d3522a5860",
+    "reviewed_entries": [
+      {
+        "key": "class_size|scripts/ci/test_runtime_capacity_budget.py|RuntimeCapacityBudgetTest|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 611,
+        "after": 626,
+        "source_sha256": "f6fbbad07cb6d2d547c63230506d63dce4b89006762d4a840dbe6c5af75a1d7f",
+        "reviewer": "agent_layout_audit + ci_delta_review",
+        "review": "Exact frozen-main capacity recovery integration; preserve manual authorization, durable reconciliation, historical annotations and 500/250/80 budgets. No Browser executable change."
+      },
+      {
+        "key": "class_size|scripts/ci/test_production_capacity_bridge.py|BridgeTests|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 317,
+        "after": 512,
+        "source_sha256": "f6853111187a4d928f98c326a8b83fd604e32064be565e76e91635884c99c322",
+        "reviewer": "agent_layout_audit + ci_delta_review",
+        "review": "Exact frozen-main capacity recovery integration; preserve manual authorization, durable reconciliation, historical annotations and 500/250/80 budgets. No Browser executable change."
+      },
+      {
+        "key": "class_size|scripts/ci/test_pending_uat_retention_state.py|PendingUatStateTests|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 304,
+        "after": 318,
+        "source_sha256": "4037d2c60d44fc64b55a247185ab9788f0470fec6986b2017bfaee479e0cf18a",
+        "reviewer": "agent_layout_audit + ci_delta_review",
+        "review": "Exact frozen-main capacity recovery integration; preserve manual authorization, durable reconciliation, historical annotations and 500/250/80 budgets. No Browser executable change."
+      },
+      {
+        "key": "function_size|scripts/ci/production-capacity-bridge.py|maintain|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 209,
+        "after": 291,
+        "source_sha256": "c803ccfdba2ae64db15deae1ee2865aeb048332ef9dccabc81e06f5224374b22",
+        "reviewer": "agent_layout_audit + ci_delta_review",
+        "review": "Exact frozen-main capacity recovery integration; preserve manual authorization, durable reconciliation, historical annotations and 500/250/80 budgets. No Browser executable change."
+      },
+      {
+        "key": "function_size|scripts/ci/test_production_capacity_bridge.py|test_unhealthy_predecessor_is_preserved_and_only_the_observed_successor_is_reconciled|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 148,
+        "source_sha256": "f6853111187a4d928f98c326a8b83fd604e32064be565e76e91635884c99c322",
+        "reviewer": "agent_layout_audit + ci_delta_review",
+        "review": "Exact frozen-main capacity recovery integration; preserve manual authorization, durable reconciliation, historical annotations and 500/250/80 budgets. No Browser executable change."
+      },
+      {
+        "key": "function_size|scripts/ci/test_runtime_capacity_budget.py|test_post_release_checks_retained_capacity_without_next_candidate|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 130,
+        "after": 145,
+        "source_sha256": "f6fbbad07cb6d2d547c63230506d63dce4b89006762d4a840dbe6c5af75a1d7f",
+        "reviewer": "agent_layout_audit + ci_delta_review",
+        "review": "Exact frozen-main capacity recovery integration; preserve manual authorization, durable reconciliation, historical annotations and 500/250/80 budgets. No Browser executable change."
+      },
+      {
+        "key": "function_size|scripts/ci/runtime-capacity-budget.py|evaluate|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 112,
+        "after": 117,
+        "source_sha256": "a13ac35b2abbec5c8d66e754f0b3c080a766c07b5be835459f3950125340db33",
+        "reviewer": "agent_layout_audit + ci_delta_review",
+        "review": "Exact frozen-main capacity recovery integration; preserve manual authorization, durable reconciliation, historical annotations and 500/250/80 budgets. No Browser executable change."
+      },
+      {
+        "key": "function_size|scripts/ci/production-capacity-bridge.py|clone_template|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 97,
+        "source_sha256": "c803ccfdba2ae64db15deae1ee2865aeb048332ef9dccabc81e06f5224374b22",
+        "reviewer": "agent_layout_audit + ci_delta_review",
+        "review": "Exact frozen-main capacity recovery integration; preserve manual authorization, durable reconciliation, historical annotations and 500/250/80 budgets. No Browser executable change."
+      },
+      {
+        "key": "module_size|scripts/ci/runtime-capacity-budget.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 884,
+        "after": 889,
+        "source_sha256": "a13ac35b2abbec5c8d66e754f0b3c080a766c07b5be835459f3950125340db33",
+        "reviewer": "agent_layout_audit + ci_delta_review",
+        "review": "Exact frozen-main capacity recovery integration; preserve manual authorization, durable reconciliation, historical annotations and 500/250/80 budgets. No Browser executable change."
+      },
+      {
+        "key": "module_size|scripts/ci/production-capacity-bridge.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 654,
+        "after": 814,
+        "source_sha256": "c803ccfdba2ae64db15deae1ee2865aeb048332ef9dccabc81e06f5224374b22",
+        "reviewer": "agent_layout_audit + ci_delta_review",
+        "review": "Exact frozen-main capacity recovery integration; preserve manual authorization, durable reconciliation, historical annotations and 500/250/80 budgets. No Browser executable change."
+      },
+      {
+        "key": "module_size|scripts/ci/test_runtime_capacity_budget.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 676,
+        "after": 691,
+        "source_sha256": "f6fbbad07cb6d2d547c63230506d63dce4b89006762d4a840dbe6c5af75a1d7f",
+        "reviewer": "agent_layout_audit + ci_delta_review",
+        "review": "Exact frozen-main capacity recovery integration; preserve manual authorization, durable reconciliation, historical annotations and 500/250/80 budgets. No Browser executable change."
+      },
+      {
+        "key": "module_size|scripts/ci/test_production_capacity_bridge.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 622,
+        "source_sha256": "f6853111187a4d928f98c326a8b83fd604e32064be565e76e91635884c99c322",
+        "reviewer": "agent_layout_audit + ci_delta_review",
+        "review": "Exact frozen-main capacity recovery integration; preserve manual authorization, durable reconciliation, historical annotations and 500/250/80 budgets. No Browser executable change."
       }
     ]
   }

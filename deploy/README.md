@@ -210,17 +210,26 @@ maintenance workflow with `environment=production`, the verified healthy serving
 Scheduled passes and UAT cannot create this bridge. Both source checks force a
 fresh inspection, and mutation still holds the production deployment lock.
 
-The fixed `serving_backend_clone_v1` profile creates one zero-traffic revision
-from the healthy serving backend's immutable image, preserving its runtime
-identity, bindings and service-level controls. It changes only revision scaling
-to one instance and its database pools to two asyncpg plus two SQLAlchemy
-connections per worker, with no overflow. The unchanged two-worker source therefore
-admits eight connections. The global limit, administrative reserve, existing
-revisions, worker candidate and readiness jobs remain counted. For three retained
-80-connection backends, the bridge admission is `240 + 8 + 6 + 16 + 30 = 300`;
-the ordinary 80-connection release would require 372 and remains blocked.
+The fixed `serving_backend_clone_v2` profile creates one zero-traffic revision
+from the reviewed healthy image digest, preserving its runtime identity, bindings
+and service controls. It uses one instance, one explicit Gunicorn worker,
+asyncpg maximum four and SQLAlchemy pool two without overflow: six connections.
+The frozen image hardcodes two workers in its shell CMD, so `WEB_CONCURRENCY=1`
+alone is insufficient. The explicit direct launcher preserves `server:app`,
+Gunicorn configuration, Uvicorn worker class, 120-second timeout, eight-second
+graceful timeout and port 8080. An unreviewed image or source launcher is rejected.
 
-The v1 operation supports the verified source's `latest` secret selectors only.
+V1's two-slot async pool could not boot this frozen application: consent and
+referral listeners each retain one slot, leaving none for mandatory market-cache
+startup. V2 preserves the known healthy async ceiling and leaves two slots beyond
+those listeners. The failed v1 remains counted at eight; it is not called healthy.
+For three retained 80-connection backends, creation admission is
+`240 + failed-v1 8 + v2 6 + readiness 16 + reserve 30 = 300`.
+Only this fixed maintenance operation omits a hypothetical worker candidate,
+because it creates no worker revision. Every existing worker, revision and job
+still counts. Ordinary application release admission remains unchanged.
+
+The operation supports the verified source's `latest` secret selectors only.
 It pins enabled numeric versions after verifying that every version since source
 creation has the same value. Changed, disabled, missing or ambiguous history
 blocks creation. Payload comparisons happen only in memory; receipts contain
@@ -231,19 +240,34 @@ traffic is not a promise of zero database writes.
 
 Before the provider request, `completed.json.capacity_bridge` records durable
 intent. A timeout never authorizes another create: a later pass observes only
-that exact deterministic revision. Until readiness, frozen configuration,
+that exact deterministic revision. Explicit manual v2 recovery may supersede
+the unresolved v1 only after observing its exact deterministic revision and
+verifying its frozen image, pins, configuration, eight-connection bound, unchanged
+service controls and zero positive traffic. Enabled numeric pins are rechecked.
+The predecessor must remain latest-created, but may be unready while Cloud Run
+keeps the serving revision latest-ready. This observation does not establish
+health; the successor still requires provider readiness and HTTP verification.
+The complete original intent is retained as predecessor evidence, explicitly
+observed unhealthy. Durable successor intent records both identities before
+provider submission; an absent or mismatched predecessor cannot authorize creation.
+Until successor readiness, frozen configuration,
 unchanged positive traffic, HTTP health and connection admission are proven,
 the receipt blocks conflicting deployment. The temporary health tag is removed
 by ordinary retention. A verified rerun accepts its removal without recreating
-the revision. The formerly latest revision is deleted only through the existing
-3,660-second backend drain and ordinary protection checks. After that deletion,
-`160 + 8 + 80 + 6 + 16 + 30 = 300` admits the ordinary backend release.
+the revision. The former latest revision and failed v1 are deleted only through
+the existing 3,660-second drain and ordinary protection checks. Serving `00268`
+and recovery `00265` remain protected. After those deletions,
+`160 + v2 6 + backend candidate 80 + worker candidate 6 + readiness 16 + reserve 30 = 298`
+admits the ordinary backend release. A verified successor resolves creation
+uncertainty through the explicit link; it never relabels v1 healthy.
 
 If creation fails or its provider outcome is uncertain, preserve the checkpoint
 and all protected revisions. Reconcile via maintenance before another deployment;
 do not delete the bridge or a recovery anchor, shorten drainage, rewrite serving
 traffic, increase the connection limit, or retry creation blindly. A failed latest
 revision can require operator investigation before live readiness is provable.
+A failed v2 has no room for another automatic recovery candidate. Preserve its
+intent and stop creation attempts rather than broadening the profile or budget.
 This is maintenance evidence, not a healthy application release or permission
 to promote the clone. An ordinary release and its existing rollback contract
 remain responsible for application rollout.
