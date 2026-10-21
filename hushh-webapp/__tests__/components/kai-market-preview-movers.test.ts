@@ -94,6 +94,9 @@ describe("market index quote evidence", () => {
     const [first] = toIndexStripItems({ market_overview: [quote] });
     const metrics = [first, { ...first, id: "nasdaq", label: "NASDAQ Composite", quotedAt: "2026-10-20T20:50:00Z" }];
     const { container, rerender } = render(createElement(OneMarketIndexStrip, { metrics, onMetricSelect: () => {} }));
+    expect(screen.getByText("Index levels in points")).toBeVisible();
+    expect(screen.getByRole("button", { name: /S&P 500/ })).toHaveTextContent("7,712.57");
+    expect(screen.getByRole("button", { name: /S&P 500/ }).textContent).not.toMatch(/[$₹]/);
     expect(screen.getAllByText(/Delayed/)).toHaveLength(1);
     expect([...container.querySelectorAll("time")].map((time) => time.dateTime)).toEqual([quote.as_of, metrics[1].quotedAt]);
     rerender(createElement(OneMarketIndexStrip, { metrics: [first, { ...metrics[1], quoteStatus: "Unavailable", quotedAt: null }], onMetricSelect: () => {} }));

@@ -331,6 +331,7 @@ export function OneMarketIndexStrip({
     ? firstStatus : null;
   return (
     <div className={marketBriefingStyles.typography}>
+    <p className="mb-2 text-xs leading-[18px] text-muted-foreground">Index levels in points</p>
     <div className="grid w-full divide-y divide-border/50 sm:grid-cols-4 sm:divide-x sm:divide-y-0">
       {metrics.map((metric) => (
         <button key={metric.id || metric.label} type="button"
