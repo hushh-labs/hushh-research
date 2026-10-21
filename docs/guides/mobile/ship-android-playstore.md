@@ -13,8 +13,8 @@ Canonical visual owner: [Mobile Guide](../mobile.md).
 One manual dispatch cuts a Hussh One Android App Bundle (`.aab`) from an explicitly selected green
 `main` SHA, builds the Capacitor app against the **UAT backend + shared Firebase authority**,
 signs it with the **existing Android Release Upload Keystore**, and uploads it directly to the
-selected **Google Play production or internal testing track**. Production remains the default;
-select `internal` explicitly when releasing to testers alongside TestFlight.
+**Google Play internal testing track** by default. This UAT-backed lane refuses live
+production-track uploads; selecting `production` is supported only for a dry run.
 
 - **Workflow:** `.github/workflows/ship-android-playstore-v1.yml` (`workflow_dispatch`).
 - **CLI Dispatcher:** `node scripts/release/dispatch-android-playstore.mjs` (or `npm run android:release:playstore`).
@@ -42,7 +42,7 @@ stricter `production.manual_dispatch_users` list for either track.
 ```bash
 cd hushh-webapp
 npm ci
-npm run sync:native-firebase-configs -- --platform android
+node ./scripts/native/with-android-native-env.mjs node ./scripts/native/sync-native-firebase-configs.mjs --platform android
 # UAT env is supplied by the workflow; the Android wrapper isolates the export.
 node ./scripts/native/with-android-native-env.mjs ... next build
 node ./scripts/native/with-android-native-env.mjs ... cap sync android

@@ -11,8 +11,8 @@ Canonical visual owner: [Mobile Guide](../mobile.md).
 ## What this is
 
 One command prepares a Hussh One iOS release from an exact green `main` SHA,
-wires it to the selected **UAT (default) or production backend** and the shared Firebase authority
-(`hushh-pda`; shared config is stored in `hushh-pda-uat` Secret Manager), signs it with the
+wires it to the selected **UAT (default) or production backend** and that target's Firebase
+configuration, signs it with the
 **production APNs entitlement** via Apple-managed signing, uploads it to **App Store Connect**, sets the version's
 **"What's New"** text, attaches the build, and (opt-in, one click) **submits it for public Apple
 review**. By default it stops *before* the final, irreversible "Submit for App Store Review".
@@ -62,7 +62,7 @@ for `https://one.hushh.ai` and the production API:
   UAT. The selected native plist must match that target's project, sender and
   bundle; web/native app IDs may differ. PROD and UAT projects need not match.
 - Public submission (`submit_for_review=true`) or automatic public release
-  (`auto_publish=true`) requires `backend_target=production`. UAT remains the
+  (`release_after_approval=true`) requires `backend_target=production`. UAT remains the
   historical build default so a dispatcher cannot silently redirect customer data.
 - The run refuses if the production `BACKEND_URL` resolves to a UAT or loopback host, and the
   project is prepared with `ios:prepare:prod`. That ends in `verify-ios-bundled-backend.sh`, which

@@ -44,17 +44,28 @@ describe("native Firebase config sync CLI", () => {
           }));
         }
       };
-      const run = () => execFileSync(process.execPath, [
+      const commands = [[
         path.join(appRoot, `scripts/native/with-${platform}-native-env.mjs`),
         process.execPath, "scripts/native/sync-native-firebase-configs.mjs", "--platform", platform,
-      ], { cwd: appRoot, encoding: "utf8", stdio: "pipe", env: {
+      ]];
+      if (platform === "android") {
+        // Exercise the actual performance build's Firebase command under the
+        // same conflicting shell/overlay fixture as Capacitor's command.
+        const perfSource = readFileSync(path.join(process.cwd(), "scripts/perf/android-perf-card.sh"), "utf8");
+        const command = perfSource.split(/\r?\n/).find(line => line.includes("scripts/native/sync-native-firebase-configs.mjs"));
+        expect(command).toBeDefined();
+        const argv = command!.split(">>")[0].trim().split(/\s+/);
+        expect(argv[0]).toBe("node");
+        commands.push(argv.slice(1));
+      }
+      const run = (args: string[]) => execFileSync(process.execPath, args, { cwd: appRoot, encoding: "utf8", stdio: "pipe", env: {
         ...process.env, APP_RUNTIME_PROFILE: "prod", NEXT_PUBLIC_FIREBASE_PROJECT_ID: "prod-fixture",
         NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "12345",
       } });
       writeConfig("prod-fixture");
-      expect(run).toThrow(/project mismatch/);
+      for (const args of commands) expect(() => run(args)).toThrow(/project mismatch/);
       writeConfig("uat-fixture");
-      expect(run()).toContain(`Native Firebase configs ready (${platform};`);
+      for (const args of commands) expect(run(args)).toContain(`Native Firebase configs ready (${platform};`);
       const scripts = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf8")).scripts;
       expect(scripts[`cap:sync:${platform}`]).toContain(`with-${platform}-native-env.mjs node ./scripts/native/sync-native-firebase-configs.mjs --platform ${platform}`);
     } finally {
