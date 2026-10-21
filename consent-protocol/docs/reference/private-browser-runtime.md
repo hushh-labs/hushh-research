@@ -2,7 +2,7 @@
 
 ## Status and evidence
 
-**2026-10-20 UTC — disabled pilot; not a usable owner browser capability.**
+**2026-10-21 UTC — disabled pilot; not a usable owner browser capability.**
 The committed information/session foundation is `f407f849b`. The resumed working
 candidate composes authenticated owner task routes, exact reviews, ephemeral
 preview, takeover and remembered-session controls with an isolated native ADK
@@ -12,9 +12,11 @@ Neither cloud has an installed, qualified owner Browser runtime. GCP's real
 in-pod launcher and broker pass synthetic public browsing. Source now connects
 startup, owner-model selection, the existing approval ledger, sealed dispatch
 journal and update admission for a controlled public-research pilot. It remains
-disabled by default. Governed deployment must verify the qualification artifact
-against the immutable image, cloud, model and policy before enabling it; startup
-binding checks alone do not establish qualification. Owner-admitted task
+disabled by default. The release assembler verifies reviewed receipt bytes and
+their exact image/source/host/model/public-policy commitment. Qualification is
+separate from owner activation; startup binds recovered identity afterward.
+No reviewed qualification pins or Browser activation offer are installed.
+Owner-admitted task
 rediscovery returns bounded metadata only. A current
 owner can inspect or stop an old task, but cannot renew its expired processing
 grant by reconnecting. Original authorization still gates frames, input and resume.
@@ -55,6 +57,10 @@ flowchart TD
     Information["Local port: selected non-secret PKM exports"]
     Sessions["Local port: encrypted remembered sign-in"]
     Store["Existing owner object store and sealed recovery log"]
+    Qualification["Source: reviewed immutable image and policy qualification"]
+    Activation["Required: separate exact owner configuration approval"]
+    Qualification -. "evidence only; never enables" .-> Cloud
+    Activation -. "owner policy and enabled state" .-> Cloud
     UI -. "owner task" .-> One
     UI -. "exclusive manual takeover; task-bound input" .-> Control
     One -. "qualified task hand; isolated ADK runner" .-> Agent
@@ -89,6 +95,33 @@ updates connect through their existing authorities. Browser ownership grants
 neither unrestricted access to the pod nor permission to bypass another tool's
 confirmation. Task state and lifecycle belong to the private agent even when
 execution uses a separate isolation boundary.
+
+### Qualification and owner activation
+
+The existing release may carry `browserQualifications`, one per qualified host.
+The [release assembler](../../../scripts/deploy/assemble-pod-release.py) reads
+optional reviewed receipt/checksum pins through `--browser-qualifications`;
+the default is beside the deployment descriptor. Absence produces no qualification.
+Receipt paths stay inside their reviewed source directory, reads are bounded,
+and altered bytes, image/source mismatches, failed gates or duplicate hosts refuse
+publication. A receipt records reviewed probe evidence; JSON validation does not
+execute a probe or prove owner access.
+
+| Boundary | Current source contract |
+| --- | --- |
+| Qualification | Immutable image, source, build tag, exact host, native model transport and public-policy digest; no future incarnation |
+| Owner configuration | Separate `POD_COMPUTER_USE_ENABLED` and `HUSSH_BROWSER_POLICY_JSON`; exact approved pod/key and full page/static policy |
+| Startup | Bind recovered key/current incarnation; compare actual installed digest and approved policy. Azure requires the verified VM installation, never ACA identity alone |
+| GCP software update | Carry evidence from the captured approval; preserve owner enablement/policy, including their absence. Qualification cannot activate Browser |
+| Azure VM | Initial exact host configuration accepts qualification; image-only replacement still preserves environment. Target-qualification refresh and customer host admission remain unfinished |
+
+The capability-update owner remains Files-specific. Browser activation needs its
+own typed plan through that same approval/lease/readback authority before an owner
+offer can appear. No install flag, shaped hash or release note substitutes for it.
+Native Browser tasks close owned cached model clients after each continuation and
+reuse the canonical private-telemetry refusal; ephemeral sessions are deleted.
+
+### Execution boundary
 
 Packaging Chromium in the pod's release is compatible with this product
 boundary. Packaging it in the key-holding process or container is not evidence
@@ -464,8 +497,10 @@ to relabel the prior evidence.
 `Dockerfile.inpod` extends an immutable pod image with pinned Playwright and
 Chromium headless-shell. Its fixed bootstrap forks a clean helper before
 application imports, drops all capability sets, and executes One as UID 10001
-and the helper as UID 10002. No root supervisor remains. Default image building
-and pod startup do not yet select this pilot image or install a Browser runtime.
+and the helper as UID 10002. No root supervisor remains. The current
+`Dockerfile.pod` also packages the protected launcher and browser dependencies;
+startup composition remains disabled without both qualification and approved
+owner policy. Packaging does not establish installed owner acceptance.
 
 The helper accepts only launch/stop and one connected task descriptor over an
 inherited Unix sequenced-packet channel. It accepts no command, mount, environment
@@ -702,8 +737,9 @@ real login/SSO compatibility, provider retention or live update acceptance.
 ### GCP
 
 See the [consolidated native-probe receipts](#historical-provider-managed-qualification).
-The current deployment uses the built-in protected launcher; native root/`EPERM`
-findings describe the superseded sandbox adapter.
+The built-in protected launcher is the candidate path; the deployed owner
+runtime has not installed or qualified it. Native root/`EPERM` findings describe
+the superseded sandbox adapter.
 
 ### Azure
 

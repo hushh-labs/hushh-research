@@ -9,7 +9,7 @@ checked relative links to these sources; do not copy procedures or frontmatter.
 | Skill | Canonical behavior | Claude discovery link |
 | --- | --- | --- |
 | Verify before claim | [verify-before-claim](./verify-before-claim/SKILL.md) | `.claude/skills/verify-before-claim/` |
-| Context refresh | [context-refresh](./context-refresh/SKILL.md) | host discovery only where installed |
+| Context refresh | [context-refresh](./context-refresh/SKILL.md) | `.claude/skills/context-refresh/` |
 | Animation vocabulary | [animation-vocabulary](./animation-vocabulary/SKILL.md) | `.claude/skills/animation-vocabulary/` |
 | UI library lookup (explicit invocation) | [pick-ui-library](./pick-ui-library/SKILL.md) | `.claude/skills/pick-ui-library/` |
 | Portable PDF artifacts | [pdf-artifact-generation](./pdf-artifact-generation/SKILL.md) — including monthly executive calendar reports | `.claude/skills/pdf-artifact-generation/` |

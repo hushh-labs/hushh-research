@@ -150,12 +150,17 @@ vault, source object and image absence are verified. This is neither an owner
 installation nor an application wake measurement; burst-credit metrics remain
 unverified. Exact provenance is in the linked Browser qualification record.
 
-Public-pilot runtime wiring binds recovery, the native model, exact hub review,
-sealed dispatch and update admission. The remaining installation seam must verify
-reviewed image/model/policy qualification against the immutable approved image,
-then bind recovered pod identity and the actual serving incarnation at startup.
-Current qualification configuration requires that incarnation ahead of deployment;
-no governed installer supplies it. Keep both clouds disabled until this is resolved.
+Source `52e5cfbed3` binds recovery, the native model, exact hub review, sealed
+dispatch and update admission. The release now carries optional reviewed receipt
+evidence bound to immutable image/source/host/model and exact public policy;
+startup binds the recovered key and serving incarnation afterward. GCP image
+updates preserve owner activation/policy separately. No qualification pins are
+installed. Browser activation through the existing capability approval authority,
+Azure VM target-evidence refresh and installed owner acceptance remain open;
+both clouds stay disabled. Native task cleanup releases cached model clients and
+shares the canonical content-telemetry refusal. Focused verification passes;
+six changed modules typecheck, while the broader GCP baseline retains its same
+18 pre-existing type findings.
 Joined shutdown fixes cancel/drain/model-completion
 races: one terminal checkpoint and private-reference cleanup precede update idle.
 The final focused Browser/ADK and release-contract pass covers **153 cases**, with
