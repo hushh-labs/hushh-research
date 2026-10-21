@@ -46,6 +46,11 @@ terminal result, original Azure citations and a supported owner-linked finding.
 It preserves the existing email preference. It never resets a fixture or
 accepts an ambiguous identity to manufacture a save.
 
+An explicit refresh starts a new proof epoch. Automatic `ensure` resumes retain
+that epoch's acknowledgement and stream receipts; a separate response fence
+rejects delayed status responses from before the resume. An old offered draft
+cannot certify a new run, and usage remains bound to the received draft.
+
 The existing Download Memory action supplies the browser-only preservation
 check. Its armed Blob download is intercepted before disk access; the full
 baseline and post-save `one_memory` stay in that browser. Only one exact bullet,
