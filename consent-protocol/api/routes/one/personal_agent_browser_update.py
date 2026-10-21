@@ -27,7 +27,7 @@ async def browser_offer(*, user_id: str) -> dict:
     qualification = next(
         item for item in release["browserQualifications"] if item["host_kind"] == plan.hostKind
     )
-    return public_browser_offer(plan, qualification)
+    return dict(public_browser_offer(plan, qualification))
 
 
 async def approve_browser_update(payload, *, user_id: str) -> dict:

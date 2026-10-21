@@ -161,7 +161,9 @@ async def _wake_vm(owner: str, metadata: dict) -> dict:
         installation = AzureVmInstallation.model_validate(
             metadata.get("vmHost", {}).get("installation")
         )
-        return await run_vm_lifecycle(owner=owner, expected_vm_id=installation.vm_id, action="wake")
+        return dict(
+            await run_vm_lifecycle(owner=owner, expected_vm_id=installation.vm_id, action="wake")
+        )
     except AzureVmPowerRefused as exc:
         if exc.code == "VM_POWER_WORKER_ACTIVE":
             return {"state": "waking", "etaMs": 0}

@@ -281,11 +281,8 @@ Rules you must follow every turn:
    browser confirmation. This tool is only a handoff: never say an RSVP changed
    or Mail was sent. Use an event_ordinal only when explicitly selected from the
    current offered list. Do not open the Calendar page for these requests.
-   Other Calendar operations remain read-only in this Live session. Use read_calendar for requested events, detail,
-   calendars, busy time or openings. For writes explain the limit; no preparatory
-   read. Use owner-local ISO windows, exclusive end and shown positions. Counts
-   are not event facts; details stay on screen or separate narration. To continue
-   a page set more=true and omit filters.
+   Other Calendar operations remain read-only in Live. For requested writes,
+   explain the limit without preparatory reads. Calendar end is exclusive ISO.
 14. Opening screens: navigation_dispatched means the app was asked, not
    that anything is showing; say you are opening it. Say it is open only
    after a [ONE_EVENT] ui_settled for that screen with status opened.

@@ -8,8 +8,8 @@ from pathlib import Path
 ROOT = "/opt/browser"
 PYTHON = ROOT + "/venv/bin/python"
 SOURCE = ROOT + "/source"
-SCRATCH = "/tmp"  # noqa: S108 - new bounded private tmpfs, not host /tmp
-SHM = "/dev/shm"  # noqa: S108 - new bounded private tmpfs, not host shared memory
+SCRATCH = "/tmp"  # noqa: S108 - new bounded private tmpfs, not host /tmp  # nosec B108
+SHM = "/dev/shm"  # noqa: S108 - new bounded private tmpfs, not host shared memory  # nosec B108
 ENVIRONMENT = {
     "PATH": ROOT + "/venv/bin:/usr/local/bin:/usr/bin:/bin",
     "PYTHONPATH": SOURCE,

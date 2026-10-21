@@ -140,12 +140,12 @@ def run_probe(*, chromium: bool = True) -> dict:
     if os.geteuid() != 0:
         return {"code": "BROWSER_TRUSTED_STARTUP_UNAVAILABLE", "guard_verified": False}
     result: dict = {"code": "BROWSER_PROCESS_PROBE_REFUSED", "guard_verified": False}
-    with tempfile.TemporaryDirectory(prefix="browser-probe-", dir="/dev/shm") as directory:  # noqa: S108
+    with tempfile.TemporaryDirectory(prefix="browser-probe-", dir="/dev/shm") as directory:  # noqa: S108  # nosec B108
         root = Path(directory)
-        os.chmod(root, 0o711)  # noqa: S103 - synthetic readable canary tests Landlock, not DAC
+        os.chmod(root, 0o711)  # noqa: S103 - synthetic readable canary tests Landlock, not DAC  # nosec B103
         # Guard requires task scratch directly below verified tmpfs, matching
         # production MemoryScratch rather than a caller-selected mount.
-        with tempfile.TemporaryDirectory(prefix="browser-task-", dir="/dev/shm") as task:  # noqa: S108
+        with tempfile.TemporaryDirectory(prefix="browser-task-", dir="/dev/shm") as task:  # noqa: S108  # nosec B108
             task_path = Path(task)
             os.chown(task_path, 10002, 10002)
             canary = root / "synthetic-agent-secret"

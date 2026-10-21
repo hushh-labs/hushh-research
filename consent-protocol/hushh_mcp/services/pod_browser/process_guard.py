@@ -232,7 +232,7 @@ def restrict_browser_process(*, scratch: Path, bridge_fd: int) -> dict[str, int]
     scratch = scratch.resolve(strict=True)
     info = scratch.stat()
     if (
-        scratch.parent != Path("/dev/shm")  # noqa: S108 - verified tmpfs, not a temporary name
+        scratch.parent != Path("/dev/shm")  # noqa: S108 - verified tmpfs, not a temporary name  # nosec B108
         or info.st_uid != WORKER_ID
         or info.st_mode & 0o077
     ):

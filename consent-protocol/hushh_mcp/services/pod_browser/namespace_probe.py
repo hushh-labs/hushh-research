@@ -18,8 +18,8 @@ import sys
 from pathlib import Path
 
 PREFIX = "HUSSH_BROWSER_NAMESPACE_PROBE:"
-_SCRATCH = "/tmp"  # noqa: S108 - fresh private tmpfs inside the mount namespace
-_SHM = "/dev/shm"  # noqa: S108 - fresh private tmpfs, never the host mount
+_SCRATCH = "/tmp"  # noqa: S108 - fresh private tmpfs inside the mount namespace  # nosec B108
+_SHM = "/dev/shm"  # noqa: S108 - fresh private tmpfs, never the host mount  # nosec B108
 
 
 def verify_isolation() -> dict:

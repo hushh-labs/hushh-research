@@ -58,9 +58,13 @@ async def with_private_review_registry(
 
     database = db if db is not None else get_db()
     signed = not owner_confirmation and bool(getattr(principal, "key_id", None))
-    columns = "hushh_id,status,deployment_target,pod_key_id,pod_pubkey,backend_metadata"
-    if signed:
-        columns += ",pod_signing_key_id"
+    query = (
+        "SELECT hushh_id,status,deployment_target,pod_key_id,pod_pubkey,backend_metadata,"
+        "pod_signing_key_id FROM personal_agent_registry WHERE user_id=:owner FOR UPDATE"
+        if signed
+        else "SELECT hushh_id,status,deployment_target,pod_key_id,pod_pubkey,backend_metadata "
+        "FROM personal_agent_registry WHERE user_id=:owner FOR UPDATE"
+    )
 
     def commit() -> T:
         with database.engine.begin() as conn:
@@ -68,10 +72,7 @@ async def with_private_review_registry(
             conn.execute(text("SET LOCAL lock_timeout = '2s'"))
             row = (
                 conn.execute(
-                    text(
-                        f"SELECT {columns} FROM personal_agent_registry "
-                        "WHERE user_id=:owner FOR UPDATE"
-                    ),
+                    text(query),
                     {"owner": owner_id},
                 )
                 .mappings()
