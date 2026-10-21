@@ -83,22 +83,41 @@ Facts it rests on: PKM is client-side encrypted and the server never holds the v
 
 Storage, in order:
 
-1. Sealed server index, so the work can run while the person is away. One table keyed by owner, connection generation and file fingerprint, sealed like `connected_documents` (AES-256-GCM with owner and generation as associated data) and deleted by foreign key and trigger when the connection changes. A row holds the shelf, candidate, confidence, reason, data `version`, `group_source` and the sealed name. For kept files it also holds the text start and embedding for future indexing. A new migration after 367, under migration governance.
+1. Sealed server index, so the work can run while the person is away. One table keyed by owner, connection generation and file fingerprint, sealed like `connected_documents` (AES-256-GCM with owner and generation as associated data) and deleted by foreign key and trigger when the connection changes. A row holds the shelf, candidate, confidence, reason, data `version`, `group_source`, the sealed name, and the file's deciding date with its basis (`period_day`, `period_basis`); the fiscal quarter is worked out when the page is served, so the convention can change without rewriting rows. For kept files it also holds the text start and embedding for future indexing. A new migration after 367, under migration governance.
 2. A background job on the Drive worker, behind the flag and the owner's live grant: list, read heads, embed, place, commit in bounded batches with the existing lease pattern. It reuses `index_files`; the owner and generation fence is the transport's.
 3. The browser writes the person's own copy. When the vault is unlocked, the Drive page reads the placements over an owner-authenticated route and writes four group branches plus a kept branch into PKM through a new deterministic, owner-confirmed writer and registry entry (backend and webapp copies stay byte-identical) with `shareable: never` and no path open to third-party requests. PKM holds shelf membership, names and confidence; heads and embeddings stay in the sealed index, because a text start can contain account numbers and does not belong in a shareable memory. Recommended: confirm with the owner.
 4. The owner can move a file. A move is stored with `group_source = owner` and wins over the aid on every later run.
 
 Page, in order:
 
-1. A "Folders" section on the Google Drive page in `connectors-panel.tsx`, between Background Drive access and Sharing and approval: four rows with the folder name, period and file count, each opening its files (name, date, open in Drive), and a fifth "Not sorted yet" row for kept files. It reuses `SettingsGroup`, `SettingsRow` and the existing back layering; the mobile layout is a single column of rows with a push-in file list.
+1. A "Folders" section on the Google Drive page in `connectors-panel.tsx`, between Background Drive access and Sharing and approval: the four groups, each with its file count, opening into quarter folders named as in the table below (newest quarter first), each listing its files (name, date, open in Drive), and a fifth "Not sorted yet" row for kept files. It reuses `SettingsGroup`, `SettingsRow` and the existing back layering; the mobile layout is a single column of rows with a push-in list, and each opened group or quarter is a nested Back state.
 2. A new overview feature `drive_four_group_index` beside `drive_document_indexing`, in `connector_feature_admission.py`, `runtime_settings.py`, the overview type in `external-connector-service.ts`, and the deploy files. The existing `DriveCollectionView` stays as it is: that packet pipeline was retired on UAT by migration 360 and its flags are off, which is why the UAT page does not show it.
 3. UI contract steps from `AGENTS.md`: `npm run ui:doctor`; add the Search actions and the Back cases (each opened folder is a nested state, registered with `useBackLayer`); `npm run build:ui-contracts` (Back before Search); `npm run verify:ui-contracts`; the owning behavioural tests and the Chromium and WebKit layout pack at mobile and desktop widths, light and dark.
+
+Folder names and period rule, settled by the owner on 2026-10-21:
+
+| Group id | Folder name |
+| --- | --- |
+| `financial_statements` | Financial Assets |
+| `non_financial_statements` | Non-Financial Records |
+| `insurance_statements` | Insurance |
+| `personal_documents` | Personal Documents |
+
+A folder is a group plus a fiscal quarter, written "Financial Assets (FY 26 Q1)". The quarter comes from the file's date: the date written in its title, else its created time, else its modified time (the precedence in `drive_title_dates.py`). Kept files sit in "Not sorted yet" with no quarter, and a file with no usable date shows the group name without one.
+
+Assumptions to confirm, each a single constant or rule:
+
+- The fiscal year is India's: 1 April to 31 March, named by the year it ends. FY 26 Q1 is April to June 2025, and 21 October 2026 is FY 27 Q3.
+- When a title names several dates, the latest decides, because a statement belongs to the quarter it ends in.
+- Dates are read in the owner's time zone. A file created at 20:00 UTC on 31 March 2025 is 1 April 2025 in India, so FY 26 Q1, not FY 25 Q4.
+
+Neither existing mode of `period_decision` gives that rule, so slice 3 needs a small helper over `parse_title_dates` and `resolve_title_dates`. With `period=None` it returns the latest title date but reads created and modified times in UTC. With a window it reads them in the window's zone but returns the first title date, so a title such as "15 Mar 2025 to 14 Apr 2025" gives 14 April or 15 March. Read through the real `period_decision`, a title month "Mar2026" gives FY 26 Q4, "14 Sep 2025" gives FY 26 Q2, and a modified time of 21 October 2026 alone gives FY 27 Q3. The quarter arithmetic on the boundary days 1 Apr 2025, 30 Jun 2025, 1 Jul 2025, 31 Dec 2025, 1 Jan 2026, 31 Mar 2026 and 1 Apr 2026 gives FY 26 Q1, Q1, Q2, Q3, Q4, Q4 and FY 27 Q1. No code for this rule is written yet.
 
 Order of work: migration and sealed store; worker job and owner route with the flag off; the PKM writer and registry entry; the page with its flag off; a UAT run with the owner's account; promotion only after the owner's private evaluation.
 
 ## Open decisions
 
-- The four folder display names and the period rule. The senior's example is "Financial Assets (FY 26 Quarter 1st)"; the existing title, created, modified date precedence in `drive_title_dates.py` can supply the period.
+- Whether the fiscal year assumptions above (India, named by the ending year, latest title date, owner's time zone) are what the senior meant by "FY 26 Quarter 1st".
 - Whether the non-financial group means utilities, telecom, medical and transcripts, as in the lab definition.
 - Whether kept files' text starts and embeddings live only in the sealed index (recommended) or also in PKM.
 - Registering the flag and the CI test: both touch shared files (`connector_feature_admission.py`, `runtime_settings.py`, `scripts/ops/sync_backend_runtime_secrets.py`, `deploy/backend.cloudbuild.yaml`, `consent-protocol/scripts/test-ci.manifest.txt`). Ask the owner of those files before opening a pull request.
