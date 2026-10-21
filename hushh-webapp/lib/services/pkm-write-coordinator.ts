@@ -501,6 +501,7 @@ export class PkmWriteCoordinator {
     idempotencyScope?: string;
     locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
     beforeEffect?: () => Promise<void>;
+    mayPublish?: () => boolean;
     build: (context: BaseContext) => Promise<MergedWritePlan> | MergedWritePlan;
   }): Promise<PkmWriteCoordinatorResult> {
     if (!params.vaultKey || !params.vaultOwnerToken) {
@@ -603,6 +604,7 @@ export class PkmWriteCoordinator {
                 params.confirmation,
               ),
               beforeEffect: params.beforeEffect,
+              mayPublish: params.mayPublish,
               cacheFullBlob: false,
             },
           );

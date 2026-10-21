@@ -101,7 +101,8 @@ export type ChatOnboardingEvent =
   | { type: "chip"; chipId: ChatOnboardingChipId; anchor: string | null; today: string; firstName: string | null }
   | { type: "typed_answer"; text: string; anchor: string | null; today: string }
   | { type: "name_assessment"; decision: "name" | "skip" | "clarify" | "other"; name?: string; anchor: string | null; today: string }
-  | { type: "save_result"; ok: boolean; anchor: string | null; today: string };
+  | { type: "save_result"; ok: boolean; anchor: string | null; today: string }
+  | { type: "preferred_name_chosen"; name: string };
 
 export type ChatOnboardingResult = {
   state: ChatOnboardingState;
@@ -275,6 +276,19 @@ export function reduceChatOnboarding(
   }
 
   if (!state) return { state: emptyState(newChatOnboardingProgress()), effects: [] };
+
+  if (event.type === "preferred_name_chosen") {
+    // A newer explicit chat choice supersedes the pending setup draft. This
+    // remains a display draft until either writer confirms persistence.
+    if (!state.draft.name || state.step === "done" || state.step === "saving" || state.step === "saving_name")
+      return { state, effects: [] };
+    const draft = { ...state.draft, name: event.name };
+    const lastTurnIndex = state.turns.length - 1;
+    return { state: { ...state, draft, turns: state.step === "confirm"
+      ? state.turns.map((turn, index) => index === lastTurnIndex
+        ? { ...turn, text: confirmText(draft) } : turn)
+      : state.turns }, effects: [] };
+  }
 
   if (event.type === "typed_answer") {
     // The text goes to One. The host may only apply its bound assessment.
