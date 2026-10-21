@@ -4357,7 +4357,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "9f96a6b285ac33cb29c80c253257a969be28e4bb3769799a661b8a4c895cecf6",
+      "system_instruction_sha256": "f0bb41c13634fea1526befbd99deeae66e5b26fbff3311bbab2b1815599eef34",
       "telemetry_namespace": "agent.one",
       "tools": [
         {
@@ -4445,7 +4445,7 @@
           "required_scope": "vault.owner"
         },
         {
-          "description": "Offer the owner a change to how One writes to them (name, tone, length, language, em dashes). Saves nothing; returns an offer card that opens Settings prefilled, where the owner commits with the Settings writer.",
+          "description": "Assess an explicitly chosen preferred name for the unlocked device to save after a successful typed-chat turn; the device confirms persistence. Other writing styles (tone, length, language, em dashes) return a Settings review offer. This tool writes nothing itself.",
           "name": "propose_style_settings",
           "py_func": "hushh_mcp.one_adk.owner_style.propose_style_settings",
           "required_scope": "vault.owner"
