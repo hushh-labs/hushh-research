@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 369,
+  "expected_migration_version": 370,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -95,7 +95,9 @@
     "guard_wallet_card_request",
     "mirror_drive_request_payment_obligation",
     "mark_drive_bulk_share_v1_removal_source",
-    "queue_system_push"
+    "queue_system_push",
+    "record_one_marketing_change",
+    "erase_one_marketing_preference"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -2391,6 +2393,26 @@
       "default_action",
       "created_at",
       "updated_at"
+    ],
+    "one_marketing_changes": [
+      "user_hash",
+      "revision",
+      "erased",
+      "pending",
+      "updated_at"
+    ],
+    "one_marketing_preferences": [
+      "user_id",
+      "user_hash",
+      "enabled",
+      "frequency",
+      "revision",
+      "generation",
+      "disclosure_version",
+      "email_hash",
+      "consent_at",
+      "chosen_at",
+      "surface"
     ],
     "one_mcp_pending_calls": [
       "user_id",

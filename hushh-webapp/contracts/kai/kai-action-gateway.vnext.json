@@ -39,6 +39,7 @@
     "hushh-webapp/app/ria/requests/page.voice-action-contract.json",
     "hushh-webapp/app/ria/settings/page.voice-action-contract.json",
     "hushh-webapp/app/ria/workspace/page.voice-action-contract.json",
+    "hushh-webapp/components/account/marketing-preference-panel.voice-action-contract.json",
     "hushh-webapp/components/agent/specialist-turns.voice-action-contract.json",
     "hushh-webapp/components/agent/wallet-widgets.voice-action-contract.json",
     "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
@@ -1089,6 +1090,29 @@
             "ria"
           ]
         }
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_email_updates",
+      "surface_title": "Optional One email updates",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/components/account/marketing-preference-panel.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one"
       },
       "search": {},
       "orchestration": {
@@ -25763,6 +25787,423 @@
               "route": "/ria/workspace",
               "screen": "ria_workspace_compat"
             }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_email_updates",
+      "surface_id": "one_email_updates",
+      "label": "Email preferences",
+      "aliases": [
+        "email preferences",
+        "email updates",
+        "unsubscribe from emails"
+      ],
+      "search_keywords": [
+        "email",
+        "updates",
+        "marketing",
+        "unsubscribe"
+      ],
+      "meaning": "Opens Your account to review optional One email updates. Opening the form changes no email permission.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/account"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/account"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/account"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_email_updates",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_email_updates",
+            "label": "Email preferences",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/account",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.email_updates.choose",
+      "surface_id": "one_email_updates",
+      "label": "Choose optional email updates",
+      "aliases": [],
+      "search_keywords": [
+        "email preferences",
+        "product updates"
+      ],
+      "meaning": "The person chooses an optional email preference and frequency on screen. Changing the draft does not subscribe or save it.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup",
+          "/one/profile/account"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The signed-in owner has loaded their saved preference."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The owner chooses optional email permission directly on screen.",
+        "intended_handler": "MarketingPreferencePanel"
+      },
+      "control_ids": [
+        "one_email_updates_enabled",
+        "one_email_updates_frequency"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.email_updates.choose",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.email_updates.choose",
+            "label": "Choose optional email updates",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.email_updates.save",
+      "surface_id": "one_email_updates",
+      "label": "Save email preference",
+      "aliases": [],
+      "search_keywords": [
+        "email preferences",
+        "subscribe",
+        "unsubscribe"
+      ],
+      "meaning": "The person explicitly saves the email preference and frequency reviewed on screen. One may explain or open the form but cannot choose or submit marketing permission.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup",
+          "/one/profile/account"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The signed-in owner has reviewed the optional email disclosure and chosen their preference."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The owner must explicitly save email permission using the visible form.",
+        "intended_handler": "MarketingPreferencePanel"
+      },
+      "control_ids": [
+        "one_email_updates_save"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.email_updates.save",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.email_updates.save",
+            "label": "Save email preference",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.email_updates.retry",
+      "surface_id": "one_email_updates",
+      "label": "Retry email preference",
+      "aliases": [],
+      "search_keywords": [
+        "email preferences",
+        "retry"
+      ],
+      "meaning": "The person retries reading their saved optional email preference. This changes no subscription.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup",
+          "/one/profile/account"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The saved email preference could not be loaded."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "low",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible form owns retry and loading state.",
+        "intended_handler": "MarketingPreferencePanel"
+      },
+      "control_ids": [
+        "one_email_updates_retry"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.email_updates.retry",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.email_updates.retry",
+            "label": "Retry email preference",
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
