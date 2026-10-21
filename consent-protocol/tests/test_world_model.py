@@ -633,6 +633,56 @@ def test_owner_decisions_body_is_optional_bounded_and_forwarded(monkeypatch):
     assert ensure.await_count == 2 and start.await_count == 2
 
 
+def test_public_profiles_require_explicit_permission_and_jobs_refresh(monkeypatch):
+    from hushh_mcp.services.world_model_service import PublicProfilesChanged
+
+    start = AsyncMock(return_value={"status": "pending", "pkm_written": False})
+    client, _ = owner_client(monkeypatch, SimpleNamespace(start=start))
+    profiles = {"urls": ["https://github.com/example"], "permitted_public_sources": True}
+    response = client.post(
+        "/api/one/world-model/jobs", json={"refresh": True, "public_profiles": profiles}
+    )
+    assert response.status_code == 202
+    start.assert_awaited_once_with(
+        "owner", "fixture", inputs={"public_profiles": profiles}, refresh_completed=True
+    )
+    assert (
+        client.post("/api/one/world-model/ensure", json={"public_profiles": profiles}).status_code
+        == 422
+    )
+    for bad in [False, "true", 1, None]:
+        assert (
+            client.post(
+                "/api/one/world-model/jobs",
+                json={
+                    "refresh": True,
+                    "public_profiles": {**profiles, "permitted_public_sources": bad},
+                },
+            ).status_code
+            == 422
+        )
+    for url in [
+        "http://example.test/me",
+        "https://127.0.0.1/me",
+        "https://user:secret@example.test/me",
+        "https://example.test/me?token=secret",
+        "https://example.internal/me",
+    ]:
+        assert (
+            client.post(
+                "/api/one/world-model/jobs",
+                json={"refresh": True, "public_profiles": {**profiles, "urls": [url]}},
+            ).status_code
+            == 422
+        )
+    assert start.await_count == 1
+    start.side_effect = PublicProfilesChanged("private diagnostic")
+    conflict = client.post(
+        "/api/one/world-model/jobs", json={"refresh": True, "public_profiles": profiles}
+    )
+    assert conflict.status_code == 409 and "private diagnostic" not in conflict.text
+
+
 @pytest.mark.parametrize(
     "source_use",
     ["google_grounded_display_only", "azure_web_grounded_display_only", None, "owner_supplied"],

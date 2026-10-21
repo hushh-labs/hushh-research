@@ -557,6 +557,49 @@
         "components/profile/world-model-claim-invitation.tsx"
       ],
       "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.world_model.public_profiles",
+      "label": "Research your public profiles",
+      "meaning": "Explicitly choose public profile links for Azure and Bing research. Links are owner assertions, not identity verification; review findings before saving.",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_public_sources_open",
+        "pwm_public_profiles_research"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/profile/world-model-options.tsx",
+        "components/profile/world-model-sources.tsx"
+      ],
+      "speaker_persona": "one"
     }
   ]
 }

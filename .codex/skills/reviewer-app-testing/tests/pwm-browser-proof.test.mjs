@@ -14,6 +14,15 @@ test("research request admission survives diagnostic stages and keeps save autho
     const options = { phase, appOrigin: origin, researchPosts: 0, emailPreference: false };
     assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", { refresh: true }), options), true);
     assert.equal(admitPwmResearch(request("/api/one/world-model/ensure", {}), options), true);
+    const profiles = { urls: ["https://github.com/public-example"], permitted_public_sources: true };
+    const seeded = { refresh: true, public_profiles: profiles };
+    assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", seeded), options), false);
+    const selected = { ...options, publicProfile: profiles.urls[0] };
+    assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", { refresh: true }), selected), false);
+    assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", seeded), selected), true);
+    assert.equal(admitPwmResearch(request("/api/one/world-model/ensure", seeded), selected), false);
+    for (const altered of [{ ...profiles, permitted_public_sources: false }, { ...profiles, urls: ["https://github.com/other"] }, { ...profiles, hidden: true }])
+      assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", { refresh: true, public_profiles: altered }), selected), false);
     assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", {}), options), false);
     assert.equal(admitPwmResearch(request("/api/one/world-model/ensure", { refresh: true }), options), false);
     assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", { refresh: true }), { ...options, researchPosts: 20 }), false);

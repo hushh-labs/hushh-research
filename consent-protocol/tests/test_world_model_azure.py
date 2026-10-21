@@ -2250,3 +2250,41 @@ async def test_paused_fact_review_resumes_without_rebuying_report_and_rechecks_a
             **revoked, gateway=cached, work=completed, attempts_used=exhausted
         )
     assert cached.calls == []
+
+
+@pytest.mark.asyncio
+async def test_owner_public_profiles_are_charged_retrieval_leads_not_identity_receipts():
+    charges, snapshots = [], []
+
+    class PublicProfileGateway(FakeGateway):
+        async def search(self, request):
+            assert request["owner_selected_public_profiles"] == [URL]
+            assert "owner_decisions" not in request
+            return await super().search(request)
+
+        async def structured(self, **kwargs):
+            if kwargs["purpose"] == "identity_assessment":
+                assert kwargs["payload"]["owner_selected_public_profiles"] == [URL]
+                assert self.calls.count("search") == 1
+            return await super().structured(**kwargs)
+
+    async def charge(values):
+        charges.extend(values)
+
+    async def checkpoint(value):
+        snapshots.append(copy.deepcopy(value))
+
+    result = await run_world_model_azure(
+        identity=IDENTITY,
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106 - synthetic test authority
+        require_access=AsyncMock(),
+        on_attempts_start=charge,
+        on_progress=checkpoint,
+        owner_decisions={"confirmed": [], "rejected": ["An unrelated claim"]},
+        owner_public_profiles={"urls": [URL], "permitted_public_sources": True},
+        gateway=PublicProfileGateway(charges=charges, snapshots=snapshots),
+    )
+    assert result["status"] == "offered"
+    assert result["research"]["identity"]["state"] == "candidate_for_review"
+    assert result["pkm_written"] is False

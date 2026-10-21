@@ -203,7 +203,7 @@ describe("PWM owner and request isolation", () => {
     expect(result.links).toEqual([{ title: "Public search", url: "https://www.google.com/search?q=public" }]);
   });
   it("rejects a sibling's old snapshot before the provider can update its owner or token", () => {
-    const writer = worldModelResearchStore.attach({ reload: vi.fn(), refresh: vi.fn() });
+    const writer = worldModelResearchStore.attach({ reload: vi.fn(), refresh: vi.fn(), researchPublicProfiles: vi.fn() });
     const owner = { owner: "owner-a", key: "key-a", token: "token-a" };
     writer.setAuthority(owner);
     writer.setSnapshot(() => ({ ...owner, result: pending, preferences: { enabled: true, email_enabled: true,
@@ -645,6 +645,33 @@ describe("PWM owner and request isolation", () => {
     rerender(view(false));
     expect(screen.getByText("outside")).toBeInTheDocument();
     expect(screen.getByText("no preferences")).toBeInTheDocument();
+  });
+  it("uses the sole provider for owner-selected profiles and drops them on token replacement", async () => {
+    const view = render(<WorldModelProvider><Probe /></WorldModelProvider>);
+    await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(1));
+    const urls = ["https://github.com/public-example"];
+    act(() => { worldModelResearchStore.getSnapshot().researchPublicProfiles(urls); urls[0] = "https://github.com/changed"; });
+    await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(2));
+    expect(mock.observe.mock.calls[1][0]).toMatchObject({ refresh: true, publicProfileUrls: ["https://github.com/public-example"] });
+    mock.token = "token-renewed";
+    view.rerender(<WorldModelProvider><Probe /></WorldModelProvider>);
+    await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(3));
+    expect(mock.observe.mock.calls[2][0].publicProfileUrls).toBeUndefined();
+    expect(mock.observe.mock.calls[2][0].refresh).not.toBe(true);
+  });
+  it("requires the public-page permission before Azure research and keeps Gemini review separate", () => {
+    mock.read.mockResolvedValue(null);
+    const research = vi.fn();
+    const props = { ownerId: "owner-a", vaultKey: "key-a", vaultOwnerToken: "token-a", name: "Alice", onResearchPublicProfiles: research };
+    const view = render(<WorldModelSources {...props} />);
+    fireEvent.change(screen.getByLabelText("Page links, one per line"), { target: { value: "https://github.com/public-example" } });
+    const button = screen.getByRole("button", { name: "Research these profiles" });
+    expect(button).toBeDisabled(); fireEvent.click(button); expect(research).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("checkbox")); fireEvent.click(button);
+    expect(research).toHaveBeenCalledWith(["https://github.com/public-example"]);
+    expect(mock.prepare).not.toHaveBeenCalled();
+    view.rerender(<WorldModelSources {...props} present={false} />);
+    expect(screen.getByRole("button", { name: "Research these profiles" })).toBeDisabled();
   });
   it("does not let an old initial read replace a newly prepared draft", async () => {
     let finish!: (value: unknown) => void;

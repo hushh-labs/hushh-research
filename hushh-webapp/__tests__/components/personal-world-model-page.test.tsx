@@ -464,7 +464,7 @@ describe("Personal World Model page", () => {
     const { unmount } = render(<PersonalWorldModelPage embedded />);
     expect(await screen.findByText("Preparing your model")).toBeInTheDocument();
     expect(screen.getByText("Research and email")).toBeInTheDocument();
-    expect(screen.queryByText("Add a public source")).not.toBeInTheDocument();
+    expect(screen.getByText("Add a public source")).toBeInTheDocument();
     expect(screen.queryByText("Invite someone")).not.toBeInTheDocument();
     unmount();
 

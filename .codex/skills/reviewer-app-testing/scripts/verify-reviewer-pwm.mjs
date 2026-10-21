@@ -12,6 +12,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 const appOrigin = String(process.env.REVIEWER_APP_ORIGIN || "https://uat.one.hussh.ai").replace(/\/$/, "");
 const expectedEmails = String(process.env.PWM_EXPECTED_EMAILS || "").toLowerCase().split(",").map(value => value.trim()).filter(Boolean);
 const confirmedProfile = String(process.env.PWM_OWNER_CONFIRMED_PROFILE || "").trim();
+const researchConfirmedProfile = process.env.PWM_RESEARCH_CONFIRMED_PROFILE === "true";
 const pane = "/one?profile_pane=1&profile_panel=world-model";
 const evidence = { schema: "pwm_uat_acceptance.v1", stages: {}, public_result: null, usage: null };
 let phase = "preflight", session, cold, browser, reviewer, planId = null, storeAttempts = 0, baselineRevision = null;
@@ -78,14 +79,19 @@ export async function installPwmOwnerLogin(page, ownerLogin, origin) {
 }
 
 /** Exact research mutations admitted during the explicit research action/wait. */
-export function admitPwmResearch(request, { phase, appOrigin: origin, researchPosts: count, emailPreference }) {
+export function admitPwmResearch(request, { phase, appOrigin: origin, researchPosts: count, emailPreference, publicProfile = null }) {
   try {
     const url = new URL(request.url()), method = request.method();
     if (!["research", "research_action", "research_wait"].includes(phase) || url.origin !== origin) return false;
     const body = request.postData() ? request.postDataJSON() : {};
     if (!body || typeof body !== "object" || Array.isArray(body)) return false;
     if (method === "POST" && ["/api/one/world-model/ensure", "/api/one/world-model/jobs"].includes(url.pathname) && count < 20) {
-      return Object.keys(body).every(key => ["owner_decisions", "refresh"].includes(key)) &&
+      const profiles = body.public_profiles;
+      if (publicProfile && url.pathname.endsWith("/jobs") && profiles === undefined) return false;
+      if (profiles !== undefined && (!publicProfile || !url.pathname.endsWith("/jobs") ||
+          !profiles || Object.keys(profiles).length !== 2 || profiles.permitted_public_sources !== true ||
+          !Array.isArray(profiles.urls) || profiles.urls.length !== 1 || profiles.urls[0] !== publicProfile)) return false;
+      return Object.keys(body).every(key => ["owner_decisions", "refresh", "public_profiles"].includes(key)) &&
         (url.pathname.endsWith("/jobs") ? body.refresh === true : !("refresh" in body));
     }
     return method === "PUT" && url.pathname === "/api/one/world-model/preferences" &&
@@ -132,7 +138,7 @@ try {
             Object.keys(body).every(key => ["user_id", "platform", "device_id"].includes(key));
         }
       }
-      if (admitPwmResearch(request, { phase, appOrigin, researchPosts, emailPreference: evidence.email_preference })) {
+      if (admitPwmResearch(request, { phase, appOrigin, researchPosts, emailPreference: evidence.email_preference, publicProfile: researchConfirmedProfile ? confirmedProfile : null })) {
         if (method === "POST") researchPosts++;
         return true;
       }
@@ -172,6 +178,7 @@ try {
   evidence.email_preference = (await session.page.getByRole("switch", { name: "Email me when it’s ready", exact: true }).getAttribute("aria-checked")) === "true";
   evidence.research_ui = { enabled_before: (await researchSwitch.getAttribute("aria-checked")) === "true" };
   stage("research_action");
+  check(!researchConfirmedProfile || evidence.research_ui.enabled_before, "profile_research_needs_existing_consent");
   if ((await researchSwitch.getAttribute("aria-checked")) !== "true") {
     evidence.research_ui.action = "enable";
     await researchSwitch.click();
@@ -179,6 +186,17 @@ try {
     // racing its pending response with a second Check for updates action.
     await session.page.getByRole("dialog", { name: "Research and email", exact: true })
       .getByRole("button", { name: "Close detail panel", exact: true }).click();
+  } else if (researchConfirmedProfile) {
+    evidence.research_ui.action = "research_owner_confirmed_public_profile";
+    evidence.research_inputs = { identity_source: "authenticated_owner", public_profiles: [confirmedProfile],
+      basis: "explicit_human_profile_ownership_confirmation" };
+    await session.page.getByRole("dialog", { name: "Research and email", exact: true })
+      .getByRole("button", { name: "Close detail panel", exact: true }).click();
+    await session.page.locator('[data-voice-control-id="pwm_public_sources_open"]').click();
+    const sources = session.page.getByRole("dialog", { name: "Add a public source", exact: true });
+    await sources.getByLabel("Page links, one per line", { exact: true }).fill(confirmedProfile);
+    await sources.getByRole("checkbox").check();
+    await sources.locator('[data-voice-control-id="pwm_public_profiles_research"]').click();
   } else {
     const refresh = session.page.locator('[data-voice-control-id="pwm_refresh"]');
     if (await refresh.isVisible()) {
