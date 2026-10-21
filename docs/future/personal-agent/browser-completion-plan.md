@@ -194,8 +194,10 @@ are in the [runtime evidence](../../../consent-protocol/docs/reference/private-b
 The full packaged pod image also passes protected execution, disabled bootstrap
 and teardown. A rebuilt image preserves synthetic encrypted identity and recovery
 records through VM deallocation/start using its real workload identity, Blob
-storage and Key Vault. Gunicorn startup, authenticated owner wake and the combined
-model/task journey remain separate qualification requirements.
+storage and Key Vault. Disposable normal-entrypoint Gunicorn TLS startup,
+authenticated drain and same-key restart are also recorded in the runtime evidence.
+Installed-owner Browser composition, active-task control/reconnect and customer
+wake remain separate acceptance requirements.
 Bind receipts to source, immutable image and configuration. Qualify each cloud
 independently and fail closed; there is no privileged browser or `--no-sandbox`
 retry. The VM must qualify the whole deployment's recovery, external wake,

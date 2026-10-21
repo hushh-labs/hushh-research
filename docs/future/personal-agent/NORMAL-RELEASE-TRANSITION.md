@@ -1,8 +1,9 @@
 # Private agent: normal release transition
 
 **Status:** local integration plan, refreshed 2026-10-20. Main `f47a4832dbc` and
-frozen ADK `42bb9823005` are integrated through `b14bc29901`; the current local
-checkpoint is `0bb98bd384` plus unified development-source consolidation. Browser composition, Shared continuity, exact-attempt
+frozen ADK `42bb9823005` are integrated through `b14bc29901`; historical integration
+checkpoint `0bb98bd384` precedes unified development-source consolidation and the
+current Browser approval work. The readiness memo owns current source/serving status. Browser composition, Shared continuity, exact-attempt
 release acceptance and VM identity/recovery evidence are committed locally.
 Browser approval recovery and the bounded VM power port now have focused local
 proof. Durable power-cycle composition and a disposable normal-entrypoint VM now
@@ -13,7 +14,9 @@ installed Browser acceptance remain open. Combined protected Chromium/native ADK
 public research now passes on GCP and the disposable Azure VM; active-task owner
 approval, takeover and reconnect remain distinct. Dev migration 966 is registered
 but absent from the 20 October 22:05 UTC ledger read, so it must serve before
-real Browser approval. GCP dev acceptance uses the explicitly approved Gemini
+real Browser task approval. Newly parked dev migration 969 separately admits the
+GCP Browser configuration operation; it is not proof of installed activation.
+GCP dev acceptance uses the explicitly approved Gemini
 bridge: the owner confirms the organizational AI restriction is why it exists.
 Native project Vertex is not a dev release prerequisite; additional IAM grants
 are not a supported fix for the recorded provider dunning denial.
@@ -233,7 +236,10 @@ Before Browser enters a release:
    acceptance to immutable image, cloud, model and configuration through the
    existing release authority. A readiness flag or hash-shaped field is insufficient.
 3. Publish only an immutable dev offer, then exercise the separately approved
-   owner installation. A VM probe does not authorize moving an existing owner.
+   owner installation. GCP Browser setup additionally needs migration 969 and
+   exact policy review through its distinct Browser plan; Files or image-only
+   approval cannot grant it. Azure target-evidence refresh requires the qualified
+   root updater/helper bundle. A VM probe does not authorize moving an existing owner.
 4. Keep unsupported execution controls hidden and explain availability on demand.
    Retain Chromium's sandbox and secret/process/network isolation without fallback.
 

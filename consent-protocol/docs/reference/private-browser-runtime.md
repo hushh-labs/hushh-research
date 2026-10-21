@@ -58,7 +58,7 @@ flowchart TD
     Sessions["Local port: encrypted remembered sign-in"]
     Store["Existing owner object store and sealed recovery log"]
     Qualification["Source: reviewed immutable image and policy qualification"]
-    Activation["Required: separate exact owner configuration approval"]
+    Activation["Source: separate GCP owner plan; installed acceptance pending"]
     Qualification -. "evidence only; never enables" .-> Cloud
     Activation -. "owner policy and enabled state" .-> Cloud
     UI -. "owner task" .-> One
@@ -112,12 +112,38 @@ execute a probe or prove owner access.
 | Qualification | Immutable image, source, build tag, exact host, native model transport and public-policy digest; no future incarnation |
 | Owner configuration | Separate `POD_COMPUTER_USE_ENABLED` and `HUSSH_BROWSER_POLICY_JSON`; exact approved pod/key and full page/static policy |
 | Startup | Bind recovered key/current incarnation; compare actual installed digest and approved policy. Azure requires the verified VM installation, never ACA identity alone |
-| GCP software update | Carry evidence from the captured approval; preserve owner enablement/policy, including their absence. Qualification cannot activate Browser |
-| Azure VM | Initial exact host configuration accepts qualification; image-only replacement still preserves environment. Target-qualification refresh and customer host admission remain unfinished |
+| GCP image-only update | Carry evidence from the captured approval; preserve owner enablement/policy, including their absence. Qualification cannot activate Browser |
+| GCP Browser setup | Separate typed plan and approval v2 through the existing update operation; freeze owner, key, placement, service UID/generation, template, target, policy and qualification; configured only after serving readback |
+| Azure VM | Initial host configuration accepts qualification. Image-only replacement refreshes evidence from the captured approval and removes stale evidence when absent, preserving owner activation/policy. Customer host admission and Browser setup remain unavailable |
 
-The capability-update owner remains Files-specific. Browser activation needs its
-own typed plan through that same approval/lease/readback authority before an owner
-offer can appear. No install flag, shaped hash or release note substitutes for it.
+GCP Browser setup now has its own typed plan through the existing approval,
+lease and readback authority. `browserPlanDigest` and the `browser.v1` release
+identity are distinct from Files; image-only approval cannot enable it. The
+Settings review lists public destinations and model screen processing before
+explicit approval. The pilot remains public research only: it does not authorize
+login, submission, remembered sessions or private-information disclosure.
+
+| Existing update API | Authority |
+| --- | --- |
+| `POST /api/one/personal-agent/update/browser-plan` | Read-only schema, release and actual cloud-template inspection; no installation or task grant |
+| `POST /api/one/personal-agent/update/approve` with `browserPlanDigest` | Recompute the plan, then persist one owner/key/placement-bound operation under the existing registry CAS |
+| Existing status and Feed | Follow that durable operation; review availability is not Browser readiness |
+
+Parked dev migration **969**, reviewed exact-image qualification with its full
+`public_policy`, and the default-off `HUSSH_POD_BROWSER_ENABLED` offer flag are
+required before review. Approval replaces the same service only after authenticated
+drain, preserves resource limits, and verifies the exact policy/image and 100%
+traffic to the current ready revision. Lost responses are observed against the
+retained approval, even if the hub publishes a newer target; they never authorize
+another replacement. No install flag, shaped hash or release note substitutes for
+these checks. No installed owner Browser acceptance is claimed.
+
+The VM root update request is version 2 and commits target qualification or its
+explicit absence. Its fixed RunCommand checks both updater and qualification
+helper hashes before execution. An older host bundle cannot accept this request;
+it needs separate host-maintenance qualification, not an implicit module repair
+during an image update. Missing target evidence disables Browser readiness without
+rewriting owner policy or preventing ordinary agent recovery.
 Native Browser tasks close owned cached model clients after each continuation and
 reuse the canonical private-telemetry refusal; ephemeral sessions are deleted.
 
@@ -233,7 +259,10 @@ changed/owning modules typecheck and the architecture ratchet has zero regressio
 
 The fresh 22:05 UTC dev ledger read confirms 966 is registered in the dev manifest
 but not applied; 965, 967 and 968 are also absent. Real owner Browser approval
-requires 966 through the governed deployment. Neither this component receipt nor
+requires 966 through the governed deployment. GCP configuration approval also
+requires newly parked dev migration 969; its isolated PostgreSQL tests are not a
+live migration receipt. Its rollback refuses automatic removal of retained
+approval/recovery semantics; disable new offers and recover forward. Neither this component receipt nor
 a shaped qualification JSON may replace exact-release validation and owner approval.
 
 VM startup now checks a root-owned, bounded `/run/hussh-host/pod.json` against
