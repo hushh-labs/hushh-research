@@ -4489,7 +4489,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 3035,
+  "finding_count": 3039,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -6082,7 +6082,7 @@
       "limit": 250,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": "MaintenanceAuthorityTest",
-      "value": 3149
+      "value": 3162
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -22543,7 +22543,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/direct-messages-page.test.tsx",
       "symbol": null,
-      "value": 1676
+      "value": 1770
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24829,7 +24829,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/cache/cache-sync-service.ts",
       "symbol": null,
-      "value": 991
+      "value": 999
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25846,7 +25846,7 @@
       "limit": 500,
       "path": "hushh-webapp/scripts/architecture/audit-cache-coherence.mjs",
       "symbol": null,
-      "value": 875
+      "value": 879
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26008,7 +26008,7 @@
       "limit": 500,
       "path": "scripts/ci/runtime-capacity-budget.py",
       "symbol": null,
-      "value": 867
+      "value": 884
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26026,7 +26026,7 @@
       "limit": 500,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": null,
-      "value": 3687
+      "value": 3700
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26153,7 +26153,7 @@
       "limit": 250,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": "RuntimeCapacityBudgetTest",
-      "value": 600
+      "value": 611
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26171,7 +26171,7 @@
       "limit": 80,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": "test_post_release_checks_retained_capacity_without_next_candidate",
-      "value": 119
+      "value": 130
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26198,7 +26198,7 @@
       "limit": 500,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": null,
-      "value": 2127
+      "value": 2149
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26774,7 +26774,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/direct-chat.layout.spec.ts",
       "symbol": null,
-      "value": 1206
+      "value": 1225
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27602,7 +27602,7 @@
       "limit": 80,
       "path": "scripts/ci/runtime-capacity-budget.py",
       "symbol": "evaluate",
-      "value": 95
+      "value": 112
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27701,7 +27701,7 @@
       "limit": 80,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": "maintenance_pass",
-      "value": 225
+      "value": 239
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27719,7 +27719,7 @@
       "limit": 500,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": null,
-      "value": 665
+      "value": 676
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -27904,7 +27904,7 @@
       "limit": 250,
       "path": "scripts/ci/test_pending_uat_retention_state.py",
       "symbol": "PendingUatStateTests",
-      "value": 280
+      "value": 304
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -31812,6 +31812,42 @@
       "path": "consent-protocol/tests/services/test_plg_evidence.py",
       "symbol": "test_audience_live_page_excludes_deleted_accounts_and_never_serializes_provider_records",
       "value": 95
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|scripts/ci/test_production_capacity_bridge.py|BridgeTests|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "scripts/ci/test_production_capacity_bridge.py",
+      "symbol": "BridgeTests",
+      "value": 317
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/production-capacity-bridge.py|maintain|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/production-capacity-bridge.py",
+      "symbol": "maintain",
+      "value": 209
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_production_capacity_bridge.py|test_successful_clone_reconciles_without_recreation_after_normal_tag_retirement|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_production_capacity_bridge.py",
+      "symbol": "test_successful_clone_reconciles_without_recreation_after_normal_tag_retirement",
+      "value": 81
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|scripts/ci/production-capacity-bridge.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "scripts/ci/production-capacity-bridge.py",
+      "symbol": null,
+      "value": 654
     }
   ],
   "inspected_files": 6625,
@@ -83242,6 +83278,174 @@
         "source_sha256": "6fa05bb15db9452c04fdca31c844c4652fd90f0428c435a666ca2e0bac1b2346",
         "reviewer": "agent_layout_audit",
         "review": "Exact bounded Browser transport regression or reconciled frozen-main c85 change; original policy, owner fences and 500/250/80 budgets unchanged."
+      }
+    ]
+  },
+  "main_895_messages_capacity_review_20261021": {
+    "frozen_main": "89516ab01d8892283b700eabb79c6fd5aed20188",
+    "integration_parent": "aae090eedd593f15ba0a352fe409dbdab33d4822",
+    "reviewed_entries": [
+      {
+        "key": "class_size|scripts/ci/test_cloudrun_retention.py|MaintenanceAuthorityTest|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 3149,
+        "after": 3162,
+        "source_sha256": "c3c6235736a45ad498d4459dc99e1b7275d6dbc76a69fea01de66b66ab9e1048",
+        "reviewer": "ci_delta_review + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "class_size|scripts/ci/test_runtime_capacity_budget.py|RuntimeCapacityBudgetTest|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 600,
+        "after": 611,
+        "source_sha256": "305f6a355e5606610e11eeb078c521dd2b2c76504a6855c1405440cc4c2b23c5",
+        "reviewer": "ci_delta_review + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "class_size|scripts/ci/test_production_capacity_bridge.py|BridgeTests|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 317,
+        "source_sha256": "612aa9b552dc4cf9e07795e1ca0a631bc5ad0961dc28b59424d0a3b3d6719d91",
+        "reviewer": "ci_delta_review + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "class_size|scripts/ci/test_pending_uat_retention_state.py|PendingUatStateTests|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 280,
+        "after": 304,
+        "source_sha256": "7532e2c2810a03c87f3292408e26f96b0d5a48ffb804379699d4367ea5dc44cc",
+        "reviewer": "ci_delta_review + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "function_size|scripts/ci/uat-retention-maintenance.py|maintenance_pass|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 225,
+        "after": 239,
+        "source_sha256": "cbf1dc7cb0e60e3a1bc754b9346fec6c9a81d3af4456d23df3d1cc31fe3e5579",
+        "reviewer": "ci_delta_review + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "function_size|scripts/ci/production-capacity-bridge.py|maintain|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 209,
+        "source_sha256": "cc85c3bda33eb362b6c71a9648d8ee88b9ac29ef5f92fd965cf158d8301d88e8",
+        "reviewer": "ci_delta_review + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "function_size|scripts/ci/test_runtime_capacity_budget.py|test_post_release_checks_retained_capacity_without_next_candidate|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 119,
+        "after": 130,
+        "source_sha256": "305f6a355e5606610e11eeb078c521dd2b2c76504a6855c1405440cc4c2b23c5",
+        "reviewer": "ci_delta_review + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "function_size|scripts/ci/runtime-capacity-budget.py|evaluate|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 95,
+        "after": 112,
+        "source_sha256": "abde6be3146dc78049ed7292c325eeec0d878b3485213ca2822232625f0deba0",
+        "reviewer": "ci_delta_review + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "function_size|scripts/ci/test_production_capacity_bridge.py|test_successful_clone_reconciles_without_recreation_after_normal_tag_retirement|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 81,
+        "source_sha256": "612aa9b552dc4cf9e07795e1ca0a631bc5ad0961dc28b59424d0a3b3d6719d91",
+        "reviewer": "ci_delta_review + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "module_size|scripts/ci/test_cloudrun_retention.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 3687,
+        "after": 3700,
+        "source_sha256": "c3c6235736a45ad498d4459dc99e1b7275d6dbc76a69fea01de66b66ab9e1048",
+        "reviewer": "ci_delta_review + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "module_size|scripts/ci/uat-retention-maintenance.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 2127,
+        "after": 2149,
+        "source_sha256": "cbf1dc7cb0e60e3a1bc754b9346fec6c9a81d3af4456d23df3d1cc31fe3e5579",
+        "reviewer": "ci_delta_review + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/direct-messages-page.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1676,
+        "after": 1770,
+        "source_sha256": "d6ec225c4aeb50a93d6edc22e350b97e4f3b11dcaf05cf486f23d6f3ef647822",
+        "reviewer": "adk_frontend_conflicts + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/direct-chat.layout.spec.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1206,
+        "after": 1225,
+        "source_sha256": "21ca0653cd66914545e6df21646e065b196d76f90eb16b2c53aa934f907478ce",
+        "reviewer": "adk_frontend_conflicts + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/cache/cache-sync-service.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 991,
+        "after": 999,
+        "source_sha256": "4f2dba0fd3afc58a86f494099acd4814a8240997b3ddc37117e5b65c5bff1e77",
+        "reviewer": "adk_frontend_conflicts + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "module_size|scripts/ci/runtime-capacity-budget.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 867,
+        "after": 884,
+        "source_sha256": "abde6be3146dc78049ed7292c325eeec0d878b3485213ca2822232625f0deba0",
+        "reviewer": "ci_delta_review + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "module_size|hushh-webapp/scripts/architecture/audit-cache-coherence.mjs||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 875,
+        "after": 879,
+        "source_sha256": "908eb52b203c069d5e6b7fe537e41b7d937f0d283d9f64d4d877c0fe88e26a84",
+        "reviewer": "adk_frontend_conflicts + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "module_size|scripts/ci/test_runtime_capacity_budget.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 665,
+        "after": 676,
+        "source_sha256": "305f6a355e5606610e11eeb078c521dd2b2c76504a6855c1405440cc4c2b23c5",
+        "reviewer": "ci_delta_review + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
+      },
+      {
+        "key": "module_size|scripts/ci/production-capacity-bridge.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 654,
+        "source_sha256": "cc85c3bda33eb362b6c71a9648d8ee88b9ac29ef5f92fd965cf158d8301d88e8",
+        "reviewer": "ci_delta_review + agent_layout_audit",
+        "review": "Frozen main 89516ab01d integration and reviewed owner-admission test corrections. Existing authority, annotations and 500/250/80 budgets preserved."
       }
     ]
   }

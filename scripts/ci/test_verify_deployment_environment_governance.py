@@ -179,6 +179,8 @@ def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "ku
         env={**os.environ, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
              "GITHUB_ACTOR": actor, "RELEASE_ENV": inputs.get("environment", ""),
              "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", ""),
+             "CAPACITY_BRIDGE": inputs.get("production_capacity_bridge", ""),
+             "APPLY": inputs.get("apply", ""),
              "CLOCK_EVENT_TYPE": action},
         capture_output=True, text=True, check=False,
     )
@@ -207,6 +209,20 @@ def test_capacity_cleanup_rejects_deployment_events_and_non_main() -> None:
     for event_name in ("schedule", "workflow_dispatch"):
         result = _validate_capacity_trigger(event_name, {"inputs": {"environment": "production", "healthy_release_run_id": "43"}}, ref="contributor-branch")
         assert result.returncode != 0, "Non-main cleanup was accepted"
+
+
+def test_fixed_bridge_requires_governed_manual_production_apply() -> None:
+    event = {"inputs": {"environment": "production", "healthy_release_run_id": "43", "apply": "true", "production_capacity_bridge": "true"}}
+    accepted = _validate_capacity_trigger("workflow_dispatch", event)
+    assert accepted.returncode == 0, accepted.stderr
+    for trigger in ("schedule", "repository_dispatch", "push"):
+        denied = _validate_capacity_trigger(trigger, event, action="capacity-maintenance-tick-production")
+        assert denied.returncode != 0, "A non-manual bridge request was accepted"
+    for field, value in (("environment", "uat"), ("apply", "false")):
+        wrong = {"inputs": {**event["inputs"], field: value}}
+        assert _validate_capacity_trigger("workflow_dispatch", wrong).returncode != 0
+    for actor, ref in (("unapproved-contributor", "main"), ("kushaltrivedi5", "feature/example")):
+        assert _validate_capacity_trigger("workflow_dispatch", event, actor=actor, ref=ref).returncode != 0
 
 
 def test_capacity_clock_tick_carries_only_scheduled_authority() -> None:
@@ -345,6 +361,7 @@ def main() -> int:
         test_production_tripwire_matches_committed_policy,
         test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes,
         test_capacity_cleanup_rejects_deployment_events_and_non_main,
+        test_fixed_bridge_requires_governed_manual_production_apply,
         test_capacity_clock_tick_carries_only_scheduled_authority,
         test_capacity_clock_accepts_only_its_own_trigger,
         test_capacity_clock_wakes_maintenance_scoped_to_due_environments,

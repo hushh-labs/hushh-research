@@ -68,18 +68,23 @@ publishing does not install it. Existing personal pod receipts remain unchanged.
 | Dev app | Source `5b8e03b12a04`; hub `consent-protocol-00187-lr7` / digest `418258fc4c7a`; web `hushh-webapp-00155-4hr` / digest `5d0b66c7f213`; both 100% | [Exact-SHA CI](https://github.com/hushh-labs/hushh-research/actions/runs/39675020035) and [governed dev rollout](https://github.com/hushh-labs/hushh-research/actions/runs/39679343440) succeeded, including preservation, schema, semantic and reviewer checks |
 | Personal Azure pod | `2026.10-dev.25+991a06ccbc01.4a3b29a7`; digest `sha256:4a3b29a74641d7eac470da43d18f01c5039f4c0327ed84811ce2f0bfa939ac9a`; revision `ca-hussh-one-pod--u36234007817f` | `op_b9a279571aaf47bcaffdbc4689c80d6c` verified 03:19:39 UTC; exact predecessor `250aea9e…fc69f1`; same identity and 1 vCPU / 2 GiB, min 0 / max 1 |
 | Schema / rollback | Dev migration and postdeploy schema gates passed without contract violations; history cleanup deferred | Rollback hub `00186-5zw`, web `00154-jzm`. Application rollback cannot restore deleted history |
-| Local integration | Browser `80731a80b3`; frozen ADK `914e7c044c`; newer main through `c85b09967f` integrated locally in `dd03a98f82` | Nine peer edits remain hash-exact. Main's direct Search, message geometry and export/reporting changes retain private-owner read fences; this newer integration is not deployed |
+| Local integration | Browser `80731a80b3`; frozen ADK `914e7c044c`; newer main through `89516ab01d` reconciled locally after `aae090eedd` | Nine peer edits and the active ADK tree are preserved. Main's warm Messages cache and production-capacity maintenance retain private-owner admission and governed environment authority; this integration is not deployed |
 | New pod image | `sha256:c95aaf4d705b0f16dc9812f59322b4f640588ca97686d2b7723e123e769edc4a`, source `5b8e03b12a04` | Four synthetic recovery fixtures passed using exact predecessor digests, including those installed on the personal GCP/Azure pods; identity, encrypted records and 245,763 file bytes preserved. Fixtures cleaned. Browser's generated-header mismatch requires the corrected Dev 27 image; no personal installation occurred |
 | GCP configuration | Named owner's revision `00018-jrz`, same predecessor `26bab163…61809`, 1 vCPU / 2 GiB / concurrency 8 | Authenticated maintenance handoff and recovery passed; identity, keys, image and on-demand settings unchanged. Task-owned maintenance job removed |
 | Browser component qualification | Image `sha256:b48f66b6…b32fbf24a4`: ordinary GCP frames/start 7.145 s, Azure frames/start 1.555 s; both confirmed Stop. Native ACA Luna research 19.460 s, five model round trips at capacity 50 | Synthetic grants, excludes owner HTTP acceptance and full-pod capacity. Capacity 1 returned 429; original failure retained. GCP native Gemini 3.8 research subsequently completed in 96.713 s through the approved bridge: three model round trips, two native actions and two screenshot continuations. This is one component sample, not a latency target pass. Disposable resources and temporary model/RBAC verified removed |
 
 ### Current local implementation
 
-Main through `c85b09967f` and frozen ADK `914e7c044c` are integrated with the
+Main through `89516ab01d` and frozen ADK `914e7c044c` are reconciled with the
 private-agent work. Streamed exports, dual-principal connector fencing, SOS,
 Azure playback, exact provider receipts and Profile controls are preserved.
-The combined seams pass 743 backend, 381 frontend and ten focused browser cases,
-plus typecheck and UI contracts. Counts overlap earlier core verification.
+The final local core was run once. Original failures remain recorded; environment
+repairs and the corrected PLG route classification were checked in the affected
+stages. The backend manifest totals 24,408 distinct passes and 138 skips across
+that run and its replays; all 30,928 available cases collect. The newer main merge
+passes 98 Messages checks, typecheck, UI contracts and focused operations checks.
+The reviewed architecture ratchet has no regressions; its budgets are unchanged.
+A clean web-core check covers the newer frontend dependency before push.
 
 [Exact-candidate validation](https://github.com/hushh-labs/hushh-research/actions/runs/39670721881)
 exposed four backend failures: stale connector fixtures, a local-profile assumption
@@ -107,7 +112,9 @@ Dev 966/969/970 approval and schema requirements remain deployment gates.
 The dev bridge is explicit, bound to the exact workload identity and verified by
 its configuration operation. Image updates preserve its absence. Secret sync now
 retains only an existing environment-pinned dev policy; 86 nearest checks and the
-original-code negative pass. The approved policy still needs dev publication.
+original-code negative pass. The exact approved identity tuple was published to dev runtime configuration
+version 220 and read back without changing other fields. Its owner configuration
+approval and post-deployment serving verification remain required.
 
 Four native Playwright shards preserve every browser test and worker limit; native
 collection proves a complete, disjoint partition. The previous three-shard run
@@ -123,6 +130,7 @@ not authorize a transition. The private Wiki decision was updated and read back.
 
 | Measurement | Result | Decision |
 | --- | --- | --- |
+| Delivery cycle | One successful full CI 31.0 min; governed dev rollout 33.2 min | 64.2 min wall time for those runs. iOS 25.9, browser packs up to 19.9 and Python 17.1 min overlap; do not sum parallel jobs |
 | Matched cloud chat | 20 cold / 20 warm per cloud: GCP p95 71.721 / 7.700 s; Azure 71.304 / 13.389 s | Retain this historical baseline. Thirty seconds is an optimization goal; fix measured startup work and recovery, without a permanent warm floor |
 | Personal chat | Latest zero-instance sample: first content 44.837 s, complete 46.040 s; capabilities 40.304 s | Wake/readiness dominates this sample; not a percentile or physical paint measurement |
 | Puppy Dev 25 | First text 35.257 s, complete 35.509 s; device first content 25.308 s | Nonempty Gemma 12B response received in an occluded browser; not cold-model or foreground-paint acceptance |
