@@ -5,8 +5,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import pathlib
+import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 
@@ -57,6 +60,177 @@ class ResolveIOSBuildNumberTests(unittest.TestCase):
 
 
 class AppStoreReleaseReadbackTests(unittest.TestCase):
+    def history(self, records, *, next_url=None):
+        return {
+            "data": [
+                {"attributes": {"versionString": version, "appStoreState": state}}
+                for version, state in records
+            ],
+            "links": {"next": next_url} if next_url else {},
+        }
+
+    def test_automatic_packaging_cli_reads_legacy_history_without_mutating_apple(self):
+        next_url = "https://api.appstoreconnect.apple.com/v1/apps/app/appStoreVersions?cursor=2"
+        responses = [
+            {"data": [{"id": "app"}]},
+            self.history([("1.0", "READY_FOR_SALE")], next_url=next_url),
+            self.history([("1.4.2", "DEVELOPER_REJECTED")]),
+        ]
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as directory:
+            project = pathlib.Path(directory, "release.pbxproj")
+            project.write_text(
+                "CURRENT_PROJECT_VERSION = 69;\nMARKETING_VERSION = 1.4.1;\n"
+            )
+            with (
+                patch.object(RELEASE, "mint_jwt", return_value="synthetic"),
+                patch.object(RELEASE, "asc_get", side_effect=responses) as read,
+                patch.object(
+                    RELEASE,
+                    "asc_post",
+                    side_effect=AssertionError("unexpected Apple write"),
+                ),
+                patch.object(
+                    RELEASE,
+                    "asc_patch",
+                    side_effect=AssertionError("unexpected Apple write"),
+                ),
+                redirect_stdout(output),
+                redirect_stderr(io.StringIO()),
+            ):
+                result = RELEASE.main(
+                    [
+                        "--resolve-marketing-version",
+                        "--testflight",
+                        "--p8-path",
+                        "/dev/null",
+                        "--key-id",
+                        "synthetic",
+                        "--issuer-id",
+                        "synthetic",
+                        "--pbxproj",
+                        str(project),
+                    ]
+                )
+            self.assertEqual(result, 0)
+            self.assertEqual(output.getvalue(), "1.4.2\n")
+            self.assertEqual(read.call_count, 3)
+            self.assertEqual(read.call_args_list[-1].args[0], next_url)
+
+    def test_history_orders_numerically_across_pages_and_ignores_older_alias_ties(self):
+        responses = [
+            self.history(
+                [
+                    ("1.9", "READY_FOR_SALE"),
+                    ("1.4", "READY_FOR_SALE"),
+                    ("1.4.0", "READY_FOR_SALE"),
+                ],
+                next_url="https://api.appstoreconnect.apple.com/next",
+            ),
+            self.history([("1.10", "READY_FOR_SALE")]),
+        ]
+        with patch.object(RELEASE, "asc_get", side_effect=responses):
+            self.assertEqual(
+                RELEASE.resolve_packaging_version("token", "app", "1.4.1", "IOS"),
+                "1.10.1",
+            )
+
+    def test_released_short_history_advances_a_canonical_patch_and_keeps_source_floor(
+        self,
+    ):
+        for version, source, expected in (
+            ("1", "1.0.0", "1.0.1"),
+            ("1.4", "1.0.0", "1.4.1"),
+            ("01.04", "1.0.0", "1.4.1"),
+            ("1.4", "2.0.0", "2.0.0"),
+        ):
+            with (
+                self.subTest(version=version, source=source),
+                patch.object(
+                    RELEASE,
+                    "asc_get",
+                    return_value=self.history([(version, "READY_FOR_SALE")]),
+                ),
+            ):
+                self.assertEqual(
+                    RELEASE.resolve_packaging_version("token", "app", source, "IOS"),
+                    expected,
+                )
+
+    def test_short_pending_history_keeps_review_and_production_deferral_guards(self):
+        for state in (
+            "IN_REVIEW",
+            "PENDING_DEVELOPER_RELEASE",
+            "PENDING_APPLE_RELEASE",
+        ):
+            with (
+                self.subTest(state=state),
+                patch.object(
+                    RELEASE, "asc_get", return_value=self.history([("1.4", state)])
+                ),
+            ):
+                with self.assertRaises(SystemExit):
+                    RELEASE.resolve_packaging_version("token", "app", "1.4.0", "IOS")
+                self.assertEqual(
+                    RELEASE.resolve_packaging_version(
+                        "token", "app", "1.4.0", "IOS", testflight=True
+                    ),
+                    "1.4.1",
+                )
+                with self.assertRaises(SystemExit) as deferred:
+                    RELEASE.resolve_packaging_version(
+                        "token", "app", "1.4.0", "IOS", defer_if_review=True
+                    )
+                self.assertEqual(deferred.exception.code, 75)
+
+    def test_source_stays_strict_and_malformed_history_is_not_silently_ignored(self):
+        for source in ("1", "1.4", "01.4.0", "1.4.0-beta", "1.4.0.1"):
+            with self.subTest(source=source), patch.object(RELEASE, "asc_get") as read:
+                with self.assertRaises(SystemExit):
+                    RELEASE.resolve_packaging_version("token", "app", source, "IOS")
+                read.assert_not_called()
+        for version in (None, "", "1..0", "1.0-beta", "1.2.3.4", " 1.0"):
+            with (
+                self.subTest(version=version),
+                patch.object(
+                    RELEASE,
+                    "asc_get",
+                    return_value=self.history(
+                        [
+                            (version, "READY_FOR_SALE"),
+                            ("1.4.2", "PREPARE_FOR_SUBMISSION"),
+                        ]
+                    ),
+                ),
+            ):
+                with self.assertRaises(SystemExit):
+                    RELEASE.resolve_packaging_version("token", "app", "1.4.1", "IOS")
+
+    def test_equivalent_latest_records_fail_closed_in_either_order(self):
+        records = [("1.4", "READY_FOR_SALE"), ("1.4.0", "PREPARE_FOR_SUBMISSION")]
+        for candidates in (records, list(reversed(records)), [records[1], records[1]]):
+            with (
+                self.subTest(candidates=candidates),
+                patch.object(RELEASE, "asc_get", return_value=self.history(candidates)),
+            ):
+                with self.assertRaises(SystemExit):
+                    RELEASE.resolve_packaging_version("token", "app", "1.4.0", "IOS")
+
+    def test_editable_short_train_requires_exact_identity_instead_of_assuming_aliases(
+        self,
+    ):
+        for version, source in (("1", "1.0.0"), ("1.4", "1.4.0"), ("01.04", "1.4.0")):
+            with (
+                self.subTest(version=version),
+                patch.object(
+                    RELEASE,
+                    "asc_get",
+                    return_value=self.history([(version, "PREPARE_FOR_SUBMISSION")]),
+                ),
+            ):
+                with self.assertRaises(SystemExit):
+                    RELEASE.resolve_packaging_version("token", "app", source, "IOS")
+
     def test_automatic_packaging_reuses_editable_train_or_advances_released_patch(self):
         for state, expected in (("PREPARE_FOR_SUBMISSION", "1.4.3"), ("READY_FOR_DISTRIBUTION", "1.4.4")):
             with self.subTest(state=state), patch.object(RELEASE, "asc_get", return_value={

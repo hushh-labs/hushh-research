@@ -35,6 +35,11 @@ retry when UAT finishes, even after a failed UAT run. Existing releases are neve
 cancelled. This reduces shared-pool contention but cannot reserve GitHub-hosted
 runner slots. Manual invocation defaults are unchanged.
 
+Automatic packaging accepts Apple's historical numeric versions such as `1.0`
+for ordering. Source and selected packaging versions remain strict `x.y.z`.
+Ambiguous latest records, or reuse that would equate a legacy editable version
+with a different canonical version string, stop in Ubuntu preflight for inspection.
+
 GitHub-native monitoring runs inside the existing cadence observer and reports to
 the bot-owned `UAT release monitor` issue. It works while developer computers are
 off and adds no UAT dependency or separate monitoring job. The existing certified

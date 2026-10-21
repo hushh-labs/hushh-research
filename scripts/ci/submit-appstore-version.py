@@ -206,12 +206,34 @@ def find_app_store_version(
     return data[0] if data else None
 
 
-def resolve_packaging_version(token: str, app_id: str, source_version: str, platform: str, *, testflight: bool = False, defer_if_review: bool = False) -> str:
+def resolve_packaging_version(
+    token: str,
+    app_id: str,
+    source_version: str,
+    platform: str,
+    *,
+    testflight: bool = False,
+    defer_if_review: bool = False,
+) -> str:
     """Read-only automatic train selection; never mutate a reviewed version."""
+
     def parts(value: str) -> tuple[int, int, int]:
-        if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", value):
+        if not isinstance(value, str) or not re.fullmatch(
+            r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", value
+        ):
             die("automatic packaging requires a numeric x.y.z marketing version")
         return tuple(int(part) for part in value.split("."))
+
+    def historical_parts(value: str) -> tuple[int, int, int]:
+        # Apple's appStoreVersions API documents legacy values such as "1.0".
+        # Normalize history for ordering only; source/output versions stay x.y.z.
+        if not isinstance(value, str) or not re.fullmatch(
+            r"[0-9]+(?:\.[0-9]+){0,2}", value
+        ):
+            die("automatic packaging found an unsupported App Store history version")
+        components = [int(part) for part in value.split(".")]
+        components.extend([0] * (3 - len(components)))
+        return components[0], components[1], components[2]
 
     minimum = parts(source_version)
     query = urllib.parse.urlencode({"filter[platform]": platform, "limit": "200"})
@@ -219,24 +241,54 @@ def resolve_packaging_version(token: str, app_id: str, source_version: str, plat
     versions = []
     while url:
         payload = asc_get(url, token)
-        versions.extend(item.get("attributes") or {} for item in payload.get("data", []))
+        versions.extend(
+            item.get("attributes") or {} for item in payload.get("data", [])
+        )
         url = (payload.get("links") or {}).get("next")
     if not versions:
         return source_version
-    latest = max(versions, key=lambda attrs: parts(attrs["versionString"]))
-    version = parts(latest["versionString"])
+    ordered = [
+        (historical_parts(attrs.get("versionString")), attrs) for attrs in versions
+    ]
+    version = max(key for key, _ in ordered)
+    latest_candidates = [attrs for key, attrs in ordered if key == version]
+    if len(latest_candidates) != 1:
+        die("automatic packaging found ambiguous latest App Store version records")
+    latest = latest_candidates[0]
     state = latest.get("appStoreState") or latest.get("appVersionState")
     if state in EDITABLE_VERSION_STATES:
-        return ".".join(map(str, max(minimum, version)))
-    pending = {"WAITING_FOR_REVIEW", "IN_REVIEW", "PENDING_DEVELOPER_RELEASE", "PENDING_APPLE_RELEASE", "PROCESSING_FOR_APP_STORE"}
+        selected = ".".join(map(str, max(minimum, version)))
+        if max(minimum, version) == version and latest["versionString"] != selected:
+            die(
+                "automatic packaging cannot reuse a noncanonical editable version"
+            )
+        return selected
+    pending = {
+        "WAITING_FOR_REVIEW",
+        "IN_REVIEW",
+        "PENDING_DEVELOPER_RELEASE",
+        "PENDING_APPLE_RELEASE",
+        "PROCESSING_FOR_APP_STORE",
+    }
     if state in pending:
         if testflight:
-            return ".".join(map(str, max(minimum, (version[0], version[1], version[2] + 1))))
+            return ".".join(
+                map(str, max(minimum, (version[0], version[1], version[2] + 1)))
+            )
         if defer_if_review:
-            log("Public version is awaiting Apple review or release; defer outside macOS.")
+            log(
+                "Public version is awaiting Apple review or release; defer outside macOS."
+            )
             raise SystemExit(75)
-    if state not in {"READY_FOR_SALE", "READY_FOR_DISTRIBUTION", "REMOVED_FROM_SALE", "DEVELOPER_REMOVED_FROM_SALE"}:
-        die(f"App Store version is {state}; finish its review/release before preparing its successor")
+    if state not in {
+        "READY_FOR_SALE",
+        "READY_FOR_DISTRIBUTION",
+        "REMOVED_FROM_SALE",
+        "DEVELOPER_REMOVED_FROM_SALE",
+    }:
+        die(
+            f"App Store version is {state}; finish its review/release before preparing its successor"
+        )
     return ".".join(map(str, max(minimum, (version[0], version[1], version[2] + 1))))
 
 
