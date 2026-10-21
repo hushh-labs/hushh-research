@@ -19,7 +19,7 @@ export const KAI_ROUTE_TABS = [
   },
   {
     id: "analysis",
-    label: "Analysis",
+    label: "Stocks",
     href: buildKaiMarketRoute("analysis"),
     prefetchHref: buildKaiMarketRoute("analysis"),
   },

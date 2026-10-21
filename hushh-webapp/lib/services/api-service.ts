@@ -1125,6 +1125,22 @@ export interface KaiHomeWatchlistItem {
   as_of: string | null;
 }
 
+export interface KaiMarketCompanyFacts {
+  symbol: string;
+  market_cap?: number | null;
+  pe_ratio?: number | null;
+  pb_ratio?: number | null;
+  /** Total debt / equity as a multiple, not a percentage. */
+  debt_to_equity?: number | null;
+  summary?: string | null;
+  financial_period_end?: string | null;
+  ratio_basis?: string | null;
+  source?: string | null;
+  retrieved_at?: string | null;
+  stale?: boolean;
+  unavailable?: boolean;
+}
+
 export interface KaiHomeRenaissanceItem {
   symbol: string;
   input_symbol?: string | null;
@@ -1137,6 +1153,7 @@ export interface KaiHomeRenaissanceItem {
   recommendation_bias?: string | null;
   investment_thesis?: string | null;
   fcf_billions?: number | null;
+  company_facts?: KaiMarketCompanyFacts;
   price: number | null;
   change_pct: number | null;
   volume: number | null;
@@ -1245,6 +1262,11 @@ export interface KaiHomeMovers {
 export interface KaiHomeSectorItem {
   sector: string;
   change_pct: number | null;
+  change_1w_pct?: number | null;
+  period_start_1d?: string | null;
+  period_start_1w?: string | null;
+  period_end?: string | null;
+  basis?: string | null;
   as_of: string | null;
   source_tags: string[];
   degraded: boolean;
@@ -1254,6 +1276,8 @@ export interface KaiHomeNewsItem {
   symbol: string;
   title: string;
   summary?: string | null;
+  image_url?: string | null;
+  image_thumbnail_url?: string | null;
   url: string;
   published_at: string;
   source_name: string;
@@ -1291,10 +1315,16 @@ export interface KaiHomeSignal {
 }
 
 export interface KaiHomeOverviewItem {
+  symbol?: string;
   label: string;
   value: string | number | null;
   delta_pct: number | null;
   as_of: string | null;
+  /** Provider quote time is as_of; retrieval time does not establish freshness. */
+  retrieved_at?: string | null;
+  is_delayed?: boolean;
+  quote_delay_minutes?: number | null;
+  market_state?: "open" | "closed" | null;
   source: string;
   degraded: boolean;
   /**
@@ -4039,6 +4069,32 @@ export class ApiService {
   /**
    * Fetch baseline market insights for Kai home without requiring vault access.
    */
+  static async getKaiMarketCompanyFacts(data: {
+    userId: string;
+    symbols: string[];
+    signal?: AbortSignal;
+  }): Promise<Record<string, KaiMarketCompanyFacts>> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) throw new Error("Missing authentication for company facts");
+    const unique = [...new Set(data.symbols)].slice(0, 24);
+    const chunks = Array.from({ length: Math.ceil(unique.length / 8) }, (_, index) => unique.slice(index * 8, index * 8 + 8));
+    const results = await Promise.allSettled(chunks.map(async (symbols) => {
+      const query = new URLSearchParams({ symbols: symbols.join(",") });
+      const response = await apiFetch(`/api/kai/market/company-facts/${data.userId}?${query}`, {
+        method: "GET", signal: data.signal,
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!response.ok) throw new Error(`Company facts unavailable: ${response.status}`);
+      return (await response.json()).facts as Record<string, KaiMarketCompanyFacts>;
+    }));
+    const facts: Record<string, KaiMarketCompanyFacts> = {};
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") Object.assign(facts, result.value);
+      else for (const symbol of chunks[index] ?? []) facts[symbol] = { symbol, unavailable: true };
+    });
+    return facts;
+  }
+
   static async getKaiMarketBaselineInsights(data: {
     userId: string;
     daysBack?: number;

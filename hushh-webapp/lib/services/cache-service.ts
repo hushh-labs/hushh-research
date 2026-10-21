@@ -301,7 +301,7 @@ export const CACHE_KEYS = {
   PORTFOLIO_DATA: (userId: string) => `portfolio_data_${userId}`,
   KAI_FINANCIAL_RESOURCE: (userId: string) => `kai_financial_resource_${userId}`,
   KAI_MARKET_HOME_BASELINE: (userId: string, daysBack: number) =>
-    `kai_market_home_${userId}_baseline_${daysBack}`,
+    `kai_market_home_${userId}_baseline_v5_${daysBack}`,
   KAI_MARKET_NEWS: (
     userId: string,
     scope: string,

@@ -125,7 +125,7 @@ export const TOP_SHELL_TAB_REGISTRY = {
       },
       {
         value: "analysis",
-        label: "Analysis",
+        label: "Stocks",
         href: buildKaiMarketRoute("analysis"),
       },
     ],

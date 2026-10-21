@@ -15,7 +15,7 @@ import {
 } from "@/lib/services/device-resource-cache-service";
 
 const DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
-const MARKET_HOME_RESOURCE_VERSION = "v2";
+const MARKET_HOME_RESOURCE_VERSION = "v5";
 const inflightRefreshes = new Map<string, Promise<KaiHomeInsightsV2 | null>>();
 
 const TICKER_CANDIDATE_RE = /^[A-Z][A-Z0-9.-]{0,5}$/;
@@ -49,27 +49,29 @@ function hasUsefulOverviewValue(value: string | number | null | undefined): bool
   return Boolean(text) && !["n/a", "na", "unknown", "unavailable", "none", "null", "--", "-"].includes(text);
 }
 
-function countUsableOverviewRows(payload: KaiHomeInsightsV2 | null | undefined): number {
-  const rows = payload?.market_overview;
-  if (!Array.isArray(rows)) return 0;
-  return rows.reduce((count, row) => {
-    if (!row) return count;
-    return hasUsefulOverviewValue(row.value) ? count + 1 : count;
-  }, 0);
-}
-
-function withStableOverviewFromCache(
+export function withStableOverviewFromCache(
   nextPayload: KaiHomeInsightsV2,
   cachedPayload: KaiHomeInsightsV2 | null
 ): KaiHomeInsightsV2 {
-  const nextUsableCount = countUsableOverviewRows(nextPayload);
-  const cachedUsableCount = countUsableOverviewRows(cachedPayload);
-  if (nextUsableCount > 0 || cachedUsableCount === 0) {
-    return nextPayload;
-  }
+  if (!cachedPayload?.market_overview?.length) return nextPayload;
+  const rows = nextPayload.market_overview ?? [];
+  const nextByIdentity = new Map(rows.map((row) => [row.symbol || row.label, row]));
+  const restored = cachedPayload.market_overview.filter((row) => {
+    const next = nextByIdentity.get(row.symbol || row.label);
+    return hasUsefulOverviewValue(row.value) && (!next || !hasUsefulOverviewValue(next.value));
+  });
+  if (!restored.length) return nextPayload;
+  const restoredByIdentity = new Map(restored.map((row) => [row.symbol || row.label, row]));
   return {
     ...nextPayload,
-    market_overview: cachedPayload?.market_overview ?? nextPayload.market_overview,
+    market_overview: [
+      ...rows.map((row) => {
+        const cached = restoredByIdentity.get(row.symbol || row.label);
+        return cached ? { ...cached, degraded: true } : row;
+      }),
+      ...restored.filter((row) => !nextByIdentity.has(row.symbol || row.label))
+        .map((row) => ({ ...row, degraded: true })),
+    ],
   };
 }
 
@@ -90,10 +92,8 @@ function readCachedPortfolioHoldings(userId: string): Array<Record<string, unkno
 }
 
 function toStoredBaselineRecordKey(daysBack: number): string {
-  // v2 excludes baseline records written before the backend corrected mover
-  // percentage normalization. A stale device record must not keep showing a
-  // dollar change as a percent on the One dashboard for up to its 24h TTL.
-  return `kai_market_home:baseline:v2:${daysBack}`;
+  // Exclude snapshots containing ETF proxies or retrieval times labeled as quote times.
+  return `kai_market_home:baseline:${MARKET_HOME_RESOURCE_VERSION}:${daysBack}`;
 }
 
 function toStoredPersonalizedRecordKey(params: {
@@ -123,7 +123,7 @@ function readAnyCachedPersonalizedMarketHome(params: {
   const cache = CacheService.getInstance();
   const daysBack = params.daysBack ?? 7;
   const pickSource = params.pickSource ?? "default";
-  const prefix = `kai_market_home_${params.userId}_`;
+  const prefix = `kai_market_home_${params.userId}_${MARKET_HOME_RESOURCE_VERSION}-`;
   const preferredSuffix = `_${daysBack}_${pickSource}`;
   const keys = cache
     .getStats()

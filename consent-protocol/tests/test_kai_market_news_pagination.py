@@ -2,10 +2,89 @@
 
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 from fastapi import HTTPException
 
 from api.routes.kai import market_insights
+from hushh_mcp.services.market_news_images import YAHOO_PUBLISHER_LOGO, attach_article_images
+
+
+def test_news_images_join_publisher_identity_without_guessing_by_headline():
+    publisher = "https://www.thestreet.com/markets/example-story"
+    digest = hashlib.sha256(publisher.encode()).hexdigest()
+    uuid = "2cd8692a-04e0-3742-a8e8-e2380397c93d"
+    metadata = [
+        {
+            "uuid": uuid,
+            "link": "https://finance.yahoo.com/news/wrapped.html",
+            "thumbnail": {
+                "resolutions": [
+                    {"url": "https://media.zenfs.com/photo.jpg", "width": 1200},
+                    {"url": "https://s.yimg.com/photo-small.jpg", "width": 140},
+                ]
+            },
+        }
+    ]
+    rss = f"<rss><channel><image><url>{YAHOO_PUBLISHER_LOGO}</url></image><item><guid>{uuid}</guid><link>{publisher}?.tsrc=rss</link></item></channel></rss>"
+    selected = [
+        {
+            "title": "Same title",
+            "url": f"https://finnhub.io/api/news?id={digest}",
+            "provider": "finnhub",
+            "image_url": YAHOO_PUBLISHER_LOGO,
+        },
+        {"title": "Same title", "url": "https://example.test/unrelated", "image_url": None},
+        {"title": "Keep photo", "url": publisher, "image_url": "https://example.test/original.jpg"},
+    ]
+    rows = attach_article_images(selected, metadata, rss)
+    assert rows[0]["image_url"] == "https://media.zenfs.com/photo.jpg"
+    assert rows[0]["image_thumbnail_url"] == "https://s.yimg.com/photo-small.jpg"
+    assert rows[0]["url"] == selected[0]["url"]
+    assert rows[0]["provider"] == "finnhub"
+    assert rows[1]["image_url"] is None
+    assert rows[2] == selected[2]
+    assert attach_article_images(selected[:1], [], rss)[0]["image_url"] is None
+
+
+def test_article_image_join_keeps_identity_bearing_query_parameters():
+    first = "https://publisher.test/article?id=1"
+    second = "https://publisher.test/article?id=2"
+    digest = hashlib.sha256(first.encode()).hexdigest()
+    metadata = [
+        {
+            "link": first,
+            "thumbnail": {"resolutions": [{"width": 800, "url": "https://publisher.test/one.jpg"}]},
+        }
+    ]
+    rows = attach_article_images(
+        [
+            {"url": first + "&utm_source=feed"},
+            {"url": second},
+            {"url": f"https://finnhub.io/api/news?id={digest}"},
+        ],
+        metadata,
+        "",
+    )
+    assert rows[0]["image_url"] == "https://publisher.test/one.jpg"
+    assert rows[1]["image_url"] is None
+    assert rows[2]["image_url"] == "https://publisher.test/one.jpg"
+
+
+def test_optional_news_image_never_breaks_an_article_or_accepts_unsafe_urls():
+    assert market_insights._market_news_image_url({"image_url": "https://[invalid"}) is None
+    assert market_insights._market_news_image_url({"image_url": "javascript:alert(1)"}) is None
+    assert (
+        market_insights._market_news_image_url({"image_url": "https://example.test/news.jpg"})
+        == "https://example.test/news.jpg"
+    )
+    assert (
+        market_insights._market_news_image_url(
+            {"image_url": YAHOO_PUBLISHER_LOGO, "image": "https://example.test/news.jpg"}
+        )
+        == "https://example.test/news.jpg"
+    )
 
 
 def test_market_news_round_robin_deduplicates_tracking_urls_and_headlines():
@@ -65,6 +144,8 @@ async def test_market_news_later_cursor_pages_slice_the_cached_bundle(monkeypatc
                 "publishedAt": f"2026-07-19T00:0{index}:00Z",
                 "source": {"name": "Test wire"},
                 "provider": "test",
+                "image_url": f"https://example.com/{symbol}/{index}.jpg",
+                "image_thumbnail_url": f"https://example.com/{symbol}/{index}-small.jpg",
             }
             for index in range(3)
         ]
@@ -105,6 +186,7 @@ async def test_market_news_later_cursor_pages_slice_the_cached_bundle(monkeypatc
     assert first["snapshot_id"] == second["snapshot_id"]
     assert first["next_cursor"]
     assert second["cache"]["hit"] is True
+    assert first["items"][0]["image_thumbnail_url"].endswith("-small.jpg")
 
 
 @pytest.mark.asyncio
