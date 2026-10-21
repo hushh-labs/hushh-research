@@ -26,10 +26,11 @@ class ClientConnectorRequest(BaseModel):
     public_key_fingerprint: str | None = Field(default=None, max_length=128)
 
 
-def _owner(token_data: dict[str, Any], user_id: str) -> str:
+def _owner(firebase_uid: str, token_data: dict[str, Any], user_id: str) -> str:
     owner = str(token_data.get("user_id") or "").strip()
     if not owner:
         raise HTTPException(status_code=401, detail={"code": "CLIENT_CONNECTOR_OWNER_REQUIRED"})
+    verify_user_id_match(firebase_uid, user_id)
     verify_user_id_match(owner, user_id)
     return owner
 
@@ -43,22 +44,24 @@ def _error(exc: ClientConnectorError) -> HTTPException:
 @router.get("/client-connector")
 async def get_client_connector(
     user_id: str = Query(min_length=1, max_length=128),
-    token_data: dict[str, Any] = Depends(require_firebase_auth),
-    _: dict[str, Any] = Depends(require_vault_owner_token),
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
-    result = await get_client_connector_service().get(user_id=_owner(token_data, user_id))
+    result = await get_client_connector_service().get(
+        user_id=_owner(firebase_uid, token_data, user_id)
+    )
     return cast(dict[str, Any], result)
 
 
 @router.post("/client-connector")
 async def register_client_connector(
     request: ClientConnectorRequest,
-    token_data: dict[str, Any] = Depends(require_firebase_auth),
-    _: dict[str, Any] = Depends(require_vault_owner_token),
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     try:
         result = await get_client_connector_service().register(
-            user_id=_owner(token_data, request.user_id),
+            user_id=_owner(firebase_uid, token_data, request.user_id),
             connector_public_key=request.connector_public_key,
             connector_key_id=request.connector_key_id,
             connector_wrapping_alg=request.connector_wrapping_alg,
