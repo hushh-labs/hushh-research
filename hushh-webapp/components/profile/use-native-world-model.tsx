@@ -233,7 +233,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
       action("sources-edit", "Add public pages", () => openForm({ scene: "world-model-sources", draft: { urls: source.urls, permitted: source.permitted } }),
         { chevron: true, enabled: !sourceReview.busy && !sourceReview.saveStarted })];
     if (publicProfilesSupported && model.preferences?.research_provider === "azure_openai_web_search" && model.preferences.enabled &&
-      model.result?.status !== "pending" && model.result?.status !== "paused" && (!model.spent || model.status.kind === "exhausted")) {
+      model.canResearchPublicProfiles) {
       content.push(...read("public-profile-disclosure", "Use these profiles as starting links for GPT-5 mini research. Azure and Bing receive the public links. You review findings before saving."),
         action("public-profile-research", "Research your profiles", () => openForm({ scene: "world-model-public-profiles", draft: { urls: source.urls, permitted: source.permitted } }), { chevron: true }));
     }
@@ -321,7 +321,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
           if (value.scene === "world-model-public-profiles") {
             const m = latest.model;
             if (!value.draft.permitted || !value.draft.urls.trim() || m.preferences?.research_provider !== "azure_openai_web_search" ||
-                !m.preferences.enabled || m.result?.status === "pending" || m.result?.status === "paused" || (m.spent && m.status.kind !== "exhausted")) return false;
+                !m.preferences.enabled || !m.canResearchPublicProfiles) return false;
             m.researchPublicProfiles(value.draft.urls.split("\n").map(url => url.trim()).filter(Boolean));
             return true;
           }
