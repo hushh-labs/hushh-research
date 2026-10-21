@@ -88,6 +88,9 @@ async function provisionRecipientKey(params: BootstrapParams, assertCurrent: () 
     try {
       const state = await OneLocationService.getState(vaultOwnerToken);
       assertCurrent();
+      if (params.strictRecovery && !Object.prototype.hasOwnProperty.call(state, "myRecipientKey")) {
+        throw new Error("Location receiving key could not be checked.");
+      }
       remoteBackup = state.myRecipientKey ?? null;
     } catch (error) {
       if (params.strictRecovery) throw error;

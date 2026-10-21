@@ -383,6 +383,8 @@ tests/test_market_advisory_lock_connection.py
 # and migration-level resurrection guard in every backend and merge-queue run.
 tests/test_account_routes.py
 tests/test_account_phone_routes.py
+# Full encrypted export: bounded cursor memory, complete recovery history, snapshot and cleanup.
+tests/services/test_account_service_export.py
 tests/test_account_legal_acceptance.py
 tests/test_account_legal_acceptance_postgres.py
 tests/test_firebase_auth_split.py
@@ -677,7 +679,6 @@ tests/test_pod_ingress_axis.py
 tests/test_pod_session_authority.py
 tests/test_pod_turn_route.py
 tests/test_pod_turn_memory_authority.py
-tests/test_one_adk_text_runtime.py
 tests/test_pod_files_library.py
 tests/test_pod_files_routes.py
 tests/test_pod_files_jobs.py
@@ -1249,7 +1250,6 @@ tests/test_profile_research_jobs.py
 tests/test_magic_intelligence_admission.py
 tests/test_magic_intelligence_completion.py
 tests/test_insurance_agents_runtime_config_wiring.py
-tests/test_hushh_adk_turn.py
 tests/test_business_runtime_reliability.py
 tests/test_consent_listener_asyncio.py
 tests/services/test_consent_db_refresh_jobs.py
@@ -1402,3 +1402,5 @@ tests/services/test_drive_v1_authority.py
 tests/services/test_drive_request_payment_v1_lane.py
 # Independent authentication authority, including real Postgres lock races.
 tests/services/test_email_auth_postgres.py
+
+tests/test_client_connector_routes.py

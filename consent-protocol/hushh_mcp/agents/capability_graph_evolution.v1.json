@@ -1986,6 +1986,46 @@
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:location.add_emergency_contact",
+      "from_revision": "65ab266e1b246630",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:location.open_sms_contacts",
+      "from_revision": "65ab266e1b246630",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:location.stop_sos",
+      "from_revision": "65ab266e1b246630",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:location.trigger_sos",
+      "from_revision": "65ab266e1b246630",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.location",
+      "from_revision": "ba18c0e75894966d",
+      "from_version": 2,
+      "to_version": 2,
+      "active_run_policy": "reject"
     }
   ]
 }

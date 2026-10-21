@@ -2,8 +2,7 @@
 
 **Status:** authorized execution, refreshed 2026-10-21 UTC. Continue on the
 infrastructure branch; preserve concurrent work and the active ADK tree. Prior
-main/ADK integration remains preserved. Main through `2d9de0df07` and frozen ADK `914e7c044c` are integrated through
-`702c0bdc5d`. Main's messaging and Azure managed-provider selection is preserved alongside
+main/ADK integration remains preserved. Main through `a8f03c0b6c` and frozen ADK `914e7c044c` are integrated. The latest union preserves main’s streamed account exports, dual-principal connector fencing, SOS recovery, Azure playback and exact provider receipts alongside the private-agent authorities. Main's messaging and Azure managed-provider selection is preserved alongside
 private-pod admission, Browser phase history and release publication. Nine peer
 edits and the active ADK worktree remain unchanged.
 
@@ -58,7 +57,7 @@ resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 
-- Main through `2d9de0df07` is integrated by `702c0bdc5d`, preserving its
+- Main through `a8f03c0b6c` is integrated, preserving its
   Profile/mobile, consent, deletion, PLG, Calendar and migrations 365–369 alongside
   pod authority. New content routes retain Shared-only admission; signed PLG
   operational exports retain their separate bounds and disabled defaults. The

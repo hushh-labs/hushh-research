@@ -7,7 +7,7 @@
  * - Uses ApiService.apiFetch() so routing stays platform-aware (Web vs Native).
  */
 
-import { ApiService } from "@/lib/services/api-service";
+import { ApiService, type ApiFetchOptions } from "@/lib/services/api-service";
 
 export class ApiError extends Error {
   constructor(
@@ -67,7 +67,7 @@ function extractApiErrorMessage(payload: unknown, fallback: string): string {
 
 export async function apiJson<T>(
   path: string,
-  options: RequestInit = {}
+  options: ApiFetchOptions = {}
 ): Promise<T> {
   const res = await ApiService.apiFetch(path, options);
 

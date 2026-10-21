@@ -172,6 +172,25 @@ test("Chrome autoplay blocking uses the system fallback, then a gesture primes l
   }
 });
 
+test("pending recipient metadata keeps the mobile SMS composer usable without diagnostic clutter", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 393, height: 852 });
+  await page.setContent(`<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body data-readiness="mixed"><div id="root"></div></body></html>`);
+  await page.addScriptTag({ content: script });
+  await awaitProductFont(page);
+  await expect(page.getByText("8 contacts · Live location")).toBeVisible();
+  await expect(page.locator("details")).toHaveCount(0);
+  await expect(page.getByText(/needs? attention|contacts ready|account verification|unlock once|Roopmann Varadharaj/i)).toHaveCount(0);
+  const send = page.getByTestId("sos-send-custom-message");
+  await page.getByRole("button", { name: "Come get me" }).click();
+  await send.scrollIntoViewIfNeeded();
+  await expect(send).toBeVisible();
+  await expect(send).toBeEnabled();
+  expect((await send.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await expect(page.getByText("Alert active", { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("sms-mixed-readiness.png"), fullPage: true });
+});
+
 test("preset, edit, cancel, hold, live receipt and Stop work through real browser events", async ({ page, isMobile, browserName }) => {
   await page.setViewportSize({ width: 393, height: 852 });
   await page.setContent(`<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`);

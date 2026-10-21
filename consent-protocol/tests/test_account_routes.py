@@ -1920,43 +1920,42 @@ def test_export_account_data_requires_vault_owner_token():
 
 
 def test_export_account_data_returns_service_payload(monkeypatch):
-    async def _mock_export(self, user_id: str):
+    class Export:
+        closed = False
+        remaining_seconds = 240.0
+
+        def __iter__(self):
+            yield b'{"success":true,"requested_target":"account","data":{"actor_profile":{"user_id":"user_123"},"encrypted_vault_keys":[]}}'
+
+        def close(self):
+            self.closed = True
+
+    export = Export()
+
+    def prepare(self, user_id):
         assert user_id == "user_123"
-        return {
-            "success": True,
-            "requested_target": "account",
-            "data": {
-                "actor_profile": {"user_id": "user_123"},
-                "encrypted_vault_keys": [],
-            },
-        }
+        return export
 
     app = _build_app()
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
-    monkeypatch.setattr(AccountService, "export_data", _mock_export)
-
-    client = TestClient(app)
-    response = client.get("/api/account/export")
+    monkeypatch.setattr(AccountService, "prepare_export", prepare)
+    response = TestClient(app).get("/api/account/export?user_id=another_owner")
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["success"] is True
-    assert payload["requested_target"] == "account"
-    assert payload["data"]["actor_profile"]["user_id"] == "user_123"
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json()["data"]["actor_profile"]["user_id"] == "user_123"
+    assert export.closed
 
 
 def test_export_account_data_maps_failure_to_500(monkeypatch):
-    async def _mock_export(self, user_id: str):
+    def prepare(self, user_id):
         assert user_id == "user_123"
-        return {"success": False, "error": "boom"}
+        raise RuntimeError("raw database error")
 
     app = _build_app()
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
-    monkeypatch.setattr(AccountService, "export_data", _mock_export)
-
-    client = TestClient(app)
-    response = client.get("/api/account/export")
-
+    monkeypatch.setattr(AccountService, "prepare_export", prepare)
+    response = TestClient(app).get("/api/account/export")
     assert response.status_code == 500
     assert response.json()["detail"] == "Account export failed"
 

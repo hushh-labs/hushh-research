@@ -46,8 +46,8 @@ from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
     database_error_detail,
+    is_sos_share,
     location_error_detail,
-    requires_recipient_phone_verification,
 )
 from hushh_mcp.services.one_location_circle_service import (
     CIRCLE_MAX_CUSTOM_TYPES,
@@ -756,9 +756,7 @@ async def _sms_grant_identity_ready(
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict:
     try:
-        if requires_recipient_phone_verification(
-            share_kind=payload.share_kind, reason=payload.reason
-        ):
+        if is_sos_share(share_kind=payload.share_kind, reason=payload.reason):
             await refresh_sms_recipient_identities(
                 _service(),
                 owner_user_id=_user_id(token_data),
@@ -2280,10 +2278,7 @@ def create_location_grant(
                 source_circle_id=(
                     str(payload.source_circle_id) if payload.source_circle_id is not None else None
                 ),
-                require_recipient_phone_verified=requires_recipient_phone_verification(
-                    share_kind=payload.share_kind,
-                    reason=payload.reason,
-                ),
+                require_recipient_phone_verified=False,
                 enforce_connection=True,
             )
         }
@@ -2321,10 +2316,7 @@ def create_location_grant_with_envelope(
             source_circle_id=(
                 str(payload.source_circle_id) if payload.source_circle_id is not None else None
             ),
-            require_recipient_phone_verified=requires_recipient_phone_verification(
-                share_kind=payload.share_kind,
-                reason=payload.reason,
-            ),
+            require_recipient_phone_verified=False,
             enforce_connection=True,
         )
     except Exception as exc:

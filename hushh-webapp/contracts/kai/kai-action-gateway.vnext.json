@@ -7159,7 +7159,7 @@
         "text",
         "sos"
       ],
-      "meaning": "Opens the Save My Soul contacts screen, where you choose who is alerted when you raise an SOS. SMS is short for Save My Soul; no text message is sent -- contacts get a push notification, an email fallback, and a live location share.",
+      "meaning": "Opens Save My Soul contacts to choose SOS recipients. SMS means Save My Soul: push, email fallback and live location, without carrier texts.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -9143,7 +9143,7 @@
         "emergency",
         "end"
       ],
-      "meaning": "Ends the Save My Soul alert that is currently running and revokes the live SOS location shares it created. It does not tell anyone you are safe and does not change ordinary location sharing. In One Voice it shows a tap-confirmation card naming the shares it will end; shares that cannot be verified as ended are reported as still possibly live.",
+      "meaning": "Stops the active Save My Soul alert and revokes its SOS shares. Does not announce safety or change ordinary sharing. One Voice requires a tap-confirmation card naming the shares; unverified endings remain possibly live.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -9410,7 +9410,7 @@
         "contact",
         "add"
       ],
-      "meaning": "Adds one person to the list who are alerted and receive your live location if you trigger an SOS. Only people who have finished Location setup can be added.",
+      "meaning": "Adds an eligible connected person with a receiving key to your SOS contacts for alerts and live location. Phone and Location onboarding are optional.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -11793,7 +11793,7 @@
         "help",
         "send"
       ],
-      "meaning": "Sends a Save My Soul alert to the emergency contacts: one 8-hour precise-location share per contact who can receive it. From a typed command this opens the authored review screen and cannot report an alert as sent. In One Voice it shows a tap-confirmation card naming exactly who will be alerted; the tap arms the shares, the device publishes the encrypted position, and the server verifies delivery before anything is reported as sent. It does not call emergency services.",
+      "meaning": "Creates an 8-hour precise-location SOS share per ready emergency contact. Typed commands only open review and cannot report sent. One Voice requires a tap-confirmation card naming the exact audience, device publication of encrypted location and server delivery verification before reporting sent. Does not call emergency services.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

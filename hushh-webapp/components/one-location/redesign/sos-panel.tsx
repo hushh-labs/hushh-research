@@ -3,7 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -94,8 +93,6 @@ export function SosPanel({
   onStopSos,
   stopBusy,
   onEditContacts,
-  recipientLabel,
-  isRecipientShareReady,
 }: SosPanelProps) {
   const [customMessage, setCustomMessage] = useState("");
   const [holdTarget, setHoldTarget] = useState<"sms" | "composer" | null>(null);
@@ -123,11 +120,6 @@ export function SosPanel({
   const firedRef = useRef(false);
   const observedBusyRef = useRef(false);
 
-  const readyRecipients = useMemo(
-    () => recipients.filter(isRecipientShareReady),
-    [isRecipientShareReady, recipients],
-  );
-  const blockedRecipients = recipients.filter((recipient) => !isRecipientShareReady(recipient));
   const customMessageLength = customMessage.length;
   const customMessageLimitExceeded =
     customMessageLength > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH;
@@ -136,14 +128,15 @@ export function SosPanel({
   // stay reachable in the state someone is actually in when they need it.
   const selectedMessage = customMessage.trim() || null;
   const customMessageInvalid = customMessageLimitExceeded;
-  const noReadyRecipients = !recipientsLoading && readyRecipients.length === 0;
-  const hardDisabled = busy || active || customMessageInvalid;
-  const disabled = hardDisabled || recipientsLoading || noReadyRecipients;
   const recipientCount = contactCount ?? recipients.length;
+  const noContacts = recipientCount === 0;
+  const hardDisabled = busy || active || customMessageInvalid;
+  // A cached key projection is not send-time authority. The owning trigger
+  // refreshes the exact Circle and reports actual delivery, even if this
+  // screen first opened with pending or incomplete recipient metadata.
+  const disabled = hardDisabled || noContacts;
   const recipientCountLabel =
     recipientCount === 1 ? "1 contact" : `${recipientCount} contacts`;
-  const readyCountLabel =
-    readyRecipients.length === 1 ? "1 contact" : `${readyRecipients.length} contacts`;
   const alertedSummary = "Live location sharing is active";
   const messageDescribedBy = customMessageLimitExceeded
     ? "sos-short-message-error sos-short-message-count"
@@ -374,10 +367,10 @@ export function SosPanel({
         <h1 className="ui-text-page-title">
           Save My Soul
         </h1>
-        {recipientsLoading && !readyRecipients.length ? (
+        {recipientsLoading && noContacts ? (
           <PageSubtitle>Checking emergency contacts…</PageSubtitle>
-        ) : noReadyRecipients ? (
-          recipientCount ? <PageSubtitle>{recipientCountLabel} · Setup needs attention</PageSubtitle> : null
+        ) : noContacts ? (
+          null
         ) : (
           <div className="flex items-center gap-3">
             <PageSubtitle className="min-w-0 flex-1 truncate">
@@ -395,7 +388,7 @@ export function SosPanel({
         )}
       </header>
 
-      {!active && recipientsLoading && !readyRecipients.length ? (
+      {!active && recipientsLoading && noContacts ? (
         <div
           role="status"
           className="mt-6 flex min-h-24 items-center justify-center gap-2 rounded-[16px] bg-[color:var(--app-card-surface-default-solid)] text-[14px] text-[color:var(--app-secondary-label)]"
@@ -403,14 +396,14 @@ export function SosPanel({
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           Updating your SMS Circle…
         </div>
-      ) : !active && noReadyRecipients ? (
+      ) : !active && noContacts ? (
         <div className="mt-6">
           <button
             type="button"
             onClick={onEditContacts}
             className="ui-text-button-label press-scale flex h-[52px] w-full items-center justify-center rounded-[16px] bg-[color:var(--app-accent)] px-5 text-[color:var(--app-accent-fg)]"
           >
-            {recipientCount ? "Review emergency contacts" : "Add emergency contacts"}
+            Add emergency contacts
           </button>
         </div>
       ) : active ? (
@@ -460,28 +453,6 @@ export function SosPanel({
         <>
           <div className="mt-5 sm:mt-6">
             <RowLabel as="p">Choose or type a message</RowLabel>
-            {!recipientsLoading && readyRecipients.length < recipientCount ? (
-              <div className="mt-1">
-                <HelperText as="p">
-                  {readyRecipients.length} of {recipientCount} contacts ready.
-                </HelperText>
-                <details className="mt-1 text-sm text-muted-foreground">
-                  <summary className="cursor-pointer py-2">See who needs attention</summary>
-                  <ul className="space-y-2 pb-2">
-                    {blockedRecipients.map((recipient) => (
-                      <li key={recipient.userId}>
-                        {recipientLabel(recipient)}: {recipient.phoneVerified
-                          ? "Open One Location to finish secure sharing setup."
-                          : "Account verification could not be confirmed. Reopen One and try again."}
-                      </li>
-                    ))}
-                    {recipientCount > recipients.length ? (
-                      <li>{recipientCount - recipients.length} {recipientCount - recipients.length === 1 ? "contact" : "contacts"} could not be checked. Reopen Save My Soul to refresh your circle.</li>
-                    ) : null}
-                  </ul>
-                </details>
-              </div>
-            ) : null}
           </div>
 
           <div className="mt-3 flex gap-2.5">
@@ -629,7 +600,7 @@ export function SosPanel({
               <button
                 type="button"
                 disabled={disabled}
-                aria-label={`Press and hold for two seconds to send Save My Soul SMS alert with your live location to ${readyCountLabel}`}
+                aria-label={`Press and hold for two seconds to send Save My Soul SMS alert with your live location to ${recipientCountLabel}`}
                 onPointerDown={(event) => handlePointerDown(event, "sms")}
                 onPointerUp={handlePointerEnd}
                 onPointerCancel={handlePointerEnd}
@@ -661,7 +632,7 @@ export function SosPanel({
               {statusLabel}
             </StatusText>
             <HelperText as="p" className="mt-1 text-center text-[color:var(--sos-label)]">
-              Sends {selectedMessage ? "your message and live location" : "live location"} to {readyCountLabel}
+              Alerts your SMS Circle with {selectedMessage ? "your message and live location" : "live location"}
             </HelperText>
           </div>
         </>

@@ -36,13 +36,32 @@ describe("GET /api/account/export proxy", () => {
     expect(payload).toEqual({ error: "Failed to export account data" });
   });
 
-  it("returns a stable error for invalid backend success payloads", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not json", { status: 200 }));
+  it("streams without buffering and propagates cancellation", async () => {
+    const cancel = vi.fn();
+    const upstream = new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode('{"data":')); },
+      cancel,
+    }), { headers: { "Content-Type": "application/json" } });
+    const readAll = vi.spyOn(upstream, "text");
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(upstream);
+    const req = request({ Authorization: "Bearer HCT:test" });
+    const response = await route.GET(req);
+    expect(readAll).not.toHaveBeenCalled();
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(fetch).toHaveBeenCalledWith("http://backend.test/api/account/export", expect.objectContaining({
+      signal: req.signal, cache: "no-store",
+    }));
+    const reader = response.body!.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe('{"data":');
+    await reader.cancel();
+    expect(cancel).toHaveBeenCalledOnce();
+  });
 
+  it("preserves a mid-stream failure instead of manufacturing successful JSON", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(new ReadableStream({
+      start(controller) { controller.error(new Error("synthetic stream interruption")); },
+    }), { headers: { "Content-Type": "application/json" } }));
     const response = await route.GET(request({ Authorization: "Bearer HCT:test" }));
-    const payload = await response.json();
-
-    expect(response.status).toBe(502);
-    expect(payload).toEqual({ error: "Invalid response from backend" });
+    await expect(response.json()).rejects.toThrow("synthetic stream interruption");
   });
 });

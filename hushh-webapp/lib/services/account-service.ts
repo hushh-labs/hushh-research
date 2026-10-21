@@ -2,6 +2,7 @@
 import { Capacitor } from "@capacitor/core";
 import { HushhAccount } from "@/lib/capacitor";
 import { ApiError, apiJson } from "./api-client";
+import { ApiService } from "./api-service";
 import { trackEvent } from "@/lib/observability/client";
 
 const MAX_NATIVE_ACCOUNT_ERROR_CODE_LENGTH = 128;
@@ -106,6 +107,8 @@ export interface AccountDataExportResult {
     encrypted_pkm_manifests?: Array<Record<string, unknown>>;
     encrypted_pkm_index?: Array<Record<string, unknown>>;
     encrypted_pkm_blobs?: Array<Record<string, unknown>>;
+    encrypted_pkm_recovery_revisions?: Array<Record<string, unknown>>;
+    encrypted_pkm_recovery_segments?: Array<Record<string, unknown>>;
     verified_email_aliases?: AccountEmailAlias[];
     consent_audit?: Array<Record<string, unknown>>;
   };
@@ -294,12 +297,50 @@ export class AccountServiceImpl {
       throw new Error("VAULT_OWNER token required - vault must be unlocked");
     }
 
-    return apiJson<AccountDataExportResult>("/api/account/export", {
+    // Bulk exports intentionally exceed the generic small-JSON Content-Length cap.
+    // Keep the platform-aware transport, but require a complete successful envelope.
+    const response = await ApiService.apiFetch("/api/account/export", {
       method: "GET",
+      cache: "no-store",
+      timeoutMs: 240_000,
       headers: {
         Authorization: `Bearer ${vaultOwnerToken}`,
       },
     });
+    if (!response.ok || !response.body) {
+      await response.body?.cancel();
+      throw new ApiError("The encrypted export could not be fetched.", response.status);
+    }
+    const reader = response.body.getReader();
+    let expired = false;
+    const timer = setTimeout(() => {
+      expired = true;
+      void reader.cancel().catch(() => undefined);
+    }, 240_000);
+    try {
+      const decoder = new TextDecoder();
+      const pieces: string[] = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (expired) throw new Error("Export expired");
+        if (done) break;
+        pieces.push(decoder.decode(value, { stream: true }));
+      }
+      pieces.push(decoder.decode());
+      const result = JSON.parse(pieces.join("")) as AccountDataExportResult | null;
+      if (
+        !result || result.success !== true || result.requested_target !== "account" ||
+        typeof result.exported_at !== "string" || !Number.isFinite(Date.parse(result.exported_at)) ||
+        !result.data || typeof result.data !== "object" || Array.isArray(result.data)
+      ) throw new Error("Incomplete export");
+      return result;
+    } catch {
+      await reader.cancel().catch(() => undefined);
+      throw new ApiError("The encrypted export did not finish. Try again.", 502);
+    } finally {
+      clearTimeout(timer);
+      reader.releaseLock();
+    }
   }
 
   async listEmailAliases(vaultOwnerToken: string): Promise<AccountEmailAliasesResponse> {

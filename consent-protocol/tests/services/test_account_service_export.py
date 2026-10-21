@@ -7,6 +7,9 @@ from fastapi import HTTPException
 
 from api.routes.account import export_account_data
 from hushh_mcp.services.account_service import AccountService
+from tests.services.test_external_connector_lifecycle_postgres import (
+    connector_postgres_url,  # noqa: F401
+)
 
 USER_ID = "user_export_123"
 NOW = datetime(2026, 4, 27, tzinfo=timezone.utc)
@@ -189,8 +192,8 @@ async def test_export_data_hides_raw_database_error():
 @pytest.mark.asyncio
 async def test_export_route_hides_raw_export_failure(monkeypatch):
     class FailingAccountService:
-        async def export_data(self, _user_id):
-            return {"success": False, "error": "raw database failure detail"}
+        def prepare_export(self, _user_id):
+            raise RuntimeError("raw database failure detail")
 
     monkeypatch.setattr("api.routes.account.AccountService", FailingAccountService)
 
@@ -199,3 +202,185 @@ async def test_export_route_hides_raw_export_failure(monkeypatch):
 
     assert exc_info.value.status_code == 500
     assert exc_info.value.detail == "Account export failed"
+
+
+def test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory(
+    connector_postgres_url,  # noqa: F811
+    monkeypatch,
+    record_property,
+):
+    """Real psycopg2 negative control: buffered .all()/ordinary cursors violate this proof."""
+    import hashlib
+    import tracemalloc
+
+    from sqlalchemy import create_engine, event, text
+
+    engine = create_engine(connector_postgres_url)
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+            CREATE TABLE actor_profiles (
+              user_id text, personas jsonb, last_active_persona text,
+              investor_marketplace_opt_in boolean, created_at timestamptz, updated_at timestamptz);
+            CREATE TABLE pkm_blobs (
+              user_id text, domain text, segment_id text, ciphertext text, iv text, tag text,
+              content_revision integer, manifest_revision integer,
+              created_at timestamptz, updated_at timestamptz);
+            CREATE TABLE pkm_domain_revisions (
+              revision_id text PRIMARY KEY, user_id text, domain text,
+              source_content_revision integer, source_manifest_revision integer,
+              is_origin boolean, archive_reason text, source_commit_id text,
+              manifest_snapshot jsonb, path_rows_snapshot jsonb, scope_rows_snapshot jsonb,
+              index_domain_summary_snapshot jsonb, index_domain_present boolean,
+              retention_expires_at timestamptz, restored_count integer,
+              last_restored_at timestamptz, created_at timestamptz);
+            CREATE TABLE pkm_domain_revision_segments (
+              revision_id text, segment_id text, ciphertext text, iv text, tag text,
+              algorithm text, original_content_revision integer,
+              original_manifest_revision integer, size_bytes integer, created_at timestamptz);
+            INSERT INTO actor_profiles VALUES
+              ('owner-a', '["investor"]', 'original', false, now(), now()),
+              ('owner-b', '[]', 'foreign-secret', false, now(), now());
+            INSERT INTO pkm_blobs VALUES
+              ('owner-a', 'projects', 'current', 'current-ciphertext', 'i', 't', 1, 1, now(), now());
+            INSERT INTO pkm_domain_revisions (revision_id, user_id, domain, created_at)
+              SELECT 'revision-' || n, 'owner-a', 'projects', now() FROM generate_series(1,256) n;
+            INSERT INTO pkm_domain_revisions (revision_id, user_id, domain, created_at)
+              VALUES ('foreign-revision', 'owner-b', 'projects', now());
+            INSERT INTO pkm_domain_revision_segments (revision_id, segment_id, ciphertext, created_at)
+              SELECT 'revision-' || n, 'segment-' || n, repeat('x', 262144), now()
+                FROM generate_series(1,256) n;
+            INSERT INTO pkm_domain_revision_segments (revision_id, segment_id, ciphertext)
+              VALUES ('foreign-revision', 'secret', 'foreign-secret');
+        """)
+        )
+
+    cursors = []
+
+    @event.listens_for(engine, "after_cursor_execute")
+    def capture_cursor(_conn, cursor, _statement, _params, context, _many):
+        if context.execution_options.get("stream_results"):
+            cursors.append(cursor)
+            assert cursor.name  # psycopg2 otherwise buffers the complete result set.
+            assert context.execution_options["yield_per"] == 1
+
+    @contextmanager
+    def connection():
+        with engine.begin() as conn:
+            yield conn
+
+    monkeypatch.setattr("hushh_mcp.services.account_service.get_db_connection", connection)
+    export = AccountService().prepare_export("owner-a")
+    # A concurrent update/prune must not mix newer metadata with the snapshot's ciphertext.
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE actor_profiles SET last_active_persona='changed' WHERE user_id='owner-a'")
+        )
+        conn.execute(
+            text("DELETE FROM pkm_domain_revision_segments WHERE revision_id='revision-1'")
+        )
+
+    digest = hashlib.sha256()
+    byte_count = 0
+    history_rows = 0
+    tail = b""
+    tracemalloc.start()
+    try:
+        for chunk in export:
+            assert b"foreign-secret" not in chunk
+            assert b'"changed"' not in chunk
+            history_rows += chunk.count(b'"ciphertext"')
+            digest.update(chunk)
+            byte_count += len(chunk)
+            tail = (tail + chunk)[-40:]
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+        export.close()
+    assert history_rows == 257  # All 256 retained revisions plus the current segment.
+    assert byte_count > 64 * 1024 * 1024
+    assert peak < 8 * 1024 * 1024
+    assert tail.endswith(b',"success":true}')
+    assert all(cursor.closed for cursor in cursors)
+    assert engine.pool.checkedout() == 0
+    record_property("stream_bytes", byte_count)
+    record_property("python_peak_bytes", peak)
+    record_property("sha256", digest.hexdigest())
+
+    # Disconnect closes the named cursor/transaction without consuming history.
+    export = AccountService().prepare_export("owner-a")
+    iterator = iter(export)
+    for chunk in iterator:
+        if b'"ciphertext"' in chunk:
+            break
+    export.close()
+    assert all(cursor.closed for cursor in cursors)
+    assert engine.pool.checkedout() == 0
+
+    # A later database failure must not become a valid, silently shortened backup.
+    def fail_history(_conn, _cursor, statement, _params, _context, _many):
+        if "FROM pkm_domain_revision_segments" in statement:
+            raise RuntimeError("synthetic history read failed")
+
+    event.listen(engine, "before_cursor_execute", fail_history)
+    export = AccountService().prepare_export("owner-a")
+    partial = bytearray()
+    try:
+        with pytest.raises(RuntimeError, match="synthetic history read failed"):
+            for chunk in export:
+                partial.extend(chunk)
+    finally:
+        export.close()
+        event.remove(engine, "before_cursor_execute", fail_history)
+    import json
+
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(partial)
+    assert b'"success":true' not in partial
+    assert all(cursor.closed for cursor in cursors)
+    assert engine.pool.checkedout() == 0
+    engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_export_response_releases_snapshot_if_headers_fail():
+    from api.routes.account import _AccountExportResponse
+
+    export = MagicMock()
+    export.remaining_seconds = 240.0
+    export.__iter__.return_value = iter([b"never-sent"])
+
+    async def send(_message):
+        raise RuntimeError("disconnected before body")
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    with pytest.raises(RuntimeError, match="Account export interrupted"):
+        await _AccountExportResponse(export)(
+            {"type": "http", "asgi": {"spec_version": "2.4"}}, receive, send
+        )
+    export.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_export_response_deadline_closes_snapshot_even_when_send_is_stalled():
+    import anyio
+
+    from api.routes.account import _AccountExportResponse
+
+    export = MagicMock()
+    export.remaining_seconds = 0.02
+    export.__iter__.return_value = iter([b"incomplete"])
+
+    async def send(_message):
+        await anyio.sleep_forever()
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    with pytest.raises(RuntimeError, match="Account export interrupted"):
+        await _AccountExportResponse(export)(
+            {"type": "http", "asgi": {"spec_version": "2.4"}}, receive, send
+        )
+    export.close.assert_called_once()

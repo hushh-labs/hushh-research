@@ -103,6 +103,13 @@ Rollback requires stopping command traffic, restoring the prior application revi
 
 Obsolete Live clients on `/api/one/adk/*` receive an explicit retirement response; no Live model is constructed there. The maintained Live surface is `/api/one/voice/*` (`api/routes/one/voice.py`), which constructs its model through the selected managed adapter only while `ONE_VOICE_LIVE_ENABLED` is on. UAT can use keyless Azure Realtime; non-UAT retains Vertex ADC. Azure resamples admitted 16 kHz client PCM to 24 kHz and returns the existing 24 kHz output contract. `audio_playback` negotiation adds item-bound `audio.playback` acknowledgements from the player clock; cancellation truncates only to acknowledged playback. `/api/one/voice/readiness` with or without `?playback=1` probes that same selected adapter. Older clients remain on it; without playback acknowledgements, an in-flight interruption truncates output at zero and may discard already-heard context. Completed generated turns remain in conversation history for ordinary follow-ups, without treating completion as proof of playback. Buffered input frames retain the public 512 KiB limit through bounded resampling chunks. Azure does not replay a transcript or reuse a Vertex resumption handle. The old local phrase router, ONNX/ASR model-pack downloads, FluidAudio packages and model-pack publication workflow are removed. Historical database records are preserved. Voice-persona controls no longer appear in settings.
 
+For clients that acknowledge playback, Azure retains a completed assistant item
+when its player-clock acknowledgement covers the generated audio at the wire's
+integer-millisecond precision. Generation completion and playback are separate:
+an acknowledged prefix of a still-generating answer, or a completed answer with
+an unplayed tail, remains subject to interruption truncation. A new utterance
+still advances interruption authority and cancels superseded tool calls.
+
 ## Verification and release boundary
 
 Run `npm run verify:one-voice`, `npm run typecheck`, native plugin/privacy checks, the Location regression suite, focused backend command tests and real PostgreSQL command transaction tests. PostgreSQL tests require `ONE_COMMAND_TEST_DATABASE_URL` pointing to an isolated test database; never use a shared account database. Regenerate both the action gateway and product-agent registry after authored changes.

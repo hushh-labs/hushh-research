@@ -559,7 +559,16 @@ passing blocks. The bundle includes streamed structured text, images, PDFs,
 public search/source receipts, Location transcription/semantics, narration, Live
 audio with a function round trip, and application-compatible embeddings. Explicit
 PWM attribution/schema failures still block independently. Receipts bind the exact
-candidate image, runtime identity, provider generation and configuration. See
+candidate image, runtime identity, provider generation and configuration.
+The UAT artifact collector reads the exact successful backend Cloud Build ID from
+structured CLI output, then retrieves the successful aggregate step's receipt
+from Cloud Logging. It does not depend on streamed build stdout. Collection has
+a bounded ingestion retry and verifies build, run, image, runtime identity and
+canonical configuration bindings before publishing a sanitized receipt. Missing,
+conflicting or foreign evidence writes a failure artifact and blocks promotion;
+it never changes provider selection or relaxes readiness. The current collector
+survives checkout of an older application SHA; an incompatible target fails
+closed with a diagnostic artifact. See
 [the deployment contract](../../../deploy/README.md) for capability and compatibility boundaries.
 
 Additional Gemini/Vertex candidate evaluations are opt-in, not ordinary CI gates. UAT

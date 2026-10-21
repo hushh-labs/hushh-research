@@ -368,7 +368,7 @@ async def test_azure_interrupt_rechecks_function_authority_after_lock_wait():
     assert connection.response.create.await_count == 0
 
 
-@pytest.mark.parametrize("played_ms", [None, 125])
+@pytest.mark.parametrize("played_ms", [None, 125, 1000])
 async def test_azure_barge_in_uses_acknowledged_playback_not_sent_duration(played_ms):
     session, connection = _azure_session()
     session.audio_items["item1"] = {"bytes": 48000, "played_ms": 0, "content_index": 0}
@@ -389,10 +389,26 @@ async def test_azure_barge_in_uses_acknowledged_playback_not_sent_duration(playe
     assert connection.conversation.item.create.await_count == 1
 
 
-@pytest.mark.parametrize("playback_acknowledgements", [False, True])
+@pytest.mark.parametrize(
+    "playback_acknowledgements,ack_at,played_ms,sample_count,truncate_ms",
+    [
+        (False, None, None, 2400, None),
+        (True, None, None, 2400, 0),
+        (True, None, None, 1, 0),
+        (True, "completed", 75, 2400, 75),
+        (True, "completed", 100, 2400, None),
+        (True, "audio", 100, 2400, None),
+        # The wire clock is integer milliseconds; 2401 samples is 100.04 ms.
+        (True, "completed", 100, 2401, None),
+    ],
+)
 @pytest.mark.parametrize("with_tool", [False, True])
-async def test_azure_completed_answer_survives_an_ordinary_legacy_follow_up(
+async def test_azure_completed_answer_reconciles_playback_before_follow_up(
     playback_acknowledgements,
+    ack_at,
+    played_ms,
+    sample_count,
+    truncate_ms,
     with_tool,
 ):
     import base64
@@ -403,7 +419,7 @@ async def test_azure_completed_answer_survives_an_ordinary_legacy_follow_up(
         _azure_event(
             "response.output_audio.delta",
             response_id="completed_response",
-            delta=base64.b64encode(b"\x00\x00" * 2400).decode("ascii"),
+            delta=base64.b64encode(b"\x00\x00" * sample_count).decode("ascii"),
             item_id="completed_item",
             content_index=0,
         ),
@@ -435,8 +451,10 @@ async def test_azure_completed_answer_survives_an_ordinary_legacy_follow_up(
     observed = []
     async for event in session.events():
         observed.append(event)
-        if event.kind in {"turn_complete", "tool_call"} and playback_acknowledgements:
-            await session.acknowledge_playback("completed_item", 75)
+        if (ack_at == "audio" and event.kind == "audio") or (
+            ack_at == "completed" and event.kind in {"turn_complete", "tool_call"}
+        ):
+            await session.acknowledge_playback("completed_item", played_ms)
     assert any(event.kind == ("tool_call" if with_tool else "turn_complete") for event in observed)
     assert any(event.kind == "tool_cancel" for event in observed) is with_tool
     assert any(
@@ -445,16 +463,53 @@ async def test_azure_completed_answer_survives_an_ordinary_legacy_follow_up(
     )
     assert connection.response.cancel.await_count == 0
     assert connection.response.create.await_count == 1
-    if playback_acknowledgements:
+    if truncate_ms is not None:
         assert connection.conversation.item.truncate.await_args.kwargs == {
             "item_id": "completed_item",
             "content_index": 0,
-            "audio_end_ms": 75,
+            "audio_end_ms": truncate_ms,
         }
     else:
         assert connection.conversation.item.truncate.await_count == 0
     # A new capture still advances interruption/tool authority for both clients.
     assert session._interruption_generation == 1
+
+
+async def test_azure_late_completed_playback_does_not_complete_new_output():
+    import base64
+    from types import SimpleNamespace as NS
+
+    def audio(response_id, item_id):
+        return _azure_event(
+            "response.output_audio.delta",
+            response_id=response_id,
+            delta=base64.b64encode(b"\x00\x00" * 2400).decode("ascii"),
+            item_id=item_id,
+            content_index=0,
+        )
+
+    session, connection = _azure_session(
+        [
+            _azure_event("response.created", response=NS(id="old_response")),
+            audio("old_response", "old_item"),
+            _azure_event("response.done", response=NS(id="old_response", status="completed")),
+            _azure_event("response.created", response=NS(id="new_response")),
+            audio("new_response", "new_item"),
+            _azure_event("input_audio_buffer.speech_started", item_id="follow_up"),
+        ],
+        playback_acknowledgements=True,
+    )
+    async for event in session.events():
+        if event.kind == "audio" and event.audio_item_id == "new_item":
+            await session.acknowledge_playback("new_item", 100)
+            await session.acknowledge_playback("old_item", 100)
+
+    assert connection.response.cancel.await_args.kwargs == {"response_id": "new_response"}
+    assert connection.conversation.item.truncate.await_args.kwargs == {
+        "item_id": "new_item",
+        "content_index": 0,
+        "audio_end_ms": 100,
+    }
 
 
 async def test_azure_transcript_timeout_cannot_be_extended_by_other_buffered_events():

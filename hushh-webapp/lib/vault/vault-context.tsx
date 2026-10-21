@@ -200,19 +200,22 @@ export function VaultProvider({ children }: VaultProviderProps) {
   useEffect(() => {
     if (!authReady || !currentUserId || !vaultKey || !vaultOwnerToken) return;
     const retryReceivingSetup = () => {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible" || navigator.onLine === false) return;
       UnlockWarmOrchestrator.queueLocationRecipientKeyBootstrap({
         userId: currentUserId,
         vaultOwnerToken,
         vaultKey,
       });
     };
-    // A user may stay in Chat after all bounded offline retries expire. Resume
-    // and connectivity restoration must repair readiness without a new unlock.
+    // New/renewed credentials rearm recovery immediately. A transient backend
+    // outage can outlast fast retries while Chat stays visible and online.
+    retryReceivingSetup();
+    const retryTimer = window.setInterval(retryReceivingSetup, 60_000);
     window.addEventListener("online", retryReceivingSetup);
     window.addEventListener("focus", retryReceivingSetup);
     document.addEventListener("visibilitychange", retryReceivingSetup);
     return () => {
+      window.clearInterval(retryTimer);
       window.removeEventListener("online", retryReceivingSetup);
       window.removeEventListener("focus", retryReceivingSetup);
       document.removeEventListener("visibilitychange", retryReceivingSetup);

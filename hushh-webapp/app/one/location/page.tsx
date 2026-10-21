@@ -1095,7 +1095,7 @@ function recipientRecommendationLine(recipient: OneLocationRecipient): string {
     visibleRecommendationReasons(recipient)[0]?.label ||
     (recipient.canReceiveLocation
       ? "Ready for private location sharing"
-      : "Needs to open Location once")
+      : "Location receiving unavailable")
   );
 }
 
@@ -3807,6 +3807,30 @@ export function OneLocationAgentPageContent({
     [refreshSmsRoster, smsContactUserIds.length],
   );
 
+  const pendingSmsReadiness = smsRosterRecipients === null ||
+    smsActionRecipients.filter(isSosShareReadyRecipient).length < smsContactUserIds.length;
+  const isSosViewForRepair = searchParams.get("action") === "sos";
+  useEffect(() => {
+    if (!auth.userId || !vaultOwnerToken || !isSosViewForRepair || !pendingSmsReadiness || busy === "sos" || sosIncident) return;
+    // Entry already reads the exact roster. Catch newly published keys without
+    // asking the sender to diagnose a peer; minute repair remains the fallback.
+    const delays = [2_000, 5_000, 10_000, 30_000];
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = (index: number) => {
+      if (cancelled || index >= delays.length) return;
+      timer = setTimeout(async () => {
+        if (cancelled) return;
+        if (document.visibilityState === "visible" && navigator.onLine !== false) {
+          await refreshSmsRoster();
+        }
+        schedule(index + 1);
+      }, delays[index]);
+    };
+    schedule(0);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [auth.userId, busy, isSosViewForRepair, pendingSmsReadiness, refreshSmsRoster, sosIncident, vaultOwnerToken]);
+
   // Ref kept in sync with the latest sosIncident value so the reconcile effect
   // can read it without adding it as a dependency (preventing infinite loops).
 
@@ -4959,7 +4983,7 @@ export function OneLocationAgentPageContent({
       if (!vaultOwnerToken) throw new Error("Vault owner token required.");
       if (!recipient.publicKeyJwk || !recipient.keyId) {
         throw new Error(
-          "They need to open Location once before private sharing can start.",
+          "Location receiving is unavailable. Private sharing could not start.",
         );
       }
       const point =
@@ -5328,8 +5352,8 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked",
           summary: blockedNames.length
-            ? `${blockedNames.join(", ")} still needs to finish Location setup before you can share with them.`
-            : "Someone you picked still needs to finish Location setup.",
+            ? `Location receiving is unavailable for ${blockedNames.join(", ")}.`
+            : "Location receiving is unavailable for someone you picked.",
         };
       }
       if (shareMessage.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH) {
@@ -5828,6 +5852,7 @@ export function OneLocationAgentPageContent({
       if (!operation) return;
       setBusy("sos");
       try {
+        ++smsRosterRevision.current;
         // Refresh the exact roster and its verified identities at send time.
         // A cached directory page is neither membership nor readiness authority.
         const roster = await OneLocationService.getSmsRecipientRoster(vaultOwnerToken);
@@ -6047,7 +6072,6 @@ export function OneLocationAgentPageContent({
         const selection = resolveCircleRecipientSelection({
           circle,
           currentUserId: auth.userId,
-          requirePhoneVerified: true,
         });
         const alreadySelected = new Set(smsContactUserIds);
         const requested = memberUserIds ? new Set(memberUserIds) : null;
@@ -6174,7 +6198,7 @@ export function OneLocationAgentPageContent({
     async (grant: OneLocationGrant) => {
       const recipient = recipientForGrant(grant);
       if (!recipient) {
-        toast.error("This share needs the recipient to open Location once.");
+        toast.error("Location receiving is unavailable. This share could not start.");
         return;
       }
       setBusy("publish");
@@ -8687,13 +8711,12 @@ export function OneLocationAgentPageContent({
   const handleResolveNamedCircleRecipients = useCallback(
     async (
       circleId: string,
-      purpose: "location" | "sms" = "location",
+      _purpose: "location" | "sms" = "location",
     ): Promise<CircleRecipientSelection> => {
       const circle = await handleLoadNamedCircle(circleId);
       return resolveCircleRecipientSelection({
         circle,
         currentUserId: auth.userId,
-        requirePhoneVerified: purpose === "sms",
       });
     },
     [auth.userId, handleLoadNamedCircle],
@@ -12491,7 +12514,7 @@ export function OneLocationAgentPageContent({
       requiresReady: adding, extra: { currentMembership: [...members].sort(), added: adding },
     });
     if (prepared.status !== "ready") return { ...prepared, summary: pool.length ? prepared.summary : adding
-      ? "No eligible emergency contacts are available. A contact needs a connection, verified phone and Location setup."
+      ? "No eligible emergency contacts are available. Choose a connection ready to receive location in One."
       : "No matching emergency contact could be verified. Review your current SOS list." };
     return { ...prepared, summary: `${adding ? "Add" : "Remove"} ${(prepared.binding.people as Array<{name: string}>).map((person) => person.name).join(", ")} ${adding ? "to" : "from"} your emergency contacts. ${adding ? "They will receive your Location when you send an SOS." : "Future SOS alerts will no longer include them."}` };
   };
@@ -14379,7 +14402,7 @@ export function OneLocationAgentPageContent({
     recipientLabel,
     recipientSubtitle: recipientRecommendationLine,
     isRecipientShareReady: isShareReadyRecipient,
-    // Save My Soul is the one lane that also needs a verified phone; the
+    // Save My Soul uses the same receiving-key readiness as private sharing; the
     // panel's count and enabled state must match what handleTriggerSos accepts.
     isSosRecipientShareReady: isSosShareReadyRecipient,
     requestOwnerLabel: (request) => requestOwnerLabel(request, recipients),
@@ -15068,8 +15091,7 @@ export function OneLocationAgentPageContent({
                             {peopleCountLabel(
                               setupNeededSelectedRecipients.length,
                             )}{" "}
-                            need to open Location once before private sharing
-                            can start.
+                            cannot receive private location sharing right now.
                           </div>
                         ) : null}
                         <p className="text-[12px] font-medium text-[#8e8e93] dark:text-white/55">
