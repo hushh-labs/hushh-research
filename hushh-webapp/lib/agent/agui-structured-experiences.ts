@@ -831,8 +831,11 @@ export function parseAgentToolResultExperience(
   }
   if (toolName === "propose_style_settings") {
     const result = unwrapToolResult(content);
-    const proposed = result?.status === "offer_ready" ? parseOwnerStyleProposal(result.proposed) : null;
-    return proposed ? { type: STYLE_SETTINGS_OFFER_EXPERIENCE_TYPE, proposed } : null;
+    const proposed = result?.status === "offer_ready" || result?.status === "preferred_name_update_ready"
+      ? parseOwnerStyleProposal(result.proposed) : null;
+    // The live stream owns name persistence; replayed cards only review style.
+    if (proposed && result?.status === "preferred_name_update_ready") delete proposed.preferred_name;
+    return proposed && Object.keys(proposed).length ? { type: STYLE_SETTINGS_OFFER_EXPERIENCE_TYPE, proposed } : null;
   }
   const supportsPersonSelection =
     toolName === "discover_person_information" ||

@@ -51,6 +51,16 @@ function lastAssistant(state: ChatOnboardingState) {
 }
 
 describe("chat onboarding sequence", () => {
+  it("a newer chosen name replaces the pending label and final setup Save", () => {
+    let state = chip(start().state, "name_signin").state;
+    state = run(state, { type: "preferred_name_chosen", name: "Rootman" }).state;
+    expect(pickedPreferredName(state)).toBe("Rootman");
+    state = chip(state, "skip").state;
+    state = chip(state, "tone_casual").state;
+    expect(lastAssistant(state).text).toContain("Rootman");
+    const saved = chip(state, "save");
+    expect(saved.effects).toContainEqual({ type: "save_preferences", name: "Rootman", tone: "casual" });
+  });
   it("asks name, then focus, then tone, one question per assistant turn, then confirms", () => {
     const started = start();
     expect(started.state.step).toBe("name");
