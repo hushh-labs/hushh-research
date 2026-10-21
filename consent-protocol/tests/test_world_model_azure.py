@@ -2316,10 +2316,12 @@ async def test_paused_fact_review_resumes_without_rebuying_report_and_rechecks_a
         )
     )["status"] == "offered"
     assert cached.calls == [] and charges == before
-    for defect in ["report_digest", "invalid_selection"]:
+    for defect in ["report_digest", "invalid_selection", "missing_selection"]:
         corrupted = copy.deepcopy(completed)
         if defect == "report_digest":
             corrupted["fact_review"]["report_sha256"] = "wrong-report"
+        elif defect == "missing_selection":
+            corrupted["fact_review"].pop("selection")
         else:
             corrupted["fact_review"]["selection"]["kept_fact_ids"] = ["f99"]
         with pytest.raises(ValueError):

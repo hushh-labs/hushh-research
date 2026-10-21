@@ -1735,7 +1735,7 @@ async def run_world_model_azure(
         saved_review = history.get("fact_review")
 
         def validate_selection(
-            value: dict[str, Any], *, attempt: str
+            value: object, *, attempt: str
         ) -> tuple[FactReviewSelection, WorldModelReport]:
             try:
                 selection = FactReviewSelection.model_validate(value)
