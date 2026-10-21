@@ -4,7 +4,7 @@ import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RefreshCw } from "@/components/icons";
-import { Button } from "@/lib/morphy-ux/button";
+import { MailActionButton as Button } from "./mail-action-button";
 import type { GmailStatusSummary } from "@/lib/profile/mail-flow";
 
 /** The same Mail connection card in Overview, KYC, Receipts, and setup. */

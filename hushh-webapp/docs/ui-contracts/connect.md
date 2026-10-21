@@ -787,16 +787,21 @@ memberships.
 ## Direct Messages handoff
 
 The Messages subagent retains its existing theme and viewport-centered composer
-and dock. Its name/photo opens Contact info (see the
-[person profile contract](./person-profile.md)); there is no duplicate icon beside calling.
+and dock. Its name/photo opens the existing
+[person profile](./person-profile.md), whose Back returns to the selected conversation.
+The conversation menu retains Contact info and message search.
 The existing call capability remains gated.
+
+Message timestamps and delivery ticks occupy a separate row below the message
+text, aligned to the right inside the bubble, including for short messages.
 
 The message-options menu contains Reply, eligible Edit, and the existing delete
 choices. Reactions use the separate smiley picker, including after a touch hold;
 there is no duplicate React menu row. Reaction chips occupy their own row below
 the bubble and do not move the received-message avatar away from its bubble.
 Selected JPEG/PNG/WebP photos show a local image preview in the composer. Sent
-photos render as images, without document filename, size or MIME metadata; tap
+photos render edge-to-edge without an outer bubble fill, border, padding or
+document filename, size or MIME metadata; tap
 opens the shared dialog and Escape/overlay Back closes it. Document cards retain
 their filename/download behavior. Photo reads remain authenticated and lazy;
 failed loads can retry, retired visits cannot project bytes, and blob URLs are

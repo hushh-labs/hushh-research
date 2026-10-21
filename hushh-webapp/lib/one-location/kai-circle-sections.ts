@@ -30,7 +30,7 @@ export const KAI_CIRCLE_SECTION_META: Record<
   },
   needs_setup: {
     title: "Needs setup",
-    description: "People who need to open Location once.",
+    description: "Location receiving is unavailable for these people.",
   },
 };
 

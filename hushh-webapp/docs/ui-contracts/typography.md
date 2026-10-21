@@ -1,6 +1,8 @@
 # Profile, Navigation, and Feed Typography Contract
 
-Mail's page-specific heading overrides, dialogs, editor, phone/desktop sizing
+Mail now adopts Connect's compact roles and shared header; its current refinement
+is documented in [Mail alignment](./mail.md#connect-alignment-and-warm-return-refinement--21-october-2026).
+The older page-specific heading overrides, dialogs, editor, phone/desktop sizing
 and cascade boundaries are recorded in the [Mail contract](./mail.md#font-schema-what-to-use-where-and-actual-override-boundaries).
 
 Calendar's Inter family exception, heading cascade, controls, overlays and

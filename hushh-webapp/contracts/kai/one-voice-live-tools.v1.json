@@ -288,7 +288,7 @@
     },
     {
       "circle_args": [],
-      "description": "Add a confirmed person to the emergency contacts who receive future Save My Soul alerts. Takes a canonical person id only (resolve and confirm the person first). The person must be a connection with a verified phone who has finished Location setup; otherwise the result says which of those is missing. Adding never sends an alert, and never adds a whole circle.",
+      "description": "Add a confirmed person to the emergency contacts who receive future Save My Soul alerts. Takes a canonical person id only (resolve and confirm the person first). The person must be a connection with an active receiving key in One; phone verification and Location onboarding are not required. Adding never sends an alert, and never adds a whole circle.",
       "firebase_plane": false,
       "gateway_action_id": "location.add_emergency_contact",
       "name": "add_emergency_contact",
@@ -1619,7 +1619,7 @@
     },
     {
       "circle_args": [],
-      "description": "Read Save My Soul (SMS) status: the emergency contacts by name, whether each is phone-verified and can receive an encrypted location, whether an alert is active now and how many live shares it holds, and the person's default for a bare emergency phrase. Use it for 'who will get my alert', 'is it active', or before editing emergency contacts (it offers the roster's ids for confirm_person). Reads only; it never sends an alert. To just open the screen, use open_screen.",
+      "description": "Read Save My Soul (SMS) status: the emergency contacts by name, whether each is ready to receive an encrypted location, whether an alert is active now and how many live shares it holds, and the person's default for a bare emergency phrase. Use it for 'who will get my alert', 'is it active', or before editing emergency contacts (it offers the roster's ids for confirm_person). Reads only; it never sends an alert. To just open the screen, use open_screen.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_sos",
       "name": "get_save_my_soul_status",

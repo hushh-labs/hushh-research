@@ -4,6 +4,24 @@
 
 Canonical visual owner: [Guides Index](../README.md). Local parent: [One Location UAT Test Plan](../one-location-uat-test-plan.md).
 
+## Save My Soul Readiness Regression
+
+Record the deployed frontend/backend revision and TestFlight build before testing.
+Release the backend eligibility/recovery change before the shared web and native
+bundle. Older app bundles retain the client phone filter, so a backend-only
+deployment does not prove this flow fixed on TestFlight.
+
+| Case | Required result |
+| --- | --- |
+| Selected connected member signed in with Google/Apple, no verified phone, active receiving key | Add, Circle selection, manual alert and voice alert all include that account. No account-verification warning or provider lookup is required. |
+| Same member with pending receiving metadata | Remains connected. The owner's active unlocked session repairs receiving automatically without Location onboarding. The sender's open SMS composer refreshes pending metadata without a readiness list or asking another member to unlock. |
+| Mixed phone claims, two pending keys and one unresolved roster entry | No per-person warning list or attention count crowds the composer. A known selected Circle stays sendable; send revalidates exact current membership/keys and reports actual partial or failed delivery. |
+| Backend outage outlasts fast bootstrap retries while the recipient stays online in Chat | Visible-session minute recovery publishes the same recovered key when the backend returns; renewed authority rearms recovery without another focus event or manual unlock. |
+| Own-key query fails during partial workspace fallback | State fails rather than claiming the key is absent. Strict bootstrap creates/registers no replacement key; a later successful read recovers the existing key and preserves live shares. |
+| Unselected, removed, disconnected or deleted member | No emergency grant or envelope can be created for them. |
+| Recipient phone verification provider unavailable | A receiving-ready selected connection can still receive an encrypted alert; no phone claim is fabricated. |
+| Public invitation or contact discovery needs phone proof | Existing phone verification remains enforced on those separate flows. |
+
 ## Public Link And Circle Invite
 
 If exposed in UAT:
