@@ -1,6 +1,0 @@
-{
-  "image": "gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:4a3b29a74641d7eac470da43d18f01c5039f4c0327ed84811ce2f0bfa939ac9a",
-  "sourceRevision": "991a06ccbc01d6e3828080e3b85e672c78d4a583",
-  "runId": "39082250085",
-  "archiveSha256": "025c20e8f5158cbc62e90d3f281e06ae2fb743c35831da630009a6d06c7a4725"
-}

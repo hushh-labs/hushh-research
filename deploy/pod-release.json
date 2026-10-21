@@ -1,22 +1,20 @@
 {
-  "version": "2026.10-dev.25",
+  "version": "2026.10-dev.26",
   "channel": "dev",
-  "summary": "More reliable Puppy connections and clearer timeout recovery.",
+  "summary": "Browser runtime qualification candidate; installation awaits recovery verification.",
   "notes": {
     "improvements": [
-      "Puppy gives the local model a bounded first-response window before applying its normal streaming limit.",
-      "Puppy keeps the shared One-style composer and responsive machine controls."
+      "Browser shares the private agent container and lifecycle, with responsive preview and owner takeover controls.",
+      "Profile and native privacy updates are reconciled with the current application."
     ],
     "fixes": [
-      "Opening Puppy in a fresh session can recover without waiting on a withheld page.",
-      "Local response timeouts remain distinct from connection failures."
+      "Owner control fences autonomous browser actions and joins cancellation.",
+      "Reconnecting discovers existing tasks without resubmitting a goal."
     ],
     "security": [
-      "Installation remains an exact owner-approved update; encrypted recovery is qualified for the listed predecessor.",
-      "The total response deadline and private device permissions remain bounded."
+      "Browser remains unavailable until the exact image and hosting configuration are qualified.",
+      "Existing pods receive no installation offer until their exact predecessor recovery is verified."
     ]
   },
-  "supportedUpgradeDigests": [
-    "sha256:250aea9ee2a5cfe5faf2feceb450d8ee9386d7c6d4d678478248af7630fc69f1"
-  ]
+  "supportedUpgradeDigests": []
 }

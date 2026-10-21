@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { act, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor, fireEvent, within } from "@testing-library/react";
 
-import { ReferralsPanel } from "@/components/profile/referrals-panel";
+import { ReferralsPanel, useReferralsPanelModel } from "@/components/profile/referrals-panel";
 import { ApiError } from "@/lib/services/api-client";
 import { ReferralService, type ReferralSummary } from "@/lib/services/referral-service";
 import { Capacitor } from "@capacitor/core";
@@ -107,6 +107,36 @@ afterEach(() => {
 });
 
 describe("ReferralsPanel", () => {
+  it("a retired visit cannot block or settle the next visit's handle save", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getHandle").mockResolvedValue({ handle: null });
+    let resolveOld!: (value: { handle: string }) => void;
+    let resolveNew!: (value: { handle: string }) => void;
+    const save = vi.spyOn(ReferralService, "setHandle")
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveNew = resolve; }));
+    const { result, rerender } = renderHook(({ active }) => useReferralsPanelModel(active),
+      { initialProps: { active: true } });
+    act(() => result.current.changeHandle("old-visit"));
+    let oldSave!: Promise<boolean>;
+    act(() => { oldSave = result.current.onSaveHandle(); });
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    rerender({ active: false });
+    rerender({ active: true });
+    expect(result.current.handleSaving).toBe(false);
+    act(() => result.current.changeHandle("new-visit"));
+    let newSave!: Promise<boolean>;
+    act(() => { newSave = result.current.onSaveHandle(); });
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    await act(async () => { resolveOld({ handle: "old-visit" }); await oldSave; });
+    expect(result.current.handleSaving).toBe(true);
+    await act(async () => { expect(await result.current.onSaveHandle()).toBe(false); });
+    expect(save).toHaveBeenCalledTimes(2);
+    await act(async () => { resolveNew({ handle: "new-visit" }); await newSave; });
+    expect(result.current.handleSaving).toBe(false);
+    expect(result.current.gamification.handle).toBe("new-visit");
+  });
+
   it("uses the approved neutral and accent artwork in the Profile pane", async () => {
     mockSummary();
     render(<ReferralsPanel panePresentation />);

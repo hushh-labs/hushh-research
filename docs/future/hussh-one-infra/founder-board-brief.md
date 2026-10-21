@@ -38,7 +38,7 @@ The architecture should scale into enterprise and private compute without losing
 | --- | --- |
 | Platform | Hussh already has trust, consent, API, MCP, frontend, PKM, and governance surfaces. |
 | Agent experience | One Voice is direct, but runtime remains partially Kai-era compatibility. One is the approved top-level direction, not uniformly shipped everywhere. |
-| Per-person pod | The dev branch contains a per-owner Cloud Run pod and BYOC image/control path. An installed image, direct browser access, and device relay each need their own live proof. See the [current dev image and private-agent flow](../../reference/architecture/views/deployment.md#dev-byoc-image-and-private-agent-flow). |
+| Per-person pod | GCP Cloud Run and Azure Container Apps support the owner-pod direction. Personal Azure Dev 25 has installed chat, Files, Puppy and update receipts; Browser remains uninstalled. See the [current readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) and [GCP deployment example](../../reference/architecture/views/deployment.md#dev-byoc-image-and-private-agent-flow). |
 | Trust boundary | PCHP, consent, scoped export, audit, and vault/PKM rules remain the durable authority. |
 | Partner integrations | Salesforce, MuleSoft, Agentforce, and Flex Gateway are planning lanes, not implemented repo surfaces. |
 | Private compute | Mac Mini, OpenClaw, local MCP, MLX, and App Intents are future lanes unless checked runtime proof exists. |

@@ -147,18 +147,19 @@ export function useReferralsPanelModel(active = true) {
   const [handleInput, setHandleInput] = useState("");
   const [handleSaving, setHandleSaving] = useState(false);
   const [handleErrorMessage, setHandleErrorMessage] = useState<string | null>(null);
-  const handlePending = useRef(false);
+  const handlePending = useRef<typeof visit | null>(null);
+  useLayoutEffect(() => { setHandleSaving(false); }, [visit]);
   const handleRevision = useRef(0);
   const handleDraft = useRef("");
   const changeHandle = useCallback((value: string) => {
-    if (!visit.live || handlePending.current) return;
+    if (!visit.live || handlePending.current === visit) return;
     handleDraft.current = value; handleRevision.current += 1;
     setHandleInput(value); setHandleErrorMessage(null);
   }, [visit]);
 
   const onSaveHandle = useCallback(async () => {
-    if (!user || !visit.live || handlePending.current || !handleDraft.current.trim()) return false;
-    handlePending.current = true;
+    if (!user || !visit.live || handlePending.current === visit || !handleDraft.current.trim()) return false;
+    handlePending.current = visit;
     setHandleSaving(true);
     setHandleErrorMessage(null);
     try {
@@ -180,10 +181,10 @@ export function useReferralsPanelModel(active = true) {
       );
       return false;
     } finally {
-      handlePending.current = false;
-      // This only releases the synchronous pending guard. Results and private
-      // content above still require the original live visit.
-      if (mounted.current) setHandleSaving(false);
+      if (handlePending.current === visit) {
+        handlePending.current = null;
+        if (mounted.current && visit.live) setHandleSaving(false);
+      }
     }
   }, [user, visit]);
 
@@ -277,7 +278,7 @@ export function useReferralsPanelModel(active = true) {
   return { state: ownsState ? state : "loading" as LoadState, summary: ownsState ? summary : null,
     gamification: ownsState ? gamification : emptyGamification(), showProgress: ownsState && showProgress,
     setShowProgress, load, onCopy, onShare,
-    handleInput: ownsState ? handleInput : "", changeHandle, handleSaving, handleErrorMessage: ownsState ? handleErrorMessage : null, onSaveHandle,
+    handleInput: ownsState ? handleInput : "", changeHandle, handleSaving: ownsState && handlePending.current === visit && handleSaving, handleErrorMessage: ownsState ? handleErrorMessage : null, onSaveHandle,
     copyStatus: ownsState && copyOutcome?.link === link ? copyOutcome.copied ? "copied" as const : "error" as const : "idle" as const,
     current, handleRevision: () => handleRevision.current };
 }

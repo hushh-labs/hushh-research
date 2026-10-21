@@ -193,14 +193,6 @@ everyone else the write is version-aware: it reads
 `GET /api/account/legal-acceptance` and posts only when the served Terms or
 Privacy version is not already the latest acceptance.
 
-Evidence (2026-09-29): both BYOK rehearsals that ran after acceptance shipped
-(UAT runs 36372988279 and 36518015330) reported
-`POST /api/account/legal-acceptance` from the reviewer sign-in. The lane is
-advisory in the UAT verdict, so it warned rather than blocked, and it arms only
-when a vault or test-posture path changes, so most deploys skipped it. The
-served legal version (2.1) was the same in both runs. The cause was that sign-in
-posted on every sign-in, whatever was already on file.
-
 ## Failure classification
 
 Fail closed and classify the first broken boundary:

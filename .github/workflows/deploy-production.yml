@@ -200,6 +200,9 @@ jobs:
             "${RUNNER_TEMP}/release-tools/drive-domain-aliases.json"
           cp scripts/ops/sync_backend_runtime_secrets.py \
             "${RUNNER_TEMP}/release-tools/sync_backend_runtime_secrets.py"
+          for tool in scope_commerce_runtime_policy.py shared_files_runtime_policy.py passkey_domain_policy.py upsert_gcp_secret.py; do
+            cp "scripts/ops/$tool" "${RUNNER_TEMP}/release-tools/$tool"
+          done
           cp scripts/ops/verify-env-secrets-parity.py \
             "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
           cp scripts/ci/cloudrun-retention.py \
@@ -240,6 +243,9 @@ jobs:
           cp "${RUNNER_TEMP}/release-tools/drive/"* deploy/drive/
           cp "${RUNNER_TEMP}/release-tools/sync_backend_runtime_secrets.py" \
             scripts/ops/sync_backend_runtime_secrets.py
+          for tool in scope_commerce_runtime_policy.py shared_files_runtime_policy.py passkey_domain_policy.py upsert_gcp_secret.py; do
+            cp "${RUNNER_TEMP}/release-tools/$tool" "scripts/ops/$tool"
+          done
           cp "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py" \
             scripts/ops/verify-env-secrets-parity.py
           cp "${RUNNER_TEMP}/release-tools/cloudrun-retention.py" \

@@ -2,8 +2,9 @@
 
 **Status:** authorized execution, refreshed 2026-10-21 UTC. Continue on the
 infrastructure branch; preserve concurrent work and the active ADK tree. Prior
-main `f47a4832dbc` and frozen ADK `42bb9823005` integration remains preserved.
-Take the fresh dependency-relevant intake once after implementation, then freeze.
+main/ADK integration remains preserved. Fresh main `0d92c413d0` and frozen ADK
+`914e7c044c` are now integrated through local `47bc0245d7`; peer edits and the
+active ADK worktree remain unchanged. Freeze the regenerated combined candidate.
 
 One and Browser share the owner's image, container, non-root identity and
 lifecycle. GCP remains Cloud Run with Chromium's sandbox enabled; Azure remains
@@ -16,9 +17,9 @@ approval/takeover/login/reconnect, delivery, capacity and installed acceptance
 remain separate gates. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
 owns current source and serving evidence; qualification does not enable a pod.
 
-Execution order: Browser → measured common capacity → agreed core lifecycle →
-fresh main/ADK intake → core mirror and exact-SHA hosted CI → governed image build
-→ exact-image qualification → governed metadata publication → exact owner installations → combined acceptance → **Admin SOP main merge and
+Fresh main/ADK source intake is complete. Remaining execution order: final core
+mirror and exact-SHA hosted CI → governed image build → measured common capacity
+and agreed core lifecycle → exact-image qualification → governed metadata publication → exact owner installations → combined acceptance → **Admin SOP main merge and
 landed-SHA validation/dev receipt**. Main integration is now explicitly authorized
 after those gates. UAT/production, stable publication and automatic owner upgrades
 remain unauthorized. General scheduled-task expansion and coding activation are
@@ -56,16 +57,15 @@ resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 
-- Main through `f47a4832dbc` is integrated locally. Re-read fresh main once the
-  implementation is complete. Preserve pod authorization, bounded streams,
-  reconnect/resync, connector route registration and current Profile behavior.
-- Preserve the active ADK worktree. The frozen `42bb9823005` delta is integrated
-  with authority reconciliation: extracted AI settings retain Azure-aware
-  pod selection and key readiness; device models must retain Puppy grant and
-  revocation; Memory must retain identifier-processing consent and sharing controls;
-  World Model writes retain owner-current and abort checks. Regenerate
-  projections from the merged authored owners. Integrate the later dependency-relevant
-  delta once after implementation; preserve the existing verified integration evidence.
+- Fresh main `0d92c413d0` is integrated by `c2269a8da8`, preserving its
+  Profile/mobile, consent, deletion, PLG, Calendar and migrations 365–369 alongside
+  pod authority. New content routes retain Shared-only admission; signed PLG
+  operational exports retain their separate bounds and disabled defaults.
+- Frozen ADK `914e7c044c` is integrated by `47bc0245d7`. Its native Profile
+  preparation and visit fencing retain lazy plugin registration, current public-
+  profile forms, pod AI selection and owner controls. Regenerate projections
+  from this committed ancestry. Retain the earlier integration receipts as
+  history; neither old CI nor component probes qualify the combined candidate.
 - Keep unrelated PDF, native dependency and tooling edits outside the release.
   Freeze one dependency-complete revision after these seams are resolved.
 - Run affected contract checks while implementing. Run the local core mirror once
@@ -231,7 +231,7 @@ owns exact mode, image, model, authority and lifecycle contracts. Before release
    owner resources until an exact configuration/update approval. Capacity does
    not change minimum-zero sleeping policy; scratch is separately budgeted.
 3. Use two runs of the existing main-owned `deploy-dev.yml`, not another workflow:
-   **A:** remove the old `deploy/pod-release-reuse.json` pin, validate the complete
+   **A:** remove the old image-reuse pin, validate the complete
    source SHA, then dispatch `build_pod_image=true` (`scope=all` for frontend changes).
    This builds and archives the immutable image and deploys the backend; Browser
    remains unavailable. Qualify that exact image/source on each host. **B:** commit

@@ -31,6 +31,11 @@ class Refused(ValueError):
     pass
 
 
+class MissingAcceptance(Refused):
+    """No retained healthy receipts cover the requested services yet."""
+
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise Refused(message)
@@ -277,7 +282,7 @@ class GitHub:
                         }
             if len(runs) < 50:
                 break
-        raise Refused(
+        raise MissingAcceptance(
             "No complete healthy predecessor receipt for this exact SHA and resolved services"
         )
 

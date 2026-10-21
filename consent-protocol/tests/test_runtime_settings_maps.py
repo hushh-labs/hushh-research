@@ -635,3 +635,26 @@ def test_managed_environment_guard_resolves_os_aliases_but_allows_injected_mappi
         )
         == []
     )
+
+
+def test_runtime_contract_directory_adapter_keeps_file_checks(tmp_path, monkeypatch, capsys):
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location(
+        "config_contract_directory", root / "scripts/ci/verify-runtime-config-contract.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    target = tmp_path / "agents"
+    target.mkdir()
+    adapter = tmp_path / "adapter"
+    adapter.symlink_to(target, target_is_directory=True)
+    source = tmp_path / "runtime.py"
+    source.write_text(f"{module.FORBIDDEN_NAMES[0]} = 'synthetic-forbidden-setting'\n")
+    monkeypatch.setattr(module, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(module, "_tracked_files", lambda: [adapter, source])
+    assert module.main() == 1
+    assert "runtime.py" in capsys.readouterr().err
+    source.write_text("# no runtime settings\n")
+    assert module.main() == 0

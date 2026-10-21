@@ -2,7 +2,7 @@
 
 ## Status
 
-Reviewed against source 2026-10-06. This folder owns future direction and dated
+Reviewed against source 2026-10-21. This folder owns future direction and dated
 design/evidence snapshots, not current deployment instructions.
 
 **Start with the [owner-pod direct-runtime handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md).** It records dated revisions, the proposed app ↔ owner pod ↔ Puppy
@@ -29,9 +29,9 @@ flowchart TD
 | Document | Use |
 | --- | --- |
 | [Owner-pod direct-runtime handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) | Next execution context; reuse the fleet and memory while removing mandatory hub traffic from owner-local work. |
-| [Normal release transition](./NORMAL-RELEASE-TRANSITION.md) | Local proposal for shared release machinery, explicit legacy Shared continuity, BYOC preservation and returning-user changelogs; no deployment authorization. |
+| [Normal release transition](./NORMAL-RELEASE-TRANSITION.md) | Authorized, gated execution for normal release machinery, legacy Shared continuity, BYOC preservation and returning-user changelogs. Dev acceptance precedes the main transition; UAT and production remain separate. |
 | [Remaining roadmap](./ROADMAP.md) | Deferred requirements and promotion conditions, without obsolete dates or completed implementation instructions. |
-| [Computer Use implementation gates](../../../consent-protocol/docs/reference/private-browser-runtime.md) | Disabled dev pilot with locally tested authority, selected-PKM exports, encrypted remembered sessions and preview controls. Synthetic protected GCP/Azure VM execution is qualified; installed owner execution, live preview and lifecycle acceptance remain unqualified. |
+| [Computer Use implementation gates](../../../consent-protocol/docs/reference/private-browser-runtime.md) | Disabled dev pilot with locally tested authority, selected-PKM exports, encrypted remembered sessions and preview controls. Same-image public frames and shutdown have component evidence on Cloud Run and Container Apps; installed owner execution, active takeover and lifecycle acceptance remain unqualified. |
 | [Browser completion plan](./browser-completion-plan.md) | Documented ADK integration, owner-cloud Gemini/Azure native models, headless execution, responsive takeover and separate cloud qualification. |
 | [Owner co-signature](./OWNER-COSIGNATURE.md) | Design only (fifth revision, 2026-10-06), not built: locks an agent to the owner's phone so Hussh's servers cannot add devices, copy or delete it outside Azure sign-in windows; the phone checks a signed release, role content and every Hussh-app operation after each window and at least monthly, and shows no reassurance while the agent reports drift. |
 
