@@ -1011,7 +1011,9 @@ class DebateEngine:
         This prevents debate orchestration from failing when live LLM token streaming is unavailable.
         """
         recommendation = str(getattr(insight, "recommendation", "hold")).upper()
-        confidence = float(getattr(insight, "confidence", 0.5) or 0.5)
+        confidence = (
+            float(insight.confidence) if getattr(insight, "confidence", None) is not None else 0.5
+        )
         summary = str(getattr(insight, "summary", "") or "").strip()
 
         base = (

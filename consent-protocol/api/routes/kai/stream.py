@@ -951,12 +951,12 @@ def _derive_company_strength_score(
     market_trend_score: float,
 ) -> float:
     fundamental_score = (
-        _clamp((fundamental_confidence or 0.5) * 10.0, 0.0, 10.0)
+        _clamp(fundamental_confidence * 10.0, 0.0, 10.0)
         if fundamental_confidence is not None
         else 5.0
     )
     valuation_score = (
-        _clamp((valuation_confidence or 0.5) * 10.0, 0.0, 10.0)
+        _clamp(valuation_confidence * 10.0, 0.0, 10.0)
         if valuation_confidence is not None
         else fair_value_score
     )
@@ -965,7 +965,7 @@ def _derive_company_strength_score(
         if sentiment_score is not None
         else market_trend_score
     )
-    debate_score = _clamp((debate_confidence or 0.5) * 10.0, 0.0, 10.0)
+    debate_score = _clamp(debate_confidence * 10.0, 0.0, 10.0)
     blended = (
         (fundamental_score * 0.40)
         + (valuation_score * 0.20)
@@ -2396,7 +2396,9 @@ async def analyze_stream_generator(
         company_strength_score = _derive_company_strength_score(
             fundamental_confidence=_safe_float(fundamental_insight.confidence),
             valuation_confidence=_safe_float(valuation_insight.confidence),
-            debate_confidence=_safe_float(debate_result.confidence) or 0.5,
+            debate_confidence=_safe_float(debate_result.confidence)
+            if _safe_float(debate_result.confidence) is not None
+            else 0.5,
             sentiment_score=sentiment_score_value,
             fair_value_score=fair_value_score,
             market_trend_score=market_trend_score,

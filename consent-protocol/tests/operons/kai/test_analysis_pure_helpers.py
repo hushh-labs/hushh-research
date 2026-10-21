@@ -61,9 +61,9 @@ class TestGenerateFundamentalSummary:
         result = _generate_fundamental_summary("T", metrics, health_score=0.8)
         assert "7.5%" in result
 
-    def test_missing_metrics_defaults_to_zero(self):
+    def test_missing_metrics_are_unavailable(self):
         result = _generate_fundamental_summary("T", {}, health_score=0.9)
-        assert "0.0%" in result
+        assert "unavailable" in result
 
     def test_negative_growth_represented(self):
         metrics = {"revenue_growth_yoy": -0.10, "profit_margin": 0.05}
@@ -145,7 +145,7 @@ class TestGenerateValuationSummary:
     def test_zero_pe_ratio(self):
         peer = {"vs_peer_avg": "in_line"}
         result = _generate_valuation_summary("T", {}, peer)
-        assert "0.0x" in result
+        assert "unavailable" in result
 
 
 # ---------------------------------------------------------------------------

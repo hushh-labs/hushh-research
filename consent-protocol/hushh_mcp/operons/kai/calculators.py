@@ -17,102 +17,95 @@ from typing import Any, Dict, List, Tuple
 # ============================================================================
 
 
-def calculate_financial_ratios(sec_filings: Dict[str, Any]) -> Dict[str, float]:
-    """
-    Calculate key financial ratios from SEC filings.
+def _measured(value: Any) -> float | None:
+    return (
+        float(value)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+        else None
+    )
 
-    Args:
-        sec_filings: Parsed SEC filing data with expanded deep metrics
 
-    Returns:
-        Dict of financial metrics
-    """
-    # Extract real financial data from SEC filings
-    latest_10k = sec_filings.get("latest_10k", {})
+def _ratio(numerator: Any, denominator: Any) -> float | None:
+    n, d = _measured(numerator), _measured(denominator)
+    return n / d if n is not None and d is not None and d > 0 else None
 
-    revenue = latest_10k.get("revenue", 0)
-    net_income = latest_10k.get("net_income", 0)
-    total_assets = latest_10k.get("total_assets", 1)
-    total_liabilities = latest_10k.get("total_liabilities", 0)
 
-    # Use expanded deep metrics if available
-    fcf = latest_10k.get("free_cash_flow", 0)
-    long_term_debt = latest_10k.get("long_term_debt", 0)
-    equity = latest_10k.get("equity") or max(total_assets - total_liabilities, 1)
-    rnd = latest_10k.get("research_and_development", 0)
-    ocf = latest_10k.get("operating_cash_flow", 0)
+def calculate_financial_ratios(sec_filings: Dict[str, Any]) -> Dict[str, Any]:
+    latest = sec_filings.get("latest_10k", {})
 
-    # Calculate actual ratios
-    profit_margin = (net_income / revenue) if revenue > 0 else 0
-    return_on_equity = (net_income / equity) if equity > 0 else 0
-    debt_to_equity = (long_term_debt / equity) if equity > 0 else (total_liabilities / equity)
+    def value(name):
+        return _measured(latest.get(name))
 
-    # Quant analyst ratios
-    fcf_margin = (fcf / revenue) if revenue > 0 else 0
-    rnd_intensity = (rnd / revenue) if revenue > 0 else 0
-    earnings_quality = (ocf / net_income) if net_income > 0 else 0
-
-    revenue_billions = revenue / 1_000_000_000 if revenue > 0 else 0
-    fcf_billions = fcf / 1_000_000_000 if fcf != 0 else 0
-
-    return {
+    equity = value("equity")
+    if (
+        equity is None
+        and value("total_assets") is not None
+        and value("total_liabilities") is not None
+    ):
+        equity = value("total_assets") - value("total_liabilities")
+    result = {
         "ticker": sec_filings.get("ticker"),
         "cik": sec_filings.get("cik"),
         "entity_name": sec_filings.get("entity_name"),
-        "revenue_billions": revenue_billions,
-        "fcf_billions": fcf_billions,
-        "profit_margin": profit_margin,
-        "fcf_margin": fcf_margin,
-        "debt_to_equity": debt_to_equity,
-        "return_on_equity": return_on_equity,
-        "rnd_intensity": rnd_intensity,
-        "earnings_quality": earnings_quality,
-        "total_assets_billions": total_assets / 1_000_000_000,
-        "long_term_debt_billions": long_term_debt / 1_000_000_000,
-        "research_and_development_billions": rnd / 1_000_000_000 if rnd > 0 else 0,
+        "period_end": latest.get("period_end"),
+        "profit_margin": _ratio(value("net_income"), value("revenue")),
+        "fcf_margin": _ratio(value("free_cash_flow"), value("revenue")),
+        "return_on_equity": _ratio(value("net_income"), equity),
+        "debt_to_equity": _ratio(value("long_term_debt"), equity),
+        "debt_to_equity_basis": "Noncurrent long-term debt / equity; excludes current debt and short-term borrowings",
+        "current_ratio": _ratio(value("current_assets"), value("current_liabilities")),
+        "rnd_intensity": _ratio(value("research_and_development"), value("revenue")),
+        "earnings_quality": _ratio(value("operating_cash_flow"), value("net_income")),
     }
+    for source, output in (
+        ("revenue", "revenue_billions"),
+        ("free_cash_flow", "fcf_billions"),
+        ("total_assets", "total_assets_billions"),
+        ("long_term_debt", "long_term_debt_billions"),
+        ("research_and_development", "research_and_development_billions"),
+    ):
+        amount = value(source)
+        result[output] = amount / 1e9 if amount is not None else None
+    result["revenue_growth_yoy"] = calculate_quant_metrics(sec_filings)["revenue_growth_yoy"]
+    return result
 
 
 def calculate_quant_metrics(sec_filings: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Process historical trends to generate quant signals and growth rates.
-    """
-    latest_10k = sec_filings.get("latest_10k", {})
+    latest = sec_filings.get("latest_10k", {})
 
-    def get_growth_rate(trend: List[Dict[str, Any]]) -> float:
-        if len(trend) < 2:
-            return 0.0
-        latest = trend[-1]["value"]
-        previous = trend[-2]["value"]
-        if previous == 0:
-            return 0.0
-        return (latest - previous) / previous
+    def trend(name):
+        return [row for row in latest.get(name, []) if _measured(row.get("value")) is not None]
 
-    revenue_trend = latest_10k.get("revenue_trend", [])
-    net_income_trend = latest_10k.get("net_income_trend", [])
-    ocf_trend = latest_10k.get("ocf_trend", [])
-    rnd_trend = latest_10k.get("rnd_trend", [])
+    def growth(rows):
+        if len(rows) < 2 or int(rows[-1]["year"]) - int(rows[-2]["year"]) != 1:
+            return None
+        previous = _measured(rows[-2]["value"])
+        return (rows[-1]["value"] - previous) / abs(previous) if previous else None
 
-    return {
-        "revenue_growth_yoy": get_growth_rate(revenue_trend),
-        "net_income_growth_yoy": get_growth_rate(net_income_trend),
-        "ocf_growth_yoy": get_growth_rate(ocf_trend),
-        "revenue_cagr_3y": ((revenue_trend[-1]["value"] / revenue_trend[0]["value"]) ** (1 / 3) - 1)
-        if len(revenue_trend) >= 3 and revenue_trend[0]["value"] > 0
-        else 0,
-        "revenue_trend_data": [
-            {"year": d["year"], "value": round(d["value"] / 1e9, 2)} for d in revenue_trend
-        ],
-        "net_income_trend_data": [
-            {"year": d["year"], "value": round(d["value"] / 1e9, 2)} for d in net_income_trend
-        ],
-        "ocf_trend_data": [
-            {"year": d["year"], "value": round(d["value"] / 1e9, 2)} for d in ocf_trend
-        ],
-        "rnd_trend_data": [
-            {"year": d["year"], "value": round(d["value"] / 1e9, 2)} for d in rnd_trend
-        ],
-    }
+    revenue = trend("revenue_trend")
+    cagr = None
+    if len(revenue) >= 4:
+        window = revenue[-4:]
+        years = [int(row["year"]) for row in window]
+        if (
+            all(b - a == 1 for a, b in zip(years, years[1:], strict=False))
+            and window[0]["value"] > 0
+            and window[-1]["value"] >= 0
+        ):
+            cagr = (window[-1]["value"] / window[0]["value"]) ** (1 / (years[-1] - years[0])) - 1
+    result = {"revenue_cagr_3y": cagr}
+    for source, output in (
+        ("revenue_trend", "revenue"),
+        ("net_income_trend", "net_income"),
+        ("ocf_trend", "ocf"),
+        ("rnd_trend", "rnd"),
+    ):
+        rows = trend(source)
+        result[f"{output}_growth_yoy"] = growth(rows)
+        result[f"{output}_trend_data"] = [
+            {"year": row["year"], "value": round(row["value"] / 1e9, 2)} for row in rows
+        ]
+    return result
 
 
 def assess_fundamental_health(metrics: Dict[str, float]) -> Tuple[List[str], List[str], float]:
@@ -129,27 +122,27 @@ def assess_fundamental_health(metrics: Dict[str, float]) -> Tuple[List[str], Lis
     weaknesses = []
 
     # Revenue growth
-    if metrics.get("revenue_growth_yoy", 0) > 0.1:
+    if metrics.get("revenue_growth_yoy") is not None and metrics["revenue_growth_yoy"] > 0.1:
         strengths.append("Strong revenue growth (>10% YoY)")
-    elif metrics.get("revenue_growth_yoy", 0) < 0:
+    elif metrics.get("revenue_growth_yoy") is not None and metrics["revenue_growth_yoy"] < 0:
         weaknesses.append("Declining revenue")
 
     # Profitability
-    if metrics.get("profit_margin", 0) > 0.15:
+    if metrics.get("profit_margin") is not None and metrics["profit_margin"] > 0.15:
         strengths.append("Healthy profit margins (>15%)")
-    elif metrics.get("profit_margin", 0) < 0.05:
+    elif metrics.get("profit_margin") is not None and metrics["profit_margin"] < 0.05:
         weaknesses.append("Low profit margins (<5%)")
 
     # Debt levels
-    if metrics.get("debt_to_equity", 0) < 0.5:
+    if metrics.get("debt_to_equity") is not None and metrics["debt_to_equity"] < 0.5:
         strengths.append("Low debt levels")
-    elif metrics.get("debt_to_equity", 0) > 1.5:
+    elif metrics.get("debt_to_equity") is not None and metrics["debt_to_equity"] > 1.5:
         weaknesses.append("High debt burden")
 
     # Liquidity
-    if metrics.get("current_ratio", 0) > 1.5:
+    if metrics.get("current_ratio") is not None and metrics["current_ratio"] > 1.5:
         strengths.append("Strong liquidity")
-    elif metrics.get("current_ratio", 0) < 1.0:
+    elif metrics.get("current_ratio") is not None and metrics["current_ratio"] < 1.0:
         weaknesses.append("Liquidity concerns")
 
     # Calculate health score (0-1)
@@ -251,29 +244,24 @@ def calculate_valuation_metrics(market_data: Dict[str, Any]) -> Dict[str, float]
     Returns:
         Dict of valuation metrics
     """
-    # Extract real data from market_data (from yfinance)
-    pe_ratio = market_data.get("pe_ratio", 0)
-    pb_ratio = market_data.get("pb_ratio", 0)
-    dividend_yield = market_data.get("dividend_yield", 0)
-    market_cap = market_data.get("market_cap", 0)
-    # Calculate PS ratio if we have revenue data
-    # (Would need to pass revenue from SEC data - future enhancement)
-    ps_ratio = 0  # Placeholder
-
-    # Enterprise value approximation (market cap for simplicity)
-    enterprise_value_billions = market_cap / 1_000_000_000 if market_cap > 0 else 0
-
-    # Price to FCF would need cash flow data
-    price_to_fcf = 0  # Placeholder
-
-    return {
-        "pe_ratio": pe_ratio or 0,
-        "pb_ratio": pb_ratio or 0,
-        "ps_ratio": ps_ratio,
-        "dividend_yield": dividend_yield or 0,
-        "enterprise_value_billions": enterprise_value_billions,
-        "price_to_fcf": price_to_fcf,
+    result = {
+        name: _measured(market_data.get(name))
+        for name in (
+            "pe_ratio",
+            "pb_ratio",
+            "forward_pe",
+            "ps_ratio",
+            "ev_ebitda",
+            "dividend_yield",
+            "52w_low",
+            "52w_high",
+            "market_cap",
+            "price_to_fcf",
+        )
     }
+    enterprise = _measured(market_data.get("enterprise_value"))
+    result["enterprise_value_billions"] = enterprise / 1e9 if enterprise is not None else None
+    return result
 
 
 # ============================================================================
