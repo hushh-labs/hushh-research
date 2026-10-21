@@ -285,8 +285,16 @@ floor, selection ID, provider/model and non-secret destination. It refuses chang
 cleared or unreadable selections; a process-local cache counter is only an in-flight
 fence. Keyless defaults retain verified owner Vertex/approved dev bridge or Azure
 workload identity, without managed fallback. Saved metadata does not prove provider
-availability. Production worker composition, other specialist/effect ports, safe
-parked-segment reclaim and the owner continuation route remain open.
+availability. A parked review can now reclaim the exact occurrence under update
+admission: current caller and original scopes, native marker, terms, expiry and
+model are checked before rotating the claim. Parked time does not consume the
+original active-work budget; resume cannot extend its authorization or enlarge
+that budget. Expiry is rechecked after awaited admission. Lost running claims
+and uncertain dispatch remain non-resumable. Shielded cleanup retains the update
+permit until quiescence and durable settlement; failed reconciliation retains
+bounded repair identity, not a finished task's private traceback. Focused local
+tests cover these races. Production worker composition, other specialist/effect
+ports and the owner continuation route remain open.
 
 The sealed pod log owns the schedule, occurrence claim, cancellation and settlement.
 The due-time delivery contains identifiers only; an exact authenticated worker route

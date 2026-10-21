@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import asyncio
 
-from hushh_mcp.services.pod_scheduled_contracts import ScheduledCapability, ScheduleRefused
+from hushh_mcp.services.pod_scheduled_contracts import (
+    ClaimedScheduledCapability,
+    ResumableScheduledCapability,
+    ScheduledCapability,
+    ScheduledContinuation,
+    ScheduleRefused,
+)
 from hushh_mcp.services.pod_scheduled_journal import ScheduledTaskJournal
 
 LEASE_SECONDS = 60
@@ -33,6 +39,10 @@ class ScheduledExecutionLease:
             or run["id"] != expected["id"]
             or run.get("claim_id") != expected["claim_id"]
             or run.get("deadline_at") != expected["deadline_at"]
+            or any(
+                run.get(key) != expected.get(key)
+                for key in ("active_seconds", "active_limit_seconds", "segment_started_at")
+            )
             or any(
                 row.get(key) != self.claimed.get(key)
                 for key in (
@@ -72,12 +82,21 @@ class ScheduledExecutionLease:
 
             await self.journal.change(edit, authorize=self.journal.check_horizon)
 
-    async def execute(self, capability: ScheduledCapability) -> str:
+    async def execute(
+        self, capability: ScheduledCapability, continuation: ScheduledContinuation | None = None
+    ) -> str:
         await self.check()
-        work = asyncio.create_task(
-            capability.run(self.claimed["terms"], self.claimed["last_run"]["id"], self.check),
-            name="scheduled-capability",
-        )
+        if continuation is not None:
+            if not isinstance(capability, ResumableScheduledCapability):
+                raise ScheduleRefused("SCHEDULE_CONTINUATION_UNAVAILABLE")
+            operation = capability.continue_claimed(self, continuation)
+        elif isinstance(capability, ClaimedScheduledCapability):
+            operation = capability.run_claimed(self)
+        else:
+            operation = capability.run(
+                self.claimed["terms"], self.claimed["last_run"]["id"], self.check
+            )
+        work = asyncio.create_task(operation, name="scheduled-capability")
         tasks = {work, asyncio.create_task(self._renew(), name="scheduled-authority-lease")}
         self.tasks = tasks
         self.quiescent = False

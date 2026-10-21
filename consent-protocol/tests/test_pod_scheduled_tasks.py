@@ -408,7 +408,10 @@ async def test_active_schedule_renews_its_claim_without_extending_the_approved_d
     world.permit.release.assert_awaited_once()
 
 
-async def test_schedule_settlement_failure_cannot_acknowledge_update_idle(scheduled_tasks):
+@pytest.mark.parametrize("recover_uncertain", [False, True])
+async def test_schedule_settlement_failure_cannot_acknowledge_update_idle(
+    scheduled_tasks, recover_uncertain
+):
     from unittest.mock import AsyncMock
 
     from hushh_mcp.services.pod_scheduled_tasks import KIND, ScheduleRefused
@@ -419,7 +422,8 @@ async def test_schedule_settlement_failure_cannot_acknowledge_update_idle(schedu
     original_append = world.log.append
 
     async def append(kind, payload, **kwargs):
-        if kind == KIND and payload.get("last_run", {}).get("state") == "completed":
+        terminal = {"completed"} if recover_uncertain else {"completed", "outcome_uncertain"}
+        if kind == KIND and payload.get("last_run", {}).get("state") in terminal:
             raise ScheduleRefused("SCHEDULE_SETTLEMENT_UNCONFIRMED")
         return await original_append(kind, payload, **kwargs)
 
@@ -427,9 +431,14 @@ async def test_schedule_settlement_failure_cannot_acknowledge_update_idle(schedu
     world.clock[0] = 1101
     with pytest.raises(ScheduleRefused, match="SCHEDULE_SETTLEMENT_UNCONFIRMED"):
         await world.runtime.run(*delivery[:3])
-    assert (await world.log.replay())[-1]["payload"]["last_run"]["state"] == "running"
-    world.permit.release.assert_not_awaited()
-    assert (await world.build().run(*delivery[:3]))["state"] == "running"
+    expected = "outcome_uncertain" if recover_uncertain else "running"
+    assert (await world.log.replay())[-1]["payload"]["last_run"]["state"] == expected
+    assert world.permit.release.await_count == int(recover_uncertain)
+    assert not world.runtime.runner._cleanup
+    assert bool(world.runtime.runner.cleanup_failures) is not recover_uncertain
+    assert (await world.build().run(*delivery[:3]))["state"] == (
+        "needs_review" if recover_uncertain else "running"
+    )
     world.capability.run.assert_awaited_once()
 
 

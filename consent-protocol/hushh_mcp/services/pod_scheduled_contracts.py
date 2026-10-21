@@ -9,7 +9,7 @@ import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 from uuid import NAMESPACE_URL, uuid5
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -19,6 +19,9 @@ from hushh_mcp.services.pod_scheduled_checkpoint import (
     ScheduledCheckpoint,
     validate_schedule_checkpoint,
 )
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.pod_scheduled_lease import ScheduledExecutionLease
 
 
 class ScheduleRefused(RuntimeError):
@@ -83,6 +86,33 @@ class ScheduledDelivery(Protocol):
         ...
 
 
+@runtime_checkable
+class ClaimedScheduledCapability(Protocol):
+    async def run_claimed(self, lease: ScheduledExecutionLease) -> str:
+        """Use the actual claimed authority, never an inferred callback owner."""
+        ...
+
+
+@dataclass(frozen=True)
+class ScheduledContinuation:
+    pending_handle: str
+    confirmation_id: str
+    approval: dict = field(repr=False)
+
+
+@runtime_checkable
+class ResumableScheduledCapability(Protocol):
+    max_active_seconds: int
+
+    async def check_continuation(self, row: dict) -> None:
+        """Fresh model/capability admission; cannot confirm or dispatch an effect."""
+        ...
+
+    async def continue_claimed(
+        self, lease: ScheduledExecutionLease, continuation: ScheduledContinuation
+    ) -> str: ...
+
+
 def capability_scopes(capability: ScheduledCapability) -> list[str]:
     scopes = capability.required_scopes
     if (
@@ -133,13 +163,18 @@ class _RunReceipt(BaseModel):
     claim_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     deadline_at: int | None = Field(default=None, gt=0)
     finished_at: int | None = Field(default=None, gt=0)
+    active_seconds: int = Field(default=0, ge=0, le=900)
+    active_limit_seconds: int | None = Field(default=None, ge=1, le=900)
+    segment_started_at: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def bounded_lease(self):
         if (self.claim_id is None) != (self.deadline_at is None):
             raise ValueError("Invalid recovered lease")
+        segment = self.segment_started_at or self.started_at
+        limit = self.active_limit_seconds or 900
         if self.deadline_at is not None and not (
-            self.started_at < self.deadline_at <= self.started_at + 900
+            self.started_at <= segment < self.deadline_at <= segment + limit - self.active_seconds
             and self.lease_until <= self.deadline_at
         ):
             raise ValueError("Invalid recovered lease")
