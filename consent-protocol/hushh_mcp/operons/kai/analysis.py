@@ -13,6 +13,7 @@ Pattern:
 """
 
 import logging
+import math
 from typing import Any, Dict, List
 
 from hushh_mcp.consent.token import validate_token
@@ -282,16 +283,22 @@ def _generate_valuation_summary(
 ) -> str:
     """Generate human-readable valuation summary."""
     pe_ratio = metrics.get("pe_ratio")
-    if pe_ratio is None or pe_ratio <= 0:
+    if (
+        not isinstance(pe_ratio, (int, float))
+        or isinstance(pe_ratio, bool)
+        or not math.isfinite(pe_ratio)
+        or pe_ratio <= 0
+    ):
         return "Valuation multiples unavailable; no peer valuation conclusion."
-    vs_peers = peer_comparison.get("vs_peer_avg", "in_line")
+    vs_peers = peer_comparison.get("vs_peer_avg", "unavailable")
 
     if vs_peers == "undervalued":
         return f"Undervalued at {pe_ratio:.1f}x P/E vs peers"
     elif vs_peers == "overvalued":
         return f"Overvalued at {pe_ratio:.1f}x P/E vs peers"
-    else:
+    elif vs_peers == "in_line":
         return f"Fair valuation at {pe_ratio:.1f}x P/E"
+    return f"Reported P/E is {pe_ratio:.1f}x; peer valuation unavailable."
 
 
 def _fundamental_to_recommendation(health_score: float, metrics: Dict) -> str:
@@ -351,18 +358,26 @@ def _calculate_valuation_confidence(
 
 def _compare_to_peers(metrics: Dict[str, float], peer_data: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Compare valuation metrics to peer average."""
-    if not peer_data:
-        return {"vs_peer_avg": "in_line", "peer_count": 0}
-
-    # Calculate peer average P/E
-    peer_pes = [p.get("pe_ratio", 0) for p in peer_data if p.get("pe_ratio")]
+    peer_pes = [
+        pe
+        for peer in peer_data
+        if isinstance(pe := peer.get("pe_ratio"), (int, float))
+        and not isinstance(pe, bool)
+        and math.isfinite(pe)
+        and pe > 0
+    ]
     if not peer_pes:
-        return {"vs_peer_avg": "in_line", "peer_count": len(peer_data)}
+        return {"vs_peer_avg": "unavailable", "peer_count": 0}
 
     peer_avg_pe = sum(peer_pes) / len(peer_pes)
     company_pe = metrics.get("pe_ratio")
-    if company_pe is None or company_pe <= 0:
-        return {"vs_peer_avg": "unavailable", "peer_count": len(peer_data)}
+    if (
+        not isinstance(company_pe, (int, float))
+        or isinstance(company_pe, bool)
+        or not math.isfinite(company_pe)
+        or company_pe <= 0
+    ):
+        return {"vs_peer_avg": "unavailable", "peer_count": len(peer_pes)}
 
     # Determine if undervalued/overvalued
     if company_pe < peer_avg_pe * 0.8:
@@ -376,5 +391,5 @@ def _compare_to_peers(metrics: Dict[str, float], peer_data: List[Dict[str, Any]]
         "vs_peer_avg": vs_peer,
         "peer_avg_pe": peer_avg_pe,
         "company_pe": company_pe,
-        "peer_count": len(peer_data),
+        "peer_count": len(peer_pes),
     }

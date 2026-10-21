@@ -2082,6 +2082,7 @@ async def analyze_stream_generator(
                     "confidence": valuation_insight.confidence,
                     "valuation_metrics": valuation_insight.valuation_metrics,
                     "peer_comparison": valuation_insight.peer_comparison,
+                    "peer_ranking": valuation_insight.peer_ranking,
                     "price_targets": valuation_insight.price_targets,
                     "sources": valuation_insight.sources,
                     "round": 1,
@@ -2117,6 +2118,7 @@ async def analyze_stream_generator(
                     "confidence": valuation_insight.confidence,
                     "valuation_metrics": valuation_insight.valuation_metrics,
                     "peer_comparison": valuation_insight.peer_comparison,
+                    "peer_ranking": valuation_insight.peer_ranking,
                     "price_targets": valuation_insight.price_targets,
                     "sources": valuation_insight.sources,
                     "fallback_used": True,
@@ -2339,6 +2341,7 @@ async def analyze_stream_generator(
                     "confidence": valuation_insight.confidence,
                     "valuation_metrics": valuation_insight.valuation_metrics,
                     "peer_comparison": valuation_insight.peer_comparison,
+                    "peer_ranking": valuation_insight.peer_ranking,
                     "price_targets": valuation_insight.price_targets,
                 },
                 debate_payload={

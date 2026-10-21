@@ -137,10 +137,10 @@ class TestGenerateValuationSummary:
         assert "Fair valuation" in result
         assert "20.0x" in result
 
-    def test_default_vs_peers_is_in_line(self):
-        # peer_comparison with no vs_peer_avg key → default "in_line"
+    def test_missing_peer_evidence_is_unavailable(self):
         result = _generate_valuation_summary("T", {"pe_ratio": 15.0}, {})
-        assert "Fair valuation" in result
+        assert "unavailable" in result
+        assert "Fair valuation" not in result
 
     def test_zero_pe_ratio(self):
         peer = {"vs_peer_avg": "in_line"}
@@ -311,9 +311,9 @@ class TestCalculateValuationConfidence:
 
 
 class TestCompareToPeers:
-    def test_empty_peer_data_returns_in_line(self):
+    def test_empty_peer_data_is_unavailable(self):
         result = _compare_to_peers({"pe_ratio": 20.0}, [])
-        assert result["vs_peer_avg"] == "in_line"
+        assert result["vs_peer_avg"] == "unavailable"
         assert result["peer_count"] == 0
 
     def test_undervalued_when_pe_below_80_pct_of_avg(self):
@@ -356,8 +356,16 @@ class TestCompareToPeers:
         # Only pe_ratio=20 counts → peer_avg_pe=20, company=5 → 5 < 16 → undervalued
         assert result["vs_peer_avg"] == "undervalued"
 
-    def test_peers_all_zero_pe_returns_in_line(self):
-        # No valid peer P/Es → peer_pes=[] → early return in_line
+    def test_peers_all_zero_pe_are_unavailable(self):
         peers = [{"pe_ratio": 0}, {}]
         result = _compare_to_peers({"pe_ratio": 50.0}, peers)
+        assert result["vs_peer_avg"] == "unavailable"
+
+    def test_nonpositive_or_nonfinite_peers_do_not_distort_comparison(self):
+        peers = [
+            {"pe_ratio": value} for value in (-10, 0, float("nan"), float("inf"), True, None, 20)
+        ]
+        result = _compare_to_peers({"pe_ratio": 20.0}, peers)
+        assert result["peer_avg_pe"] == 20
+        assert result["peer_count"] == 1
         assert result["vs_peer_avg"] == "in_line"

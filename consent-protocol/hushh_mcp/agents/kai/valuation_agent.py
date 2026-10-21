@@ -33,6 +33,7 @@ class ValuationInsight:
     recommendation: str  # "overvalued", "fair", "undervalued"
     market_snapshot: Dict[str, Any] | None = None
     analysis_degraded: bool = False
+    peer_ranking: str | None = None
 
 
 class ValuationAgent(HushhAgent):
@@ -173,6 +174,7 @@ class ValuationAgent(HushhAgent):
                 summary=gemini_analysis.get("summary", f"Valuation analysis for {ticker}"),
                 valuation_metrics=gemini_analysis.get("valuation_metrics", {}),
                 peer_comparison=gemini_analysis.get("peer_comparison", {}),
+                peer_ranking=gemini_analysis.get("peer_ranking"),
                 price_targets=gemini_analysis.get("price_targets", {}),
                 sources=gemini_analysis.get("sources", ["Gemini Valuation Analysis"]),
                 confidence=gemini_analysis.get("confidence", 0.5),
