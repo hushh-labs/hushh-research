@@ -1389,6 +1389,26 @@
       "status",
       "user_id"
     ],
+    "google_calendar_additional_accounts": [
+      "user_id",
+      "account_id",
+      "provider_subject",
+      "provider_email",
+      "status",
+      "scope_csv",
+      "access_level",
+      "refresh_token_ciphertext",
+      "refresh_token_iv",
+      "refresh_token_tag",
+      "access_token_ciphertext",
+      "access_token_iv",
+      "access_token_tag",
+      "access_token_expires_at",
+      "connected_at",
+      "revoked_at",
+      "created_at",
+      "updated_at"
+    ],
     "google_email_send_actions": [
       "action_id",
       "completed_at",
@@ -1974,6 +1994,33 @@
       "revoked_at",
       "updated_at",
       "user_id"
+    ],
+    "one_product_activity_epochs": [
+      "user_id",
+      "generation",
+      "started_at"
+    ],
+    "one_product_activity_observations": [
+      "event_id",
+      "user_id",
+      "generation",
+      "agent_id",
+      "action_id",
+      "catalog_revision",
+      "source",
+      "phase",
+      "observed_at",
+      "expires_at",
+      "operation_key"
+    ],
+    "one_product_value_receipts": [
+      "effect_id",
+      "user_id",
+      "generation",
+      "agent_id",
+      "proof",
+      "occurred_at",
+      "expires_at"
     ],
     "one_profile_discovery_daily_usage": [
       "scan_poll_requests",
@@ -3244,53 +3291,6 @@
       "expires_at",
       "owner_user_id",
       "request_id"
-    ],
-    "google_calendar_additional_accounts": [
-      "user_id",
-      "account_id",
-      "provider_subject",
-      "provider_email",
-      "status",
-      "scope_csv",
-      "access_level",
-      "refresh_token_ciphertext",
-      "refresh_token_iv",
-      "refresh_token_tag",
-      "access_token_ciphertext",
-      "access_token_iv",
-      "access_token_tag",
-      "access_token_expires_at",
-      "connected_at",
-      "revoked_at",
-      "created_at",
-      "updated_at"
-    ],
-    "one_product_activity_epochs": [
-      "user_id",
-      "generation",
-      "started_at"
-    ],
-    "one_product_activity_observations": [
-      "event_id",
-      "user_id",
-      "generation",
-      "agent_id",
-      "action_id",
-      "catalog_revision",
-      "source",
-      "phase",
-      "observed_at",
-      "expires_at",
-      "operation_key"
-    ],
-    "one_product_value_receipts": [
-      "effect_id",
-      "user_id",
-      "generation",
-      "agent_id",
-      "proof",
-      "occurred_at",
-      "expires_at"
     ]
   },
   "expected_schema_head": 406
