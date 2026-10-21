@@ -101,7 +101,12 @@ def valid_core(core, provider, expected, document):
     if not isinstance(core, dict) or core.get("schema") != "managed_text_probe.v1":
         return False
     policy = document["private_drive_text_uat"]
-    generation = str(uuid5(UUID(policy["policy_id"]), policy["version"]))
+    generation = str(
+        uuid5(
+            UUID(policy["policy_id"]),
+            policy["version"] + (":vertex" if provider == "vertex" else ""),
+        )
+    )
     scopes = core.get("scopes")
     if (
         core.get("provider") != provider
@@ -140,6 +145,101 @@ def valid_pwm_proof(proof, document):
         and proof.get("deployment")
         == document["pwm_research_uat"]["azure"]["primary_deployment"]
         and bool(re.fullmatch(r"[0-9a-f]{64}", str(proof.get("policy_sha256", ""))))
+    )
+
+
+def valid_capabilities(proof, provider, expected, document):
+    policy = document["managed_runtime_uat"]
+    digest = fingerprint(
+        {"policy": policy, "azure": document["pwm_research_uat"]["azure"]}
+    )
+    generation = str(
+        uuid5(UUID(policy["policy_id"]), policy["version"] + digest + provider)
+    )
+    if not isinstance(proof, dict) or set(proof) != {
+        "schema",
+        "provider",
+        "config_fingerprint",
+        "policy_generation",
+        "synthetic_only",
+        "capabilities",
+        "ready",
+        "elapsed_ms",
+    }:
+        return False
+    capabilities = proof["capabilities"]
+    return (
+        proof["schema"] == "managed_capabilities_probe.v1"
+        and proof["provider"] == provider
+        and proof["synthetic_only"] is True
+        and proof["ready"] is True
+        and proof["config_fingerprint"] == expected["config_fingerprint"]
+        and proof["policy_generation"] == generation
+        and type(proof["elapsed_ms"]) is int
+        and 0 <= proof["elapsed_ms"] <= 600_000
+        and isinstance(capabilities, dict)
+        and set(capabilities) == set(policy["required_capabilities"])
+        and all(
+            isinstance(value, dict)
+            and value.get("ready") is True
+            and type(value.get("elapsed_ms")) is int
+            and 0 <= value["elapsed_ms"] <= 65_000
+            and set(value)
+            <= {
+                "ready",
+                "elapsed_ms",
+                "cited_sources",
+                "fresh_page_retrieval_claimed",
+                "http_receipts",
+                "audio_bytes",
+                "sample_rate",
+                "chunks",
+                "synthetic_phrase_verified",
+                "dimensions",
+                "function_round_trip",
+                "input_sample_rate",
+                "input_transcription_verified",
+                "synthetic_content_verified",
+                "streaming_observed",
+                "steps",
+            }
+            and all(
+                type(item) is bool
+                if key
+                in {
+                    "ready",
+                    "fresh_page_retrieval_claimed",
+                    "synthetic_phrase_verified",
+                    "function_round_trip",
+                    "input_transcription_verified",
+                    "synthetic_content_verified",
+                    "streaming_observed",
+                }
+                else type(item) is int and 0 <= item <= 10_000_000
+                for key, item in value.items()
+            )
+            for value in capabilities.values()
+        )
+        and all(
+            capabilities[name].get("synthetic_content_verified") is True
+            for name in ("structured_text", "image_input", "pdf_input")
+        )
+        and capabilities["structured_text"].get("streaming_observed") is True
+        and capabilities["public_search"].get("cited_sources", 0) > 0
+        and capabilities["public_search"].get("fresh_page_retrieval_claimed") is False
+        and capabilities["public_source"].get("http_receipts") == 1
+        and capabilities["location_transcription"].get("synthetic_phrase_verified")
+        is True
+        and capabilities["location_semantics"].get("steps") == 1
+        and capabilities["narration"].get("audio_bytes", 0) > 0
+        and capabilities["narration"].get("chunks", 0) > 0
+        and capabilities["narration"].get("sample_rate") == 24000
+        and capabilities["live_audio"].get("audio_bytes", 0) > 0
+        and capabilities["live_audio"].get("sample_rate") == 24000
+        and capabilities["live_audio"].get("input_sample_rate") == 16000
+        and capabilities["live_audio"].get("function_round_trip") is True
+        and capabilities["live_audio"].get("input_transcription_verified") is True
+        and capabilities["embeddings"].get("dimensions") == 768
     )
 
 
@@ -184,6 +284,13 @@ def collect(provider, expected, step_exit, job):
     if (
         len(containers) != 1
         or containers[0].get("image") != expected["image"]
+        or containers[0].get("command") != ["python3"]
+        or containers[0].get("args")
+        != [
+            "scripts/verify_azure_pwm_runtime.py"
+            if provider == "azure_openai"
+            else "scripts/verify_managed_vertex_runtime.py"
+        ]
         or template.get("serviceAccountName") != expected["runtime_account"]
         or len(owners) != 1
         or owners[0].get("name") != job
@@ -203,6 +310,12 @@ def collect(provider, expected, step_exit, job):
     ):
         result["reason"] = "provider_project_mismatch"
         return result
+    if any(
+        environment.get(key) != provider
+        for key in ("HUSHH_UAT_MANAGED_AI_PROVIDER", "HUSHH_UAT_MANAGED_TEXT_PROVIDER")
+    ):
+        result["reason"] = "provider_selection_mismatch"
+        return result
     values = []
     query = (
         'resource.type=cloud_run_job AND labels."run.googleapis.com/execution_name"="'
@@ -211,7 +324,8 @@ def collect(provider, expected, step_exit, job):
         "textPayload:managed_text_provider_probe OR jsonPayload.managed_text_provider_probe:* "
         "OR jsonPayload.azure_pwm_runtime_probe_result:* OR textPayload:azure_pwm_ "
         "OR jsonPayload.azure_pwm_production_contracts:* OR jsonPayload.azure_pwm_probe_failure:* "
-        "OR jsonPayload.azure_managed_text_contract:* OR jsonPayload.azure_pwm_runtime_probe_stage:*)"
+        "OR jsonPayload.azure_managed_text_contract:* OR jsonPayload.azure_pwm_runtime_probe_stage:* "
+        "OR jsonPayload.managed_capabilities_probe:* OR textPayload:managed_capabilities_probe)"
     )
     for attempt in range(6):
         entries = run_json(
@@ -236,6 +350,17 @@ def collect(provider, expected, step_exit, job):
                 any("managed_text_provider_probe" in value for value in values)
                 or expected.get("legacy_exception") is True
             )
+        )
+        terminal_failed = any(
+            value.get("azure_pwm_runtime_probe_result") == "failed"
+            or value.get("check") == "managed_vertex_runtime"
+            and value.get("ok") is False
+            for value in values
+        )
+        complete = (
+            terminal_failed
+            or complete
+            and any("managed_capabilities_probe" in value for value in values)
         )
         if complete:
             break
@@ -284,6 +409,15 @@ def collect(provider, expected, step_exit, job):
         execution_terminal=terminal[0]["status"],
         reason="core_not_proven",
     )
+    capability_proofs = [
+        value["managed_capabilities_probe"]
+        for value in values
+        if isinstance(value.get("managed_capabilities_probe"), dict)
+    ]
+    if len(capability_proofs) == 1 and valid_capabilities(
+        capability_proofs[0], provider, expected, document
+    ):
+        result["capability_proof"] = capability_proofs[0]
     # A matching execution can fail optional modalities while its core text proof succeeds.
     if len(cores) == 1 and valid_core(cores[0], provider, expected, document):
         result.update(core_ready=True, core=cores[0], reason="core_ready")
@@ -314,7 +448,11 @@ def collect(provider, expected, step_exit, job):
         proofs = [v for v in values if "azure_pwm_production_contracts" in v]
         explicit_failure = any("azure_pwm_probe_failure" in v for v in values) or any(
             v.get("azure_pwm_runtime_probe_result") == "failed"
-            and v.get("error_type") in {"ValueError", "ValidationError", "TypeError"}
+            and (
+                v.get("pwm_trust_failure") is True
+                or v.get("error_type")
+                in {"ValueError", "ValidationError", "TypeError", "AzurePwmTrustError"}
+            )
             for v in values
         )
         proven = (
@@ -341,7 +479,7 @@ def evaluate(envelopes, expected):
     accepted = {}
     diagnostics = {}
     trust_failed = False
-    hard_failures = []
+    alternate_diagnostics = []
     for provider in sorted(PROVIDERS):
         value = envelopes.get(provider)
         valid = (
@@ -358,7 +496,7 @@ def evaluate(envelopes, expected):
         ):
             trust_failed = True
         if valid and value.get("verified") is True:
-            hard_failures.extend(
+            alternate_diagnostics.extend(
                 name
                 for name, classification in value.get(
                     "capability_classifications", {}
@@ -378,6 +516,9 @@ def evaluate(envelopes, expected):
             )
             and value.get("execution_terminal") in {"True", "False"}
             and valid_core(value.get("core"), provider, expected, document)
+            and valid_capabilities(
+                value.get("capability_proof"), provider, expected, document
+            )
             and (
                 provider != "azure_openai"
                 or (
@@ -405,8 +546,8 @@ def evaluate(envelopes, expected):
     )
     return {
         "schema": "managed_provider_readiness.v1",
-        "ready": selected is not None and not trust_failed and not hard_failures,
-        "hard_failures": sorted(hard_failures),
+        "ready": selected is not None and not trust_failed,
+        "alternate_failures": sorted(alternate_diagnostics),
         "selected_provider": selected,
         "pwm_trust": (
             "failed"
@@ -417,6 +558,9 @@ def evaluate(envelopes, expected):
             else "unverified"
         ),
         "required_scopes": sorted(SCOPES),
+        "required_capabilities": sorted(
+            document["managed_runtime_uat"]["required_capabilities"]
+        ),
         "context": expected,
         "providers": diagnostics,
     }
@@ -454,6 +598,7 @@ def worker_provider(sha, image, run_id, account):
         or env.get("HUSHH_DEPLOY_RUN_ID") != run_id
         or env.get("HUSHH_DEPLOY_ENV") != "uat"
         or provider not in PROVIDERS
+        or env.get("HUSHH_UAT_MANAGED_AI_PROVIDER") != provider
         or not any(
             v.get("type") == "Ready" and v.get("status") == "True"
             for v in observed.get("status", {}).get("conditions", [])
@@ -494,7 +639,13 @@ def candidate(service, expected, tag):
         raise ValueError(
             "Managed provider selection requires the exact no-traffic candidate"
         )
-    return revision, env.get("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "azure_openai")
+    selected = env.get("HUSHH_UAT_MANAGED_TEXT_PROVIDER")
+    if (
+        selected not in PROVIDERS
+        or env.get("HUSHH_UAT_MANAGED_AI_PROVIDER") != selected
+    ):
+        raise ValueError("Candidate managed provider flags disagree")
+    return revision, selected
 
 
 def select(result, expected, folder):
@@ -529,7 +680,10 @@ def select(result, expected, folder):
                 *args,
                 "--no-traffic",
                 "--tag=" + tag,
-                "--update-env-vars=HUSHH_UAT_MANAGED_TEXT_PROVIDER=" + selected,
+                "--update-env-vars=HUSHH_UAT_MANAGED_TEXT_PROVIDER="
+                + selected
+                + ",HUSHH_UAT_MANAGED_AI_PROVIDER="
+                + selected,
                 "--quiet",
             ]
         )

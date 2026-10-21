@@ -128,8 +128,7 @@ steps:
             genai_project_id="hushh-pda-uat"
           fi
         fi
-        # Validate deployment arguments against the same packaged profile used
-        # by text, voice, research and embeddings. No surface project overrides.
+        # Validate every surface against the packaged profile; no project overrides.
         expected_config_hash=$(python3 scripts/ops/managed_ai_config.py --environment "${_DEPLOY_ENV}" --format hash)
         if [[ "${_MANAGED_AI_CONFIG_HASH}" != "${expected_config_hash}" ]]; then echo "Managed AI profile hash mismatch." >&2; exit 1; fi
         expected_genai_project=$(python3 -c 'import json,sys; print(json.load(open("consent-protocol/config/managed-ai-runtime.json"))["environments"][sys.argv[1]]["project"])' "${_DEPLOY_ENV}")
@@ -246,14 +245,12 @@ steps:
           fi
         fi
         add_secret() {
-          local secret_name="$1"
-          local env_name="$2"
+          local secret_name="$1" env_name="$2"
           [[ -z "${secret_name}" ]] && return
           if gcloud secrets describe "${secret_name}" --project="$PROJECT_ID" >/dev/null 2>&1; then
             secrets="${secrets},${env_name}=${secret_name}:latest"
           fi
         }
-
         secrets="$${BASE_SECRET_BINDINGS}"
         if [[ -n "${_PLAID_CLIENT_ID_SECRET}" ]]; then
           secrets="${secrets},PLAID_CLIENT_ID=${_PLAID_CLIENT_ID_SECRET}:latest"
@@ -305,12 +302,10 @@ steps:
         add_secret "${_WALLET_PASS_CERT_PEM_SECRET}" "WALLET_PASS_CERT_PEM"
         add_secret "${_WALLET_PASS_KEY_PEM_SECRET}" "WALLET_PASS_KEY_PEM"
         add_secret "${_WALLET_PASS_WWDR_PEM_SECRET}" "WALLET_PASS_WWDR_PEM"
-
         runtime_environment="${_RUNTIME_ENVIRONMENT}"
         if [[ -z "${runtime_environment}" ]]; then
           runtime_environment="${_DEPLOY_ENV}"
         fi
-
         env_vars=(
           "ENVIRONMENT=${runtime_environment}"
           "DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}"
@@ -332,14 +327,11 @@ steps:
           "RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}"
           "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
         )
-        if [[ "${_DEPLOY_ENV}" == "uat" ]]; then
-          env_vars+=("HUSHH_UAT_MANAGED_TEXT_PROVIDER=azure_openai")
-        fi
+        if [[ "${_DEPLOY_ENV}" == "uat" ]]; then env_vars+=("HUSHH_UAT_MANAGED_TEXT_PROVIDER=azure_openai" "HUSHH_UAT_MANAGED_AI_PROVIDER=azure_openai"); fi
         add_env() {
-          local env_name="$1"
-          local env_value="$2"
-          if [[ -n "${env_value}" ]]; then
-            env_vars+=("${env_name}=${env_value}")
+          local name="$1" value="$2"
+          if [[ -n "${value}" ]]; then
+            env_vars+=("${name}=${value}")
           fi
         }
         for n in ONE_EMAIL_ADDRESS ONE_EMAIL_DELEGATED_USER ONE_EMAIL_PUBSUB_TOPIC ONE_EMAIL_WEBHOOK_AUDIENCE ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL ONE_EMAIL_WEBHOOK_AUTH_ENABLED ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL ACCOUNT_DELETION_CLEANUP_AUDIENCE ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL DRIVE_WORK_DRAIN_ENABLED DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE DRIVE_REQUEST_PAYMENTS_ENABLED DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED DRIVE_REQUEST_HASHCOINS_ENABLED DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED STRIPE_MODE STRIPE_CONNECT_MODE ONE_EMAIL_KYC_DEFAULT_SCOPE ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED ONE_WALLET_CARD_ENABLED WALLET_CARD_ACCESS_ENABLED WALLET_PASS_PROVIDER APP_REVIEW_MODE HUSSH_GEMINI_TEXT_MODEL HUSHH_PROD_PHONE_TEST_ENABLED ONE_VOICE_LIVE_ENABLED ONE_VOICE_CALENDAR_NARRATION_ENABLED VERTEX_LIVE_MODEL_ID VERTEX_LIVE_LOCATION; do
@@ -356,7 +348,6 @@ steps:
         add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
         add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
         source deploy/sso/bind_workos.sh || :
-
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
         deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},account-deletion-contract=v201"
         if [[ "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]; then
@@ -366,7 +357,6 @@ steps:
             deploy_labels="${deploy_labels},one-voice-live-model=${live_model_label}"
           fi
         fi
-
         image_reference="${_IMAGE_REFERENCE}"
         if [[ -z "${image_reference}" ]]; then
           image_reference="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
@@ -375,7 +365,6 @@ steps:
           echo "Prebuilt backend deploy requires an immutable sha256 image digest." >&2
           exit 1
         fi
-
         cmd=(
           gcloud run deploy "${_BACKEND_SERVICE}"
           "--image=${image_reference}"
@@ -398,21 +387,18 @@ steps:
           "--set-env-vars=^|^${env_var_string}"
           "--set-secrets=${secrets}"
         )
-
         if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then
           cmd+=("--no-traffic")
           if [[ -n "${_CLOUD_RUN_TAG}" ]]; then
             cmd+=("--tag=${_CLOUD_RUN_TAG}")
           fi
         fi
-
         if [[ -n "${_CLOUDSQL_INSTANCES}" ]]; then
           cmd+=("--add-cloudsql-instances=${_CLOUDSQL_INSTANCES}")
         fi
         if [[ -n "${_VPC_CONNECTOR}" ]]; then
           cmd+=("--vpc-connector=${_VPC_CONNECTOR}" "--vpc-egress=private-ranges-only")
         fi
-
         "${cmd[@]}"
     env:
       - "BASE_SECRET_BINDINGS=APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=${_FIREBASE_ADMIN_CREDENTIALS_SECRET}:latest,APP_FRONTEND_ORIGIN=${_APP_FRONTEND_ORIGIN_SECRET}:latest,BACKEND_RUNTIME_CONFIG_JSON=${_BACKEND_RUNTIME_CONFIG_JSON_SECRET}:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest"
@@ -541,7 +527,6 @@ steps:
         pwm_provider="$(python3 - <<'PY'
         import json
         from pathlib import Path
-
         config = json.loads(Path("consent-protocol/config/managed-ai-runtime.json").read_text())
         print(config.get("pwm_research_uat", config["pwm_research"])["provider"])
         PY
@@ -562,10 +547,10 @@ steps:
           --project="$PROJECT_ID" --region="${_REGION}" \
           --image="${_IMAGE_REFERENCE}" \
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
-          --clear-secrets \
+          --set-secrets="APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest" \
           --command=python3 --args=scripts/verify_azure_pwm_runtime.py \
-          --set-env-vars=ENVIRONMENT=uat \
-          --cpu=2 --memory=2Gi --max-retries=0 --task-timeout=240s --quiet
+          --set-env-vars=ENVIRONMENT=uat,HUSHH_UAT_MANAGED_AI_PROVIDER=azure_openai,HUSHH_UAT_MANAGED_TEXT_PROVIDER=azure_openai,ONE_VOICE_LIVE_ENABLED=true \
+          --cpu=2 --memory=2Gi --max-retries=0 --task-timeout=420s --quiet
         if ! gcloud run jobs execute "${job_name}" \
           --project="$PROJECT_ID" --region="${_REGION}" --wait --quiet; then
           echo "Azure PWM UAT runtime probe execution failed." >&2
@@ -614,7 +599,6 @@ steps:
         PROBE_ENTRIES="${probe_entries}" python3 - <<'PY'
         import json
         import os
-
         try:
             entries = json.loads(os.environ["PROBE_ENTRIES"])
         except (KeyError, json.JSONDecodeError):
@@ -714,10 +698,10 @@ steps:
           --region="${_REGION}" \
           --image="${image_reference}" \
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
-          --clear-secrets \
+          --set-secrets="APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest" \
           --command="python3" \
           --args="scripts/verify_managed_vertex_runtime.py" \
-          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}|HUSHH_ONE_VOICE_VERTEX_PROJECT=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}|HUSHH_MANAGED_VERTEX_PROBE_MODE=${probe_mode}|ENVIRONMENT=${_DEPLOY_ENV}|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}|ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}|VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}|VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}" \
+          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}|HUSHH_ONE_VOICE_VERTEX_PROJECT=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}|HUSHH_MANAGED_VERTEX_PROBE_MODE=${probe_mode}|HUSHH_UAT_MANAGED_AI_PROVIDER=vertex|HUSHH_UAT_MANAGED_TEXT_PROVIDER=vertex|ENVIRONMENT=${_DEPLOY_ENV}|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}|ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}|VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}|VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}" \
           --cpu=2 \
           --memory=2Gi \
           --max-retries=0 \

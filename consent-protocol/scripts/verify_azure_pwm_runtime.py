@@ -156,10 +156,14 @@ def _production_contract_examples() -> tuple[dict, dict]:
     return values, schemas
 
 
+class AzurePwmTrustError(RuntimeError):
+    """A received model answer violated an authored attribution/trust case."""
+
+
 def _failure(check: str, fields: list[str]) -> None:
     """Emit authored case/field names only; suppress model text and provider errors."""
     print(json.dumps({"azure_pwm_probe_failure": check, "failed_fields": fields}), flush=True)
-    raise RuntimeError(f"Azure {check} evaluation failed")
+    raise AzurePwmTrustError(f"Azure {check} evaluation failed")
 
 
 async def _probe_primary(config: dict[str, str], supplier: Callable[[], str]) -> None:
@@ -331,13 +335,18 @@ async def probe() -> None:
     _stage("primary", "start", started_at=started_at)
     await _probe_primary(config, lambda: token)
     _stage("primary", "ok", started_at=started_at)
+    from scripts.probe_managed_capabilities import probe_managed_capabilities
+
+    capabilities = await probe_managed_capabilities("azure_openai")
+    if not capabilities["ready"]:
+        raise RuntimeError("Managed Azure capability qualification failed")
 
 
 def main() -> int:
     try:
         # One strict HTTP-200 readiness call precedes the bounded attribution
         # call. Neither performs search or sends owner information.
-        asyncio.run(asyncio.wait_for(probe(), timeout=200))
+        asyncio.run(asyncio.wait_for(probe(), timeout=360))
     except Exception as error:  # noqa: BLE001 - print only the error class, never a token
         from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
 
@@ -347,6 +356,7 @@ def main() -> int:
                     "azure_pwm_runtime_probe_result": "failed",
                     "classification": classify_provider_error(error),
                     "error_type": type(error).__name__,
+                    "pwm_trust_failure": isinstance(error, AzurePwmTrustError),
                 }
             ),
             flush=True,

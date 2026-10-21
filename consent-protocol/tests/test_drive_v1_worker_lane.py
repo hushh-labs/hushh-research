@@ -80,6 +80,7 @@ def _revision() -> dict:
                         {"name": "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "value": "gemini"},
                         {"name": "ENVIRONMENT", "value": "uat"},
                         {"name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER", "value": "azure_openai"},
+                        {"name": "HUSHH_UAT_MANAGED_AI_PROVIDER", "value": "azure_openai"},
                     ],
                 },
                 {"name": "clamav", "image": "clamav/clamav@" + SCANNER},
@@ -316,7 +317,7 @@ elif a[:4] == ["run", "revisions", "describe", "consent-protocol-01234-api"]:
             "env": [{"name": key, "value": value} for key, value in {
                 "HUSHH_DEPLOY_SHA": os.environ["DEPLOY_SHA"],
                 "HUSHH_DEPLOY_RUN_ID": os.environ["RELEASE_RUN_ID"],
-                "HUSHH_DEPLOY_ENV": "uat", "HUSHH_UAT_MANAGED_TEXT_PROVIDER": "azure_openai",
+                "HUSHH_DEPLOY_ENV": "uat", "HUSHH_UAT_MANAGED_TEXT_PROVIDER": "azure_openai", "HUSHH_UAT_MANAGED_AI_PROVIDER": "azure_openai",
             }.items()],
         }]}, "status": {"conditions": [{"type": "Ready", "status": "True"}]},
     }))

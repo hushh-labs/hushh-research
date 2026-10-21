@@ -682,8 +682,14 @@ def test_hosted_factory_uses_checked_in_profile_even_with_stale_environment(
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "stale-region")
     monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
     monkeypatch.setattr("google.genai.Client", lambda **kwargs: calls.append(kwargs) or object())
-    build_managed_runtime_client("gemini")
-    assert calls == [{"vertexai": True, "project": project, "location": "global"}]
+    client = build_managed_runtime_client("gemini")
+    if environment == "uat":
+        from hushh_mcp.runtime_providers.managed_azure_text import ManagedAzureTextClient
+
+        assert isinstance(client, ManagedAzureTextClient)
+        assert calls == []  # Hosted API keys and stale Vertex configuration cannot capture UAT.
+    else:
+        assert calls == [{"vertexai": True, "project": project, "location": "global"}]
 
 
 def test_factory_grok_uses_openai_transport_with_base_url(monkeypatch):

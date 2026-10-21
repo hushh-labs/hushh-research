@@ -587,7 +587,14 @@ async def main() -> dict[str, object]:
         if live_config.enabled and live_config.vertex_project
         else None
     )
+    capabilities_ready = None
+    if os.environ.get("ENVIRONMENT") == "uat" and not failed:
+        from scripts.probe_managed_capabilities import probe_managed_capabilities
+
+        capabilities = await probe_managed_capabilities("vertex")
+        capabilities_ready = capabilities["ready"]
     return {
+        "managed_runtime_capabilities_ready": capabilities_ready,
         "config_hash": managed_ai_settings().config_hash,
         "check": "managed_vertex_runtime",
         "ok": not failed,
@@ -631,6 +638,8 @@ def _run() -> int:
     # logs, which means one stable prefix and valid JSON after it.
     print(f"{RESULT_PREFIX} {json.dumps(report, separators=(',', ':'), sort_keys=True)}")
 
+    if report.get("managed_runtime_capabilities_ready") is False:
+        return 1
     if report["ok"]:
         return 0
     if report.get("one_chat_probe_ok") is False:

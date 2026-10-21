@@ -8,7 +8,7 @@ import os
 import re
 from pathlib import Path
 from urllib.parse import urlsplit
-from uuid import UUID
+from uuid import UUID, uuid5
 
 PROFILE_PATH = Path(__file__).resolve().parents[1] / "config" / "managed-ai-runtime.json"
 FIELDS = {
@@ -93,15 +93,122 @@ def load_private_drive_text_policy(path: Path = PROFILE_PATH) -> dict:
     return value
 
 
-def load_pwm_policy(path: Path = PROFILE_PATH, *, environment: str | None = None) -> dict:
+def selected_managed_provider() -> str:
+    selected = os.getenv("HUSHH_UAT_MANAGED_AI_PROVIDER") or os.getenv(
+        "HUSHH_UAT_MANAGED_TEXT_PROVIDER", "azure_openai"
+    )
+    if selected not in {"azure_openai", "vertex"} or (
+        os.getenv("HUSHH_UAT_MANAGED_AI_PROVIDER")
+        and os.getenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER")
+        and os.environ["HUSHH_UAT_MANAGED_TEXT_PROVIDER"] != selected
+    ):
+        raise ValueError("Managed runtime provider bindings disagree")
+    return selected
+
+
+def load_managed_runtime_policy(
+    path: Path = PROFILE_PATH, *, environment: str | None = None
+) -> dict | None:
+    """UAT processor selection only; callers retain information/action authority.
+
+    This expanded administrator rollout is separate from the narrower historical
+    One/Drive consent descriptor. It does not select or redirect a BYOK client.
+    """
+    env = (
+        (environment or os.getenv("HUSHH_DEPLOY_ENV") or os.getenv("ENVIRONMENT") or "local")
+        .strip()
+        .lower()
+    )
+    if env != "uat":
+        return None
+    value = json.loads(path.read_text())["managed_runtime_uat"]
+    if (
+        not isinstance(value, dict)
+        or set(value)
+        != {"policy_id", "version", "authority_basis", "scope", "azure", "required_capabilities"}
+        or value["authority_basis"] != "administrator_rollout"
+        or value["scope"] != "managed_runtime_capabilities"
+        or not re.fullmatch(r"[a-z0-9-]{1,64}", str(value["version"]))
+        or str(UUID(value["policy_id"])) != value["policy_id"]
+    ):
+        raise ValueError("Invalid UAT managed runtime policy")
+    required = value["required_capabilities"]
+    if (
+        not isinstance(required, list)
+        or not 1 <= len(required) <= 32
+        or any(
+            not isinstance(item, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", item)
+            for item in required
+        )
+        or len(set(required)) != len(required)
+    ):
+        raise ValueError("Invalid managed capability inventory")
+    azure = value["azure"]
+    if not isinstance(azure, dict) or set(azure) != {
+        "realtime",
+        "transcription",
+        "speech",
+        "embedding",
+        "embedding_dimensions",
+        "voice",
+    }:
+        raise ValueError("Invalid managed Azure capability bindings")
+    for kind in ("realtime", "transcription", "speech", "embedding"):
+        binding = azure[kind]
+        if not isinstance(binding, dict) or set(binding) != {"deployment", "model", "version"}:
+            raise ValueError("Invalid managed Azure deployment descriptor")
+        if any(
+            not isinstance(v, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", v)
+            for v in binding.values()
+        ):
+            raise ValueError("Invalid managed Azure deployment descriptor")
+    if type(azure["embedding_dimensions"]) is not int or azure["embedding_dimensions"] != 768:
+        raise ValueError("Managed Location embeddings require 768 dimensions")
+    if azure["voice"] not in {"coral"}:
+        raise ValueError("Unsupported managed Azure voice")
+    selected = selected_managed_provider()
+    digest = profile_hash(
+        {
+            "policy": value,
+            "azure": load_pwm_policy(path, environment="uat", provider="azure_openai")["azure"],
+        }
+    )
+    return {
+        **value,
+        "provider": selected,
+        "config_fingerprint": digest,
+        "generation": str(uuid5(UUID(value["policy_id"]), value["version"] + digest + selected)),
+    }
+
+
+def load_pwm_policy(
+    path: Path = PROFILE_PATH, *, environment: str | None = None, provider: str | None = None
+) -> dict:
     """Research limits and provider are one checked-in runtime contract."""
     document = json.loads(path.read_text())
-    runtime_environment = (environment or os.environ.get("ENVIRONMENT", "development")).lower()
-    value = document[
-        "pwm_research_uat"
-        if runtime_environment == "uat" and "pwm_research_uat" in document
-        else "pwm_research"
-    ]
+    runtime_environment = (
+        (
+            environment
+            or os.environ.get("HUSHH_DEPLOY_ENV")
+            or os.environ.get("ENVIRONMENT", "development")
+        )
+        .strip()
+        .lower()
+    )
+    if provider is not None and provider not in {"azure_openai", "vertex"}:
+        raise ValueError("Invalid research processor selection")
+    selected = provider or (
+        selected_managed_provider() if runtime_environment == "uat" else "vertex"
+    )
+    value = dict(
+        document["pwm_research_uat"]
+        if runtime_environment == "uat"
+        and selected == "azure_openai"
+        and "pwm_research_uat" in document
+        else document["pwm_research"]
+    )
+    if runtime_environment == "uat":
+        value["owner_source_provider"] = "public_https"
     provider = value.get("provider")
     azure = provider == "azure_openai_web_search"
     if (
@@ -122,9 +229,10 @@ def load_pwm_policy(path: Path = PROFILE_PATH, *, environment: str | None = None
             | ({"azure"} if azure else set())
         )
         or provider not in {"vertex_google_search", "azure_openai_web_search"}
-        or value["owner_source_provider"] != "vertex_url_context"
+        or value["owner_source_provider"]
+        != ("public_https" if runtime_environment == "uat" else "vertex_url_context")
     ):
-        raise ValueError("PWM requires a declared research provider and Vertex source review")
+        raise ValueError("PWM requires declared research and source-review providers")
     if azure:
         config = value["azure"]
         if not isinstance(config, dict) or set(config) != {

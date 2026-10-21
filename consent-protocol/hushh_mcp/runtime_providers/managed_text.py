@@ -45,7 +45,9 @@ def managed_text_policy() -> dict | None:
     policy = load_private_drive_text_policy()
     if not policy["enabled"]:
         raise ValueError("UAT managed text processing policy is disabled")
-    selected = os.getenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "azure_openai")
+    from hushh_mcp.managed_ai_config import selected_managed_provider
+
+    selected = selected_managed_provider()
     if selected not in {policy["provider"], policy["alternate_provider"]}:
         raise ValueError("Invalid UAT managed text provider")
     version = policy["version"] + (":vertex" if selected == "vertex" else "")
@@ -214,14 +216,18 @@ def build_managed_text_model(
     if policy is None:
         raise ValueError("Managed Azure text policy is UAT only")
     from hushh_mcp.one_adk.azure_workload_identity import azure_openai_token_provider
-    from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
+    from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
     from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
-    config = load_pwm_policy(environment="uat")["azure"]
+    config = load_pwm_policy(environment="uat", provider="azure_openai")["azure"]
 
     # One fallback call to the configured Gemini location, no nested regional retries.
     def fallback():
-        return build_managed_gemini_adk_model(resolve_fleet_model_name("gemini-default"))
+        # Explicit Vertex transport: the default managed factory may now select
+        # Azure, which must never masquerade as the alternate provider.
+        return ManagedGeminiRuntimeBinding.from_environment().build_adk_model(
+            resolve_fleet_model_name("gemini-default")
+        )
 
     selected = provider or policy["selected_provider"]
     if selected not in {"azure_openai", "vertex"}:
@@ -311,7 +317,7 @@ def managed_text_binding() -> dict:
     policy = managed_text_policy()
     if policy is None:
         raise ValueError("Managed text binding is UAT only")
-    config = load_pwm_policy(environment="uat")["azure"]
+    config = load_pwm_policy(environment="uat", provider="azure_openai")["azure"]
     provider = policy["selected_provider"]
     deployment = config["primary_deployment"]
     fingerprint = profile_hash(config)

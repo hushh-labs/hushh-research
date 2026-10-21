@@ -157,3 +157,290 @@ def test_build_live_config_declares_the_device_tools_verbatim_from_one_home():
         }
     assert "resume_device_location_updates" in config.system_instruction.parts[0].text
     assert "one_home" in config.system_instruction.parts[0].text
+
+
+class _AzureConnection:
+    def __init__(self, events=()):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        self.script = events
+        self.response = SimpleNamespace(create=AsyncMock(), cancel=AsyncMock())
+        self.conversation = SimpleNamespace(
+            item=SimpleNamespace(create=AsyncMock(), truncate=AsyncMock())
+        )
+        self.input_audio_buffer = SimpleNamespace(append=AsyncMock())
+
+    def __aiter__(self):
+        async def iterate():
+            for event in self.script:
+                yield event
+
+        return iterate()
+
+
+def _azure_event(kind, **values):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(type=kind, **values)
+
+
+def _azure_session(events=()):
+    from types import SimpleNamespace
+
+    from hushh_mcp.one_voice.azure_live import AzureLiveSession
+
+    binding = SimpleNamespace(require_current=lambda: None)
+    connection = _AzureConnection(events)
+    return AzureLiveSession(
+        connection,
+        binding,
+        {
+            "tools": [
+                {
+                    "name": "synthetic",
+                    "parameters": {"type": "object", "additionalProperties": False},
+                }
+            ]
+        },
+    ), connection
+
+
+def test_azure_resampling_preserves_the_client_rate_and_frame_continuity():
+    import struct
+
+    from hushh_mcp.one_voice.azure_live import Pcm16Resampler
+
+    raw = struct.pack("<160h", *range(160))
+    whole = Pcm16Resampler().push(raw)
+    chunked = Pcm16Resampler()
+    assert b"".join(chunked.push(raw[i : i + 14]) for i in range(0, len(raw), 14)) == whole
+    assert 237 <= len(whole) // 2 <= 240
+    with pytest.raises(ValueError):
+        chunked.push(b"odd")
+
+
+async def test_azure_tool_batch_settles_exact_call_ids_before_one_continuation():
+    from types import SimpleNamespace as NS
+
+    events = [
+        _azure_event("response.created", response=NS(id="r1")),
+        *[
+            _azure_event(
+                "response.output_item.done",
+                response_id="r1",
+                item=NS(type="function_call", call_id=identity, name="synthetic", arguments="{}"),
+            )
+            for identity in ("call1", "call2")
+        ],
+        _azure_event("response.done", response=NS(id="r1", status="completed")),
+        _azure_event("response.created", response=NS(id="r2")),
+        _azure_event("response.done", response=NS(id="r2", status="completed")),
+    ]
+    session, connection = _azure_session(events)
+    observed = []
+    async for event in session.events():
+        observed.append(event.kind)
+        if event.kind == "tool_call":
+            assert [call["id"] for call in event.function_calls] == ["call1", "call2"]
+            for call in event.function_calls:
+                await session.send_tool_response(
+                    call_id=call["id"], name=call["name"], response={"ok": True}
+                )
+    assert observed == ["tool_call", "turn_complete"]
+    assert connection.response.create.await_count == 1
+    assert [
+        call.kwargs["item"]["call_id"]
+        for call in connection.conversation.item.create.await_args_list
+    ] == ["call1", "call2"]
+
+
+async def test_azure_late_input_transcripts_keep_identity_and_only_latest_capture_requests_response():
+    from types import SimpleNamespace as NS
+
+    events = [
+        _azure_event("input_audio_buffer.speech_started", item_id="input_a"),
+        _azure_event("input_audio_buffer.speech_stopped", item_id="input_a"),
+        _azure_event("input_audio_buffer.speech_started", item_id="input_b"),
+        _azure_event("input_audio_buffer.speech_stopped", item_id="input_b"),
+        _azure_event(
+            "conversation.item.input_audio_transcription.completed",
+            item_id="input_b",
+            transcript="Latest synthetic request",
+        ),
+        _azure_event(
+            "conversation.item.input_audio_transcription.completed",
+            item_id="input_a",
+            transcript="Earlier synthetic request",
+        ),
+        _azure_event("response.created", response=NS(id="r1")),
+        _azure_event("response.done", response=NS(id="r1", status="completed")),
+    ]
+    session, connection = _azure_session(events)
+    observed = [event async for event in session.events()]
+    assert [(e.input_item_id, e.text) for e in observed if e.kind == "input_transcript"] == [
+        ("input_b", "Latest synthetic request"),
+        ("input_a", "Earlier synthetic request"),
+    ]
+    assert connection.response.create.await_count == 1
+
+
+async def test_azure_requested_then_cancelled_response_cannot_publish_late_audio_or_tools():
+    from types import SimpleNamespace as NS
+
+    events = [
+        _azure_event("input_audio_buffer.speech_started", item_id="new_input"),
+        _azure_event("input_audio_buffer.speech_stopped", item_id="new_input"),
+        _azure_event(
+            "conversation.item.input_audio_transcription.completed",
+            item_id="new_input",
+            transcript="New request",
+        ),
+        _azure_event("response.created", response=NS(id="old_response")),
+        _azure_event(
+            "response.output_audio.delta",
+            response_id="old_response",
+            delta="invalid",
+            item_id="old_item",
+        ),
+        _azure_event(
+            "response.output_item.done",
+            response_id="old_response",
+            item=NS(type="function_call", name="unknown"),
+        ),
+        _azure_event("response.done", response=NS(id="old_response", status="cancelled")),
+        _azure_event("response.created", response=NS(id="new_response")),
+        _azure_event("response.done", response=NS(id="new_response", status="completed")),
+    ]
+    session, connection = _azure_session(events)
+    await session.send_text("Old request")
+    observed = [e async for e in session.events()]
+    assert [e.kind for e in observed].count("interrupted") == 1
+    assert not any(e.kind in {"audio", "tool_call"} for e in observed)
+    assert connection.response.cancel.await_args.kwargs == {"response_id": "old_response"}
+    assert connection.response.create.await_count == 2
+
+
+async def test_azure_interrupt_rechecks_function_authority_after_lock_wait():
+    import asyncio
+
+    session, connection = _azure_session()
+    session.pending_calls["call1"] = {"id": "call1", "name": "synthetic", "args": {}}
+    session.response_complete = True
+    await session._send_lock.acquire()
+    interrupt = asyncio.create_task(session.interrupt())
+    await asyncio.sleep(0)
+    result = asyncio.create_task(
+        session.send_tool_response(call_id="call1", name="synthetic", response={"ok": True})
+    )
+    await asyncio.sleep(0)
+    session._send_lock.release()
+    await asyncio.gather(interrupt, result)
+    assert connection.conversation.item.create.await_count == 0
+    assert connection.response.create.await_count == 0
+
+
+async def test_azure_barge_in_uses_acknowledged_playback_not_sent_duration():
+    session, connection = _azure_session()
+    session.audio_items["item1"] = {"bytes": 48000, "played_ms": 0, "content_index": 0}
+    session.audio_item = "item1"
+    await session.acknowledge_playback("item1", 125)
+    with pytest.raises(ValueError):
+        await session.acknowledge_playback("item1", 1100)
+    await session.interrupt()
+    assert connection.conversation.item.truncate.await_args.kwargs == {
+        "item_id": "item1",
+        "content_index": 0,
+        "audio_end_ms": 125,
+    }
+
+
+async def test_azure_transcript_timeout_cannot_be_extended_by_other_buffered_events():
+    import asyncio
+
+    session, _ = _azure_session([_azure_event("other") for _ in range(100)])
+    session._awaiting_transcript_at = asyncio.get_running_loop().time() - 16
+    with pytest.raises(TimeoutError):
+        _ = [event async for event in session.events()]
+
+
+@pytest.mark.parametrize("change_during_publish", [False, True])
+async def test_azure_text_rechecks_processor_after_lock_and_before_response(change_during_publish):
+    import asyncio
+
+    session, connection = _azure_session()
+    current = True
+
+    def require_current():
+        if not current:
+            raise PermissionError("Synthetic processor changed")
+
+    session.binding.require_current = require_current
+    if change_during_publish:
+
+        async def publish(**kwargs):
+            nonlocal current
+            current = False
+
+        connection.conversation.item.create.side_effect = publish
+        with pytest.raises(PermissionError):
+            await session.send_text("Synthetic input")
+        assert connection.conversation.item.create.await_count == 1
+    else:
+        await session._send_lock.acquire()
+        task = asyncio.create_task(session.send_text("Synthetic input"))
+        await asyncio.sleep(0)
+        current = False
+        session._send_lock.release()
+        with pytest.raises(PermissionError):
+            await task
+        assert connection.conversation.item.create.await_count == 0
+    assert connection.response.create.await_count == 0
+
+
+async def test_azure_capture_fences_input_before_waiting_for_provider_cancellation():
+    import asyncio
+
+    session, connection = _azure_session(
+        [
+            _azure_event("input_audio_buffer.speech_started", item_id="input_new"),
+        ]
+    )
+    session.response_id = "old_response"
+    await session._send_lock.acquire()
+    events = session.events()
+    assert (await anext(events)).kind == "interrupted"
+    started = await anext(events)
+    assert (started.kind, started.input_item_id) == ("activity_start", "input_new")
+    waiting = asyncio.create_task(anext(events))
+    await asyncio.sleep(0)
+    assert not waiting.done()
+    session._send_lock.release()
+    with pytest.raises(StopAsyncIteration):
+        await waiting
+    assert connection.response.cancel.await_count == 1
+
+
+async def test_azure_vad_fence_preserves_a_newer_request_queued_during_cancellation():
+    from types import SimpleNamespace as NS
+
+    session, connection = _azure_session(
+        [
+            _azure_event("input_audio_buffer.speech_started", item_id="older_capture"),
+            _azure_event("response.done", response=NS(id="old_response", status="cancelled")),
+            _azure_event(
+                "conversation.item.input_audio_transcription.completed",
+                item_id="older_capture",
+                transcript="Old yes",
+            ),
+            _azure_event("input_audio_buffer.speech_stopped", item_id="older_capture"),
+        ]
+    )
+    session.response_id = "old_response"
+    events = session.events()
+    assert (await anext(events)).kind == "interrupted"
+    await session.send_text("Newer correction")
+    remaining = [event async for event in events]
+    assert connection.response.cancel.await_args.kwargs == {"response_id": "old_response"}
+    assert connection.response.create.await_count == 1
+    assert len([e for e in remaining if e.kind == "input_transcript"]) == 1

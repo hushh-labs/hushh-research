@@ -566,7 +566,7 @@ elif command[:4] == ["run", "revisions", "describe", "consent-protocol-01234-api
             "env": [{"name": key, "value": value} for key, value in {
                 "HUSHH_DEPLOY_SHA": os.environ["DEPLOY_SHA"],
                 "HUSHH_DEPLOY_RUN_ID": os.environ["RELEASE_RUN_ID"],
-                "HUSHH_DEPLOY_ENV": "uat", "HUSHH_UAT_MANAGED_TEXT_PROVIDER": "azure_openai",
+                "HUSHH_DEPLOY_ENV": "uat", "HUSHH_UAT_MANAGED_TEXT_PROVIDER": "azure_openai", "HUSHH_UAT_MANAGED_AI_PROVIDER": "azure_openai",
             }.items()],
         }]}, "status": {"conditions": [{"type": "Ready", "status": "True"}]},
     }))

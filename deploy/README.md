@@ -250,25 +250,38 @@ The UAT expensive-lane selector is
 rehearsal or reviewer BYOK proof is required. Paid candidate PKM evaluation and RIA live-model checks retain the explicit
 `run_live_model_checks=true` dispatch input. UAT backend releases always run
 synthetic Azure and Vertex provider checks from the exact candidate image and
-runtime identity, in parallel. The required aggregate accepts either usable
-text provider (or both), preferring Azure; neither passing blocks promotion.
-The selected provider covers managed One text chat and semantic Drive requests.
-Both workers inherit the exact promoted API binding before accepting work.
+runtime identity, in parallel. A provider passes only when its full application
+capability bundle passes: structured and streamed text, image and PDF inputs,
+public search citations, exact public source retrieval, Location transcription
+and semantics, isolated narration, Live audio with function results and input
+transcription, and compatible embeddings. The required aggregate accepts either
+complete provider (or both), preferring Azure; neither passing blocks promotion.
+The API and both Drive workers must bind the same selected provider. UAT remains
+held until Azure has a verified replacement for every declared capability.
 
 Azure's canonical PWM schema and six-case attribution evaluation remain
 independent safety checks. An explicit identity, attribution or schema violation
-blocks release even when Vertex text succeeds. Provider outages remain distinct
-from a passed contract. Vertex-only voice, audio, media and embedding probes keep
-individual outcomes; text readiness does not certify those capabilities or claim
-an Azure replacement exists for them. The closed execution-bound aggregate is
-uploaded as `uat-managed-provider-readiness.json`.
+blocks release even when the alternate provider succeeds. The terminal receipt
+carries a closed trust-failure flag so log-ingestion order cannot erase a failure.
+The execution-bound aggregate is uploaded as `uat-managed-provider-readiness.json`.
+Search citations identify received provider sources; they do not imply fresh
+page retrieval. Exact public-page review uses the existing public-network fence.
 
-Other environments retain their original Vertex admission rule and explicit
-probe selection. All targets run before optional recovery, with the existing
-330-second Vertex sequence and 420-second job budget. The governed, SHA-bound
-one-time exception remains separate from ordinary provider admission; legacy
-Azure receipts are accepted only inside that exception. Provenance, IAM,
-authorization, schemas, preservation and candidate health remain mandatory.
+The selected UAT Azure adapters use workload federation rather than stored keys.
+Live input is resampled from the existing 16 kHz client contract to 24 kHz Azure
+PCM; output remains 24 kHz. Playback acknowledgements come from the player clock
+and fence interrupted context. Older Voice clients negotiate their existing
+Vertex transport before connection and report its actual health; no transcript
+is replayed to another provider. BYOK and non-UAT processor selection retain
+their existing contracts. Local E5 Drive/action embeddings are unchanged. The
+768-dimensional Location prototype separates cache generations by model and
+processor; this migration does not activate it or backfill a production index.
+
+The older SHA-bound one-time exception remains separately guarded. Its legacy
+text-only receipts do not satisfy this release's complete-capability gate.
+Provenance, IAM, authorization, schemas, preservation and candidate health remain
+mandatory. A diagnostic source-overlay job is useful during development, but
+only the immutable candidate image qualifies a release.
 
 ## Read-only operator diagnostics
 

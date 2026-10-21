@@ -153,7 +153,6 @@ async def offer(
             "primary_endpoint": config["primary_endpoint"],
             "primary_deployment": config["primary_deployment"],
             "primary_token_supplier": token_provider,
-            "owner_public_profiles": (inputs or {}).get("public_profiles"),
         }
     result = await runner(
         identity=identity,
@@ -165,6 +164,7 @@ async def offer(
         work=work,
         on_progress=on_progress,
         owner_decisions=(inputs or {}).get("owner_decisions"),
+        owner_public_profiles=(inputs or {}).get("public_profiles"),
         **provider_args,
     )
     refused, current = await admission(user_id, consent_token)

@@ -1473,7 +1473,7 @@ async def test_digest_narration_owns_its_turns_audio(monkeypatch):
 
     monkeypatch.setattr(config, "voice_mail_narration_enabled", lambda: True)
 
-    async def narrate(_digest, *, voice_name):
+    async def narrate(_digest, *, voice_name, provider):
         yield voice_narration.Narration(
             audio=b"spoken",
             mime_type="audio/L16;codec=pcm;rate=24000",
@@ -1839,6 +1839,70 @@ async def test_a_question_live_reports_after_its_interruption_is_answered():
         "state": "model_end",
         "turn_id": barge_in,
     }
+
+
+async def test_explicit_azure_stop_settles_the_relay_before_typed_followup():
+    from unittest.mock import AsyncMock
+
+    session, transport, fake = await _relay_on_live()
+    session.config = replace(CONFIG, provider="azure_openai")
+    fake.interrupt = AsyncMock()
+    await _say(session, "First synthetic question")
+    old_turn = session.turn.turn_id
+    await session._handle_client_frame(protocol.InterruptFrame(type="interrupt"))
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Follow-up"))
+    assert fake.texts == ["Follow-up"]
+    assert not session._queued_texts
+    assert session.turn.turn_id != old_turn
+    assert [f for f in transport.frames("turn") if f["state"] == "interrupted"] == [
+        {"type": "turn", "state": "interrupted", "turn_id": old_turn}
+    ]
+
+
+async def test_late_provider_transcript_does_not_replace_current_input_authority():
+    session, transport, _ = await _relay_on_live()
+    for identity in ("earlier", "latest"):
+        await session._handle_live_event(LiveEvent(kind="activity_start", input_item_id=identity))
+        await session._handle_live_event(LiveEvent(kind="activity_end", input_item_id=identity))
+    await session._handle_live_event(
+        LiveEvent(
+            kind="input_transcript", input_item_id="latest", text="New question", finished=True
+        )
+    )
+    generation = session._mail_input_generation
+    latest_turn = session._latest_input_turn_id
+    await session._handle_live_event(
+        LiveEvent(
+            kind="input_transcript", input_item_id="earlier", text="Old question", finished=True
+        )
+    )
+    assert session._mail_input_generation == generation
+    assert session._latest_input_turn_id == latest_turn
+    assert (
+        transport.frames("transcript.input")[-1]["turn_id"]
+        == session._provider_input_turns["earlier"]
+    )
+
+
+@pytest.mark.parametrize(
+    "newer",
+    [
+        protocol.TextFrame(type="text", text="Cancel that request"),
+        protocol.InterruptFrame(type="interrupt"),
+    ],
+)
+async def test_old_spoken_approval_cannot_reopen_authority_after_newer_client_input(newer):
+    session, _, _ = await _relay_on_live()
+    await session._handle_live_event(LiveEvent(kind="activity_start", input_item_id="old_yes"))
+    await session._handle_live_event(LiveEvent(kind="activity_end", input_item_id="old_yes"))
+    await session._handle_client_frame(newer)
+    generation = session._mail_input_generation
+    current = session._latest_input_turn_id
+    await session._handle_live_event(
+        LiveEvent(kind="input_transcript", input_item_id="old_yes", text="Yes", finished=True)
+    )
+    assert session._mail_input_generation == generation
+    assert session._latest_input_turn_id == current
 
 
 async def test_a_question_waits_behind_the_reply_a_tool_result_still_owes():

@@ -26,6 +26,8 @@ class LiveEvent:
 
     kind: str  # setup_complete | activity_start | activity_end | audio | input_transcript | output_transcript | interrupted | turn_complete | tool_call | tool_cancel | resumption | go_away | other
     audio_b64: str | None = None
+    audio_item_id: str | None = None
+    input_item_id: str | None = None
     text: str | None = None
     finished: bool | None = None
     function_calls: list[dict[str, Any]] = field(default_factory=list)
@@ -273,6 +275,12 @@ def translate_message(message: Any) -> list[LiveEvent]:
 @asynccontextmanager
 async def connect_live(config: OneVoiceLiveConfig, live_config: genai_types.LiveConnectConfig):
     """Open one Gemini Live session on the pinned model/region (ADC only)."""
+    if config.provider == "azure_openai":
+        from hushh_mcp.one_voice.azure_live import connect_azure_live
+
+        async with connect_azure_live(live_config) as session:
+            yield session
+        return
     client = build_managed_live_client(
         model=config.model_id,
         location=config.location,

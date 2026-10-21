@@ -534,6 +534,9 @@ class VoiceSession:
         self._provider_tags_cache: str | None = None
         self._provider_connect_attempted = False
         self._provider_connected = False
+        self._playback_items: dict[str, str] = {}
+        self._provider_input_turns: dict[str, str] = {}
+        self._observed_provider_input: str | None = None
 
     # -- state guards (raise instead of assert; the relay must never run
     #    a frame before auth or a provider before the socket is ready) --------
@@ -767,6 +770,9 @@ class VoiceSession:
         Telemetry must not stop a session if a local test has no ADC project.
         """
         if self._provider_tags_cache is None:
+            if self.config.provider == "azure_openai":
+                self._provider_tags_cache = f"provider=azure_openai live_model={self.config.model_id} live_location={self.config.location}"
+                return self._provider_tags_cache
             project = self.config.vertex_project
             if project is None:
                 try:
@@ -946,6 +952,11 @@ class VoiceSession:
         # route's authority object and stays untouched.
         self._client_timezone = frame.timezone or "UTC"
         self._mail_review_supported = "mail_draft_review" in (frame.client.get("features") or [])
+        if self.config.provider == "azure_openai" and "audio_playback" not in (
+            frame.client.get("features") or []
+        ):
+            self.config = self.config.for_legacy_client()
+            logger.info("one_voice.compatibility provider=vertex reason=client_playback_protocol")
         return auth
 
     async def _open_conversation(self, auth: AuthResult) -> None:
@@ -992,7 +1003,7 @@ class VoiceSession:
                 session_id=self.session_id,
                 conversation_id=self.claims.conversation_id,
                 model=self.config.model_id,
-                resumed=self.conversation.session_count > 1,
+                resumed=self.conversation.session_count > 1 and self.config.provider == "vertex",
                 idle_timeout_ms=self.config.idle_close_seconds * 1000,
                 session_max_ms=self.config.session_max_seconds * 1000,
                 pending_actions=[row.public() for row in open_rows],
@@ -1027,7 +1038,7 @@ class VoiceSession:
             screen_ids=list(OPENABLE_SCREENS),
             screen_id=self.ctx.screen.screen_id,
             display_name=self._display_name,
-            resumed=self.conversation.session_count > 1,
+            resumed=self.conversation.session_count > 1 and self.config.provider == "vertex",
             # The owner's zone, so "tomorrow at 9" means their 9. The session
             # clock is monotonic, so the instruction reads the wall clock itself.
             timezone=self._client_timezone,
@@ -1035,7 +1046,9 @@ class VoiceSession:
         live_config = {
             "system_instruction": instruction,
             "tool_declarations": declarations,
-            "resumption_handle": self.conversation.live_resumption_handle,
+            "resumption_handle": self.conversation.live_resumption_handle
+            if self.config.provider == "vertex"
+            else None,
         }
         connect_started_at = self.clock()
         self._provider_connect_attempted = True
@@ -1164,6 +1177,7 @@ class VoiceSession:
         # Observe only protocol facts at intake. Ordered dispatch still owns
         # edits, proof, CAS and all generic tool execution.
         if isinstance(frame, (protocol.TextFrame, protocol.InterruptFrame)):
+            self._observed_provider_input = None
             self._read_input_generation += 1
             self._cancel_read("newer_question")
         elif isinstance(frame, protocol.EndFrame):
@@ -1365,7 +1379,22 @@ class VoiceSession:
                     }
                 )
         elif isinstance(frame, protocol.InterruptFrame):
-            await self._send(protocol.turn("interrupted", turn_id=self.turn.turn_id))
+            interrupt = getattr(self.live, "interrupt", None)
+            if interrupt is not None:
+                await interrupt()
+            if self.config.provider == "azure_openai":
+                # Azure fences the cancelled response's terminal event. Settle
+                # this relay turn here so the next typed input can be sent.
+                await self._handle_live_event(LiveEvent(kind="interrupted"))
+            else:
+                await self._send(protocol.turn("interrupted", turn_id=self.turn.turn_id))
+        elif isinstance(frame, protocol.PlaybackFrame):
+            acknowledge = getattr(self.live, "acknowledge_playback", None)
+            if acknowledge is not None and self._playback_items.get(frame.item_id) == frame.turn_id:
+                try:
+                    await acknowledge(frame.item_id, frame.played_ms)
+                except ValueError:
+                    await self._send(protocol.error("protocol", "invalid_playback_position"))
         elif isinstance(frame, protocol.EndFrame):
             await self._close(protocol.CLOSE_ENDED, "ended")
             raise SessionClosed(protocol.CLOSE_ENDED, "ended")
@@ -2536,6 +2565,11 @@ class VoiceSession:
         Observation runs at stream intake, independently of an awaited tool. It
         does not choose a tool, edit content, or grant approval.
         """
+        if event.input_item_id:
+            if event.kind == "activity_start":
+                self._observed_provider_input = event.input_item_id
+            elif event.input_item_id != self._observed_provider_input:
+                return  # A late transcript may be recorded but grants no current input authority.
         previous_generation = self._mail_input_generation
         if event.kind == "activity_start":
             self._mail_input_generation += 1
@@ -2626,6 +2660,12 @@ class VoiceSession:
         mail_admission = mail_admission or (self._mail_input_generation, self._mail_input_active)
         kind = event.kind
         if kind == "activity_start":
+            if event.input_item_id:
+                self._provider_input_turns[event.input_item_id] = (
+                    self.turn.turn_id if not self.turn.input_seen else uuid.uuid4().hex[:12]
+                )
+                if len(self._provider_input_turns) > 128:
+                    self._provider_input_turns.pop(next(iter(self._provider_input_turns)))
             self._provider_activity_end_at = None
             self._provider_activity_source = None
             self._provider_activity_started = True
@@ -2668,15 +2708,32 @@ class VoiceSession:
                 )
             self.turn.audio_chunks += 1
             self.audio_out_chunks += 1
+            if event.audio_item_id:
+                self._playback_items[event.audio_item_id] = self.turn.turn_id
+                if len(self._playback_items) > 128:
+                    self._playback_items.pop(next(iter(self._playback_items)))
             await self._send(
                 protocol.audio_out(
                     event.audio_b64,
                     turn_id=self.turn.turn_id,
                     origin_turn_id=self.turn.turn_id,
+                    item_id=event.audio_item_id,
                 )
             )
         elif kind == "input_transcript" and event.text:
             self._touch()
+            if event.input_item_id:
+                correlated = self._provider_input_turns.get(event.input_item_id)
+                if correlated is None:
+                    raise ValueError("Unmatched provider input transcript")
+                if event.input_item_id != self._observed_provider_input:
+                    await self._send_transcript(
+                        "input", event.text, finished=bool(event.finished), turn_id=correlated
+                    )
+                    return
+                self._input_segment_id = correlated
+                if correlated != self.turn.turn_id:
+                    await self._place_new_input(correlated)
             input_turn_id = self._input_segment_id
             if input_turn_id is None:
                 input_turn_id = (
@@ -3839,7 +3896,9 @@ class VoiceSession:
         spoken = False
         try:
             async with asyncio.timeout(READ_NARRATION_TIMEOUT_SECONDS):
-                async for chunk in narrate_digest_stream(digest, voice_name=voice_name()):
+                async for chunk in narrate_digest_stream(
+                    digest, voice_name=voice_name(), provider=self.config.provider
+                ):
                     if read is not None:
                         self._check_read_current()
                     if self._origin_is_stale(origin_turn_id):

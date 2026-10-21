@@ -92,6 +92,13 @@ def verify_revision(
             managed_text_provider
         ]:
             raise ValueError("Drive worker managed text provider mismatch")
+        full = [
+            item.get("value")
+            for item in worker.get("env", [])
+            if item.get("name") == "HUSHH_UAT_MANAGED_AI_PROVIDER"
+        ]
+        if full != [managed_text_provider]:
+            raise ValueError("Drive worker managed capability provider mismatch")
     if semantic_model_provider is not None:
         worker = next(item for item in containers if item["name"] == "drive-worker")
         providers = [
