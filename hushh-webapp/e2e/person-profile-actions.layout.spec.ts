@@ -62,7 +62,10 @@ test.beforeAll(async () => {
     } }],
     oxc: { jsx: { runtime: "automatic", development: false } },
     define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
-    resolve: { alias: [...boundaries.map(name => ({ find: `@/${name}`, replacement: ports })), { find: "@", replacement: root }] },
+    resolve: { alias: [...boundaries.map(name => ({ find: `@/${name}`, replacement: ports })),
+      { find: /^\.\/auth-service$/, replacement: ports },
+      { find: /^\.\/api-service$/, replacement: ports },
+      { find: "@", replacement: root }] },
     build: { outDir, emptyOutDir: false, lib: { entry: path.join(root, "e2e/fixtures/person-profile-requests.tsx"), name: "RequestFixture", formats: ["iife"], fileName: () => "request-fixture.js" } },
   });
   requestScript = fs.readFileSync(path.join(outDir, "request-fixture.js"), "utf8");

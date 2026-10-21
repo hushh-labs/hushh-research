@@ -61,9 +61,9 @@ describe("ApiService authentication recovery", () => {
 
       // The retry call should carry the fresh token and the retry header
       const [, retryOptions] = mockFetch.mock.calls[1] as [string, RequestInit];
-      const retryHeaders = retryOptions.headers as Record<string, string>;
-      expect(retryHeaders["Authorization"]).toBe(`Bearer ${freshToken}`);
-      expect(retryHeaders["X-Hushh-Auth-Refresh-Retry"]).toBe("1");
+      const retryHeaders = new Headers(retryOptions.headers);
+      expect(retryHeaders.get("Authorization")).toBe(`Bearer ${freshToken}`);
+      expect(retryHeaders.get("X-Hushh-Auth-Refresh-Retry")).toBe("1");
       expect(retryOptions.method).toBe("POST");
       expect(retryOptions.body).toBe(body);
 

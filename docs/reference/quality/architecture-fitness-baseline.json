@@ -22768,7 +22768,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/shared-sheet-consumers.contract.test.tsx",
       "symbol": null,
-      "value": 526
+      "value": 530
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22894,7 +22894,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/firebase/auth-context-session-invalidation.test.tsx",
       "symbol": null,
-      "value": 1670
+      "value": 1672
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23713,7 +23713,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/person-profile-page.tsx",
       "symbol": null,
-      "value": 1246
+      "value": 1252
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24631,7 +24631,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/agent-markdown.layout.spec.ts",
       "symbol": null,
-      "value": 656
+      "value": 661
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24640,7 +24640,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts",
       "symbol": null,
-      "value": 993
+      "value": 995
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24658,7 +24658,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/circle-member-row.layout.spec.ts",
       "symbol": null,
-      "value": 1352
+      "value": 1359
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -82354,5 +82354,53 @@
         ]
       }
     ]
+  },
+  "browser_core_ci_repairs_review_20261021": {
+    "entries": [
+      {
+        "after": 1672,
+        "before": 1670,
+        "key": "module_size|hushh-webapp/__tests__/lib/firebase/auth-context-session-invalidation.test.tsx||module exceeds the advisory operon budget",
+        "review": "Provide the current nonsecret native composition subscription in the existing auth fixture. All 72 auth/identity/erasure regressions remain enforced.",
+        "source_sha256": "651a2f1460edaed04574f089c95d354c67f2aa78839cb99e05aa2253d6f26f7d"
+      },
+      {
+        "after": 530,
+        "before": 526,
+        "key": "module_size|hushh-webapp/__tests__/components/shared-sheet-consumers.contract.test.tsx||module exceeds the advisory operon budget",
+        "review": "Inventory the real Connectors and Browser consumers and existing explicit gesture flags, distinguishing inert side/non-draggable flags; retain exact width and shared-sheet gates.",
+        "source_sha256": "24f323be87304447251fa504387296bf95c4e1386afadb76c1ee2f000d5c1890"
+      },
+      {
+        "after": 1252,
+        "before": 1246,
+        "key": "module_size|hushh-webapp/components/connections/person-profile-page.tsx||module exceeds the advisory operon budget",
+        "review": "Invalidate obsolete consent review, selections and stale displayed eligibility immediately after a real change; preserve pending-count bookkeeping and normal refresh drafts. Existing failed regression now passes.",
+        "source_sha256": "23f2545811fea71a03b49c47f6000f66a867a1635fdf7dd39acd7435ed5b0a7b"
+      },
+      {
+        "after": 661,
+        "before": 656,
+        "key": "module_size|hushh-webapp/e2e/agent-markdown.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "Declare synthetic auth/placement boundaries for the real Puppy component, retain actual owner-generation checks and clean temporary fixture output on all terminal paths.",
+        "source_sha256": "2d761217d34769635364b7c0e12f2ad9ea851ccdf50c0d7a7b2cf080e5138710"
+      },
+      {
+        "after": 995,
+        "before": 993,
+        "key": "module_size|hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "Measure the actual responsive label container rather than imposing inline portrait geometry; retain viewport, vertical, ellipsis and one-pixel centering limits.",
+        "source_sha256": "df13d2216c12b688fa6bd3842a5cde3a462f15eac2a6a1281d428ac941e66f3e"
+      },
+      {
+        "after": 1359,
+        "before": 1352,
+        "key": "module_size|hushh-webapp/e2e/circle-member-row.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "Assert the exact authored blue/gold stroke on every accent path rather than failing on two legitimate paths; no color or geometry threshold weakened.",
+        "source_sha256": "e6071857e58cdcd63ae3cf2a152bb1bea843fa3a16f843a5ed05b61ab0f401fe"
+      }
+    ],
+    "evidence": "Exact hosted e7346fa717 failures retained; focused repairs, no global budget or non-size exception changes.",
+    "reviewer": "adk_frontend_conflicts; independent browser_p0_plan_review diagnoses"
   }
 }

@@ -998,7 +998,11 @@ export function AuthStep({
         dataState={nativeDataState}
         attachToBridge={(bridge) => {
           bridge.triggerReviewerLogin = () => {
-            if (shouldUseNativeTestBootstrap || autoReviewerLoginStartedRef.current || !shouldAutoAuthenticateReviewer(getNativeTestConfig())) {
+            const liveConfig = getNativeTestConfig();
+            const localCredentials = resolveLocalReviewerCredentials(window.location.hostname);
+            if (shouldUseNativeTestBootstrap || (liveConfig.enabled && liveConfig.autoReviewerLogin)
+              || autoReviewerLoginStartedRef.current
+              || !canStartReviewerLogin(liveConfig, reviewModeConfig.enabled, Boolean(localCredentials))) {
               return;
             }
             autoReviewerLoginStartedRef.current = true;

@@ -943,12 +943,14 @@ test.describe("One portrait header: responsive restoration", () => {
         }
         await page.getByTestId("agent-name").evaluate(el => { el.textContent = "A much longer saved private agent name"; });
         const longName = await box(page, "agent-name");
+        const longLabel = (await page.getByTestId("agent-name").locator("..").boundingBox())!;
         expect(longName.x).toBeGreaterThanOrEqual(0);
         expect(longName.x + longName.width).toBeLessThanOrEqual(width);
         expect(longName.y).toBe(name.y);
         expect(longName.height).toBe(name.height);
-        expect(longName.x).toBeGreaterThanOrEqual(avatar.x + avatar.width);
-        expect(longName.x + longName.width).toBeLessThanOrEqual(identity.x + identity.width);
+        expect(longName.x).toBeGreaterThanOrEqual(longLabel.x);
+        expect(longName.x + longName.width).toBeLessThanOrEqual(longLabel.x + longLabel.width);
+        expect(Math.abs(longLabel.x + longLabel.width / 2 - (avatar.x + avatar.width / 2))).toBeLessThanOrEqual(1);
         expect(longName.y + longName.height).toBeLessThanOrEqual(header.y + header.height - 8);
         await expect(page.getByTestId("agent-name")).toHaveCSS("text-overflow", "ellipsis");
       }

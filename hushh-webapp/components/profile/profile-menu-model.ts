@@ -1,6 +1,4 @@
 import { PROFILE_ICONS } from "@/components/icons/profile-icons";
-import { ConnectedSystemsAgentIcon, PROFILE_ICON_COLORS } from "@/components/icons/agents";
-import { RefreshCw } from "@/components/icons";
 import { LEGAL_DOCUMENTS } from "@/lib/legal/legal-documents";
 
 export const PROFILE_LABELS = {
@@ -14,8 +12,8 @@ export const PROFILE_LABELS = {
  * availability remain with Profile; this model grants no operation authority. */
 export const PROFILE_MENU_GROUPS = [
   { id: "settings", title: "Your settings", entries: [
-    { id: "hosting", label: "Hosting", icon: ConnectedSystemsAgentIcon, symbol: "cloud", iconHex: PROFILE_ICON_COLORS.connectors },
-    { id: "software-updates", label: "Software updates", icon: RefreshCw, symbol: "arrow.triangle.2.circlepath", iconHex: PROFILE_ICON_COLORS.connectors },
+    { id: "hosting", label: "Hosting", icon: PROFILE_ICONS.connectors, symbol: "cloud" },
+    { id: "software-updates", label: "Software updates", icon: PROFILE_ICONS.refresh, symbol: "arrow.triangle.2.circlepath" },
     { id: "account", label: PROFILE_LABELS.account, icon: PROFILE_ICONS.account, symbol: "person" },
     { id: "payouts", label: "Payouts", icon: PROFILE_ICONS.payouts, symbol: "building.columns", voiceControlId: "profile_payouts", voiceActionId: "route.profile_payouts", voicePurpose: "Opens bank setup and transaction history." },
     { id: "request-pricing", label: "Request pricing", icon: PROFILE_ICONS.pricing, symbol: "tag", voiceControlId: "profile_request_pricing", voiceActionId: "route.profile_request_pricing", voicePurpose: "Opens your default document request price." },

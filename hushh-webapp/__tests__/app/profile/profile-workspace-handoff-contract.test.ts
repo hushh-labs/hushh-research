@@ -75,7 +75,7 @@ describe("profile workspace duplication contract", () => {
     const home = profilePageSource.split('const profileRootContent = (')[1]?.split('if (legacyProfileRedirectHref)')[0] ?? "";
     const memory = profilePageSource.split('const myDataContent = (')[1]?.split('const accessContent = (')[0] ?? "";
     expect(profileMenuGroups(true).flatMap(group => group.entries)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "payouts", label: "Payments and earnings", voiceControlId: "profile_payouts", voiceActionId: "route.profile_payouts" }),
+      expect.objectContaining({ id: "payouts", label: "Payouts", voiceControlId: "profile_payouts", voiceActionId: "route.profile_payouts" }),
       expect.objectContaining({ id: "request-pricing", label: "Request pricing", voiceControlId: "profile_request_pricing", voiceActionId: "route.profile_request_pricing" }),
     ]));
     const actions = profilePageSource.split("const menuActions")[1]?.split("const profileRootContent")[0] ?? "";

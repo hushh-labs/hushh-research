@@ -87,11 +87,13 @@ describe("AuthStep human reviewer admission", () => {
     expect(state.mint).not.toHaveBeenCalled(); expect(state.custom).not.toHaveBeenCalled();
   });
 
-  it("preserves legacy manual minting and the ordinary human Google flow", async () => {
+  it("preserves bootstrap ownership and the ordinary human Google flow", async () => {
     state.config.reviewerAuthMode = "custom_token";
     render(<AuthStep redirectPath="/one" />);
-    await act(async () => state.reviewerClick?.());
-    expect(state.mint).toHaveBeenCalledTimes(1); expect(state.custom).toHaveBeenCalledTimes(1);
+    const reviewer = screen.getByRole("button", { name: "Continue as Reviewer" });
+    expect(reviewer).toBeDisabled();
+    await act(async () => fireEvent.click(reviewer));
+    expect(state.mint).not.toHaveBeenCalled(); expect(state.custom).not.toHaveBeenCalled();
     cleanup(); state.config.reviewerAuthMode = "human_authenticated";
     render(<AuthStep redirectPath="/one" />);
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Continue with Google" })));

@@ -1004,7 +1004,12 @@ test.describe("Circle roster row", () => {
           }));
           expect(colors.outline).not.toBe(colors.accent);
           expect(colors.accent).not.toBe("none");
-          await expect(share.locator(".profile-pane-icon-accent")).toHaveCSS("stroke", await readAccent("--ios-account-accent"));
+          const accentPaths = share.locator(".profile-pane-icon-accent");
+          const accentCount = await accentPaths.count();
+          expect(accentCount).toBeGreaterThan(0);
+          for (let index = 0; index < accentCount; index++) {
+            await expect(accentPaths.nth(index)).toHaveCSS("stroke", await readAccent("--ios-account-accent"));
+          }
           const cancel = sheet.getByRole("button", { name: "Cancel", exact: true });
           await expect(cancel).toHaveCSS("height", "52px");
           if (!owner) {
@@ -1017,7 +1022,9 @@ test.describe("Circle roster row", () => {
           await page.evaluate(() => document.documentElement.dataset.accent = "gold");
           const goldAccent = await readAccent();
           expect(goldAccent).not.toBe(defaultAccent);
-          await expect(share.locator(".profile-pane-icon-accent")).toHaveCSS("stroke", await readAccent("--ios-account-accent"));
+          for (let index = 0; index < accentCount; index++) {
+            await expect(accentPaths.nth(index)).toHaveCSS("stroke", await readAccent("--ios-account-accent"));
+          }
           await expect(cancel).toHaveCSS("color", goldAccent);
           await page.evaluate(() => delete document.documentElement.dataset.accent);
           const sheetGeometry = await sheet.evaluate((element) => {

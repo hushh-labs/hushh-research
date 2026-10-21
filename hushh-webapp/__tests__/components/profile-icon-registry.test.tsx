@@ -1,6 +1,6 @@
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { XIcon, PlusIcon, ShieldIcon, WalletIcon, Key, KeyRound, KeyIcon, AccentedKeyIcon } from "@/components/icons";
 import { PROFILE_MENU_GROUPS } from "@/components/profile/profile-menu-model";
@@ -84,17 +84,12 @@ it("keeps every row glyph on native outline geometry in an authored colour", () 
   }
 });
 
-it("keeps Codex and Claude icon skill bridges identical and resolvable", () => {
+it("resolves the host icon skill to the canonical agents source", () => {
   const root = resolve("..");
   const canonical = readFileSync(resolve(root, ".agents/skills/hushh-icon-theme/SKILL.md"), "utf8");
-  const frontmatter = canonical.match(/^---\n[\s\S]*?\n---/)?.[0];
-  const bridges = [".agents", ".claude"].map((host) =>
-    readFileSync(resolve(root, host, ".agents/skills/hushh-icon-theme/SKILL.md"), "utf8"));
-  expect(bridges[0]).toBe(bridges[1]);
-  for (const bridge of bridges) {
-    expect(bridge.startsWith(frontmatter!)).toBe(true);
-    expect(bridge).toContain("Read `.agents/skills/hushh-icon-theme/SKILL.md` and follow it.");
-  }
+  const adapter = resolve(root, ".claude/skills/hushh-icon-theme/SKILL.md");
+  expect(realpathSync(adapter)).toBe(realpathSync(resolve(root, ".agents/skills/hushh-icon-theme/SKILL.md")));
+  expect(readFileSync(adapter, "utf8")).toBe(canonical);
 });
 
 it("renders the approved outline artwork in the actual Preferences controls", () => {
@@ -113,6 +108,8 @@ it("restores the nested Devices artwork while retaining its unlink action", () =
   const model: TrustedDevicesModel = {
     devices: [{ device_id: "synthetic-device", device_name: "Test computer", platform: "macos", status: "active" }],
     confirmation: null, busy: false, uncertain: false, loading: false, refreshing: false, error: "",
+    puppyAccess: {}, byocReady: false, changingPuppy: null, puppyNotice: "",
+    pendingPuppyWithdrawal: [], pendingPodRevocations: [], changePuppyAccess: vi.fn(),
     refresh: vi.fn(), cancel: vi.fn(), choose: vi.fn(), confirm: vi.fn(),
   };
   render(<TrustedDevicesPage panePresentation model={model} />);

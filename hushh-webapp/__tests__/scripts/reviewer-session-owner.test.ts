@@ -113,7 +113,7 @@ describe("reviewer session authority", () => {
     const getByRole = b.page.getByRole;
     const click = vi.fn();
     b.page.getByRole = (...[role]: unknown[]) => role === "button" ? {
-      ...getByRole(), isVisible: async () => true, click,
+      ...getByRole(), isVisible: async () => true, isEnabled: async () => true, click,
     } : getByRole();
     await reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false });
     expect(trigger).toHaveBeenCalledOnce();

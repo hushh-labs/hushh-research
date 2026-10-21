@@ -3,13 +3,14 @@ import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react
 import { NativeAccentChoice } from "@/components/app-ui/native-accent-choice";
 import type { ChromeProjection } from "@/lib/capacitor/native-chrome";
 
-const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "synthetic-document", prepare: vi.fn(), activate: vi.fn(),
+const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "synthetic-document", privacyActive: true, prepare: vi.fn(), activate: vi.fn(),
   retire: vi.fn(), update: vi.fn(), getCapabilities: vi.fn() }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
   registerPlugin: () => ({ ...bridge, addListener: async () => ({ remove: async () => undefined }) }),
 }));
 vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => bridge.documentId,
+  nativePrivacyCanInteract: () => bridge.privacyActive,
   subscribeNativeSessionPrivacy: async () => ({ remove: async () => undefined }) }));
 vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => null, getVoiceSurfaceMetadata: () => null }));
 vi.mock("next-themes", () => ({ useTheme: () => ({ resolvedTheme: "light" }) }));
@@ -21,6 +22,7 @@ describe("native color preference", () => {
   beforeEach(() => {
     bridge.platform = "ios";
     bridge.documentId = crypto.randomUUID();
+    bridge.privacyActive = true;
     document.documentElement.style.setProperty("--app-accent", "#007aff");
     document.documentElement.style.setProperty("--accent-preview-blue", "#007aff");
     document.documentElement.style.setProperty("--accent-preview-gold", "#b8860b");
@@ -62,6 +64,11 @@ describe("native color preference", () => {
     await act(async () => { await Promise.resolve(); });
     expect(bridge.prepare).not.toHaveBeenCalled();
     x = 2;
+    bridge.privacyActive = false;
+    fireEvent(window, new Event("resize"));
+    await act(async () => { await Promise.resolve(); });
+    expect(bridge.prepare).not.toHaveBeenCalled();
+    bridge.privacyActive = true;
     fireEvent(window, new Event("resize"));
     await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
     expect(bridge.prepare.mock.calls[0]![0]).toMatchObject({ kind: "accent", value: "gold", fullTrigger: true, frame: { width: 172, height: 44 } });

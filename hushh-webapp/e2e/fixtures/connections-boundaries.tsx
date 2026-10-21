@@ -93,6 +93,15 @@ export const getRecaptchaVerifier = prepareRecaptchaVerifier;
 export const resetRecaptcha = () => {};
 // Pure task models and rows stay real. This public fixture does not admit
 // encrypted task reads or writes through the private service port.
+export { openTodoItems, completedTodoItems, TODO_SOURCE_LABELS } from "@/lib/todos/todo-list-model";
+function taskMutationUnavailable(): never {
+  throw new Error("No task creation or execution in the public layout fixture");
+}
+export const agentTodoInput = taskMutationUnavailable;
+export const buildTodo = taskMutationUnavailable;
+export const calendarTodoInput = taskMutationUnavailable;
+export const createTodo = taskMutationUnavailable;
+export const isLiveAgentTodo = taskMutationUnavailable;
 export const TodoListPkmService = {
   load: async () => { throw new Error("No task reads in the public layout fixture"); },
   setStatus: async () => { throw new Error("No task writes in the public layout fixture"); },

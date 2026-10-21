@@ -16,8 +16,8 @@ enum NativeProfileArtwork {
         let hasAccent: Bool
         let original: Bool
         switch id {
-        case "hosting": colorHex = "#00E5FF"; accentColorHex = nil; hasAccent = false; original = false
-        case "software-updates": colorHex = nil; accentColorHex = nil; hasAccent = false; original = false
+        case "hosting": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
+        case "software-updates": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "account": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "payouts": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "request-pricing": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false

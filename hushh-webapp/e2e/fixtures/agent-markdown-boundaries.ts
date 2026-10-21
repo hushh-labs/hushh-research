@@ -3,6 +3,18 @@
  * route through `useRouter().push`. The fixture records the push instead of
  * navigating, so a spec can prove a same-origin link stayed in the app.
  */
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+
+const user = { uid: "fixture-puppy-owner" };
+publishValidatedAuthSessionOwner(user.uid);
+export function useAuth() { return { user }; }
+export const AuthService = { getCurrentUser: () => user };
+export const ApiService = {
+  getPersonalAgentStatus: async () => ({
+    hostingMode: "byoc", hushhId: "fixture-puppy-pod", deploymentTarget: "user_gcp",
+  }),
+};
+
 export function useRouter() {
   return {
     push(href: string) {

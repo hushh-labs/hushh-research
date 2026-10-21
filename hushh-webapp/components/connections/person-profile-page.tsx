@@ -420,6 +420,13 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
       // still invalidate the catalog before another request can be submitted.
       if (!detail?.action && detail?.reconcile !== true
         && ["cached_pending", "queued_pending", "hydrated_pending", "fallback_reconciled", "fcm_opened"].includes(String(detail?.source || ""))) return;
+      // A changed grant invalidates the reviewed terms immediately, including
+      // while the replacement catalog is still loading.
+      setReviewOpen(false);
+      setSelectedScopeRefs(new Set());
+      setPurpose("");
+      setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
+      setDisplayState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: null });
       refresh();
     };
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
