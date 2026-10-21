@@ -80,6 +80,7 @@ async def export_snapshot(request: Request):
     }
     if (
         os.getenv("ONE_PLG_EXPORT_ENABLED") != "true"
+        or os.getenv("GOOGLE_CLOUD_PROJECT") != "hushh-pda"
         or current_auth_lane() != "production"
         or len(secret) < 32
         or not 1 <= len(allowed) <= 100

@@ -22,9 +22,9 @@ from api.utils.firebase_admin import get_firebase_auth_app
 from db.connection import get_pool
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
 from hushh_mcp.services.actor_identity_service import ActorIdentityService, resolve_firebase_email
-from hushh_mcp.services.email_auth.identity import enterprise_account_deprovisioned
 from hushh_mcp.services.plg_catalog import activity_catalog, public_activity_catalog
 from hushh_mcp.services.plg_outcomes import value_summaries
+from hushh_mcp.services.plg_reporting import reporting_identifiers, reporting_policy
 from hushh_mcp.services.product_activity import enabled_for
 
 PAGE_SIZE = 25
@@ -144,13 +144,7 @@ def _firebase_page(page: str | None):
 
 
 def _registered(record) -> bool:
-    return bool(
-        not record.disabled
-        and not enterprise_account_deprovisioned(record.custom_claims or {})
-        and (record.provider_data or record.email or record.phone_number)
-        and isinstance(record.uid, str)
-        and 1 <= len(record.uid) <= 128
-    )
+    return reporting_identifiers(record) is not None
 
 
 def _contact_text(value, limit: int) -> str | None:
@@ -327,6 +321,7 @@ def _matches(row: dict, request: AudienceRequest) -> bool:
 
 
 async def audience_page(request: AudienceRequest, secret: str, now: datetime) -> dict:
+    policy = reporting_policy()
     page, at = _cursor(request, secret, now)
     source = await asyncio.wait_for(asyncio.to_thread(_firebase_page, page), timeout=6)
     records = list(source.users)
@@ -350,6 +345,21 @@ async def audience_page(request: AudienceRequest, secret: str, now: datetime) ->
                 conn, candidates={uid: str(eligible[uid].phone_number or "") for uid in active}
             )
             identities = await identity_service.get_many(active, conn=conn)
+            aliases = await identity_service.get_many_verified_email_aliases(active, conn=conn)
+            customers = {
+                uid
+                for uid in active
+                if policy.eligible(
+                    uid,
+                    identities.get(uid),
+                    (
+                        *(reporting_identifiers(eligible[uid]) or ()),
+                        *aliases.get(uid, []),
+                    ),
+                )
+            }
+            excluded += len(active) - len(customers)
+            active = customers
             ids = sorted(active)
             epochs = {
                 r["user_id"]: r
@@ -401,6 +411,7 @@ async def audience_page(request: AudienceRequest, secret: str, now: datetime) ->
     return {
         "version": 1,
         "environment": "production",
+        "customerReporting": policy.proof(),
         "catalog": public_activity_catalog(),
         "asOf": _iso(at),
         "windowStart": _iso(since),

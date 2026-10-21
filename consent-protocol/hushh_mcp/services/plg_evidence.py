@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from db.connection import get_pool
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.plg_catalog import activity_catalog, public_activity_catalog
 from hushh_mcp.services.plg_outcomes import (
     DEFINITIONS,
@@ -22,6 +23,7 @@ from hushh_mcp.services.plg_outcomes import (
     confirmed_memory,
     value_effects,
 )
+from hushh_mcp.services.plg_reporting import current_reporting_identifiers, reporting_policy
 from hushh_mcp.services.product_activity import enabled_for
 
 
@@ -52,11 +54,13 @@ class PilotAccount(BaseModel):
 class PilotRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     version: Literal[1, 2] = 1
+    customerReporting: bool = False
     accounts: list[PilotAccount] = Field(min_length=0, max_length=20)
 
 
 async def snapshot(request: PilotRequest, allowed: set[str], now: datetime) -> dict:
     """Fail the entire batch on missing authority, truncation or source failure."""
+    policy = reporting_policy() if request.customerReporting else None
     if not request.accounts:
         if request.version != 2:
             raise ValueError("No accounts requested")
@@ -67,6 +71,7 @@ async def snapshot(request: PilotRequest, allowed: set[str], now: datetime) -> d
             "asOf": now.astimezone(timezone.utc).isoformat(),
             "accounts": [],
             "catalog": public_activity_catalog(),
+            **({"customerReporting": policy.proof()} if policy else {}),
         }
     if len({a.accountId for a in request.accounts}) != len(request.accounts):
         raise ValueError("duplicate accounts")
@@ -78,6 +83,9 @@ async def snapshot(request: PilotRequest, allowed: set[str], now: datetime) -> d
             or since > now
         ):
             raise ValueError("outside enrolled pilot or observation window")
+    identifiers = (
+        await current_reporting_identifiers(a.accountId for a in request.accounts) if policy else {}
+    )
     pool = await get_pool()
     result = []
     async with pool.acquire(timeout=5) as conn, conn.transaction(isolation="read_committed"):
@@ -86,13 +94,30 @@ async def snapshot(request: PilotRequest, allowed: set[str], now: datetime) -> d
         active = await AccountDeletionLifecycleService.active_projection_user_ids(
             conn, user_ids=[a.accountId for a in request.accounts]
         )
+        identities = await ActorIdentityService().get_many(active, conn=conn) if policy else {}
+        aliases = (
+            await ActorIdentityService().get_many_verified_email_aliases(active, conn=conn)
+            if policy
+            else {}
+        )
         for account in request.accounts:
             # Hold the same canonical read barriers as the private audience view.
             deleted = account.accountId not in active
+            reporting_eligible = not deleted and (
+                policy is None
+                or (
+                    account.accountId in identifiers
+                    and policy.eligible(
+                        account.accountId,
+                        identities.get(account.accountId),
+                        (*identifiers[account.accountId], *aliases.get(account.accountId, [])),
+                    )
+                )
+            )
             tasks = []
             activity = None
             verified = []
-            if not deleted:
+            if reporting_eligible:
                 if request.version == 1:
                     if account.journey not in {"memory", "mail"}:
                         raise ValueError("Agent activity requires version 2")
@@ -144,6 +169,8 @@ async def snapshot(request: PilotRequest, allowed: set[str], now: datetime) -> d
                             )
                     activity = await activity_snapshot(conn, account, now)
             entry = {**account.model_dump(), "deleted": deleted, "tasks": tasks}
+            if policy:
+                entry["reportingEligible"] = reporting_eligible
             if request.version == 2:
                 entry.update({"activity": activity, "verified": verified})
             result.append(entry)
@@ -153,6 +180,7 @@ async def snapshot(request: PilotRequest, allowed: set[str], now: datetime) -> d
         "retainedOnly": True,
         "asOf": now.astimezone(timezone.utc).isoformat(),
         "accounts": result,
+        **({"customerReporting": policy.proof()} if policy else {}),
     }
     if request.version == 2:
         response["catalog"] = public_activity_catalog()
