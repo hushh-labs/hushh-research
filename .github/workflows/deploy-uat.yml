@@ -302,6 +302,8 @@ jobs:
             "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"
           cp scripts/ops/verify_uat_release.py \
             "${RUNNER_TEMP}/release-tools/verify_uat_release.py"
+          cp scripts/ci/capture_managed_provider_receipt.py \
+            "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py"
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
             cp scripts/ci/managed_provider_readiness.py \
               "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py"
@@ -321,6 +323,8 @@ jobs:
           # Keep the current opt-in contract when verifying an older approved build.
           cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py" \
             scripts/ops/verify_uat_release.py
+          cp "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py" \
+            scripts/ci/capture_managed_provider_receipt.py
           cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py" \
             scripts/ci/runtime-capacity-budget.py
           cp "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py" \
@@ -1320,10 +1324,16 @@ jobs:
           # RIA claim-by-phone: identity resolver + the UAT demo passcode
           # allowlist (fixed code, no SMS to real firm lines). UAT-only.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RIA_IDENTITY_BASE_URL_SECRET=RIA_IDENTITY_BASE_URL##_RIA_IDENTITY_API_KEY_SECRET=RIA_IDENTITY_API_KEY##_RIA_CLAIM_TEST_NUMBERS_SECRET=RIA_CLAIM_TEST_NUMBERS##_RIA_CLAIM_TEST_CODE_SECRET=RIA_CLAIM_TEST_CODE##_RIA_CLAIM_TEST_EMAILS_SECRET=RIA_CLAIM_TEST_EMAILS##_INTELLIGENCE_API_BASE_URL_SECRET=INTELLIGENCE_API_BASE_URL##_INTELLIGENCE_API_KEY_SECRET=INTELLIGENCE_API_KEY##_SUPPORT_EMAIL_TEST_TO_SECRET=SUPPORT_EMAIL_TEST_TO##_SUPPORT_EMAIL_MODE_SECRET=SUPPORT_EMAIL_MODE##_SUPPORT_EMAIL_DELEGATED_USER_SECRET=SUPPORT_EMAIL_DELEGATED_USER##_SUPPORT_EMAIL_FROM_SECRET=SUPPORT_EMAIL_FROM##_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET=GOOGLE_SERVICE_ACCOUNT_EMAIL##_GOOGLE_PRIVATE_KEY_SECRET=GOOGLE_PRIVATE_KEY"
-          gcloud builds submit \
+          build_id="$(gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
-            "--substitutions=^##^${SUBSTITUTIONS}" 2>&1 | tee /tmp/uat-backend-build.log
+            --suppress-logs --format='value(id)' \
+            "--substitutions=^##^${SUBSTITUTIONS}")"
+          if [[ ! "${build_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            echo "Backend deployment did not return an exact Cloud Build id." >&2
+            exit 1
+          fi
+          echo "build_id=${build_id}" >> "$GITHUB_OUTPUT"
           finished_at="$(date +%s)"
           echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
@@ -1332,37 +1342,19 @@ jobs:
       - name: Capture managed provider readiness receipt
         if: always() && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
+        env:
+          READINESS_BUILD_ID: ${{ steps.deploy-backend.outputs.build_id }}
+          READINESS_SOURCE_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          READINESS_IMAGE: ${{ steps.build-backend-image.outputs.image_reference }}
+          READINESS_RUNTIME_ACCOUNT: ${{ env.RUNTIME_SERVICE_ACCOUNT }}
+          READINESS_PROJECT: ${{ env.GCP_PROJECT_ID }}
+          READINESS_REGION: ${{ env.GCP_REGION }}
+          READINESS_GITHUB_RUN: ${{ github.run_id }}
+          READINESS_ENVIRONMENT: uat
+          READINESS_LEGACY_EXCEPTION: ${{ inputs.skip_managed_vertex_probe_once || false }}
         run: |
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          path = Path("/tmp/uat-backend-build.log")
-          receipts = {}
-          for line in path.read_text().splitlines() if path.exists() else []:
-              start = line.find('{')
-              if start < 0:
-                  continue
-              try:
-                  value = json.loads(line[start:])
-              except ValueError:
-                  continue
-              for marker in ("managed_provider_readiness", "managed_provider_selection"):
-                  if isinstance(value, dict) and marker in value:
-                      receipts[marker] = value
-          if receipts:
-              readiness = receipts.get("managed_provider_readiness", {}).get("managed_provider_readiness", {})
-              selection = receipts.get("managed_provider_selection", {})
-              verified = (
-                  selection.get("context") == readiness.get("context")
-                  and selection.get("managed_provider_selection", {}).get("status") == "verified"
-                  and selection.get("managed_provider_selection", {}).get("provider") == readiness.get("selected_provider")
-              )
-              report = {"readiness": readiness, "selection": selection, "selection_verified": verified}
-              Path("/tmp/uat-managed-provider-readiness.json").write_text(
-                  json.dumps(report, indent=2, sort_keys=True) + "\n"
-              )
-          PY
+          python3 scripts/ci/capture_managed_provider_receipt.py \
+            --output /tmp/uat-managed-provider-readiness.json
 
       # The structure evaluator exercises the backend candidate image. Keep it
       # before the frontend build so an advisory model-quality warning is

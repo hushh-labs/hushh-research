@@ -608,9 +608,9 @@ async def trigger_save_my_soul(ctx: ToolContext, args: TriggerSaveMySoulInput) -
             ],
         )
     armed = result.armed
-    left_out: list[str | None] = [
-        contact.display_name for contact in result.skipped_no_key
-    ] + [row["display_name"] or None for row in result.failed]
+    left_out: list[str | None] = [contact.display_name for contact in result.skipped_no_key] + [
+        row["display_name"] or None for row in result.failed
+    ]
     if not armed:
         if result.first_error is not None and isinstance(result.first_error, ServiceError):
             return _rejected(result.first_error)
@@ -1049,7 +1049,10 @@ async def add_emergency_contact(ctx: ToolContext, args: EmergencyContactInput) -
         )
     try:
         await refresh_sms_recipient_identities(
-            service, owner_user_id=ctx.user_id, recipient_user_id=person.user_id, adding_contact=True
+            service,
+            owner_user_id=ctx.user_id,
+            recipient_user_id=person.user_id,
+            adding_contact=True,
         )
         after = list(
             await asyncio.to_thread(

@@ -711,9 +711,7 @@ async def _sms_grant_identity_ready(
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict:
     try:
-        if is_sos_share(
-            share_kind=payload.share_kind, reason=payload.reason
-        ):
+        if is_sos_share(share_kind=payload.share_kind, reason=payload.reason):
             await refresh_sms_recipient_identities(
                 _service(),
                 owner_user_id=_user_id(token_data),
