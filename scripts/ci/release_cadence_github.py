@@ -30,6 +30,7 @@ from release_cadence import (
     trusted_run,
     verified_uat,
     verify_child,
+    verify_dispatch_inputs,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -190,6 +191,24 @@ def run_info(repository: str, run_id: int) -> dict:
     return run
 
 
+def verify_controller(run: dict, repository: str, governance: dict, event: dict | None = None) -> None:
+    require(trusted_run(run, repository, CONTROLLER), "Controller must run from main in this repository")
+    require(run.get("event") in {"workflow_run", "workflow_dispatch", "schedule", "repository_dispatch"},
+            "Unsupported controller event")
+    if run["event"] == "workflow_dispatch":
+        require(run["actor"]["login"] in governance["production"]["manual_dispatch_users"],
+                "Ungoverned reconciliation actor")
+    if run["event"] == "repository_dispatch":
+        require(run["actor"]["login"] == "github-actions[bot]", "Clock controller requires the repository bot")
+        # Historical run metadata has no dispatch action. Its immutable
+        # checkpoint certifies execution through this protected-main guard.
+        if event is not None:
+            require(event.get("action") == "capacity-maintenance-clock", "Wrong cadence clock event")
+    if event is not None and run.get("run_attempt", 1) > 1:
+        require((run.get("triggering_actor") or {}).get("login") in governance["production"]["manual_dispatch_users"],
+                "Rerunning the controller requires a production operator")
+
+
 def recorded_authority(repository: str, run: dict, state: dict | None = None) -> tuple[dict, str]:
     policy, _ = configuration()
     if state is None:
@@ -202,11 +221,8 @@ def recorded_authority(repository: str, run: dict, state: dict | None = None) ->
         if any(child.get("run_id") == run.get("id") for child in request["lanes"].values()):
             request, lane = verify_child(state, run, repository, ordinal, str(request["origin_run_id"]))
             origin = run_info(repository, request["origin_run_id"])
-            require(trusted_run(origin, repository, CONTROLLER), "Untrusted cadence controller")
-            require(origin.get("event") in {"workflow_run", "workflow_dispatch", "schedule"}, "Wrong controller event")
             _, governance = configuration()
-            if origin["event"] == "workflow_dispatch":
-                require(origin["actor"]["login"] in governance["production"]["manual_dispatch_users"], "Ungoverned controller actor")
+            verify_controller(origin, repository, governance)
             source = state["sources"][request["sha"]]
             source_run = run_info(repository, source["run_id"])
             verified_uat(source_run, source["receipt"], repository, governance["uat"]["manual_dispatch_users"])
@@ -249,8 +265,7 @@ def authorize_current(surface: str, actor: str) -> dict | None:
     require(str(request["ordinal"]) == ordinal, "Wrong automatic deployment ordinal")
     require(surface == expected_surface and origin == str(request["origin_run_id"]), "Wrong automation surface")
     expected = dispatch_inputs(str(ordinal), request, lane)
-    require(set(inputs) == set(expected) and all(str(inputs.get(k, "")) == v for k, v in expected.items()),
-            "Dispatch inputs differ from the authorized plan")
+    verify_dispatch_inputs(inputs, expected, lane)
     return request
 
 
@@ -268,12 +283,7 @@ def verify_recovery(ledger: Ledger, reviewed_head: str, controller: dict, govern
     require(set(state["requests"]) == expected_requests, "Recovery milestones are incomplete")
     if state.get("cadence"):
         transition = run_info(ledger.repository, state["cadence"]["origin_run_id"])
-        require(trusted_run(transition, ledger.repository, CONTROLLER) and
-                transition.get("event") in {"workflow_run", "workflow_dispatch", "schedule"},
-                "Recovery cadence transition is untrusted")
-        if transition["event"] == "workflow_dispatch":
-            require(transition["actor"]["login"] in governance["production"]["manual_dispatch_users"],
-                    "Recovery cadence transition actor is not governed")
+        verify_controller(transition, ledger.repository, governance)
     for sha, source in state["sources"].items():
         require(ancestor(state["activation_sha"], sha), "Recovery source predates activation")
         observed = run_info(ledger.repository, source["run_id"])
@@ -291,10 +301,7 @@ def verify_recovery(ledger: Ledger, reviewed_head: str, controller: dict, govern
                 request["submit_for_review"] <= policy["submit_for_review"] and
                 request["release_after_approval"] <= policy["release_after_approval"], "Recovery broadens publication policy")
         origin = run_info(ledger.repository, request["origin_run_id"])
-        require(trusted_run(origin, ledger.repository, CONTROLLER), "Recovery controller is untrusted")
-        require(origin.get("event") in {"workflow_run", "workflow_dispatch", "schedule"}, "Invalid recovery origin event")
-        if origin["event"] == "workflow_dispatch":
-            require(origin["actor"]["login"] in governance["production"]["manual_dispatch_users"], "Recovery origin actor is not governed")
+        verify_controller(origin, ledger.repository, governance)
         for child in request["lanes"].values():
             if child.get("run_id"):
                 verify_child(state, run_info(ledger.repository, child["run_id"]), ledger.repository,
@@ -305,11 +312,9 @@ def reconcile(repository: str, controller_id: int, event: dict, full: bool = Fal
     policy, governance = configuration()
     require(policy["enabled"], "Release cadence is disabled")
     controller = run_info(repository, controller_id)
-    require(trusted_run(controller, repository, CONTROLLER), "Controller must run from main in this repository")
-    require(controller.get("event") in {"workflow_run", "workflow_dispatch", "schedule"}, "Unsupported controller event")
-    if controller["event"] == "workflow_dispatch":
-        actor = controller["actor"]["login"]
-        require(actor in governance["production"]["manual_dispatch_users"], "Ungoverned reconciliation actor")
+    verify_controller(controller, repository, governance, event)
+    if controller["event"] == "repository_dispatch":
+        require(not full and not recovery_head, "Clock events cannot request full replay or checkpoint recovery")
     ledger = Ledger(repository, policy["state_branch"])
     try:
         ledger.verify_checkpoint()
@@ -364,13 +369,24 @@ def reconcile(repository: str, controller_id: int, event: dict, full: bool = Fal
 
 
 def reconcile_children(ledger: Ledger, trigger_run_id: int | None = None) -> None:
+    failures = {"failure", "cancelled", "timed_out", "action_required"}
+    unresolved = [child for request in ledger.state["requests"].values() for child in request["lanes"].values()
+                  if child["state"] in failures]
+    require(len(unresolved) <= 20, "More than 20 unresolved release failures; operator recovery is required")
     for ordinal, request in ledger.state["requests"].items():
         for lane, child in request["lanes"].items():
             if child.get("run_id"):
-                if child["state"] != "running" and child["run_id"] != trigger_run_id:
+                # A governed retry keeps the same recorded ID. Poll unresolved
+                # failures too, so recovery does not depend on a completion hook.
+                if child["state"] not in {"running"} | failures and child["run_id"] != trigger_run_id:
                     continue
                 run = run_info(ledger.repository, child["run_id"])
                 verify_child(ledger.state, run, ledger.repository, ordinal, str(request["origin_run_id"]))
+                if run.get("run_attempt", 1) > child.get("run_attempt", 1):
+                    _, governance = configuration()
+                    surface = "uat" if lane == "testflight" else "production"
+                    require((run.get("triggering_actor") or {}).get("login") in governance[surface]["manual_dispatch_users"],
+                            "Release retry actor is not governed")
                 child["run_attempt"] = run.get("run_attempt", 1)
                 child["state"] = run.get("conclusion") if run["status"] == "completed" else "running"
                 if lane == "appstore" and child["state"] == "success":

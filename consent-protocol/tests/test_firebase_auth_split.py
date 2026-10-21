@@ -784,10 +784,12 @@ def test_ensure_firebase_auth_admin_falls_back_to_default_admin(monkeypatch):
 
 
 def test_get_firebase_auth_app_falls_back_to_default_app(monkeypatch):
-    default_app = object()
+    from types import SimpleNamespace
+
+    default_app = SimpleNamespace(project_id="hushh-pda-uat")
 
     monkeypatch.setattr(
-        "api.utils.firebase_admin.ensure_firebase_auth_admin", lambda: (True, "hushh-pda")
+        "api.utils.firebase_admin.ensure_firebase_auth_admin", lambda: (True, "hushh-pda-uat")
     )
     monkeypatch.setattr(
         "api.utils.firebase_admin._get_existing_app",

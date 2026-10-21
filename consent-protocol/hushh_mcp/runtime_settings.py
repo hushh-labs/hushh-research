@@ -319,6 +319,7 @@ class FirebaseCredentialSettings:
 class AppRuntimeSettings:
     environment: str
     app_frontend_origin: str
+    runtime_profile: str = ""
 
 
 @dataclass(frozen=True)
@@ -1257,6 +1258,7 @@ def get_app_runtime_settings() -> AppRuntimeSettings:
     return AppRuntimeSettings(
         environment=_clean_env("ENVIRONMENT", "development").lower() or "development",
         app_frontend_origin=_normalize_origin(_clean_env(APP_FRONTEND_ORIGIN_ENV)),
+        runtime_profile=_clean_env("APP_RUNTIME_PROFILE").lower(),
     )
 
 

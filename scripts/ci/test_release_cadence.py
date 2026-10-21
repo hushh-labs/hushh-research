@@ -127,6 +127,17 @@ class CadenceTransitionTest(unittest.TestCase):
                 patch.object(github, "receipt", side_effect=lambda repo, identity, prefix:
                              state["sources"][f"{identity:040x}"]["receipt"]):
             github.verify_recovery(ledger, ledger.head, controller, GOVERNANCE, NEW_POLICY)
+            original_observed = observed
+            def clock_observed(repo, identity):
+                value = original_observed(repo, identity)
+                if identity in {100, 101}:
+                    value.update(event="repository_dispatch", actor={"login": "github-actions[bot]"})
+                return value
+            with patch.object(github, "run_info", side_effect=clock_observed):
+                github.verify_recovery(ledger, ledger.head, controller, GOVERNANCE, NEW_POLICY)
+                denied = {**controller, "event": "repository_dispatch", "actor": {"login": "github-actions[bot]"}}
+                with self.assertRaisesRegex(core.UnsafeRelease, "production operator"):
+                    github.verify_recovery(ledger, ledger.head, denied, GOVERNANCE, NEW_POLICY)
             state["requests"]["4"]["lanes"]["deploy"] = {"state": "pending"}
             with self.assertRaisesRegex(core.UnsafeRelease, "lane mismatch"):
                 github.verify_recovery(ledger, ledger.head, controller, GOVERNANCE, NEW_POLICY)
@@ -427,6 +438,75 @@ class AdmissionTest(unittest.TestCase):
 
 
 class ReconciliationTest(unittest.TestCase):
+    def test_clock_wake_requires_exact_bot_event_before_any_state_access(self):
+        controller = run(100, core.CONTROLLER, "github-actions[bot]")
+        controller["event"] = "repository_dispatch"
+        tick = {"action": "capacity-maintenance-clock"}
+        ledger = FakeLedger(core.new_state("0" * 40, "2026-10-22T00:00:00Z"))
+        with patch.object(github, "configuration", return_value=(POLICY, GOVERNANCE)), \
+                patch.object(github, "run_info", return_value=controller), \
+                patch.object(github, "Ledger", return_value=ledger) as open_ledger, \
+                patch.object(github, "runs", return_value=[]), \
+                patch.object(github, "reconcile_children"), patch.object(github, "dispatch_pending"):
+            github.reconcile(REPOSITORY, 100, tick)
+            open_ledger.assert_called_once()
+            invalid = [({}, {}, {}), ({}, {"action": "another-event"}, {}),
+                       ({"actor": {"login": "maintainer"}}, tick, {}),
+                       ({"actor": {"login": "outsider"}}, tick, {}),
+                       ({"head_branch": "feature"}, tick, {}),
+                       ({"path": ".github/workflows/other.yml"}, tick, {}),
+                       ({"event": "push"}, tick, {}),
+                       ({"run_attempt": 2, "triggering_actor": {"login": "outsider"}}, tick, {}),
+                       ({}, tick, {"full": True}), ({}, tick, {"recovery_head": "f" * 40})]
+            original = deepcopy(controller)
+            for change, payload, options in invalid:
+                with self.subTest(change=change, payload=payload, options=options):
+                    controller.clear()
+                    controller.update({**original, **change})
+                    open_ledger.reset_mock()
+                    with self.assertRaises(core.UnsafeRelease):
+                        github.reconcile(REPOSITORY, 100, payload, **options)
+                    open_ledger.assert_not_called()
+            controller.clear()
+            controller.update({**original, "run_attempt": 2, "triggering_actor": {"login": "maintainer"}})
+            github.reconcile(REPOSITORY, 100, tick)
+
+    def test_failed_exact_child_retry_is_polled_without_a_completion_event(self):
+        ledger = FakeLedger(counted(4))
+        child = ledger.state["requests"]["4"]["lanes"]["testflight"]
+        child.update(state="failure", run_id=200, run_attempt=1)
+        observed = run(200, "ship-ios-testflight.yml", "github-actions[bot]")
+        observed.update(display_title=core.marker("4", ledger.state["requests"]["4"], "testflight"),
+                        run_attempt=2, triggering_actor={"login": "outsider"})
+        with patch.object(github, "configuration", return_value=(POLICY, GOVERNANCE)), \
+                patch.object(github, "run_info", return_value=observed), \
+                patch.object(monitor, "run_info", return_value=observed), \
+                patch.object(monitor, "runs", return_value=[]), \
+                patch.object(monitor, "git", return_value=observed["created_at"]), \
+                patch.object(monitor, "evidence", return_value="Verified receipt"):
+            with self.assertRaisesRegex(core.UnsafeRelease, "retry actor"):
+                github.reconcile_children(ledger)
+            self.assertEqual(child["state"], "failure")
+            previous = {"release_highwater": 4, "seen": {"release:4:testflight": "200:1:failure"}}
+            journal, notices = monitor.observations(REPOSITORY, ledger.state, {}, previous, True)
+            self.assertEqual(notices, [])
+            self.assertIn("release:4:testflight", journal["pending_releases"])
+            observed["triggering_actor"]["login"] = "maintainer"
+            github.reconcile_children(ledger)
+            self.assertEqual((child["state"], child["run_attempt"]), ("success", 2))
+            recovered, notices = monitor.observations(REPOSITORY, ledger.state, {}, journal, True)
+            self.assertTrue(any("success" in notice and "Verified receipt" in notice for notice in notices))
+            _, repeated = monitor.observations(REPOSITORY, ledger.state, {}, recovered, True)
+            self.assertEqual(repeated, [])
+        ledger = FakeLedger(counted(84))
+        for request in ledger.state["requests"].values():
+            for child in request["lanes"].values():
+                child.update(state="failure", run_id=200)
+        with patch.object(github, "run_info") as info:
+            with self.assertRaisesRegex(core.UnsafeRelease, "20 unresolved"):
+                github.reconcile_children(ledger)
+            info.assert_not_called()
+
     def test_expired_or_missing_deferral_is_not_mistaken_for_a_public_release(self):
         ledger = FakeLedger(counted(8))
         request = ledger.state["requests"]["8"]
@@ -555,6 +635,12 @@ class AuthorityTest(unittest.TestCase):
                 patch.object(github, "run_info", side_effect=lambda repo, identity: {100: controller, 8: source}[identity]), \
                 patch.object(ledger, "verify_checkpoint", side_effect=verify_snapshot):
             self.assertEqual(github.recorded_authority(REPOSITORY, child)[1], "deploy")
+            controller.update(event="repository_dispatch", actor={"login": "github-actions[bot]"})
+            self.assertEqual(github.recorded_authority(REPOSITORY, child)[1], "deploy")
+            controller["actor"]["login"] = "maintainer"
+            with self.assertRaisesRegex(core.UnsafeRelease, "repository bot"):
+                github.recorded_authority(REPOSITORY, child)
+            controller["actor"]["login"] = "github-actions[bot]"
             ledger.state["requests"]["8"]["submit_for_review"] = True
             with self.assertRaisesRegex(core.UnsafeRelease, "not controller authority"):
                 github.recorded_authority(REPOSITORY, child)
@@ -595,6 +681,51 @@ class AuthorityTest(unittest.TestCase):
                 event.write_text(json.dumps({"inputs": values}))
                 with self.assertRaisesRegex(core.UnsafeRelease, "authorized plan"):
                     github.authorize_current("production", "github-actions[bot]")
+
+
+    def test_event_transport_preserves_exact_automatic_release_plan(self):
+        state, child, _, _ = self.authority_fixture()
+        request = state["requests"]["8"]
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory, "event.json")
+            environment = {"GITHUB_EVENT_PATH": str(event), "GITHUB_REPOSITORY": REPOSITORY,
+                           "GITHUB_RUN_ID": "200", "GITHUB_REF_NAME": "main", "GITHUB_EVENT_NAME": "workflow_dispatch"}
+            for lane in ("testflight", "deploy", "appstore"):
+                boolean_fields = {"testflight": {"dry_run", "require_hardware", "run_core_tests"},
+                                  "appstore": {"dry_run", "submit_for_review", "release_after_approval"},
+                                  "deploy": set()}[lane]
+                expected = core.dispatch_inputs("8", request, lane)
+                surface = "uat" if lane == "testflight" else "production"
+                with patch.dict(os.environ, environment), \
+                        patch.object(github, "configuration", return_value=(POLICY, GOVERNANCE)), \
+                        patch.object(github, "run_info", return_value=child), \
+                        patch.object(github, "recorded_authority", return_value=(request, lane)):
+                    forms = [expected, {k: (v == "true" if k in boolean_fields else v)
+                                        for k, v in expected.items()},
+                             {k: v for k, v in expected.items() if v != ""},
+                             {k: v if v != "" else None for k, v in expected.items()}]
+                    for values in forms:
+                        with self.subTest(lane=lane, valid_transport=values):
+                            event.write_text(json.dumps({"inputs": values}))
+                            self.assertIs(github.authorize_current(surface, "github-actions[bot]"), request)
+                    for key, value in expected.items():
+                        mutations = [{**expected, key: "f" * 40 if key == "sha" else value + "changed"}]
+                        if value:
+                            mutations += [{k: v for k, v in expected.items() if k != key}, {**expected, key: None}]
+                        if key in boolean_fields:
+                            mutations += [{**expected, key: value != "true"}, {**expected, key: 0}]
+                        if lane == "deploy" and key in {"run_predeploy_backup_job", "enable_one_email_kyc"}:
+                            mutations += [{**expected, key: False}]
+                        for changed in mutations:
+                            with self.subTest(lane=lane, rejected_field=key):
+                                event.write_text(json.dumps({"inputs": changed}))
+                                with self.assertRaises(core.UnsafeRelease):
+                                    github.authorize_current(surface, "github-actions[bot]")
+                    secret = "never-echo-this-caller-value"
+                    event.write_text(json.dumps({"inputs": {**expected, secret: secret}}))
+                    with self.assertRaisesRegex(core.UnsafeRelease, "unexpected_count=1") as error:
+                        github.authorize_current(surface, "github-actions[bot]")
+                    self.assertNotIn(secret, str(error.exception))
 
 
 class MonitorTest(unittest.TestCase):

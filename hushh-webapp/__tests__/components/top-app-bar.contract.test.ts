@@ -319,7 +319,7 @@ describe("Top app bar responsive contract", () => {
     expect(scrolledTitles).not.toContain("FolderSearch");
   });
 
-  it("keeps Memory's visible heading in its agent-width page body", () => {
+  it("keeps Memory's body heading and Mail's shared-shell workspace title", () => {
     expect(read("app/one/pkm/page.tsx")).toContain(
       '<PkmSettingsShell title="Memory" titleRole="agent" shellWidth="agent">',
     );
@@ -336,7 +336,7 @@ describe("Top app bar responsive contract", () => {
     expect(gmailSource).toContain(
       'titleRole={journeyVariant === "workspace" ? "agent" : "page"}',
     );
-    expect(gmailSource).not.toContain(
+    expect(gmailSource).toContain(
       'titleVisuallyHidden={journeyVariant === "workspace"}',
     );
     for (const file of ["app/one/gmail/page.tsx", "app/one/gmail/gmail-page-client.tsx"]) {

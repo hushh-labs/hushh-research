@@ -4,28 +4,20 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ShieldCheck } from "@/components/icons";
 import { toast } from "sonner";
 
+import { withDeadline } from "@/lib/utils/with-deadline";
+import { useMailKycIntake } from "@/lib/gmail/use-mail-kyc-intake";
 import { KycPasteDetailsDialog } from "@/components/gmail/kyc-paste-details-dialog";
 import { KycProfileHero } from "@/components/gmail/kyc-profile-hero";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/lib/morphy-ux/button";
+import { MailActionButton as Button } from "./mail-action-button";
 import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
 const EXTERNAL_AGENT_PROMPT =
   "Summarize my personal and KYC details as simple Markdown bullet points under Facts, Preferences, and Commitments. Note anything uncertain or missing. Do not include passwords, PINs, security codes, or authentication keys.";
 
-export function GmailVerificationOnboarding({
-  userId,
-  vaultKey,
-  vaultOwnerToken,
-  onRequestVaultUnlock,
-  deferred,
-  onDeferredChange,
-  details,
-  onDetailsChange,
-  children,
-}: {
+type GmailVerificationOnboardingProps = {
   userId: string | null;
   vaultKey: string | null;
   vaultOwnerToken: string | null;
@@ -35,45 +27,41 @@ export function GmailVerificationOnboarding({
   details: string;
   onDetailsChange: (details: string) => void;
   children: ReactNode;
-}) {
-  const [profileReady, setProfileReady] = useState(false);
-  const [checking, setChecking] = useState(true);
+};
+
+export function GmailVerificationOnboarding(props: GmailVerificationOnboardingProps) {
+  const authority = [props.userId, props.vaultKey, Boolean(props.vaultOwnerToken)] as const;
+  const [scope, setScope] = useState({ authority, generation: 0 });
+  if (authority.some((value, index) => value !== scope.authority[index])) {
+    setScope({ authority, generation: scope.generation + 1 });
+  }
+  return <GmailVerificationOnboardingSession key={scope.generation} {...props} />;
+}
+
+function GmailVerificationOnboardingSession({
+  userId,
+  vaultKey,
+  vaultOwnerToken,
+  onRequestVaultUnlock,
+  deferred,
+  onDeferredChange,
+  details,
+  onDetailsChange,
+  children,
+}: GmailVerificationOnboardingProps) {
+  const currentSessionRef = useRef(true);
+  useEffect(() => { currentSessionRef.current = true; return () => { currentSessionRef.current = false; }; }, []);
+  const intake = useMailKycIntake({ userId, vaultKey, vaultOwnerToken });
+  const [lastIntake, setLastIntake] = useState(intake.data);
+  if (intake.data !== null && intake.data !== lastIntake) setLastIntake(intake.data);
+  const knownIntake = intake.data ?? lastIntake;
+  const [approvedIntake, setProfileReady] = useState(false);
+  const profileReady = approvedIntake || knownIntake === true || intake.error !== null;
+  const checking = knownIntake === null && intake.loading;
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const saveStartedRef = useRef(false);
-
-  useEffect(() => {
-    setChecking(true);
-    setProfileReady(false);
-    if (!userId || !vaultKey || !vaultOwnerToken) {
-      setChecking(false);
-      return;
-    }
-
-    let cancelled = false;
-    void KycIdentityProfilePkmService.hasCompletedIntake({
-      userId,
-      vaultKey,
-      vaultOwnerToken,
-    })
-      .then((completed) => {
-        if (!cancelled && completed) {
-          setProfileReady(true);
-        }
-      })
-      .catch(() => {
-        // An unreadable snapshot is not evidence that setup is incomplete.
-        if (!cancelled) setProfileReady(true);
-      })
-      .finally(() => {
-        if (!cancelled) setChecking(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, vaultKey, vaultOwnerToken]);
 
   const copyPrompt = async () => {
     if (!(await copyToClipboard(EXTERNAL_AGENT_PROMPT))) {
@@ -99,12 +87,12 @@ export function GmailVerificationOnboarding({
 
     saveStartedRef.current = true;
     setSaving(true);
-    const saveTask = KycIdentityProfilePkmService.saveProfile({
+    const saveTask = withDeadline(KycIdentityProfilePkmService.saveProfile({
       userId,
       vaultKey,
       vaultOwnerToken,
       profile: { aboutMe },
-    });
+    }), Date.now() + 120_000);
 
     // The person has explicitly approved this import. Continue into the KYC
     // workspace immediately while the encrypted PKM write completes without
@@ -115,6 +103,7 @@ export function GmailVerificationOnboarding({
     toast.info("Saving your KYC details privately in the background…");
     void saveTask
       .then((result) => {
+        if (!currentSessionRef.current) return;
         if (!result.success) {
           console.error("[PKM_INGEST] kyc_background_save_failed", {
             source: "kyc_identity_onboarding",
@@ -125,16 +114,20 @@ export function GmailVerificationOnboarding({
           );
           return;
         }
+        intake.markCompleted();
         toast.success(result.message || "KYC details saved privately.");
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (!currentSessionRef.current) return;
         console.error("[PKM_INGEST] kyc_background_save_failed", {
           source: "kyc_identity_onboarding",
           error_code: "background_task_rejected",
         });
-        toast.error("We couldn't save your KYC details to Memory. Nothing new was added.");
+        toast.error(error instanceof Error && error.name === "TimeoutError"
+          ? "We couldn’t confirm your save. Check Memory before trying again."
+          : "We couldn't save your KYC details to Memory. Nothing new was added.");
       })
-      .finally(() => setSaving(false));
+      .finally(() => { if (currentSessionRef.current) setSaving(false); });
   };
 
   if (checking) {

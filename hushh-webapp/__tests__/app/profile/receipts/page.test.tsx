@@ -245,19 +245,21 @@ vi.mock("@/components/vault/vault-unlock-dialog", () => ({
 }));
 
 vi.mock("@/lib/morphy-ux/button", () => ({
-  Button: ({
-    children,
-    onClick,
-    disabled,
-  }: {
-    children: React.ReactNode;
-    onClick?: () => void;
-    disabled?: boolean;
-  }) => (
-    <button type="button" onClick={onClick} disabled={disabled}>
-      {children}
-    </button>
-  ),
+  Button: React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    variant?: string;
+    size?: string;
+    effect?: string;
+    loading?: boolean;
+    fullWidth?: boolean;
+  }>(function TestMorphyButton(props, ref) {
+    const buttonProps = { ...props };
+    delete buttonProps.variant;
+    delete buttonProps.size;
+    delete buttonProps.effect;
+    delete buttonProps.loading;
+    delete buttonProps.fullWidth;
+    return <button type="button" {...buttonProps} ref={ref} />;
+  }),
 }));
 
 vi.mock("lucide-react", () => ({
@@ -589,8 +591,8 @@ function buildGmailView() {
     refreshingStatus: false,
     syncingRun: false,
     statusError: null,
-    refreshStatus: vi.fn(),
-    disconnectGmail: vi.fn(),
+    refreshStatus: vi.fn().mockResolvedValue(null),
+    disconnectGmail: vi.fn().mockResolvedValue(null),
     syncNow: vi.fn().mockResolvedValue({
       accepted: true,
       run: {
@@ -686,7 +688,7 @@ describe("ProfileReceiptsPage", () => {
         state?.setupCompleted === true,
     );
 
-    vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
+    vi.mocked(GmailReceiptsService.listReceipts).mockReset().mockResolvedValue({
       items: [],
       page: 1,
       per_page: 20,
@@ -826,7 +828,8 @@ describe("ProfileReceiptsPage", () => {
     expect(
       await screen.findByText("Looking through your recent purchases…"),
     ).toBeVisible();
-    expect(screen.getByRole("button", { name: "Scanning" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start sync" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start sync" })).toHaveAttribute("aria-busy", "true");
     expect(screen.getByTestId("receipt-sync-hero")).not.toHaveTextContent(/page \d|\d of \d/);
     expect((await screen.findAllByText("Amazon")).length).toBeGreaterThan(0);
     expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(2);
@@ -861,7 +864,8 @@ describe("ProfileReceiptsPage", () => {
       start.click();
     });
 
-    expect(await screen.findByRole("button", { name: "Scanning" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start sync" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start sync" })).toHaveAttribute("aria-busy", "true");
     expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("Loading receipts")).toBeNull();
     await waitFor(() => expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1));
@@ -1277,7 +1281,7 @@ describe("ProfileReceiptsPage", () => {
     await waitFor(() => expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(3));
     expect(vi.mocked(GmailReceiptsService.scanReceipts).mock.calls[2][0]).toMatchObject({ page: 1 });
     expect(vi.mocked(GmailReceiptsService.scanReceipts).mock.calls[2][0].cursor).toBeUndefined();
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Scanning" })).toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start sync" })).toHaveAttribute("aria-busy", "false"));
   });
 
   it("stops an empty scan at the fifty-page receipt bound", async () => {
@@ -1531,7 +1535,8 @@ describe("ProfileReceiptsPage", () => {
     expect(getCachedGmailReceipts("user-123", "akshat@example.com")).toBeNull();
     expect(screen.queryByText("Receipts updated.")).toBeNull();
     expect(mocks.toast.success).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Scanning", exact: true })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start sync", exact: true })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start sync", exact: true })).toHaveAttribute("aria-busy", "true");
     await act(async () => {
       finishCurrent({ items: [makeReceipt(2, "Current Shop")], page: 1, per_page: 6,
         total: 1, has_more: false, coverage: makeLiveCoverage(1) });
@@ -2358,9 +2363,9 @@ describe("ProfileReceiptsPage", () => {
         purpose: "send",
       });
     });
-    expect(mocks.toast.success).toHaveBeenCalledWith(
+    await waitFor(() => expect(mocks.toast.success).toHaveBeenCalledWith(
       "Mail connected. You can read and send after reviewing each email.",
-    );
+    ));
     expect(mocks.toast.error).not.toHaveBeenCalled();
     expect(mocks.gmailOAuthPopup.open).not.toHaveBeenCalled();
     expect(GmailReceiptsService.startConnect).not.toHaveBeenCalled();

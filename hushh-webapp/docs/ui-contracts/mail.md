@@ -7,6 +7,70 @@ executable route, consent, provider, agent, schema and storage owners retain
 authority. Values describe source behavior, not measurements of a deployed
 account or physical device.
 
+## Connect alignment and warm-return refinement — 21 October 2026
+
+This implementation refinement is based on fetched main `c3f27e1f7f3a` and
+supersedes older visual measurements and loading descriptions below where they
+conflict. Backend endpoints, payloads, permissions, feature gates, approved
+reply/send outcomes, receipt capture/grouping and encrypted storage authority
+are unchanged.
+
+- The shared top shell owns the visible **Mail** breadcrumb beside its existing
+  Back control. Existing authored Back targets and Profile remain unchanged.
+  The body retains one visually hidden accessible H1 and compact account detail.
+- Mail uses Connect's 728px **outer** reading frame, including 24px gutters above
+  620px, 20px at 351–620px and 16px at 350px or below. Header and navigation
+  retain their independently sized frames.
+- Self-hosted Plus Jakarta Sans remains the family. Effective roles are shared
+  header 17/22/600; workspace labels 15/20/550; section 14/22/600; row title
+  14/21/550; supporting copy 12/18/400; ordinary action 12/18/550. Inputs retain
+  the shared 16px phone floor and 14/22 desktop role. Portals opt into the same
+  family and supporting roles directly; their title retains the shared 20/28/600
+  dialog role rather than inheriting the page's section scale.
+- Ordinary actions reuse Morphy's target/ripple and Connect's transparent wrapper
+  plus 44px neutral-surface pill, accent label and 32% accent/neutral border mix.
+  Meaningful destructive actions keep shared destructive confirmation controls.
+  Labels stay stable while pending; disabled/aria-busy/tint or existing progress
+  communicates work, and success remains tied to the existing real result.
+- SegmentedTabs and SwipeViews remain the single selection, keyboard and swipe
+  owners. Selected surfaces use the existing neutral card token. Inactive panes
+  keep their prior inert/voice semantics. No row refresh adds an entrance animation.
+- KYC intake hints and request display reads use the existing `useStaleResource` coordinator and memory
+  CacheService, scoped by owner/account/credential generation. Fresh valid snapshots
+  render synchronously on remount; stale snapshots remain during background reads.
+  Duplicate consumers join the same request. A completed invalidation burst queues
+  at most one shared follow-up; mutation versions fence older results. Passive
+  refresh does not disable current actions or replace empty states with skeletons.
+- Vault epoch changes synchronously purge protected display entries, and sign-out
+  purges their owner prefix. Credential renewal fences old responses without
+  remounting the same owner's draft, selection or focus. Owner/account/vault-key
+  changes retire that local workspace. The intake display hint also renders
+  synchronously from session memory instead of hiding the child behind a new check. Draft text, selected scopes, action IDs and
+  sender tokens never enter the display cache; cache contents never authorize send.
+- Whole-operation budgets cover KYC display reads (30 seconds), KYC scans/actions
+  (120 seconds), receipt detail/intake checks (30 seconds), and receipt scan passes
+  (five minutes). Token waits count toward the same budget. Timeout retains safe
+  content and ends pending state; it never retries a send. Navigation cancellation
+  retains the existing interrupted-scan recovery, while timeout stays terminal
+  until explicit retry. Existing encrypted receipt snapshots remain unchanged.
+
+Owners: [Mail scope](../../components/gmail/mail-workspace.module.css),
+[action primitive](../../components/gmail/mail-action-button.tsx),
+[display resource](../../lib/gmail/use-mail-kyc-display.ts),
+[request workspace](../../components/gmail/gmail-information-requests-section.tsx),
+[shared resource](../../lib/cache/use-stale-resource.ts),
+[Back hierarchy](../../lib/navigation/back-navigation-graph.ts), and
+[source-coupled rendered fixture](../../e2e/mail-overview.layout.spec.ts).
+
+Verification uses the mounted Mail page, actual shared header and navigation,
+production-compiled CSS and shipped font binaries with synthetic identity/provider
+boundaries. Light/dark screenshots cover Overview/KYC/Receipts at 360, 393, 430,
+768, 1024 and 1440 CSS pixels, at device scale 1. Connect is captured at the same
+sizes for the role/frame comparison. This is rendered WebKit proof; it does not
+claim authenticated Gmail/OAuth acceptance, physical-device keyboard/Dynamic Type
+or native frame-pacing certification. See the delivery verification report for
+executed checks and precise limits.
+
 ## Visual Map
 
 ```mermaid

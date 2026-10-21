@@ -10,6 +10,14 @@ import { registerBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 
 describe("top shell back action", () => {
+  it("returns a person profile opened from Messages to Messages", () => {
+    expect(resolveTopShellBackAction({
+      pathname: "/people/person-maya",
+      searchParams: new URLSearchParams({ from: ROUTES.ONE_MESSAGES }),
+      sectionOrigin: null,
+    })?.href).toBe(ROUTES.ONE_MESSAGES);
+  });
+
   it("returns from AI setup by replacement and keeps a safe deep-link target", () => {
     expect(resolveTopShellBackAction({
       pathname: ROUTES.ONE_SETUP_CONNECTIONS,

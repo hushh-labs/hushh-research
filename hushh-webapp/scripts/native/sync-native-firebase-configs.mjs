@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { validateNativeFirebaseIdentity } from "./native-firebase-identity.mjs";
 
 function resolveAppRoot(cwd = process.cwd()) {
   if (fs.existsSync(path.join(cwd, "capacitor.config.ts"))) {
@@ -87,7 +88,7 @@ export function syncNativeFirebaseConfigs({
   }
 
   const bundleId = includeIos ? iosBundleId(iosSource) : "";
-  if (bundleId && bundleId !== "com.hushh.app") {
+  if (includeIos && bundleId !== "com.hushh.app") {
     throw new Error(
       `iOS Firebase config bundle id is ${bundleId}; expected com.hushh.app.`
     );
@@ -104,18 +105,21 @@ export function syncNativeFirebaseConfigs({
     );
   }
 
-  if (expectedProjectId) {
-    let matches = false;
-    try {
-      const iosProject = includeIos
-        ? fs.readFileSync(iosSource, "utf8").match(/<key>PROJECT_ID<\/key>\s*<string>([^<]+)<\/string>/)?.[1]
-        : expectedProjectId;
-      const androidProject = includeAndroid
-        ? readJson(androidSource).project_info?.project_id
-        : expectedProjectId;
-      matches = iosProject === expectedProjectId && androidProject === expectedProjectId;
-    } catch { /* Malformed configuration fails without printing its contents. */ }
-    if (!matches) throw new Error("Native Firebase configuration does not match the selected project.");
+  const expectedProject = expectedProjectId?.trim();
+  const expectedSender = process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID?.trim();
+  const profile = process.env.APP_RUNTIME_PROFILE?.trim();
+  if (["uat", "dev", "prod", "production"].includes(profile) && (!expectedProject || !expectedSender)) {
+    throw new Error("Hosted native builds require an explicit Firebase project and sender.");
+  }
+  if (includeIos && expectedProject) {
+    const plist = fs.readFileSync(iosSource, "utf8");
+    const field = key => plist.match(new RegExp(`<key>${key}</key>\\s*<string>([^<]+)</string>`))?.[1] || "";
+    validateNativeFirebaseIdentity({ projectId: field("PROJECT_ID"), senderId: field("GCM_SENDER_ID"), nativeAppId: field("GOOGLE_APP_ID") }, { expectedProject, expectedSender });
+  }
+  if (includeAndroid && expectedProject) {
+    const payload = readJson(androidSource);
+    const client = (payload.client || []).find(item => item.client_info?.android_client_info?.package_name === "com.hussh.app");
+    validateNativeFirebaseIdentity({ projectId: payload.project_info?.project_id, senderId: payload.project_info?.project_number, nativeAppId: client?.client_info?.mobilesdk_app_id }, { expectedProject, expectedSender });
   }
 
   const iosDestination = path.join(

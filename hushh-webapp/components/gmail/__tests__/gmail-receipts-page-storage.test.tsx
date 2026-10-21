@@ -85,7 +85,8 @@ describe("receipt sync durable completion", () => {
     expect(screen.getByText("Udemy")).toBeVisible();
     expect(screen.getAllByTestId("receipt-row")).toHaveLength(newSavedEvent ? 4 : 3);
     expect(screen.queryByLabelText("Loading receipts")).toBeNull();
-    expect(screen.getByRole("button", { name: "Scanning" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start sync" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start sync" })).toHaveAttribute("aria-busy", "true");
     expect(fixture.completion).toBe(completion);
     expect(await loadReceiptSnapshot(session, account)).toEqual(baseline);
     await act(async () => { rejectPage(new GmailReceiptRequestError("expired", 409, "GMAIL_RECEIPT_CURSOR_EXPIRED", false)); });
@@ -130,7 +131,7 @@ describe("receipt sync durable completion", () => {
     expect(fixture.scan).toHaveBeenCalledOnce();
     expect(screen.getByText("Plaid")).toBeVisible();
     expect(screen.queryByLabelText("Loading receipts")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Scanning" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Start sync" })).toHaveAttribute("aria-busy", "false");
     expect(await loadReceiptSnapshot(session, account)).toEqual(baseline);
     view.unmount(); clearCachedGmailReceipts(session.userId); open();
     await waitFor(() => expect(screen.getByText("Plaid")).toBeVisible());

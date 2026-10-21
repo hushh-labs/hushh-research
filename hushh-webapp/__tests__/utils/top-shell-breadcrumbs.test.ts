@@ -1144,7 +1144,7 @@ describe("top shell title slot", () => {
   it.each([
     // Agent roots own their visible heading in the page body, not beside Back.
     ["/one/pkm", "", "none"],
-    ["/one/gmail", "", "title"],
+    ["/one/gmail", "", ["Mail"]],
     ["/one/feed", "", ["Feed"]],
     ["/one/connect", "", ["Connect"]],
     ["/one/connect/settings", "", ["Connect", "AI connection"]],
@@ -1158,7 +1158,7 @@ describe("top shell title slot", () => {
     ["/one/connected-systems", "", ["Connected Systems"]],
     ["/one/consent", "", "none"],
     ["/consents", "", "none"],
-    ["/one/gmail", "from=/one/setup", "title"],
+    ["/one/gmail", "from=/one/setup", ["Mail"]],
   ])(
     "keeps %s (%s) titled beside its back arrow, even scrolled",
     (pathname, search, expected) => {

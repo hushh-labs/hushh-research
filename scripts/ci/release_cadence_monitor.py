@@ -141,7 +141,8 @@ def observations(repository: str, state: dict | None, event: dict, previous: dic
                 identity = child.get("run_id")
                 key = f"release:{ordinal}:{lane}"
                 if (int(ordinal) <= previous.get("release_highwater", 0) and
-                        key not in previous.get("pending_releases", []) and identity != trigger.get("id")):
+                        key not in previous.get("pending_releases", []) and child["state"] not in FAILURES
+                        and identity != trigger.get("id")):
                     continue
                 if not identity or child["state"] in {"superseded", "pending"}:
                     continue
@@ -163,7 +164,7 @@ def observations(repository: str, state: dict | None, event: dict, previous: dic
                                            [int(ordinal) for ordinal in state["requests"]])
         observed["pending_releases"] = [f"release:{ordinal}:{lane}" for ordinal, request in state["requests"].items()
                                        for lane, child in request["lanes"].items()
-                                       if child["state"] in {"pending", "running", "dispatching", "deferred"}]
+                                       if child["state"] in {"pending", "running", "dispatching", "deferred"} | FAILURES]
     recent = sorted(intervals.values(), key=lambda item: item["created_at"], reverse=True)
     observed["release_intervals"] = {str(item["id"]): item for index, item in enumerate(recent)
                                      if index < 40 or not item["completed_at"]}

@@ -1,4 +1,5 @@
 import { feedIdAtOrBefore } from "@/lib/cache/feed-read-watermark";
+import { advanceMailKycDisplayVersion } from "@/lib/gmail/mail-kyc-display-version";
 import type { PortfolioData } from "@/lib/cache/cache-context";
 import {
   CacheService,
@@ -949,6 +950,14 @@ export class CacheSyncService {
     // keep history cache warm and avoid broad invalidation/refetch churn.
     if (ticker) {
       cache.invalidate(CACHE_KEYS.STOCK_CONTEXT(userId, ticker.toUpperCase()));
+    }
+  }
+
+  /** Mail display metadata never grants submission authority. */
+  static onMailKycChanged(userId: string | null): void {
+    if (userId) {
+      advanceMailKycDisplayVersion(userId);
+      CacheService.getInstance().invalidatePattern(`mail_kyc_display_${userId}_`);
     }
   }
 
