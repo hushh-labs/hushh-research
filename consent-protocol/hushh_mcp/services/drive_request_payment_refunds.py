@@ -34,16 +34,16 @@ _REFUND_CANDIDATES_SQL = """
       AND (r.request_id IS NOT NULL OR
         (p.erased_at IS NOT NULL AND p.finalized_at IS NOT NULL))) OR
       ((o.erased_at IS NOT NULL AND o.reconciliation_required
-      AND NOT o.delivery_confirmed_at_erasure) OR
-      (r.payment_required=TRUE AND
+      AND (NOT o.delivery_confirmed_at_erasure OR o.existing_access_waived_at IS NOT NULL)) OR
+      ((r.payment_required=TRUE OR o.existing_access_waived_at IS NOT NULL) AND
        (o.reconciliation_required OR r.access_stop_requested_at IS NOT NULL OR r.status IN
          ('completed','partial','no_match','expired','cancelled','declined')
          OR r.expires_at<=clock_timestamp())
        AND NOT EXISTS (SELECT 1 FROM drive_bulk_share_effects e
       JOIN drive_bulk_shares b ON b.share_id=e.share_id
       WHERE b.origin_request_id=o.request_id
-        AND (e.state IN ('succeeded','preexisting','dispatching',
-                        'unknown','present_unattributed')
+        AND ((e.state IN ('succeeded','dispatching','unknown','present_unattributed')
+             OR (e.state='preexisting' AND o.existing_access_waived_at IS NULL))
              OR (e.state='failed' AND e.safe_error_code='permission_outcome_unknown')))
       AND NOT EXISTS (SELECT 1 FROM drive_share_permission_operations p
       WHERE p.request_id=o.request_id AND p.kind='grant'
@@ -143,7 +143,10 @@ def _claim_refunds(service, connection, *, limit: int, v1_only: bool = False) ->
             elif (
                 order["erased_at"] is None
                 or not order["reconciliation_required"]
-                or order["delivery_confirmed_at_erasure"]
+                or (
+                    order["delivery_confirmed_at_erasure"]
+                    and order["existing_access_waived_at"] is None
+                )
             ):
                 continue
             if not partial_refund and order["delivery_unsettled_at_erasure"]:
@@ -189,7 +192,8 @@ def _claim_refunds(service, connection, *, limit: int, v1_only: bool = False) ->
             """,
                 {
                     "request": request_id,
-                    "count_preexisting": request.get("v1_live_request") is not True,
+                    "count_preexisting": request.get("v1_live_request") is not True
+                    and order["existing_access_waived_at"] is None,
                 },
             )
             if (

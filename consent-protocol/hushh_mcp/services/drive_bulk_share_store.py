@@ -1217,13 +1217,30 @@ class DriveBulkShareStore(DriveLivePreferences):
                     {"user": user_id, "request": origin},
                 ).scalar_one():
                     raise DriveSharingError("bulk_conflict")
-                if package is None and self._row(
-                    connection,
-                    """SELECT share_id FROM drive_bulk_shares
+                final_automatic_review = (
+                    private.get("trusted_auto") is True
+                    and autoshare_request(private)
+                    and manual is None
+                    and source["status"] == "completed"
+                    and 1 <= source["matched"] <= 120
+                    and not checkpoint_requires_owner_review(
+                        checkpoint, request_id=origin, revision=request_row["revision"]
+                    )
+                    and self._final_autoshare_access_candidate_locked(
+                        connection, user_id=user_id, request_id=origin
+                    )
+                )
+                if (
+                    package is None
+                    and not final_automatic_review
+                    and self._row(
+                        connection,
+                        """SELECT share_id FROM drive_bulk_shares
                     WHERE user_id=:user AND origin_request_id=:request
                       AND progressive_batch=TRUE AND status='review_ready'
                       AND expires_at>clock_timestamp() LIMIT 1""",
-                    {"user": user_id, "request": origin},
+                        {"user": user_id, "request": origin},
+                    )
                 ):
                     raise DriveSharingError("bulk_conflict")
             review_digest = self.cipher.digest(
@@ -1751,6 +1768,34 @@ class DriveBulkShareStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
+    async def final_autoshare_access_candidate(self, *, user_id, request_id):
+        """Bound preflight work; completion still revalidates the entire frozen set."""
+
+        return await self._transaction(
+            lambda connection: self._final_autoshare_access_candidate_locked(
+                connection, user_id=user_id, request_id=_uuid(request_id)
+            )
+        )
+
+    def _final_autoshare_access_candidate_locked(self, connection, *, user_id, request_id):
+        return connection.execute(
+            text("""SELECT EXISTS(
+            SELECT 1 FROM drive_share_requests r JOIN drive_owner_search_jobs j
+            ON j.user_id=r.user_id AND j.client_request_id=r.request_id
+            WHERE r.user_id=:user AND r.request_id=:request AND r.status='pending'
+            AND r.payment_required=TRUE AND r.access_stop_requested_at IS NULL
+            AND r.expires_at>clock_timestamp() AND j.expires_at>clock_timestamp()
+            AND j.status='completed' AND j.incomplete_search=FALSE
+            AND j.matched BETWEEN 1 AND 120
+            AND NOT EXISTS(SELECT 1 FROM drive_request_payment_orders o
+                WHERE o.request_id=r.request_id AND (o.paid_at IS NOT NULL
+                    OR o.reconciliation_required OR o.status='refunded'))
+            AND NOT EXISTS(SELECT 1 FROM drive_bulk_shares b
+                WHERE b.user_id=r.user_id AND b.origin_request_id=r.request_id
+                    AND b.approved_at IS NOT NULL))"""),
+            {"user": user_id, "request": _uuid(request_id)},
+        ).scalar_one()
+
     async def autoshare_checkout_sources(self, *, user_id, request_id):
         """Check that an autoshare request may take its one flat payment now.
 
@@ -1769,140 +1814,144 @@ class DriveBulkShareStore(DriveLivePreferences):
         """
         request_id = _uuid(request_id)
 
-        def operation(connection):
-            current = self._checkout_connection(connection, user_id=user_id)
-            now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
-            request = self._row(
-                connection,
-                """SELECT * FROM drive_share_requests
-                   WHERE user_id=:user AND request_id=:request""",
-                {"user": user_id, "request": request_id},
+        return await self._transaction(
+            lambda connection: self._autoshare_checkout_sources_locked(
+                connection, user_id=user_id, request_id=request_id
             )
-            if (
-                request is None
-                or request["status"] != "pending"
-                or request["access_stop_requested_at"] is not None
-                or request["expires_at"] <= now
-            ):
-                raise checkout_refusal("request_closed")
-            private = self._open(
-                request["request_envelope"],
-                user_id=user_id,
-                resource_id=request_id,
-                purpose="request",
-            )
-            if private.get("trusted_auto") is not True or not autoshare_request(private):
-                raise checkout_refusal("lane_changed")
-            open_set = {"files": [], "complete": False, "revision": request["revision"]}
-            search = self._row(
-                connection,
-                """SELECT * FROM drive_owner_search_jobs
-                   WHERE user_id=:user AND client_request_id=:request""",
-                {"user": user_id, "request": request_id},
-            )
-            if search is None:
-                # The owner's Allow priced the request before any search slice.
-                # Charge only while the automatic queue will still start that
-                # search: a start that failed for good (or one the owner took
-                # over) has nothing to deliver, so B is never asked to pay.
-                if automatic_start_parked(request["preparation_error_code"]):
-                    raise checkout_refusal("search_parked")
-                return open_set
-            if (
-                search["status"] not in {"queued", "running", "completed"}
-                or search["incomplete_search"]
-                or search["expires_at"] <= now
-            ):
-                # A failed or partial search cannot deliver; never charge for it.
-                raise checkout_refusal("search_failed")
-            if search["connection_generation"] != current["connection_generation"]:
-                raise checkout_refusal("connection_changed")
-            checkpoint = self._open(
-                search["checkpoint_envelope"],
-                user_id=user_id,
-                resource_id=str(search["job_id"]),
-                purpose="owner-search-checkpoint",
-            )
-            if (
-                checkpoint.get("request_origin_id") != request_id
-                or checkpoint.get("request_revision") != request["revision"]
-                or checkpoint.get("request_shareability_version") != 1
-            ):
-                raise checkout_refusal("search_changed")
-            if checkpoint_requires_owner_review(
-                checkpoint, request_id=request_id, revision=request["revision"]
-            ):
-                raise checkout_refusal("owner_review_required")
-            if search["status"] != "completed" or (
-                checkpoint.get("request_result_limit") is not None
-                and checkpoint.get("request_results_finalized") is not True
-            ):
-                # More files may still join; nothing is final to compare yet.
-                return open_set
-            for row in connection.execute(
-                text("""SELECT r.position,r.metadata_envelope
-                FROM drive_owner_search_results r
-                WHERE r.job_id=:job AND r.user_id=:user
-                  AND NOT EXISTS (SELECT 1 FROM drive_bulk_share_files f
-                    WHERE f.user_id=:user AND f.origin_request_id=:request
-                      AND f.source_position=r.position)
-                ORDER BY r.position LIMIT 10000"""),
-                {"job": search["job_id"], "user": user_id, "request": request_id},
-            ).mappings():
-                unfrozen = self._open(
-                    row["metadata_envelope"],
-                    user_id=user_id,
-                    resource_id=f"{search['job_id']}:{row['position']}",
-                    purpose="owner-search-result",
-                )
-                if unfrozen.get("shareable") is True:
-                    # This match is frozen and shared after payment.
-                    return open_set
-            frozen = list(
-                connection.execute(
-                    text("""SELECT f.source_position,f.file_digest,f.metadata_envelope,
-                           f.source_job_id,b.search_job_id,b.connection_generation,
-                           b.origin_request_revision,b.status,b.approved_at
-                    FROM drive_bulk_share_files f JOIN drive_bulk_shares b ON b.share_id=f.share_id
-                    WHERE f.user_id=:user AND f.origin_request_id=:request
-                      AND b.user_id=:user AND b.origin_request_id=:request
-                      AND b.progressive_batch=TRUE
-                    ORDER BY f.source_position LIMIT 121"""),
-                    {"user": user_id, "request": request_id},
-                ).mappings()
-            )
-            if not frozen:
-                # A finished search with no shareable match has nothing to sell.
-                raise checkout_refusal("no_match")
-            files = []
-            for row in frozen:
-                if (
-                    row["status"] != "review_ready"
-                    or row["approved_at"] is not None
-                    or row["source_job_id"] != search["job_id"]
-                    or row["search_job_id"] != search["job_id"]
-                    or row["connection_generation"] != current["connection_generation"]
-                    or row["origin_request_revision"] != request["revision"]
-                ):
-                    # Not one unpaid held set: no existing-access waiver applies.
-                    return open_set
-                metadata = self._open(
-                    row["metadata_envelope"],
-                    user_id=user_id,
-                    resource_id=f"{search['job_id']}:{row['source_position']}",
-                    purpose="owner-search-result",
-                )
-                if metadata.get("shareable") is not True or not all(
-                    isinstance(metadata.get(key), str) and metadata[key]
-                    for key in ("id", "name", "modifiedTime")
-                ):
-                    return open_set
-                files.append({**metadata, "generation": current["connection_generation"]})
-            if len(files) > 120 or len({item["id"] for item in files}) != len(files):
-                return open_set
-            return {**open_set, "files": files, "complete": True}
+        )
 
-        return await self._transaction(operation)
+    def _autoshare_checkout_sources_locked(self, connection, *, user_id, request_id):
+        current = self._checkout_connection(connection, user_id=user_id)
+        now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+        request = self._row(
+            connection,
+            """SELECT * FROM drive_share_requests
+               WHERE user_id=:user AND request_id=:request""",
+            {"user": user_id, "request": request_id},
+        )
+        if (
+            request is None
+            or request["status"] != "pending"
+            or request["access_stop_requested_at"] is not None
+            or request["expires_at"] <= now
+        ):
+            raise checkout_refusal("request_closed")
+        private = self._open(
+            request["request_envelope"],
+            user_id=user_id,
+            resource_id=request_id,
+            purpose="request",
+        )
+        if private.get("trusted_auto") is not True or not autoshare_request(private):
+            raise checkout_refusal("lane_changed")
+        open_set = {"files": [], "complete": False, "revision": request["revision"]}
+        search = self._row(
+            connection,
+            """SELECT * FROM drive_owner_search_jobs
+               WHERE user_id=:user AND client_request_id=:request""",
+            {"user": user_id, "request": request_id},
+        )
+        if search is None:
+            # The owner's Allow priced the request before any search slice.
+            # Charge only while the automatic queue will still start that
+            # search: a start that failed for good (or one the owner took
+            # over) has nothing to deliver, so B is never asked to pay.
+            if automatic_start_parked(request["preparation_error_code"]):
+                raise checkout_refusal("search_parked")
+            return open_set
+        if (
+            search["status"] not in {"queued", "running", "completed"}
+            or search["incomplete_search"]
+            or search["expires_at"] <= now
+        ):
+            # A failed or partial search cannot deliver; never charge for it.
+            raise checkout_refusal("search_failed")
+        if search["connection_generation"] != current["connection_generation"]:
+            raise checkout_refusal("connection_changed")
+        checkpoint = self._open(
+            search["checkpoint_envelope"],
+            user_id=user_id,
+            resource_id=str(search["job_id"]),
+            purpose="owner-search-checkpoint",
+        )
+        if (
+            checkpoint.get("request_origin_id") != request_id
+            or checkpoint.get("request_revision") != request["revision"]
+            or checkpoint.get("request_shareability_version") != 1
+        ):
+            raise checkout_refusal("search_changed")
+        if checkpoint_requires_owner_review(
+            checkpoint, request_id=request_id, revision=request["revision"]
+        ):
+            raise checkout_refusal("owner_review_required")
+        if search["status"] != "completed" or (
+            checkpoint.get("request_result_limit") is not None
+            and checkpoint.get("request_results_finalized") is not True
+        ):
+            # More files may still join; nothing is final to compare yet.
+            return open_set
+        for row in connection.execute(
+            text("""SELECT r.position,r.metadata_envelope
+            FROM drive_owner_search_results r
+            WHERE r.job_id=:job AND r.user_id=:user
+              AND NOT EXISTS (SELECT 1 FROM drive_bulk_share_files f
+                WHERE f.user_id=:user AND f.origin_request_id=:request
+                  AND f.source_position=r.position)
+            ORDER BY r.position LIMIT 10000"""),
+            {"job": search["job_id"], "user": user_id, "request": request_id},
+        ).mappings():
+            unfrozen = self._open(
+                row["metadata_envelope"],
+                user_id=user_id,
+                resource_id=f"{search['job_id']}:{row['position']}",
+                purpose="owner-search-result",
+            )
+            if unfrozen.get("shareable") is True:
+                # This match is frozen and shared after payment.
+                return open_set
+        frozen = list(
+            connection.execute(
+                text("""SELECT f.source_position,f.file_digest,f.metadata_envelope,
+                       f.source_job_id,b.search_job_id,b.connection_generation,
+                       b.origin_request_revision,b.status,b.approved_at
+                FROM drive_bulk_share_files f JOIN drive_bulk_shares b ON b.share_id=f.share_id
+                WHERE f.user_id=:user AND f.origin_request_id=:request
+                  AND b.user_id=:user AND b.origin_request_id=:request
+                  AND b.progressive_batch=TRUE
+                ORDER BY f.source_position LIMIT 121"""),
+                {"user": user_id, "request": request_id},
+            ).mappings()
+        )
+        if not frozen:
+            # A finished search with no shareable match has nothing to sell.
+            raise checkout_refusal("no_match")
+        files = []
+        for row in frozen:
+            if (
+                row["status"] != "review_ready"
+                or row["approved_at"] is not None
+                or row["source_job_id"] != search["job_id"]
+                or row["search_job_id"] != search["job_id"]
+                or row["connection_generation"] != current["connection_generation"]
+                or row["origin_request_revision"] != request["revision"]
+            ):
+                # Not one unpaid held set: no existing-access waiver applies.
+                return open_set
+            metadata = self._open(
+                row["metadata_envelope"],
+                user_id=user_id,
+                resource_id=f"{search['job_id']}:{row['source_position']}",
+                purpose="owner-search-result",
+            )
+            if metadata.get("shareable") is not True or not all(
+                isinstance(metadata.get(key), str) and metadata[key]
+                for key in ("id", "name", "modifiedTime")
+            ):
+                return open_set
+            files.append({**metadata, "generation": current["connection_generation"]})
+        if len(files) > 120 or len({item["id"] for item in files}) != len(files):
+            return open_set
+        return {**open_set, "files": files, "complete": True}
 
     async def legacy_manual_checkout_sources(self, *, user_id, request_id):
         """Read the exact owner-approved selection before paid checkout.

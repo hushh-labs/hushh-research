@@ -756,12 +756,14 @@ class DriveSharingStore(DriveDocumentStore):
             if order
             else {}
         )
-        if row["payment_required"] is not True:
+        if row["payment_required"] is not True and (
+            order is None or order["status"] not in {"paid", "refunded"}
+        ):
             return legacy
         return {
             **legacy,
             "payment": requester_payment_view(
-                payment_required=True,
+                payment_required=row["payment_required"] is True,
                 package_disclosure_required=row.get("agent_package") is True,
                 request_status=row["request_status"],
                 request_expires_at=row["request_expires_at"],
@@ -1029,6 +1031,10 @@ class DriveSharingStore(DriveDocumentStore):
                   JOIN drive_owner_search_jobs j ON j.user_id=r.user_id
                     AND j.client_request_id=r.request_id
                   LEFT JOIN drive_request_payment_orders o ON o.request_id=r.request_id
+                  CROSS JOIN LATERAL (SELECT (j.status='completed' AND NOT j.incomplete_search
+                    AND j.matched BETWEEN 1 AND 120 AND (o.request_id IS NULL OR
+                      (o.status IN ('awaiting_payment','checkout_open','expired')
+                        AND o.paid_at IS NULL AND NOT o.reconciliation_required))) AS candidate) free
                   WHERE r.status='pending' AND r.bulk_search_started_at IS NOT NULL
                     AND (:v1_only=FALSE OR (r.v1_live_request=TRUE
                       AND j.v1_statement_search=TRUE))
@@ -1036,14 +1042,16 @@ class DriveSharingStore(DriveDocumentStore):
                       ('trusted_auto_active','background_preparation_required',
                        'owner_price_required','owner_payout_required','payout_unavailable')
                       OR (r.preparation_error_code='payment_not_ready'
-                        AND o.status='paid' AND o.paid_at IS NOT NULL
-                        AND o.reconciliation_required=FALSE))
+                        AND ((o.status='paid' AND o.paid_at IS NOT NULL
+                        AND o.reconciliation_required=FALSE) OR free.candidate)))
                     AND (r.preparation_next_at<=clock_timestamp()
                       OR (o.status='paid' AND o.paid_at IS NOT NULL
                         AND o.reconciliation_required=FALSE))
                     AND r.expires_at>clock_timestamp()
+                    AND r.access_stop_requested_at IS NULL
                     AND j.status IN ('queued','running','completed')
                     AND (NOT r.payment_required OR o.request_id IS NULL
+                      OR free.candidate
                       OR (o.status='paid' AND o.paid_at IS NOT NULL
                         AND o.reconciliation_required=FALSE))
                   ORDER BY CASE WHEN r.payment_required AND o.status='paid'
