@@ -1,3 +1,4 @@
+import { AuthService } from "@/lib/services/auth-service";
 import { apiJson } from "@/lib/services/api-client";
 import type {
   KycClientConnectorPrivateRecord,
@@ -151,6 +152,17 @@ type AccountAuthInput = {
 function authHeaders(vaultOwnerToken: string): HeadersInit {
   return {
     Authorization: `Bearer ${vaultOwnerToken}`,
+    "Content-Type": "application/json",
+  };
+}
+
+async function connectorAuthHeaders(userId: string, vaultOwnerToken: string): Promise<HeadersInit> {
+  if (!vaultOwnerToken) throw new Error("Unlock your vault before continuing.");
+  const idToken = await AuthService.getIdTokenWithRetry({ expectedUserId: userId });
+  if (!idToken) throw new Error("Your account session is still restoring. Please try again.");
+  return {
+    Authorization: `Bearer ${idToken}`,
+    "X-Hushh-Consent": vaultOwnerToken,
     "Content-Type": "application/json",
   };
 }
@@ -429,25 +441,25 @@ export class OneKycService {
     );
   }
 
-  static getClientConnector({
+  static async getClientConnector({
     userId,
     vaultOwnerToken,
   }: AuthInput): Promise<OneKycClientConnectorResponse> {
     const query = new URLSearchParams({ user_id: userId });
     return apiJson<OneKycClientConnectorResponse>(
       `/api/one/kyc/client-connector?${query.toString()}`,
-      { headers: authHeaders(vaultOwnerToken) }
+      { headers: await connectorAuthHeaders(userId, vaultOwnerToken) }
     );
   }
 
-  static registerClientConnector({
+  static async registerClientConnector({
     userId,
     vaultOwnerToken,
     connector,
   }: AuthInput & { connector: KycClientConnectorPrivateRecord }): Promise<OneKycClientConnectorResponse> {
     return apiJson<OneKycClientConnectorResponse>("/api/one/kyc/client-connector", {
       method: "POST",
-      headers: authHeaders(vaultOwnerToken),
+      headers: await connectorAuthHeaders(userId, vaultOwnerToken),
       body: JSON.stringify({
         user_id: userId,
         connector_public_key: connector.connector_public_key,

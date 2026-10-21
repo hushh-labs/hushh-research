@@ -900,3 +900,5 @@ tests/services/test_drive_v1_authority.py
 tests/services/test_drive_request_payment_v1_lane.py
 # Independent authentication authority, including real Postgres lock races.
 tests/services/test_email_auth_postgres.py
+
+tests/test_client_connector_routes.py

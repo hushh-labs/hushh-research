@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockApiJson } = vi.hoisted(() => ({
+const { mockApiJson, mockIdToken } = vi.hoisted(() => ({
   mockApiJson: vi.fn(),
+  mockIdToken: vi.fn(),
 }));
+
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getIdTokenWithRetry: mockIdToken } }));
 
 vi.mock("@/lib/services/api-client", () => ({
   apiJson: mockApiJson,
@@ -16,6 +19,7 @@ describe("OneKycService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockApiJson.mockResolvedValue({});
+    mockIdToken.mockResolvedValue("firebase-token");
   });
 
   it("registers the public connector without sending the private key", async () => {
@@ -36,7 +40,8 @@ describe("OneKycService", () => {
     expect(mockApiJson).toHaveBeenCalledWith("/api/one/kyc/client-connector", {
       method: "POST",
       headers: {
-        Authorization: "Bearer vault-token",
+        Authorization: "Bearer firebase-token",
+        "X-Hushh-Consent": "vault-token",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -48,6 +53,25 @@ describe("OneKycService", () => {
       }),
     });
     expect(mockApiJson.mock.calls[0]?.[1]?.body).not.toContain("private-key");
+  });
+
+  it("reads a connector with same-owner Firebase and vault credentials", async () => {
+    await OneKycService.getClientConnector({ userId: "user_1", vaultOwnerToken: "vault-token" });
+    expect(mockIdToken).toHaveBeenCalledWith({ expectedUserId: "user_1" });
+    expect(mockApiJson).toHaveBeenCalledWith("/api/one/kyc/client-connector?user_id=user_1", {
+      headers: { Authorization: "Bearer firebase-token", "X-Hushh-Consent": "vault-token", "Content-Type": "application/json" },
+    });
+  });
+
+  it("waits for a matching account session before sending connector authority", async () => {
+    mockIdToken.mockResolvedValue(null);
+    await expect(OneKycService.getClientConnector({ userId: "user_1", vaultOwnerToken: "vault-token" })).rejects.toThrow("session is still restoring");
+    expect(mockApiJson).not.toHaveBeenCalled();
+  });
+
+  it("refuses a connector read while the vault is locked", async () => {
+    await expect(OneKycService.getClientConnector({ userId: "user_1", vaultOwnerToken: "" })).rejects.toThrow("Unlock your vault");
+    expect(mockApiJson).not.toHaveBeenCalled();
   });
 
   it("sends the approved body only to the transient send-approved endpoint", async () => {
