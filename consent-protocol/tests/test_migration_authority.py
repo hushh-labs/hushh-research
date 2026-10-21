@@ -625,6 +625,11 @@ async def test_checksum_drift_fails_before_sql_execution(tmp_path: Path):
             "361_system_push_outbox.sql",
             "41bb1bf983b3a79df83ddb2ae2106ff8132ee2f73d666183cd9b7b8bb5f94608",
         ),
+        (
+            329,
+            "329_drive_request_cent_prices.sql",
+            "ee91dfcc494deda10e84e0a06b506a93022c3416264c160ae6541db5786dda4a",
+        ),
     ],
 )
 async def test_legacy_replay_repair_preserves_historical_ledger_checksums(
@@ -673,6 +678,7 @@ async def test_legacy_replay_repair_preserves_historical_ledger_checksums(
         "298_stripe_mode_isolation.sql",
         "304_connect_bank_payout_reconciliation.sql",
         "361_system_push_outbox.sql",
+        "329_drive_request_cent_prices.sql",
     ],
 )
 async def test_legacy_replay_rejects_unknown_or_forged_source_before_execution(drift, filename):
