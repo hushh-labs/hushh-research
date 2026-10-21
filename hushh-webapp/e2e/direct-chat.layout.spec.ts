@@ -845,21 +845,31 @@ for (const width of [320, 1440]) {
 }
 
 for (const width of [320, 1440]) {
-  test(`peer avatars open the person's profile with accessible targets at ${width}px`, async ({ page }) => {
+  test(`header opens contact info and peer profile links keep accessible targets at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(page);
     const name = "View Maya Rao's profile";
-    const headerLink = page.locator("main > header").getByRole("link", { name });
+    const identity = page.locator("main > header").getByRole("button", { name: "Contact info", exact: true });
     const messageLink = transcript(page).getByRole("link", { name }).last();
-    for (const link of [headerLink, messageLink]) {
+    await expect(identity).toContainText("Maya Rao");
+    await identity.focus();
+    await expect(identity).toBeFocused();
+    await expect(identity).toHaveCSS("outline-style", "solid");
+    const identityBox = (await identity.boundingBox())!;
+    expect(identityBox.width).toBeGreaterThanOrEqual(44);
+    expect(identityBox.height).toBeGreaterThanOrEqual(44);
+    await identity.click();
+    const contact = page.getByRole("dialog", { name: "Contact info", exact: true });
+    await expect(contact).toBeVisible();
+    const contactProfile = contact.getByRole("link", { name });
+    for (const link of [contactProfile, messageLink]) {
       await expect(link).toHaveAttribute("href", "/people/person-maya?from=%2Fone%2Fmessages");
       const box = (await link.boundingBox())!;
       expect(box.width).toBeGreaterThanOrEqual(44);
       expect(box.height).toBeGreaterThanOrEqual(44);
     }
-    await headerLink.focus();
-    await expect(headerLink).toBeFocused();
-    await expect(headerLink).toHaveCSS("outline-style", "solid");
+    await page.keyboard.press("Escape");
+    await expect(contact).toHaveCount(0);
     // An avatar gesture belongs to the profile link, never the message hold menu.
     await messageLink.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0 });
     await page.waitForTimeout(650);
