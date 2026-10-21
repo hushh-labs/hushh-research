@@ -20,6 +20,7 @@ from hushh_mcp.services.account_deletion_provider_cleanup import (
     release_provider_grants_after_erasure,
     snapshot_provider_credentials_in_transaction,
 )
+from hushh_mcp.services.account_export_stream import EXPORT_SECTIONS, AccountExportStream
 from hushh_mcp.services.connection_graph_service import (
     list_connection_graph_viewer_ids,
     lock_connection_graph_users,
@@ -2774,75 +2775,32 @@ class AccountService:
                 "details": results,
             }
 
+    def prepare_export(self, user_id: str) -> AccountExportStream:
+        """Prepare the HTTP export without collecting its encrypted history in RAM."""
+        return AccountExportStream(
+            user_id=user_id,
+            connection_factory=get_db_connection,
+            table_exists=self._table_exists,
+            queries=self._safe_export_queries,
+        ).prepare()
+
     async def export_data(self, user_id: str) -> Dict[str, Any]:
         """
-        Export all user data.
+        Compatibility dictionary export for internal callers.
 
-        Returns a dictionary containing:
-        - Vault Keys (Encrypted)
-        - PKM Index
-        - PKM Data (Encrypted)
-        - Identity (Encrypted)
+        HTTP downloads use prepare_export so retained ciphertext is not materialized.
         """
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
-                export_payload = {
-                    "actor_profile": self._fetch_optional_single_row(
-                        conn, table_name="actor_profiles", query_name="actor_profile", params=params
-                    ),
-                    "runtime_persona_state": self._fetch_optional_single_row(
-                        conn,
-                        table_name="runtime_persona_state",
-                        query_name="runtime_persona_state",
-                        params=params,
-                    ),
-                    "verified_email_aliases": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="actor_verified_email_aliases",
-                        query_name="verified_email_aliases",
-                        params=params,
-                    ),
-                    "encrypted_vault_keys": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="vault_keys",
-                        query_name="encrypted_vault_keys",
-                        params=params,
-                    ),
-                    "encrypted_pkm_manifests": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_manifests",
-                        query_name="encrypted_pkm_manifests",
-                        params=params,
-                    ),
-                    "encrypted_pkm_index": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_index",
-                        query_name="encrypted_pkm_index",
-                        params=params,
-                    ),
-                    "encrypted_pkm_blobs": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_blobs",
-                        query_name="encrypted_pkm_blobs",
-                        params=params,
-                    ),
-                    "encrypted_pkm_recovery_revisions": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_domain_revisions",
-                        query_name="encrypted_pkm_recovery_revisions",
-                        params=params,
-                    ),
-                    "encrypted_pkm_recovery_segments": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_domain_revision_segments",
-                        query_name="encrypted_pkm_recovery_segments",
-                        params=params,
-                    ),
-                    "consent_audit": self._fetch_optional_many_rows(
-                        conn, table_name="consent_audit", query_name="consent_audit", params=params
-                    ),
-                }
+                export_payload = {}
+                for key, table, many in EXPORT_SECTIONS:
+                    fetch = (
+                        self._fetch_optional_many_rows if many else self._fetch_optional_single_row
+                    )
+                    export_payload[key] = fetch(
+                        conn, table_name=table, query_name=key, params=params
+                    )
             return {
                 "success": True,
                 "requested_target": "account",

@@ -222,6 +222,7 @@ class AzureLiveSession:
         if item is None or played_ms < item["played_ms"] or played_ms * 48 > item["bytes"]:
             raise ValueError("Unmatched Azure Live playback position")
         item["played_ms"] = played_ms
+        item["playback_acknowledged"] = True
 
     async def interrupt(self) -> None:
         self.binding.require_current()
@@ -257,6 +258,16 @@ class AzureLiveSession:
             # sent bytes. A missing acknowledgement conservatively means zero.
             if audio_item is not None:
                 item = self.audio_items[audio_item]
+                # A later utterance still fences tools and in-flight output,
+                # but must not erase the transcript of a completed, heard item.
+                # PCM16 at 24 kHz is 48 bytes/ms; acknowledgements cannot express
+                # the fractional millisecond at the end of an audio item.
+                if (
+                    item.get("completed")
+                    and item.get("playback_acknowledged")
+                    and item["played_ms"] >= item["bytes"] // 48
+                ):
+                    return
                 await self.connection.conversation.item.truncate(
                     item_id=audio_item,
                     content_index=item["content_index"],
@@ -367,10 +378,21 @@ class AzureLiveSession:
                         raise ValueError("Invalid Azure Live output audio")
                     item = self.audio_items.setdefault(
                         event.item_id,
-                        {"content_index": event.content_index, "bytes": 0, "played_ms": 0},
+                        {
+                            "response_id": event_response,
+                            "content_index": event.content_index,
+                            "bytes": 0,
+                            "played_ms": 0,
+                            "playback_acknowledged": False,
+                            "completed": False,
+                        },
                     )
-                    if item["content_index"] != event.content_index:
-                        raise ValueError("Azure Live audio item changed content index")
+                    if (
+                        item["content_index"] != event.content_index
+                        or item["response_id"] != event_response
+                        or item["completed"]
+                    ):
+                        raise ValueError("Azure Live audio item changed output identity")
                     item["bytes"] += len(raw)
                     if item["bytes"] > 24_000 * 2 * 120:
                         raise ValueError("Azure Live response audio exceeds bounds")
@@ -420,6 +442,10 @@ class AzureLiveSession:
                     }
                 elif kind == "response.done":
                     self.response_id = None
+                    if event.response.status == "completed":
+                        for item in self.audio_items.values():
+                            if item["response_id"] == event.response.id:
+                                item["completed"] = True
                     if event.response.status == "completed" and not self.playback_acknowledgements:
                         # Legacy clients cannot report playback. Retain completed
                         # generated turns for ordinary follow-ups, without claiming

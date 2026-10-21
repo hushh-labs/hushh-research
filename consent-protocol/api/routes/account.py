@@ -34,9 +34,10 @@ import secrets
 import time
 from typing import Any, Literal, cast
 
+from anyio import CancelScope, fail_after
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from google.auth.exceptions import TransportError
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
@@ -60,6 +61,7 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
     account_deletion_phone_digest,
     drain_account_deletion_cleanup_intents,
 )
+from hushh_mcp.services.account_export_stream import AccountExportBusy, AccountExportStream
 from hushh_mcp.services.account_service import (
     ACCOUNT_DELETION_FAILED_CODE,
     ACCOUNT_DELETION_PAUSED_CODE,
@@ -1899,21 +1901,41 @@ async def reset_account(
     return result
 
 
+class _AccountExportResponse(StreamingResponse):
+    """Close the prepared snapshot even if headers fail or the client disconnects."""
+
+    def __init__(self, stream: AccountExportStream) -> None:
+        self._export = stream
+        super().__init__(
+            stream,
+            media_type="application/json",
+            headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+        )
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            with fail_after(self._export.remaining_seconds):
+                await super().__call__(scope, receive, send)
+        except Exception as exc:
+            logger.warning("account_export outcome=stream_failed error_type=%s", type(exc).__name__)
+            raise RuntimeError("Account export interrupted") from None
+        finally:
+            with CancelScope(shield=True):
+                await run_in_threadpool(self._export.close)
+
+
 @router.get("/export")
 async def export_account_data(token_data: dict = Depends(require_vault_owner_token)):
-    """
-    Export logged-in user's account data bundle.
-
-    Returns encrypted/private-user-bound payloads only. No plaintext PKM content.
-    Requires VAULT_OWNER token.
-    """
-    user_id = token_data["user_id"]
-    logger.info("Account export requested for user %s", user_id)
-
+    """Stream the token owner's encrypted account bundle from one read-only snapshot."""
     service = AccountService()
-    result = await service.export_data(user_id)
-
-    if not result["success"]:
-        raise HTTPException(status_code=500, detail="Account export failed")
-
-    return result
+    try:
+        stream = await run_in_threadpool(service.prepare_export, token_data["user_id"])
+    except AccountExportBusy:
+        raise HTTPException(
+            status_code=503, detail="Account export busy", headers={"Retry-After": "30"}
+        ) from None
+    except Exception as exc:
+        # Database errors may contain private parameters; retain only their class.
+        logger.warning("account_export outcome=prepare_failed error_type=%s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Account export failed") from None
+    return _AccountExportResponse(stream)
