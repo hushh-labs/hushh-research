@@ -494,10 +494,15 @@ async def _fetch_pmp_quote(ticker: str) -> Dict[str, Any]:
     async with httpx.AsyncClient(
         event_hooks={"request": [record_provider_request]}, timeout=timeout, headers=headers
     ) as client:
-        quote_res = await client.get(
-            "https://financialmodelingprep.com/stable/quote",
-            params={"symbol": symbol, "apikey": api_key},
-        )
+        try:
+            quote_res = await client.get(
+                "https://financialmodelingprep.com/stable/quote",
+                params={"symbol": symbol, "apikey": api_key},
+            )
+        except httpx.RequestError:
+            record_fmp_call(endpoint="/stable/quote", status_code=None)
+            raise
+        record_fmp_call(endpoint="/stable/quote", status_code=quote_res.status_code)
         if not quote_res.is_success:
             _mark_provider_cooldown("pmp:global", quote_res.status_code)
         quote_res.raise_for_status()
@@ -507,10 +512,15 @@ async def _fetch_pmp_quote(ticker: str) -> Dict[str, Any]:
         if price <= 0:
             raise ValueError(f"invalid PMP/FMP quote payload for {symbol}")
 
-        details_res = await client.get(
-            "https://financialmodelingprep.com/stable/profile",
-            params={"symbol": symbol, "apikey": api_key},
-        )
+        try:
+            details_res = await client.get(
+                "https://financialmodelingprep.com/stable/profile",
+                params={"symbol": symbol, "apikey": api_key},
+            )
+        except httpx.RequestError:
+            record_fmp_call(endpoint="/stable/profile", status_code=None)
+            raise
+        record_fmp_call(endpoint="/stable/profile", status_code=details_res.status_code)
         if not details_res.is_success:
             _mark_provider_cooldown("pmp:global", details_res.status_code)
         details_res.raise_for_status()

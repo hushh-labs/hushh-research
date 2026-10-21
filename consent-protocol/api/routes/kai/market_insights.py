@@ -1236,6 +1236,7 @@ async def _get_or_refresh_public_module(
         # refreshed prices during the session; retain stale-on-error fallback.
         serve_stale_while_revalidate=serve_stale_while_revalidate and fresh_after_ts is None,
         fresh_after_ts=fresh_after_ts,
+        should_refresh=has_recoverable_degradation,
     )
     tier = "live"
     cache_hit = False
