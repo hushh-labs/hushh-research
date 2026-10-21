@@ -212,6 +212,18 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
       expect(Math.abs(gainers!.y - decliners!.y)).toBeLessThanOrEqual(1);
       expect(gainers!.x + gainers!.width).toBeLessThanOrEqual(decliners!.x);
       expect(await movers.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await expect(movers.locator("[data-market-mover-freshness]")).toHaveCount(1);
+      await expect(movers.getByText("Cached", { exact: true })).toHaveCount(0);
+      for (const pair of await movers.locator("[data-market-mover-pair]").all()) {
+        const cells = pair.getByRole("button");
+        if (await cells.count() === 2) {
+          const first = await cells.nth(0).boundingBox();
+          const second = await cells.nth(1).boundingBox();
+          expect(Math.abs(first!.y - second!.y)).toBeLessThanOrEqual(1);
+          expect(Math.abs(first!.height - second!.height)).toBeLessThanOrEqual(1);
+        }
+      }
+
       for (const mover of await movers.getByRole("button").all()) {
         await expect(mover).toBeVisible();
         expect(await mover.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
@@ -220,7 +232,15 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
         const percentage = await quote.locator(":scope > span").last().boundingBox();
         expect(Math.abs(ticker!.y - percentage!.y)).toBeLessThanOrEqual(1);
         expect(ticker!.x + ticker!.width).toBeLessThanOrEqual(percentage!.x);
+        expect(await quote.locator(":scope > span").last().evaluate(element => getComputedStyle(element).fontSize)).toBe("14px");
+        const company = mover.locator(":scope > span").nth(1);
+        expect(await company.evaluate(element => {
+          const style = getComputedStyle(element);
+          return [style.fontSize, style.lineHeight, style.webkitLineClamp, element.scrollHeight <= element.clientHeight];
+        })).toEqual(["13px", "18px", "none", true]);
+
       }
+      await movers.screenshot({ path: test.info().outputPath(`finance-movers-${width}-${theme}.png`) });
       await action.click();
       await expect(page.locator("body")).toHaveAttribute("data-navigation-href", "/one/kai/news");
       await card.scrollIntoViewIfNeeded();

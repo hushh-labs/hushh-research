@@ -33,7 +33,7 @@
 .sectionHeader :global([data-slot="section-header-row"]) > div:first-child { min-width: max-content; }
 .sections { display: grid; gap: 28px; padding-top: 28px; }
 .activity { display: grid; align-items: start; gap: 16px; }
-.moversBody { padding: 12px 16px; }
+.moversBody { padding: 20px; }
 .indexLabel { font-size: var(--type-row-label-size); line-height: var(--type-row-label-line); font-weight: var(--type-row-label-weight); }
 .indexValue { font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
 .metadata { font-size: var(--type-row-description-size); line-height: var(--type-row-description-line); font-weight: var(--type-row-description-weight); color: var(--muted-foreground); }
@@ -65,12 +65,12 @@
 
 @media (min-width: 640px) {
   .sectorRows { display: none; }
-  .cardBody { padding: 24px; }
+  .cardBody, .moversBody { padding: 24px; }
   .indexValue { font-size: 22px; line-height: 28px; }
 }
 
 @media (min-width: 1024px) {
-  .activity { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: stretch; gap: 24px; }
+  .activity { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 24px; }
   .activity > section { display: flex; flex-direction: column; }
   .activity > section > [data-surface-tone] { flex: 1; }
 }
