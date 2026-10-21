@@ -1238,7 +1238,7 @@ Sources: [packet service](../../lib/services/drive-packet-service.ts),
 | Information bundle | Same unchanged draft UUID; backend fingerprint/reconciliation;45-second abort | Closing allowed during send; no rollback of prepared connector/accepted create. |
 | File create | Same normalized terms+quote UUID; quote/terms change gives new key; price_changed refreshes quote | Cancel during verification discards late result; POST dismissal refused. |
 | Drive question create | Same owner/question UUID; changed words give new key; conflicting reused key rejected | Cancel/X closes only when idle. Cancel question is explicit revision-checked server mutation. |
-| Scope question | No create idempotency key/dedupe contract found; component prevents concurrent sends | Cancel clears local entry, disabled while busy; uncertain retry must not promise exactly-once create. |
+| Scope question | Same owner/question UUID on unchanged uncertain retry; the existing request PK deduplicates matching creates | Cancel clears local entry and is disabled while busy; dismissal retains the uncertain operation identity. Acknowledged success clears it for another intentional question. |
 | Card create | Same client operation ID; server resumes matching requester/key/target, rejects changed target or another pending request | Busy rejects cancel/dismiss; lock/person/visibility resets transient UI. |
 | Packet Buy | Version+listing retry key survives close/reopen; backend locks/resumes equivalent active purchase | Closing allowed while busy; suppresses late UI, not proof server cancelled. |
 
@@ -1287,7 +1287,7 @@ URL state.
 | Review can close while information send continues | Dismissal is not cancellation. Other forms have different busy guards. |
 | History Details lacks token feedback | Locked Details does not automatically unlock; Withdraw has a toast. |
 | Quote copy and payment lanes differ | Do not turn an estimate into a frozen price or certify all checkout rules from requester copy. |
-| Scope-question create has no client idempotency key | UI single-flight does not make an uncertain retry exactly-once. File/query/card/packet retry contracts cannot be copied onto this flow. |
+| Scope-question retry identity is optional for legacy callers | The Profile flow sends a UUID and exact replays return the original request without reopening lifecycle state or duplicating Feed events. Callers omitting it retain legacy create behavior. |
 | Secure export GET records EXPORT_READ | A read can write an audit record; it does not create a new consent grant. |
 | Information Send may prepare connector/key first | Closing review does not roll back an encrypted connector write or a later accepted bundle. |
 
