@@ -194,9 +194,9 @@ so they do not create hosted UAT/production deployment records. The UAT target
 selector also excludes historical native records from its hosted baseline;
 rollback, rehearsal and unknown mutation records retain their fail-closed checks.
 
-Starting with the commit that introduces `config/release-cadence.json`, every
-fourth distinct, healthy deployed source commit qualifies for a UAT-backed
-TestFlight build. Every eighth also qualifies for a production backend/frontend
+The counter starts with the commit that introduces `config/release-cadence.json`.
+Every second distinct, healthy deployed source commit qualifies for a UAT-backed
+TestFlight build. Every fourth also qualifies for a production backend/frontend
 deployment and a production-backed iOS build. Failed, rolled-back and NO_OP runs,
 retries, repeated SHAs and pre-policy sources do not advance the counter. A
 frontend-only healthy receipt counts even when it inherits an older backend.
@@ -250,6 +250,39 @@ state. The bot is not a member of either human dispatch cohort; each child is
 authorized only for its recorded run ID, workflow, milestone, source and complete
 input set. `config/ci-governance.json` owns the permitted controller for each
 surface. The cadence policy is a protected pipeline file.
+
+The 2/4 policy preserves the existing counter and certified sources. A one-time
+certified transition makes the latest newly eligible TestFlight milestone pending
+(count 2 when adoption occurs at count 2 or 3), without replaying older milestones.
+Already issued 4/8 requests retain their original lanes and authority; the new
+policy begins after any such request at the transition boundary. Recovery checks
+both policy periods. Missing transition metadata means the original 4/8 policy.
+
+Monitoring runs in GitHub inside the same observer job, after checkpoint
+publication. It adds no workflow, runner job, polling loop or UAT dependency.
+Completion events report failures and verified milestones promptly; the existing
+hourly schedule catches missed observations and long UAT queues. GitHub can delay
+scheduled runs. The monitor uses only standard-library code and the existing
+repository token, with `issues: write` added for one bot-owned `UAT release monitor`
+issue assigned to `monitor_issue_assignee` in the policy. Notification delivery
+follows that person's GitHub notification settings.
+
+The issue keeps a bounded observation journal separate from the certified release
+ledger and links exact runs. Repeated unchanged results stay quiet. Notification
+transport failures remain visible in Actions and do not prevent already authorized
+children from running or change UAT's result. TestFlight reports prove upload and
+internal distribution; external Beta App Review may remain pending. App Store
+deferral is reported as deferral, and accepted review submission with
+`AFTER_APPROVAL` is distinct from later public publication. Only existing redacted
+receipts are read; monitoring needs no Apple or cloud credentials.
+
+UAT/release overlap reports use observed workflow/job timestamps. A UAT start
+during a release demonstrates progress for that sample; it does not prove reserved
+capacity or that every later job avoided queuing. A UAT with no started job after
+10 minutes during release activity raises a possible-contention warning. UAT's
+own concurrency and other organization jobs can also explain that delay. The
+monitor observes and reports; it never dispatches, cancels, retries or repairs a
+release.
 
 Every dispatch records intent first, then the exact run ID returned by the
 versioned REST API. A controller interrupted after dispatch reconciles the unique

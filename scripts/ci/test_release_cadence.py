@@ -2,21 +2,23 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hushh
 """Core release accounting, exact dispatch authority and production join regressions."""
-from copy import deepcopy
 import json
 import os
-from pathlib import Path
 import tempfile
 import unittest
+from copy import deepcopy
+from pathlib import Path
 from unittest.mock import patch
 
 import release_cadence as core
 import release_cadence_github as github
+import release_cadence_monitor as monitor
 
 REPOSITORY = "org/repo"
 POLICY = {"enabled": True, "testflight_every": 4, "production_every": 8,
           "submit_for_review": False, "release_after_approval": False,
           "state_branch": "automation/release-cadence-state"}
+NEW_POLICY = {**POLICY, "testflight_every": 2, "production_every": 4}
 GOVERNANCE = {lane: {"manual_dispatch_users": ["maintainer"], "automatic_release_workflow": core.CONTROLLER}
               for lane in ("uat", "production")}
 
@@ -74,6 +76,89 @@ class AccountingTest(unittest.TestCase):
             core.verified_uat(source, value, REPOSITORY, ["maintainer"])
 
 
+class CadenceTransitionTest(unittest.TestCase):
+    def test_count_two_or_three_catches_latest_milestone_once_without_recounting(self):
+        for total in (2, 3):
+            with self.subTest(total=total):
+                state = counted(total)
+                sources = deepcopy(state["sources"])
+                core.adopt_cadence(state, 101, NEW_POLICY)
+                request = state["requests"]["2"]
+                self.assertEqual((request["sha"], request["uat_run_id"]), (f"{2:040x}", 2))
+                self.assertEqual(set(request["lanes"]), {"testflight"})
+                self.assertEqual(state["sources"], sources)
+                before = deepcopy(state)
+                core.adopt_cadence(state, 102, NEW_POLICY)
+                self.assertEqual(state, before)
+                for number in range(total + 1, 5):
+                    sha = f"{number:040x}"
+                    core.account(state, run(number, sha=sha), receipt(sha), sha, 102, NEW_POLICY)
+                self.assertEqual(state["count"], 4)
+                self.assertEqual(set(state["requests"]["4"]["lanes"]), {"testflight", "deploy", "appstore"})
+                self.assertEqual(state["requests"]["4"]["sha"], f"{4:040x}")
+
+    def test_existing_running_legacy_authority_is_preserved(self):
+        state = counted(8)
+        request = state["requests"]["8"]
+        request["lanes"]["deploy"] = {"state": "running", "run_id": 200}
+        old_requests = deepcopy(state["requests"])
+        core.adopt_cadence(state, 101, NEW_POLICY)
+        self.assertEqual(state["requests"], old_requests)
+        self.assertEqual(state["cadence"]["effective_from"], 9)
+        child = run(200, "deploy-production.yml", "github-actions[bot]")
+        child["display_title"] = core.marker("8", request, "deploy")
+        self.assertEqual(core.verify_child(state, child, REPOSITORY, "8", "100")[1], "deploy")
+
+    def test_recovery_preserves_both_policy_periods(self):
+        state = counted(8)
+        core.adopt_cadence(state, 101, NEW_POLICY)
+        for number in (9, 10):
+            sha = f"{number:040x}"
+            core.account(state, run(number, sha=sha), receipt(sha), sha, 101, NEW_POLICY)
+        ledger = FakeLedger(state)
+        controller = run(102, core.CONTROLLER)
+        def observed(repo, identity):
+            if identity in {100, 101}:
+                value = run(identity, core.CONTROLLER)
+                value["event"] = "workflow_run"
+                return value
+            return run(identity, sha=f"{identity:040x}")
+        with patch.object(github, "ancestor", return_value=True), patch.object(github, "run_info", side_effect=observed), \
+                patch.object(github, "receipt", side_effect=lambda repo, identity, prefix:
+                             state["sources"][f"{identity:040x}"]["receipt"]):
+            github.verify_recovery(ledger, ledger.head, controller, GOVERNANCE, NEW_POLICY)
+            state["requests"]["4"]["lanes"]["deploy"] = {"state": "pending"}
+            with self.assertRaisesRegex(core.UnsafeRelease, "lane mismatch"):
+                github.verify_recovery(ledger, ledger.head, controller, GOVERNANCE, NEW_POLICY)
+            del state["requests"]["4"]["lanes"]["deploy"]
+            del state["requests"]["10"]
+            with self.assertRaisesRegex(core.UnsafeRelease, "milestones"):
+                github.verify_recovery(ledger, ledger.head, controller, GOVERNANCE, NEW_POLICY)
+
+    def test_recovery_requires_new_milestone_and_rejects_malformed_epoch_even_at_zero(self):
+        state = counted(2)
+        core.adopt_cadence(state, 101, NEW_POLICY)
+        ledger = FakeLedger(state)
+        origin = run(101, core.CONTROLLER)
+        origin["event"] = "workflow_run"
+        controller = run(102, core.CONTROLLER)
+        with patch.object(github, "ancestor", return_value=True), \
+                patch.object(github, "run_info", side_effect=lambda repo, identity:
+                             origin if identity == 101 else run(identity, sha=f"{identity:040x}")), \
+                patch.object(github, "receipt", side_effect=lambda repo, identity, prefix: receipt(f"{identity:040x}")):
+            github.verify_recovery(ledger, ledger.head, controller, GOVERNANCE, NEW_POLICY)
+            del state["requests"]["2"]
+            with self.assertRaisesRegex(core.UnsafeRelease, "milestones"):
+                github.verify_recovery(ledger, ledger.head, controller, GOVERNANCE, NEW_POLICY)
+        for total in (0, 2):
+            for invalid in (None, {}, [], {"effective_from": 1}):
+                with self.subTest(total=total, invalid=invalid):
+                    ledger = FakeLedger(counted(total))
+                    ledger.state["cadence"] = invalid
+                    with self.assertRaisesRegex(core.UnsafeRelease, "cadence transition"):
+                        github.verify_recovery(ledger, ledger.head, controller, GOVERNANCE, NEW_POLICY)
+
+
 class FakeLedger:
     def __init__(self, state):
         self.state, self.repository, self.base = state, REPOSITORY, f"repos/{REPOSITORY}"
@@ -114,6 +199,22 @@ class DispatchTest(unittest.TestCase):
             run_id = 200 + len(calls)
             return {"workflow_run_id": run_id, "html_url": f"https://github.com/{REPOSITORY}/actions/runs/{run_id}"}
         return invoke
+
+    def test_new_four_production_pair_yields_to_uat_and_keeps_one_source(self):
+        state = counted(3)
+        core.adopt_cadence(state, 101, NEW_POLICY)
+        sha = f"{4:040x}"
+        core.account(state, run(4, sha=sha), receipt(sha), sha, 101, NEW_POLICY)
+        ledger, calls = FakeLedger(state), []
+        with patch.object(github, "uat_busy", return_value=True), patch.object(github, "api") as transport:
+            github.dispatch_pending(ledger)
+        transport.assert_not_called()
+        with patch.object(github, "api", self.dispatch_api(calls)):
+            github.dispatch_pending(ledger)
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(call[1]["inputs"]["sha"] == sha for call in calls))
+        self.assertEqual(calls[1][1]["inputs"]["production_deploy_run_id"], "201")
+        self.assertEqual(state["requests"]["4"]["lanes"]["testflight"]["state"], "pending")
 
     def test_production_deploy_and_build_are_dispatched_together_with_one_sha(self):
         ledger, calls = FakeLedger(counted()), []
@@ -494,6 +595,120 @@ class AuthorityTest(unittest.TestCase):
                 event.write_text(json.dumps({"inputs": values}))
                 with self.assertRaisesRegex(core.UnsafeRelease, "authorized plan"):
                     github.authorize_current("production", "github-actions[bot]")
+
+
+class MonitorTest(unittest.TestCase):
+    def test_failed_uat_is_reported_once_without_mutating_accounting(self):
+        state = counted(2)
+        before = deepcopy(state)
+        failed = run(50)
+        failed["conclusion"] = "failure"
+        with patch.object(monitor, "runs", return_value=[failed]), patch.object(monitor, "git", return_value=failed["created_at"]):
+            journal, notices = monitor.observations(REPOSITORY, state, {}, {}, True)
+            self.assertEqual(len(notices), 1)
+            self.assertIn("does not advance", notices[0])
+            _, repeated = monitor.observations(REPOSITORY, state, {}, journal, True)
+        self.assertEqual(repeated, [])
+        self.assertEqual(state, before)
+
+    def test_wrong_source_is_rejected_but_apple_deferral_is_not_publication(self):
+        state = counted(8)
+        request = state["requests"]["8"]
+        child = {"state": "success", "run_id": 201}
+        request["lanes"]["testflight"] = child
+        observed = run(201, "ship-ios-testflight.yml", "github-actions[bot]")
+        observed["display_title"] = core.marker("8", request, "testflight")
+        with patch.object(monitor, "artifact_json", return_value={"source_sha": "b" * 40, "build_number": "1"}), \
+                self.assertRaisesRegex(core.UnsafeRelease, "source mismatch"):
+            monitor.evidence(REPOSITORY, state, "8", "testflight", child, observed)
+        child = {"state": "success", "run_id": 202}
+        request["lanes"]["appstore"] = child
+        observed["id"] = 202
+        observed["path"] = ".github/workflows/release-ios-appstore.yml"
+        observed["display_title"] = core.marker("8", request, "appstore")
+        with patch.object(monitor, "artifact_json", return_value={"sha": request["sha"], "reason": "apple_review_pending"}):
+            self.assertIn("no publication claimed", monitor.evidence(REPOSITORY, state, "8", "appstore", child, observed))
+
+    def test_lost_comment_response_is_recovered_without_duplicate_or_ledger_write(self):
+        state = counted(2)
+        before = deepcopy(state)
+        saved = {"number": 1, "body": monitor.issue_body(state, {}, 100), "comments": 0}
+        comments = []
+        fail_once = [True]
+        def transport(path, data=None, **kwargs):
+            if path.endswith("/comments") and data is not None:
+                comments.append({"body": data["body"], "user": {"login": "github-actions[bot]"}})
+                saved["comments"] = len(comments)
+                if fail_once.pop() if fail_once else False:
+                    raise core.UnsafeRelease("lost comment response")
+                return {}
+            if "/comments?" in path:
+                return comments
+            if data is not None:
+                saved.update(data)
+                return deepcopy(saved)
+            self.fail(path)
+        with patch.object(monitor, "api", side_effect=transport):
+            with self.assertRaisesRegex(core.UnsafeRelease, "lost comment"):
+                monitor.publish(REPOSITORY, deepcopy(saved), state, {"seen": {"one": "done"}}, ["First notice"], 100, "maintainer")
+            self.assertIn("pending_notice", monitor.read_journal(saved["body"]))
+            monitor.publish(REPOSITORY, deepcopy(saved), state, {"seen": {"one": "done", "two": "done"}},
+                            ["Second notice"], 101, "maintainer")
+        self.assertEqual(len(comments), 2)
+        self.assertIn("Second notice", comments[-1]["body"])
+        self.assertNotIn("pending_notice", monitor.read_journal(saved["body"]))
+        self.assertEqual(state, before)
+
+    def test_old_settled_history_is_bounded_and_does_not_reread_expired_artifacts(self):
+        state = counted(2000)
+        for request in state["requests"].values():
+            for child in request["lanes"].values():
+                child.update(state="success", run_id=123)
+        journal = {"release_highwater": 2000, "pending_releases": ["release:4:testflight"],
+                   "seen": {f"uat:{number}": "success" for number in range(2000)}}
+        state["requests"]["4"]["lanes"]["testflight"] = {"state": "pending"}
+        with patch.object(monitor, "runs", return_value=[]), patch.object(monitor, "git", return_value="2026-10-22T01:00:00Z"), \
+                patch.object(monitor, "run_info") as info, patch.object(monitor, "artifact_json") as artifact:
+            updated, notices = monitor.observations(REPOSITORY, state, {}, journal, True)
+        self.assertEqual(notices, [])
+        self.assertLessEqual(len(updated["seen"]), 160)
+        self.assertLess(len(monitor.issue_body(state, updated, 100)), 20000)
+        info.assert_not_called()
+        artifact.assert_not_called()
+
+    def test_queue_warning_can_be_followed_by_observed_uat_progress(self):
+        source = run(50)
+        source.update(status="in_progress", conclusion=None, created_at="2020-01-01T01:00:00Z",
+                      updated_at="2020-01-01T01:01:00Z")
+        previous = {"release_intervals": {"20": {"id": 20, "created_at": "2020-01-01T00:59:00Z",
+                                                   "completed_at": None}}}
+        with patch.object(monitor, "runs", return_value=[source]), patch.object(monitor, "git", return_value=source["created_at"]), \
+                patch.object(monitor, "api", return_value={"total_count": 0, "jobs": []}):
+            warning, notices = monitor.observations(REPOSITORY, None, {}, previous, True)
+        self.assertTrue(any("10 minutes" in value for value in notices))
+        with patch.object(monitor, "runs", return_value=[source]), \
+                patch.object(monitor, "api", return_value={"total_count": 1, "jobs": [{"started_at": "2020-01-01T01:01:00Z"}]}):
+            progressed, notices = monitor.observations(REPOSITORY, None, {}, warning, True)
+            _, repeated = monitor.observations(REPOSITORY, None, {}, progressed, True)
+        self.assertTrue(any("started while" in value for value in notices))
+        self.assertEqual(repeated, [])
+
+        # A rerun's inactive gap is not an active release overlap.
+        state = counted(8)
+        state["requests"]["8"]["lanes"] = {"deploy": {"state": "success", "run_id": 20, "run_attempt": 2}}
+        release = run(20, "deploy-production.yml", "github-actions[bot]")
+        release.update(run_attempt=2, created_at="2020-01-01T00:59:00Z",
+                       run_started_at="2020-01-01T01:05:00Z", updated_at="2020-01-01T01:10:00Z")
+        with patch.object(monitor, "runs", return_value=[source]), patch.object(monitor, "run_info", return_value=release), \
+                patch.object(monitor, "verify_child"), patch.object(monitor, "evidence", return_value=""), \
+                patch.object(monitor, "git", return_value=source["created_at"]), \
+                patch.object(monitor, "api", return_value={"total_count": 1, "jobs": [{"started_at": "2020-01-01T01:01:00Z"}]}):
+            gap, notices = monitor.observations(REPOSITORY, state, {}, {}, True)
+        self.assertEqual(gap["release_intervals"]["20"]["created_at"], release["run_started_at"])
+        self.assertFalse(any("started while" in value for value in notices))
+        release.pop("run_started_at")
+        monitor.record_release_interval(gap["release_intervals"], release)
+        self.assertNotIn("20", gap["release_intervals"])
 
 
 class ProductionJoinTest(unittest.TestCase):

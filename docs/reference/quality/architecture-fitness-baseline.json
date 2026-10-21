@@ -4489,7 +4489,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 3011,
+  "finding_count": 3012,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -31547,7 +31547,7 @@
       "kind": "module_size",
       "path": "scripts/ci/release_cadence_github.py",
       "detail": "module exceeds the advisory operon budget",
-      "value": 533,
+      "value": 560,
       "limit": 500,
       "symbol": null,
       "key": "module_size|scripts/ci/release_cadence_github.py||module exceeds the advisory operon budget"
@@ -31565,7 +31565,7 @@
       "kind": "module_size",
       "path": "scripts/ci/test_release_cadence.py",
       "detail": "module exceeds the advisory operon budget",
-      "value": 521,
+      "value": 736,
       "limit": 500,
       "symbol": null,
       "key": "module_size|scripts/ci/test_release_cadence.py||module exceeds the advisory operon budget"
@@ -31596,6 +31596,15 @@
       "limit": 500,
       "symbol": null,
       "key": "module_size|hushh-webapp/lib/services/account-identity-service.ts||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "scripts/ci/release_cadence_monitor.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 112,
+      "limit": 80,
+      "symbol": "observations",
+      "key": "function_size|scripts/ci/release_cadence_monitor.py|observations|function exceeds the advisory gene budget"
     }
   ],
   "inspected_files": 6625,
@@ -81182,5 +81191,32 @@
     "source_sha256": "966064ede090b0d75e199c3866242b249efbe479f544de2afa37f6422b4d233e",
     "reviewer": "browser_p0_plan_review",
     "review": "Extend the existing runtime-config security suite with the reproduced tracked-directory-adapter crash. Directory symlinks are skipped; file and file-symlink scanning remains. Forbidden-file rejection and clean-file acceptance preserve the guard. Old loop fails IsADirectoryError; repaired case passes. No budget or security predicate weakened."
+  },
+  "fresh_main_release_monitor_review_20261021": {
+    "main_revision": "3882aa3c49d1a9e7984afda95f26585201407b67",
+    "reviewer": "browser_p0_plan_review",
+    "entries": [
+      {
+        "key": "function_size|scripts/ci/release_cadence_monitor.py|observations|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 112,
+        "source_sha256": "c26f20d2567fca30f14dd7e4c85d0bacd3585335c3b728ec09ae4dacb5af7c64",
+        "review": "Preserve main3882 cadence2/4 transitions, recovery, monitoring and attempt history with branch exact-predecessor/UAT-admission fixes. Read-only release reviewer approved semantic union and bounded inherited monitor structure. Parent extracted attempt-correct interval recording; original created-at behavior fails the existing overlap regression, all39 release cases pass. Monitoring cannot dispatch or mutate certified accounting."
+      },
+      {
+        "key": "module_size|scripts/ci/test_release_cadence.py||module exceeds the advisory operon budget",
+        "before": 521,
+        "after": 736,
+        "source_sha256": "17f8286b14735b3f77259d72b5c73b034ed89a8ff705a1b96c4f577b7e0cabff",
+        "review": "Preserve main3882 cadence2/4 transitions, recovery, monitoring and attempt history with branch exact-predecessor/UAT-admission fixes. Read-only release reviewer approved semantic union and bounded inherited monitor structure. Parent extracted attempt-correct interval recording; original created-at behavior fails the existing overlap regression, all39 release cases pass. Monitoring cannot dispatch or mutate certified accounting."
+      },
+      {
+        "key": "module_size|scripts/ci/release_cadence_github.py||module exceeds the advisory operon budget",
+        "before": 533,
+        "after": 560,
+        "source_sha256": "2d135a09edc43d1744298252a9d1b3ea4966d9ddf4d5fe69ac561492b55b760c",
+        "review": "Preserve main3882 cadence2/4 transitions, recovery, monitoring and attempt history with branch exact-predecessor/UAT-admission fixes. Read-only release reviewer approved semantic union and bounded inherited monitor structure. Parent extracted attempt-correct interval recording; original created-at behavior fails the existing overlap regression, all39 release cases pass. Monitoring cannot dispatch or mutate certified accounting."
+      }
+    ]
   }
 }
