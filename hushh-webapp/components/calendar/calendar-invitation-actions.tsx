@@ -23,6 +23,7 @@ export function attendanceResultMessage(result: CalendarAttendanceResult) {
 
 type Props = {
   event: CalendarInvitation; userId: string; token: string | null; zone: string; getIdToken: () => Promise<string>;
+  accountId?: string;
   expectedAccountEmail?: string | null; onBusyChange?: (busy: boolean) => void;
   onSend?: (handoff: CalendarAttendanceHandoff) => void;
   initialTerms?: InvitationTerms; initialDecision?: InvitationDecision; onOfferTimes?: () => void; onResult?: (result: CalendarAttendanceResult) => void;
@@ -30,7 +31,7 @@ type Props = {
 };
 
 /** Page and Chat use this exact review/confirmation flow. Tokens stay in React memory. */
-export function CalendarInvitationActions({ event, userId, token, zone, getIdToken, initialDecision = "view", initialTerms, expectedAccountEmail, onBusyChange, onOfferTimes, onSend, onResult, onConnect, onMailConnect }: Props) {
+export function CalendarInvitationActions({ event, userId, token, zone, getIdToken, accountId = "default", initialDecision = "view", initialTerms, expectedAccountEmail, onBusyChange, onOfferTimes, onSend, onResult, onConnect, onMailConnect }: Props) {
   const [decision, setDecision] = useState<InvitationDecision>(initialDecision);
   const [date, setDate] = useState(() => initialTerms?.date || shiftCalendarDate(calendarDate(Date.now(), zone), 1));
   const [startTime, setStartTime] = useState(initialTerms?.startTime || "09:00"), [endTime, setEndTime] = useState(initialTerms?.endTime || "17:00");
@@ -70,7 +71,7 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
     const clockMinutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
     const proposedEndTime = endTime === "00:00" ? "24:00" : endTime;
     const prepared = await GoogleCalendarService.reviewAttendance({
-      firebaseIdToken, vaultOwnerToken: token, eventId: event.id, calendarId: event.calendar_id,
+      firebaseIdToken, vaultOwnerToken: token, eventId: event.id, calendarId: event.calendar_id, accountId,
       expectedAccountEmail: expectedAccountEmail || undefined,
       responseStatus: next === "accepted" ? "accepted" : "declined",
       offerTimes: next === "offer_times", exactTime: next === "offer_times",
@@ -90,7 +91,7 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
     const firebaseIdToken = await getIdToken();
     if (!current()) return;
     const epoch = snapshotVaultSessionEpoch();
-    const confirmation = GoogleCalendarService.confirmAttendance({ firebaseIdToken, vaultOwnerToken: token, reviewId: review.review_id, reviewToken: review.review_token, isEffectCurrent: onSend ? () => isVaultSessionEpochCurrent(epoch) : current });
+    const confirmation = GoogleCalendarService.confirmAttendance({ firebaseIdToken, vaultOwnerToken: token, accountId, reviewId: review.review_id, reviewToken: review.review_token, isEffectCurrent: onSend ? () => isVaultSessionEpochCurrent(epoch) : current });
     if (onSend && review.recipient) {
       const outcome = confirmation.then(result => {
         if (isVaultSessionEpochCurrent(epoch) && ["accepted", "declined", "tentative"].includes(result.calendar)) notifyCalendarChanged(userId);

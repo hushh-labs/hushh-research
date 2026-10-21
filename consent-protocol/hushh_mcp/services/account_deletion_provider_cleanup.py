@@ -49,6 +49,14 @@ _CREDENTIAL_SOURCES = (
         ),
     ),
     (
+        "google_calendar_additional_accounts",
+        "calendar_additional",
+        text(
+            "SELECT to_jsonb(source_row) AS row FROM google_calendar_additional_accounts AS source_row "
+            "WHERE source_row.user_id = :user_id"
+        ),
+    ),
+    (
         "kai_gmail_connections",
         "gmail_receipts",
         text(
@@ -128,7 +136,10 @@ async def _release_google_connections(snapshot: ProviderCredentialSnapshot) -> l
 
     service = get_google_connection_service()
     outcomes: list[str] = []
-    for row in snapshot.rows.get("google_connection", ()):
+    for row in (
+        *snapshot.rows.get("google_connection", ()),
+        *snapshot.rows.get("calendar_additional", ()),
+    ):
         token = service.refresh_token_for_erasure(row, user_id=snapshot.user_id)
         outcomes.append(await revoke_google_oauth_token(token) if token else "none")
     return outcomes
