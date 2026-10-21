@@ -142,7 +142,8 @@ def test_sms_contacts_api_is_owner_scoped_and_idempotent(monkeypatch) -> None:
 
 @pytest.mark.parametrize("legacy_reason", [False, True])
 def test_sms_phone_less_connected_member_receives_encrypted_alert_without_provider_lookup(
-    monkeypatch, legacy_reason,
+    monkeypatch,
+    legacy_reason,
 ) -> None:
     service = FourUserMemoryService()
     current_user = {"user_id": "user_a"}
@@ -163,8 +164,10 @@ def test_sms_phone_less_connected_member_receives_encrypted_alert_without_provid
     assert roster.json()["smsContactUserIds"] == ["user_b"]
     assert roster.json()["recipients"][0]["phoneVerified"] is False
     payload = {
-        "recipientUserId": "user_b", "recipientKeyId": "key-user_b",
-        "durationHours": 8, "reason": "sos_panic",
+        "recipientUserId": "user_b",
+        "recipientKeyId": "key-user_b",
+        "durationHours": 8,
+        "reason": "sos_panic",
     }
     if not legacy_reason:
         payload["shareKind"] = "sos"
@@ -186,7 +189,8 @@ def test_sms_phone_less_connected_member_receives_encrypted_alert_without_provid
 
 @pytest.mark.parametrize("boundary", ["not_connected", "no_key", "not_selected", "removed"])
 def test_phone_less_sms_still_requires_active_relationship_key_and_selected_roster(
-    monkeypatch, boundary,
+    monkeypatch,
+    boundary,
 ) -> None:
     service = FourUserMemoryService()
     current_user = {"user_id": "user_a"}
@@ -202,12 +206,22 @@ def test_phone_less_sms_still_requires_active_relationship_key_and_selected_rost
         assert response.status_code in {403, 409}
     else:
         if boundary == "removed":
-            assert client.post("/api/one/location/sms-contacts", json={"recipientUserId": "user_b"}).status_code == 200
+            assert (
+                client.post(
+                    "/api/one/location/sms-contacts", json={"recipientUserId": "user_b"}
+                ).status_code
+                == 200
+            )
             assert client.delete("/api/one/location/sms-contacts/user_b").status_code == 200
-        response = client.post("/api/one/location/grants", json={
-            "recipientUserId": "user_b", "recipientKeyId": "key-user_b",
-            "durationHours": 8, "shareKind": "sos",
-        })
+        response = client.post(
+            "/api/one/location/grants",
+            json={
+                "recipientUserId": "user_b",
+                "recipientKeyId": "key-user_b",
+                "durationHours": 8,
+                "shareKind": "sos",
+            },
+        )
         assert response.status_code == 403
         assert response.json()["detail"]["code"] == "LOCATION_SMS_CONTACT_REQUIRED"
     assert not service.grants
@@ -215,7 +229,8 @@ def test_phone_less_sms_still_requires_active_relationship_key_and_selected_rost
 
 @pytest.mark.parametrize("profile_exists", [True, False])
 def test_sms_repairs_missing_identity_only_for_existing_actors_without_fabricating_phone(
-    monkeypatch, profile_exists,
+    monkeypatch,
+    profile_exists,
 ) -> None:
     service = FourUserMemoryService()
     current_user = {"user_id": "user_a"}
@@ -224,7 +239,12 @@ def test_sms_repairs_missing_identity_only_for_existing_actors_without_fabricati
     service._seed_connection("user_a", "user_b")
     service.identities["user_b"]["phone_verified"] = False
     current_user["user_id"] = "user_a"
-    assert client.post("/api/one/location/sms-contacts", json={"recipientUserId": "user_b"}).status_code == 200
+    assert (
+        client.post(
+            "/api/one/location/sms-contacts", json={"recipientUserId": "user_b"}
+        ).status_code
+        == 200
+    )
     identity = service.identities.pop("user_b")
     admission = AsyncMock(return_value={"user_b"} if profile_exists else set())
     monkeypatch.setattr(ActorIdentityService, "_known_actor_ids", admission)
@@ -417,6 +437,7 @@ def test_private_share_route_accepts_connected_keyed_user_without_phone_claim(
 
 def test_sos_route_uses_account_relationship_and_key_instead_of_phone(monkeypatch) -> None:
     monkeypatch.setattr(one_location, "refresh_sms_recipient_identities", AsyncMock())
+
     class SosGrantRouteProbe:
         def __init__(self) -> None:
             self.calls: list[dict] = []
@@ -449,6 +470,7 @@ def test_sos_route_uses_account_relationship_and_key_instead_of_phone(monkeypatc
 
 def test_legacy_sos_reason_uses_the_same_phone_independent_policy(monkeypatch) -> None:
     monkeypatch.setattr(one_location, "refresh_sms_recipient_identities", AsyncMock())
+
     class LegacySosGrantRouteProbe:
         def __init__(self) -> None:
             self.calls: list[dict] = []
