@@ -3126,7 +3126,7 @@
           "playbook_id": "route.one.kai",
           "purpose": "Help the person understand and use the kai screen through its generated controls.",
           "screen": "kai_market",
-          "entry_cue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
+          "entry_cue": "Use Market, Portfolio, or Stocks to choose the active finance view.",
           "proactivity": "on_entry",
           "primary_action_id": "route.kai_home",
           "happy_path_action_ids": [
@@ -3422,7 +3422,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.kai.market",
-          "purpose": "Help the person move between Market, Portfolio, and Analysis through the shared Finance workspace.",
+          "purpose": "Help the person move between Market, Portfolio, and Stocks through the shared Finance workspace.",
           "screen": "kai_market",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -10386,5 +10386,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "03a2d8449a2a54e011cfe6d6b150fc4d1440b407d02c5cc0fd03fa5786e57744"
+  "content_sha256": "c3a49f93b9bcb5d8e49897a52317859ce03e018fca70ba570ac363282221b804"
 }

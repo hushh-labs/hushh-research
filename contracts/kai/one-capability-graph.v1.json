@@ -4245,7 +4245,10 @@
       "aliases": [
         "Open Analysis Surface",
         "open analysis",
-        "go to analysis"
+        "go to analysis",
+        "open stocks",
+        "go to stocks",
+        "company facts"
       ],
       "authorization": {
         "guard_ids": [],
@@ -36395,6 +36398,592 @@
     },
     {
       "aliases": [
+        "Show 1 day sector performance",
+        "show sector performance for 1 day",
+        "show daily sectors"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.sectors.show_day",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Selects daily sector ETF price returns on the active Market screen, with observed period dates and an explicit unavailable state.",
+      "execution": {
+        "binding_ref": "semantic_action:kai_market_sector_period",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "kai_market_sector_period"
+        }
+      },
+      "goal_id": "goal.market.sectors.show_day",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Show 1 day sector performance",
+      "navigation": {
+        "fallback": "kai_market_sector_period",
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "sector performance",
+        "sector rotation",
+        "1 day"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Show 1 week sector performance",
+        "show sector performance for 1 week",
+        "show weekly sectors"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.sectors.show_week",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Selects five-trading-session sector ETF price returns on the active Market screen, with observed period dates and an explicit unavailable state.",
+      "execution": {
+        "binding_ref": "semantic_action:kai_market_sector_period",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "kai_market_sector_period"
+        }
+      },
+      "goal_id": "goal.market.sectors.show_week",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Show 1 week sector performance",
+      "navigation": {
+        "fallback": "kai_market_sector_period",
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "sector performance",
+        "sector rotation",
+        "1 week"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Show all sectors",
+        "all sectors",
+        "expand sector rotation"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.sectors.show_all",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Expands sector rotation to every available sector for the selected return period.",
+      "execution": {
+        "binding_ref": "semantic_action:kai_market_sector_scope",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "kai_market_sector_scope"
+        }
+      },
+      "goal_id": "goal.market.sectors.show_all",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Show all sectors",
+      "navigation": {
+        "fallback": "kai_market_sector_scope",
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "all sectors",
+        "sector rotation"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Show sector highlights",
+        "sector highlights",
+        "shorten sector rotation"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.sectors.show_highlights",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Shows the three highest and three lowest available sector returns for the selected period, or every sector when six or fewer are available.",
+      "execution": {
+        "binding_ref": "semantic_action:kai_market_sector_scope",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "kai_market_sector_scope"
+        }
+      },
+      "goal_id": "goal.market.sectors.show_highlights",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Show sector highlights",
+      "navigation": {
+        "fallback": "kai_market_sector_scope",
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "sector highlights",
+        "sector rotation"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Choose your AI",
         "choose my ai",
         "set up AI access",
@@ -42890,7 +43479,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "0098e9b34f9d3a3dd60893e58c681b2f6d670b04e6bdd6e75e883b9725b5ad1c",
+      "projection_digest": "dc08aebbc75f409b3818d9e7972f8fe3ce834947b920cefd500794caa7e994a0",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42909,7 +43498,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
       },
-      "source_revision": "d42b3ae73085154e",
+      "source_revision": "be499da2762f573e",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -44427,7 +45016,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "d42b3ae73085154e",
+    "source_revision": "be499da2762f573e",
     "web": {
       "actions": [
         {
@@ -44470,7 +45059,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "81661fafec9c8672463befae145c865627c541ddd86c2141af5fa61139c77449",
+      "projection_digest": "a09f57d8dfeece65a649954ec93e53a11ce189a693e374e2e8fca16936fbec0d",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -44489,7 +45078,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
       },
-      "source_revision": "d42b3ae73085154e",
+      "source_revision": "be499da2762f573e",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -46046,7 +46635,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "d42b3ae73085154e",
+  "revision": "be499da2762f573e",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -46515,6 +47104,11 @@
         "analysis.open_detailed_tab",
         "analysis.open_summary_tab",
         "analysis.resume_active",
+        "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.back",
         "route.kai_home"
       ],
@@ -46679,6 +47273,10 @@
         "analysis.open_summary_tab",
         "analysis.resume_active",
         "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -46701,6 +47299,10 @@
         "analysis.open_summary_tab",
         "analysis.resume_active",
         "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -46723,6 +47325,10 @@
         "analysis.open_summary_tab",
         "analysis.resume_active",
         "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -46744,6 +47350,11 @@
         "analysis.open_detailed_tab",
         "analysis.open_summary_tab",
         "analysis.resume_active",
+        "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.back",
         "route.kai_home"
       ],
@@ -47923,12 +48534,26 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:market.sectors.show_all",
+      "actions:market.sectors.show_day",
+      "actions:market.sectors.show_highlights",
+      "actions:market.sectors.show_week"
+    ],
     "breaking": [],
-    "changed": [],
-    "compatible": [],
+    "changed": [
+      "actions:route.kai_analysis",
+      "screens:screen:/one/kai",
+      "screens:screen:/one/kai?tab=analysis",
+      "screens:screen:/one/kai?tab=analysis&focus=active",
+      "screens:screen:/one/kai?tab=analysis&view=history",
+      "screens:screen:/one/kai?tab=portfolio"
+    ],
+    "compatible": [
+      "actions:route.kai_analysis"
+    ],
     "deprecated": [],
-    "from_revision": "6ef509dcda1fb0a3",
+    "from_revision": "d42b3ae73085154e",
     "migrated": [],
     "removed": []
   },
@@ -50178,18 +50803,18 @@
     "capability_graph_evolution": "15e25c4335dfbf911e16cd03c0e2036a932977ac204f1c6ae127f3083a65d74f",
     "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "99403ea223091afac2a950039aeb6a00d747b7f74632498a21caeec719cecd2e",
+    "kai_action_gateway": "5cbc66280438a4b7a17dc5012714277093cd98dca57c9352c01eccce58d535d6",
     "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "bdd943eff393cb70e6dd3124c211809d706f295c819ad57a02ed3d0330f15fae",
-    "route_orchestration_index": "eb37a8bb7a3a30b196366cc330aafb5810c39efb8a411f39970d63652fb49733",
+    "route_orchestration_index": "06406725caa658a1c91e6b471ecf5004020b0994a4b3b5ac6a0a42b00dcd084c",
     "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
   },
-  "source_revision": "d42b3ae73085154e",
+  "source_revision": "be499da2762f573e",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "d42b3ae73085154e",
+    "current_graph_revision": "be499da2762f573e",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -50376,6 +51001,7 @@
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
+          "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
@@ -50611,6 +51237,7 @@
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
+          "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
@@ -50787,6 +51414,7 @@
           "d01f9a7a5198c5c9",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
+          "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d5b3ec7b095aadab",
           "d82abfd03561cb0a",
@@ -51081,6 +51709,7 @@
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
+          "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
@@ -51316,6 +51945,7 @@
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
+          "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
@@ -51551,6 +52181,7 @@
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
+          "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
@@ -51786,6 +52417,7 @@
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
+          "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",

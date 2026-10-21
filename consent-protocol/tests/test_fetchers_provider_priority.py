@@ -17,6 +17,34 @@ def _unexpected_validate(*_args, **_kwargs):
 
 
 @pytest.mark.asyncio
+async def test_index_failure_never_calls_equity_plans_or_cools_down_stock_quotes(monkeypatch):
+    monkeypatch.setenv("FINNHUB_API_KEY", "fh")
+    monkeypatch.setenv("PMP_API_KEY", "pmp")
+    monkeypatch.setattr(fetchers, "_get_cached_market_data", lambda *_args: None)
+    monkeypatch.setattr(fetchers, "_set_cached_market_data", lambda *_args: None)
+    monkeypatch.setattr(fetchers, "_provider_in_cooldown", lambda *_args: False)
+    calls = []
+
+    async def equity_quote(symbol):
+        calls.append(symbol)
+        return {"ticker": symbol, "price": 100.0}
+
+    async def unavailable_index(symbol):
+        raise RuntimeError("index quote unavailable")
+
+    monkeypatch.setattr(fetchers, "_fetch_finnhub_quote", equity_quote)
+    monkeypatch.setattr(fetchers, "_fetch_pmp_quote", equity_quote)
+    monkeypatch.setattr(fetchers, "_fetch_yahoo_quote_fast", unavailable_index)
+    with pytest.raises(fetchers.RealtimeDataUnavailable):
+        await fetchers.fetch_market_data("^GSPC", "public", allow_slow_fallbacks=False)
+    assert calls == []
+    # Negative control: ordinary stock requests still use the equity ladder.
+    quote = await fetchers.fetch_market_data("AAPL", "public", allow_slow_fallbacks=False)
+    assert quote["price"] == 100.0
+    assert calls == ["AAPL"]
+
+
+@pytest.mark.asyncio
 async def test_market_data_falls_back_from_finnhub_to_pmp(monkeypatch):
     monkeypatch.setattr(fetchers, "validate_token", _valid_token)
     monkeypatch.setenv("FINNHUB_API_KEY", "fh")
@@ -151,6 +179,35 @@ async def test_market_data_uses_yfinance_rescue_when_premium_providers_are_absen
     )
     assert payload["source"] == "yfinance (Real-time)"
     assert called == ["yfinance"]
+
+
+@pytest.mark.asyncio
+async def test_newsapi_preserves_the_article_photo(monkeypatch):
+    monkeypatch.setenv("NEWSAPI_KEY", "test")
+    original_client = httpx.AsyncClient
+
+    def response(request):
+        return httpx.Response(
+            200,
+            json={
+                "articles": [
+                    {
+                        "title": "Company news",
+                        "url": "https://publisher.test/story",
+                        "urlToImage": "https://publisher.test/story.jpg",
+                        "source": {"name": "Publisher"},
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(
+        fetchers.httpx,
+        "AsyncClient",
+        lambda **kwargs: original_client(transport=httpx.MockTransport(response), **kwargs),
+    )
+    rows = await fetchers._fetch_newsapi_articles("AAPL", 7)
+    assert rows[0]["image_url"] == "https://publisher.test/story.jpg"
 
 
 @pytest.mark.asyncio

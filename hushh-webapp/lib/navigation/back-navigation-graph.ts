@@ -375,7 +375,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           align: "center",
           items: [
             { label: "Finance", href: ROUTES.KAI_HOME },
-            { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+            { label: "Stocks", href: ROUTES.KAI_ANALYSIS },
             { label: ticker ? `${ticker} analysis` : "Saved analysis" },
           ],
         };
@@ -387,7 +387,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           align: "center",
           items: [
             { label: "Finance", href: ROUTES.KAI_HOME },
-            { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+            { label: "Stocks", href: ROUTES.KAI_ANALYSIS },
             { label: ticker ? `${ticker} live` : "Active run" },
           ],
         };
@@ -399,7 +399,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           align: "center",
           items: [
             { label: "Finance", href: ROUTES.KAI_HOME },
-            { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+            { label: "Stocks", href: ROUTES.KAI_ANALYSIS },
             { label: `${ticker} preview` },
           ],
         };
@@ -411,7 +411,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           align: "center",
           items: [
             { label: "Finance", href: ROUTES.KAI_HOME },
-            { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+            { label: "Stocks", href: ROUTES.KAI_ANALYSIS },
             { label: "Debate" },
           ],
         };

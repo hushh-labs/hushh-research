@@ -100,15 +100,82 @@ def test_chart_meta_derives_the_move_from_the_previous_close():
     assert row["change_percent"] == pytest.approx(1.745, abs=0.01)
 
 
-def test_chart_meta_reports_no_move_rather_than_infinity():
+def test_chart_meta_preserves_unknown_change_instead_of_a_flat_session():
     row = fetchers._parse_yahoo_chart_meta({"symbol": "X", "regularMarketPrice": 10})
-    assert row["change_percent"] == 0
+    assert row["change_percent"] is None
+    assert row["volume"] is None
+    assert row["pe_ratio"] == 0  # Preserve the legacy equity-analysis cache contract.
+    assert row["quoted_at"] is None
 
 
 def test_chart_meta_drops_a_row_with_no_usable_price():
     # A zero price rendered as a quote is the same defect as a random one: plausible and wrong.
     assert fetchers._parse_yahoo_chart_meta({"symbol": "AAPL"}) is None
     assert fetchers._parse_yahoo_chart_meta({"regularMarketPrice": 10}) is None
+    assert fetchers._parse_yahoo_chart_meta({"symbol": "^GSPC", "regularMarketPrice": 0}) is None
+
+
+def test_index_quote_keeps_provider_time_and_delay_separate_from_retrieval():
+    row = fetchers._parse_yahoo_chart_meta(
+        {
+            "symbol": "^RUT",
+            "longName": " Russell 2000 Index",
+            "regularMarketPrice": 2773.42,
+            "chartPreviousClose": 2728.298,
+            "regularMarketTime": 1792528217,
+            "exchangeDataDelayedBy": 15,
+        }
+    )
+    assert row["company_name"] == "Russell 2000 Index"
+    assert row["quoted_at"] == "2026-10-20T20:30:17+00:00"
+    assert row["fetched_at"] != row["quoted_at"]
+    assert row["is_delayed"] is True
+    assert row["quote_delay_minutes"] == 15
+    assert row["pe_ratio"] is None
+    assert row["change_percent"] == pytest.approx(1.65, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_index_batch_keeps_real_candles_and_never_fabricates_missing_points(monkeypatch):
+    def handler(request):
+        assert request.url.params["interval"] == "5m"
+        payload = _chart("^GSPC", 7712.57, 7690.73)
+        payload["chart"]["result"][0].update(
+            {
+                "timestamp": [2, 1, 3, 4],
+                "indicators": {"quote": [{"close": [7712.57, 7700, None, 0]}]},
+            }
+        )
+        return httpx.Response(200, json=payload)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _mock_client(handler))
+    rows = await fetchers._fetch_yahoo_quotes(["^GSPC"])
+    assert rows[0]["sparkline"] == [7700, 7712.57]
+    assert rows[0]["sparkline_points"] == [{"t": 1, "p": 7700}, {"t": 2, "p": 7712.57}]
+
+
+@pytest.mark.asyncio
+async def test_daily_history_counts_sessions_instead_of_duplicate_live_bars(monkeypatch):
+    base = 1791898200
+    timestamps = [base + day * 86400 for day in range(6)]
+
+    def handler(request):
+        payload = _chart("XLK", 110, 100)
+        chart = payload["chart"]["result"][0]
+        chart["meta"]["exchangeTimezoneName"] = "America/New_York"
+        chart.update(
+            {
+                "timestamp": [*timestamps, timestamps[-1] + 3600],
+                "indicators": {"quote": [{"close": [100, 102, 104, 106, 108, 109, 110]}]},
+            }
+        )
+        return httpx.Response(200, json=payload)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _mock_client(handler))
+    history = await fetchers.fetch_market_session_history(["XLK"])
+    assert len(history["XLK"]) == 6
+    assert history["XLK"][-1]["p"] == 110
+    assert history["XLK"][-2]["p"] == 108
 
 
 @pytest.mark.asyncio
@@ -238,3 +305,33 @@ async def test_a_request_with_no_usable_symbol_is_rejected_before_any_provider_c
     with pytest.raises(Exception) as excinfo:
         await market_quotes.public_market_quotes(symbols="<script>,../etc")
     assert getattr(excinfo.value, "status_code", None) == 400
+
+
+@pytest.mark.asyncio
+async def test_company_facts_dont_inherit_price_cache_placeholders(monkeypatch):
+    from types import SimpleNamespace
+
+    import yfinance
+
+    monkeypatch.setattr(
+        yfinance,
+        "Ticker",
+        lambda _symbol: SimpleNamespace(
+            info={
+                "currentPrice": 200,
+                "marketCap": 3_000_000_000,
+                "trailingPE": 28.5,
+                "priceToBook": 9.2,
+                "debtToEquity": 42,
+                "longBusinessSummary": "A public company description.",
+                "mostRecentQuarter": 1782518400,
+            }
+        ),
+    )
+    facts = await fetchers.fetch_market_company_facts("AAPL")
+    assert facts["market_cap"] == 3_000_000_000
+    assert facts["pe_ratio"] == 28.5
+    assert facts["pb_ratio"] == 9.2
+    assert facts["debt_to_equity"] == 0.42
+    assert facts["financial_period_end"] == "2026-06-27"
+    assert facts["summary"] == "A public company description."

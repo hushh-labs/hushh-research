@@ -17,6 +17,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import { Button } from "@/lib/morphy-ux/button";
 import {
   Select,
   SelectContent,
@@ -38,6 +39,7 @@ import {
 import type {
   KaiHomePickSource,
   KaiHomeRenaissanceItem,
+  KaiMarketCompanyFacts,
 } from "@/lib/services/api-service";
 import { cn } from "@/lib/utils";
 
@@ -72,14 +74,8 @@ function formatCompactNumber(value: number | null | undefined): string {
   }).format(value);
 }
 
-function formatFcf(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "FCF N/A";
-  return `$${value.toFixed(value >= 10 ? 0 : 1)}B FCF`;
-}
-
-function formatBias(value: string | null | undefined): string | null {
-  const text = String(value || "").trim();
-  return text ? text.replaceAll("_", " ") : null;
+function formatRatio(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)}×` : "N/A";
 }
 
 function formatAsOf(value: string | null | undefined): string {
@@ -154,18 +150,39 @@ function MarketListControlField({
   );
 }
 
+export function mergeMarketCompanyFacts(
+  current: Record<string, KaiMarketCompanyFacts>,
+  incoming: Record<string, KaiMarketCompanyFacts>,
+  rows: KaiHomeRenaissanceItem[],
+): Record<string, KaiMarketCompanyFacts> {
+  const merged = { ...current };
+  for (const [symbol, facts] of Object.entries(incoming)) {
+    const previous = current[symbol] || rows.find((row) => (row.quote_symbol || row.symbol) === symbol)?.company_facts;
+    merged[symbol] = facts.unavailable && previous && !previous.unavailable
+      ? { ...previous, stale: true }
+      : facts;
+  }
+  return merged;
+}
+
 export function RiaPicksList({
   rows = [],
   sources = [],
   activeSourceId = "default",
   onSourceChange,
   controlMode = "inline",
+  loadCompanyFacts,
+  onAnalyze,
+  onSelectedSymbolChange,
 }: {
   rows?: KaiHomeRenaissanceItem[];
   sources?: KaiHomePickSource[];
   activeSourceId?: string;
   onSourceChange?: (sourceId: string) => void;
   controlMode?: "inline" | "adaptive-surface";
+  loadCompanyFacts?: (symbols: string[]) => Promise<Record<string, KaiMarketCompanyFacts>>;
+  onAnalyze?: (symbol: string) => void;
+  onSelectedSymbolChange?: (symbol: string | null) => void;
 }) {
   const isMobile = useIsMobile();
   const useAdaptiveSurfaceControls =
@@ -185,6 +202,13 @@ export function RiaPicksList({
   const [sectorFilter, setSectorFilter] = useState<string>(ALL_FILTER);
   const [pageSize, setPageSize] = useState<number>(defaultPageSize);
   const [page, setPage] = useState(1);
+  const [factsBySymbol, setFactsBySymbol] = useState<Record<string, KaiMarketCompanyFacts>>({});
+
+  useEffect(() => {
+    onSelectedSymbolChange?.(selectedRow?.symbol ?? null);
+    return () => onSelectedSymbolChange?.(null);
+  }, [onSelectedSymbolChange, selectedRow?.symbol]);
+
 
   useEffect(() => {
     setPageSize((current) => {
@@ -260,6 +284,19 @@ export function RiaPicksList({
     const startIndex = (page - 1) * pageSize;
     return filteredRows.slice(startIndex, startIndex + pageSize);
   }, [filteredRows, page, pageSize]);
+  const visibleSymbolsKey = currentPageRows.map((row) => row.quote_symbol || row.symbol).join(",");
+  useEffect(() => {
+    if (!loadCompanyFacts || !visibleSymbolsKey) return;
+    let cancelled = false;
+    const symbols = visibleSymbolsKey.split(",");
+    void loadCompanyFacts(symbols).then((facts) => {
+      if (!cancelled) setFactsBySymbol((current) => mergeMarketCompanyFacts(current, facts, rows));
+    }).catch(() => {
+      if (!cancelled) setFactsBySymbol((current) => mergeMarketCompanyFacts(current, Object.fromEntries(symbols.map((symbol) => [symbol, { symbol, unavailable: true }])), rows));
+    });
+    return () => { cancelled = true; };
+  }, [loadCompanyFacts, visibleSymbolsKey, rows]);
+  const selectedFacts = selectedRow ? factsBySymbol[selectedRow.quote_symbol || selectedRow.symbol] || selectedRow.company_facts : undefined;
 
   const pageNumbers = useMemo(() => {
     if (isMobile) {
@@ -322,16 +359,6 @@ export function RiaPicksList({
     setPage(Math.max(1, Math.min(totalPages, nextPage)));
   };
 
-  if (!rows.length) {
-    return (
-      <SettingsGroup className={marketSettingsGroupClassName}>
-        <div className="px-4 py-4 text-sm text-muted-foreground">
-          The default list is unavailable at the moment.
-        </div>
-      </SettingsGroup>
-    );
-  }
-
   return (
     <div className="space-y-4 sm:mx-auto sm:w-full sm:max-w-[1040px]">
       <SettingsGroup className={marketSettingsGroupClassName}>
@@ -340,7 +367,7 @@ export function RiaPicksList({
             <>
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <div className="min-w-0 flex-1">
+                  {availableSources.length > 1 ? <div className="min-w-0 flex-1">
                     <Select
                       value={activeSource?.id || "default"}
                       onValueChange={(nextValue) => {
@@ -377,7 +404,7 @@ export function RiaPicksList({
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
+                  </div> : <p className="min-w-0 flex-1 text-xs text-muted-foreground">{filteredRows.length} stocks</p>}
                   <button
                     type="button"
                     onClick={() =>
@@ -386,7 +413,7 @@ export function RiaPicksList({
                       )
                     }
                     className={cn(
-                      "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
+                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
                       activeMobileControl === "search" &&
                         "bg-primary/10 text-primary",
                     )}
@@ -402,7 +429,7 @@ export function RiaPicksList({
                       )
                     }
                     className={cn(
-                      "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
+                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
                       activeMobileControl === "filters" &&
                         "bg-primary/10 text-primary",
                     )}
@@ -418,7 +445,7 @@ export function RiaPicksList({
                       )
                     }
                     className={cn(
-                      "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
+                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
                       activeMobileControl === "rows" &&
                         "bg-primary/10 text-primary",
                     )}
@@ -526,8 +553,8 @@ export function RiaPicksList({
             </>
           ) : (
             <div className="space-y-3">
-              <div className="grid gap-3 md:grid-cols-3">
-                <MarketListControlField label="List source">
+              <div className={cn("grid gap-3", availableSources.length > 1 ? "md:grid-cols-3" : "md:grid-cols-2")}>
+                {availableSources.length > 1 ? <MarketListControlField label="List source">
                   <Select
                     value={activeSource?.id || "default"}
                     onValueChange={(nextValue) => {
@@ -564,7 +591,7 @@ export function RiaPicksList({
                       ))}
                     </SelectContent>
                   </Select>
-                </MarketListControlField>
+                </MarketListControlField> : null}
 
                 <MarketListControlField label="Tier">
                   <Select value={tierFilter} onValueChange={setTierFilter}>
@@ -651,15 +678,11 @@ export function RiaPicksList({
 
         {filteredRows.length === 0 ? (
           <div className="px-4 py-4 text-sm text-muted-foreground">
-            No picks match the current filters.
+            {rows.length ? "No stocks match the current filters." : `No stocks are available in ${activeSource?.label || "this list"}.`}
           </div>
         ) : (
           <div
-            className={cn(
-              "touch-pan-y",
-              isMobile && "space-y-2 px-3 py-3",
-              !isMobile && "",
-            )}
+            className="touch-pan-y"
             data-no-route-swipe
           >
             {currentPageRows.map((row) => {
@@ -668,13 +691,8 @@ export function RiaPicksList({
                 Number.isFinite(row.change_pct)
                   ? row.change_pct
                   : null;
-              const metadataLine = [
-                row.symbol,
-                row.sector,
-                formatBias(row.recommendation_bias),
-              ]
-                .filter(Boolean)
-                .join(" • ");
+              const cap = factsBySymbol[row.quote_symbol || row.symbol]?.market_cap ?? row.company_facts?.market_cap ?? row.market_cap;
+              const capLabel = typeof cap === "number" && cap > 0 ? `$${formatCompactNumber(cap)} cap` : "Cap unavailable";
 
               return (
                 <button
@@ -685,13 +703,7 @@ export function RiaPicksList({
                   onClick={() => setSelectedRow(row)}
                   className={cn(
                     "group relative isolate flex w-full gap-3 text-left transition-colors",
-                    isMobile
-                      // Solid rows: a backdrop blur on eight rows moving under a
-                      // flick was the Finance page's frame cost (founder decision,
-                      // 2026-09-20: blur stays on fixed chrome only). The Liquid
-                      // Glass neutral rim keeps the elevated read.
-                      ? "items-start overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-3 hover:bg-[color:var(--app-card-surface-compact)] active:bg-[color:var(--app-card-surface-compact)]"
-                      : "items-center overflow-hidden border-t border-white/45 px-4 py-3 hover:bg-white/24 active:bg-white/34 first:border-t-0 dark:border-white/10 dark:hover:bg-white/6 dark:active:bg-white/8",
+                    "items-center overflow-hidden border-t border-border/60 px-3 py-3 hover:bg-muted/40 active:bg-muted/60 first:border-t-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
                   )}
                 >
                   <div className="shrink-0">
@@ -724,14 +736,15 @@ export function RiaPicksList({
                         </Badge>
                       ) : null}
                     </div>
-                    <p className="mt-1 truncate text-xs leading-5 text-muted-foreground">
-                      {metadataLine ||
-                        "Metadata is still syncing for this name."}
+                    <p className="mt-1 flex flex-wrap gap-x-2 text-[11px] leading-5 text-muted-foreground sm:text-xs">
+                      <span>{row.symbol}</span>
+                      {row.sector ? <span className="hidden sm:inline">{row.sector}</span> : null}
+                      <span className="whitespace-nowrap">{capLabel}</span>
                     </p>
                   </div>
                   <div
                     className={cn(
-                      "shrink-0 text-right",
+                      "shrink-0 text-right tabular-nums",
                       isMobile ? "min-w-[5.25rem]" : "",
                     )}
                   >
@@ -863,6 +876,11 @@ export function RiaPicksList({
                 .join(" • ")
             : undefined
         }
+        footer={selectedRow && onAnalyze ? <Button variant="none" effect="fade" data-voice-control-id="analysis_stock_details_preview" onClick={() => {
+          const symbol = selectedRow.symbol;
+          setSelectedRow(null);
+          onAnalyze(symbol);
+        }}>Analyze {selectedRow.symbol}</Button> : undefined}
       >
         {selectedRow ? (
           <div className="space-y-5">
@@ -912,25 +930,31 @@ export function RiaPicksList({
               </div>
             </div>
 
-            <RenaissanceVerdictCard row={selectedRow} />
-
             <SettingsGroup
-              title="Snapshot"
+              title="Company facts"
               className={marketSettingsGroupClassName}
             >
               <SettingsRow
                 density="compact"
                 title="Market cap"
-                trailing={formatCompactNumber(selectedRow.market_cap)}
+                trailing={formatCompactNumber(selectedFacts?.market_cap ?? (selectedRow.market_cap && selectedRow.market_cap > 0 ? selectedRow.market_cap : null))}
               />
               <SettingsRow
                 density="compact"
-                title="Free cash flow"
-                trailing={formatFcf(selectedRow.fcf_billions)}
+                title="P/E (TTM)"
+                trailing={formatRatio(selectedFacts?.pe_ratio)}
+              />
+              <SettingsRow density="compact" title="P/B" trailing={formatRatio(selectedFacts?.pb_ratio)} />
+              <SettingsRow density="compact" title="Debt / equity" trailing={formatRatio(selectedFacts?.debt_to_equity)} />
+              <SettingsRow density="compact" title="List free cash flow" trailing={typeof selectedRow.fcf_billions === "number" ? `$${selectedRow.fcf_billions.toFixed(1)}B` : "N/A"} />
+              <SettingsRow
+                density="compact"
+                title="Financial period end"
+                trailing={selectedFacts?.financial_period_end || "Unavailable"}
               />
               <SettingsRow
                 density="compact"
-                title="Updated"
+                title="Quote updated"
                 trailing={
                   selectedRow.quote_status === "unsupported"
                     ? "Unsupported"
@@ -938,16 +962,13 @@ export function RiaPicksList({
                 }
               />
             </SettingsGroup>
-
-            <SettingsGroup
-              title="Thesis"
-              className={marketSettingsGroupClassName}
-            >
-              <div className="px-4 py-4 text-sm leading-7 text-foreground/90">
-                {selectedRow.investment_thesis ||
-                  "Renaissance thesis is unavailable for this name right now."}
-              </div>
-            </SettingsGroup>
+            <p className="text-xs leading-5 text-muted-foreground">
+              {selectedFacts?.source || "Financial source unavailable"}
+              {selectedFacts?.retrieved_at ? ` · Retrieved ${formatAsOf(selectedFacts.retrieved_at)}` : ""}
+              {selectedFacts?.stale ? " · Cached" : ""}
+              {selectedFacts?.ratio_basis ? ` · ${selectedFacts.ratio_basis}` : ""}
+            </p>
+            <RenaissanceVerdictCard row={{ ...selectedRow, company_facts: selectedFacts }} />
           </div>
         ) : null}
       </KaiControlSurface>

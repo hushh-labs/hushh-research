@@ -3023,6 +3023,58 @@ Backward-compatible sections remain present while migration is active:
 - `spotlights`
 - `themes`
 
+The Market benchmark strip uses index levels: S&P 500 (`^GSPC`), NASDAQ
+Composite (`^IXIC`), Dow Jones (`^DJI`) and Russell 2000 (`^RUT`). Volatility
+uses `^VIX`. These symbols use the public Yahoo chart adapter; an unavailable
+index never falls through to Finnhub/FMP equity plans or affects their cooldowns.
+
+Each benchmark row includes `symbol`, `as_of` (provider quote time, nullable),
+`retrieved_at`, `is_delayed`, optional `quote_delay_minutes`, and `market_state`
+(`open`, `closed`, or null). Retrieval time does not imply a live quote.
+`delta_pct` stays null when the previous close is missing. Unknown delay stays
+null; a delay flag may also reflect a quote over ten minutes old during its
+reported regular session. Closed sessions are labeled separately. Index
+sparklines use the same response's observed intraday closes; missing history
+remains unavailable. Cached levels retain their original quote time and are
+labeled as cached. Server home v5, macro v2 and client market-home v5 cache
+names exclude earlier ETF snapshots. Web and native use the same response
+contract through `ApiService`.
+
+### Market company facts and sector periods
+
+Stock browsing now lives in Finance's **Stocks** tab (`/one/kai?tab=analysis`),
+alongside the existing research preview and saved analysis. Market keeps indices,
+news, sectors, and movers. Both tabs share one resource/source-selection owner;
+the stock list is absent from active debates and saved-result drill-ins.
+Public browsing and company facts remain available while Vault is locked;
+saved analysis and starting a debate retain their existing unlock requirements.
+Stock facts load separately through
+`GET /api/kai/market/company-facts/{user_id}?symbols=AAPL,MSFT`. Firebase
+authentication must match the path owner. At most eight validated symbols are
+accepted per request, with four provider calls in flight; the existing
+`ApiService` splits visible stock pages into bounded batches on web/native.
+Public company facts use a separate six-hour fresh/24-hour stale cache, so a
+price-only quote cache cannot suppress market cap, P/E (TTM), P/B, total
+debt/equity, or the provider company description. Unknown ratios are null.
+Debt/equity is a multiple (Yahoo's reported percentage divided by 100).
+Provider retrieval time and financial period end remain separate.
+
+Sector rows now include `change_1w_pct`, `period_start_1d`, `period_start_1w`,
+`period_end` and `basis`. Both periods use observed sector ETF closes; one
+week spans five trading-session returns. Missing weekly observations stay
+unavailable. Daily fallback feeds do not acquire a synthetic weekly value.
+`sectors:v2:us` excludes prior daily-only snapshots. News rows preserve an
+optional HTTPS `image_url`; unavailable or broken images use a neutral cover.
+
+Market news preserves NewsAPI article images. When Finnhub supplies a Yahoo
+publisher logo, fixed-host Yahoo search and RSS metadata enrich exact matching
+article URLs, UUIDs, or Finnhub publisher-URL digests. Headlines, source, ordering
+and story links stay unchanged; no title matching or article HTML scraping is
+used. `image_url` carries the original photo and optional `image_thumbnail_url`
+carries its smaller provider resolution for compact mobile rows. Unmatched
+articles keep an empty image rather than a channel logo. Home/news/feed v5
+cache names exclude earlier image-less snapshots.
+
 ### Kai Market News Feed (Cursor Snapshot)
 
 `GET /api/kai/market/news/baseline/{user_id}` serves the authenticated public baseline feed. `GET /api/kai/market/news/{user_id}` serves a vault-owner-scoped feed for up to three validated symbols. Both return the same bounded envelope:

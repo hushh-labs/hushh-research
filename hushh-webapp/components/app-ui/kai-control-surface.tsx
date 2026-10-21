@@ -22,6 +22,7 @@ export function KaiControlSurface({
   contentClassName,
   surfaceClassName,
   showMobileCloseButton,
+  headerTextOverflow,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -35,6 +36,7 @@ export function KaiControlSurface({
   contentClassName?: string;
   surfaceClassName?: string;
   showMobileCloseButton?: boolean;
+  headerTextOverflow?: "truncate" | "wrap";
 }) {
   return (
     <AdaptiveDetailSurface
@@ -49,6 +51,7 @@ export function KaiControlSurface({
       contentClassName={contentClassName}
       surfaceClassName={surfaceClassName}
       showMobileCloseButton={showMobileCloseButton}
+      headerTextOverflow={headerTextOverflow}
       mobilePresentation="sheet"
       desktopMaxWidthClassName="sm:!max-w-[min(42rem,calc(100vw-4.5rem))] lg:!max-w-[min(46rem,calc(100vw-8rem))]"
     >
