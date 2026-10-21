@@ -132,7 +132,7 @@ test.beforeAll(async () => {
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() + featureCss;
 });
 
-for (const width of [320, 375, 393, 430, 768, 1440]) {
+for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
   for (const theme of ["light", "dark"]) {
     test(`Market briefing stays readable and fits at ${width}px in ${theme}`, async ({ page }) => {
       page.on("pageerror", error => { throw error; });
@@ -149,6 +149,13 @@ for (const width of [320, 375, 393, 430, 768, 1440]) {
       });
       await page.addScriptTag({ content: marketScript });
       await awaitProductFont(page);
+      const frame = page.locator(".app-page-shell").first();
+      const frameStyle = await frame.evaluate(element => {
+        const style = getComputedStyle(element);
+        return { width: element.getBoundingClientRect().width, gutter: style.paddingLeft };
+      });
+      expect(frameStyle.width).toBeLessThanOrEqual(728);
+      expect(frameStyle.gutter).toBe(width <= 350 ? "16px" : width <= 620 ? "20px" : "24px");
       const action = page.getByRole("button", { name: "All news", exact: true });
       await expect(action).toBeVisible();
       const target = await action.boundingBox();

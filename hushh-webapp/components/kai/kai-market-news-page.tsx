@@ -261,7 +261,7 @@ export function KaiMarketNewsPage() {
       width="reading"
       fitContent
       headerContentSpacing="compact"
-      className={marketStyles.typography}
+      className={`${marketStyles.typography} ${marketStyles.workspaceFrame}`}
       nativeTest={{
         routeId: ROUTES.KAI_NEWS,
         marker: "native-route-kai-news",

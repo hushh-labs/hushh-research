@@ -11,6 +11,20 @@
   --foundation-title3-weight: var(--type-section-label-weight);
 }
 
+.workspaceFrame {
+  --page-inline-gutter-standard: 24px;
+  --app-shell-reading: 728px;
+  max-width: 728px;
+}
+
+@media (max-width: 620px) {
+  .workspaceFrame { --page-inline-gutter-standard: 20px; }
+}
+
+@media (max-width: 350px) {
+  .workspaceFrame { --page-inline-gutter-standard: 16px; }
+}
+
 .cardBody { padding: 20px; }
 .sectionHeader { margin-bottom: 12px; }
 .sectionHeader :global([data-slot="section-header-row"]) { flex-direction: row; align-items: center; flex-wrap: wrap; column-gap: 12px; }

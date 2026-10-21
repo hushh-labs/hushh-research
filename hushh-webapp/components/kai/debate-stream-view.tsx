@@ -488,52 +488,14 @@ function toMarketNumber(value: unknown): number | null {
 }
 
 function extractMarketSnapshotFromDecision(data: StreamPayload): MarketSnapshot {
-  const rawCard =
-    data.raw_card && typeof data.raw_card === "object" ? (data.raw_card as Record<string, unknown>) : {};
-  const keyMetrics =
-    rawCard.key_metrics && typeof rawCard.key_metrics === "object"
-      ? (rawCard.key_metrics as Record<string, unknown>)
-      : {};
-  const valuationMetrics =
-    keyMetrics.valuation && typeof keyMetrics.valuation === "object"
-      ? (keyMetrics.valuation as Record<string, unknown>)
-      : {};
-  const priceTargets =
-    rawCard.price_targets && typeof rawCard.price_targets === "object"
-      ? (rawCard.price_targets as Record<string, unknown>)
-      : {};
-
-  const candidates: Array<{ value: unknown; source: string }> = [
-    { value: rawCard.current_price, source: "raw_card.current_price" },
-    { value: valuationMetrics.current_price, source: "raw_card.key_metrics.valuation.current_price" },
-    { value: valuationMetrics.price, source: "raw_card.key_metrics.valuation.price" },
-    { value: priceTargets.current_price, source: "raw_card.price_targets.current_price" },
-    { value: priceTargets.current, source: "raw_card.price_targets.current" },
-    { value: priceTargets.market_price, source: "raw_card.price_targets.market_price" },
-  ];
-  for (const candidate of candidates) {
-    const parsed = toMarketNumber(candidate.value);
-    if (parsed !== null) {
-      return {
-        last_price: parsed,
-        change_pct: toMarketNumber(rawCard.day_change_pct ?? rawCard.change_pct ?? data.day_change_pct),
-        observed_at:
-          (typeof rawCard.analysis_updated_at === "string" && rawCard.analysis_updated_at) ||
-          (typeof data.analysis_updated_at === "string" && data.analysis_updated_at) ||
-          new Date().toISOString(),
-        source: candidate.source,
-      };
-    }
-  }
-
+  const rawCard = data.raw_card && typeof data.raw_card === "object"
+    ? data.raw_card as Record<string, unknown> : {};
+  const supplied = rawCard.market_snapshot as Partial<MarketSnapshot> | undefined;
   return {
-    last_price: null,
-    change_pct: null,
-    observed_at:
-      (typeof rawCard.analysis_updated_at === "string" && rawCard.analysis_updated_at) ||
-      (typeof data.analysis_updated_at === "string" && data.analysis_updated_at) ||
-      null,
-    source: "unavailable",
+    last_price: supplied ? toMarketNumber(supplied.last_price) : null,
+    change_pct: supplied ? toMarketNumber(supplied.change_pct) : null,
+    observed_at: typeof supplied?.observed_at === "string" ? supplied.observed_at : null,
+    source: typeof supplied?.source === "string" ? supplied.source : "unavailable",
   };
 }
 
@@ -1239,6 +1201,8 @@ export function DebateStreamView({
             raw_card: {
               ...incomingRawCard,
               market_snapshot: resolvedMarketSnapshot,
+              analysis_degraded: Boolean(data.analysis_degraded || incomingRawCard.analysis_degraded),
+              degraded_agents: degradedAgents,
               pick_source: incomingRawCard.pick_source || fallbackPickSource,
               pick_source_label:
                 incomingRawCard.pick_source_label || fallbackPickSourceLabel,

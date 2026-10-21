@@ -8,7 +8,7 @@ import marketStyles from "../../components/kai/shared/market-briefing.module.css
 
 createRoot(document.getElementById("root")!).render(
   window.location.pathname === "/finance-market-news-fixture" ? <KaiMarketNewsPage /> : <>
-    <AppPageShell width="agent" fitContent className={marketStyles.typography}>
+    <AppPageShell width="agent" fitContent className={`${marketStyles.typography} ${marketStyles.workspaceFrame}`}>
       <AppPageHeaderRegion><PageHeader title="Finance" titleRole="agent" /></AppPageHeaderRegion>
       <KaiMarketHomeProvider><KaiMarketPreviewView /></KaiMarketHomeProvider>
     </AppPageShell>

@@ -111,7 +111,7 @@ export function KaiMarketHubPage() {
       fitContent
       width="agent"
       headerContentSpacing="compact"
-      className={visibleTab === "market" ? `relative ${marketBriefingStyles.typography}` : "relative"}
+      className={`relative ${marketBriefingStyles.typography} ${marketBriefingStyles.workspaceFrame}`}
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,

@@ -3,6 +3,18 @@ import { describe, expect, it } from "vitest";
 import { DecisionCard } from "@/components/kai/views/decision-card";
 
 describe("Finance detailed analysis", () => {
+  it("shows limited analyst coverage without changing the reported decision", () => {
+    render(<DecisionCard result={{
+      ticker: "TEST", decision: "reduce", confidence: 0, consensus_reached: false,
+      analysis_degraded: true, degraded_agents: ["valuation"], final_statement: "Limited evidence",
+      raw_card: { owns_position: false },
+    }} />);
+    expect(screen.getByText("Limited analysis")).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("valuation");
+    expect(screen.getByText("Review the risks before opening a position.")).toBeVisible();
+    expect(screen.queryByText("Complete")).not.toBeInTheDocument();
+  });
+
   it("starts compact while retaining the full rationale, strategy and evidence on demand", () => {
     render(<DecisionCard result={{
       ticker: "TEST", decision: "buy", confidence: 0.82, consensus_reached: true,
