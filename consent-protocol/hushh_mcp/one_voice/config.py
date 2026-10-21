@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Final, Literal
 
 ONE_VOICE_LIVE_ENABLED_ENV = "ONE_VOICE_LIVE_ENABLED"
@@ -147,27 +147,6 @@ class OneVoiceLiveConfig:
     @property
     def session_max_seconds(self) -> int:
         return self.session_max_minutes * 60
-
-    def for_legacy_client(self) -> OneVoiceLiveConfig:
-        """Keep the existing Vertex protocol for clients without playback acks.
-
-        This is capability negotiation before any provider I/O, not a retry or
-        transcript replay. The actual Vertex connection must still succeed.
-        """
-        if self.provider != "azure_openai":
-            return self
-        from hushh_mcp.runtime_settings import managed_ai_settings
-
-        managed = managed_ai_settings()
-        if managed.auth_mode != "vertex_adc":
-            raise OneVoiceConfigError("Legacy Voice requires managed Vertex ADC")
-        return replace(
-            self,
-            provider="vertex",
-            model_id=managed.live_model,
-            location=managed.live_location,
-            vertex_project=managed.project,
-        )
 
 
 def live_voice_enabled() -> bool:

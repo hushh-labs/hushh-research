@@ -273,12 +273,19 @@ def translate_message(message: Any) -> list[LiveEvent]:
 
 
 @asynccontextmanager
-async def connect_live(config: OneVoiceLiveConfig, live_config: genai_types.LiveConnectConfig):
-    """Open one Gemini Live session on the pinned model/region (ADC only)."""
+async def connect_live(
+    config: OneVoiceLiveConfig,
+    live_config: genai_types.LiveConnectConfig,
+    *,
+    playback_acknowledgements: bool = False,
+):
+    """Open the configured Live adapter with the negotiated playback capability."""
     if config.provider == "azure_openai":
         from hushh_mcp.one_voice.azure_live import connect_azure_live
 
-        async with connect_azure_live(live_config) as session:
+        async with connect_azure_live(
+            live_config, playback_acknowledgements=playback_acknowledgements
+        ) as session:
             yield session
         return
     client = build_managed_live_client(

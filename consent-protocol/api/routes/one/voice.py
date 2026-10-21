@@ -109,12 +109,14 @@ async def _probe_live_connect(config: OneVoiceLiveConfig) -> None:
 
 
 async def compute_readiness(*, playback: bool = False) -> VoiceReadinessResponse:
-    """Evaluate the flag, the contract, and (when enabled) a cached connect probe."""
+    """Probe the configured processor for every supported client protocol.
+
+    The optional playback hint remains wire-compatible; acknowledgements refine
+    interrupted context, not processor selection or authentication.
+    """
     now = time.monotonic()
     try:
         config = OneVoiceLiveConfig.from_environment()
-        if config.enabled and config.provider == "azure_openai" and not playback:
-            config = config.for_legacy_client()
     except OneVoiceConfigError:
         logger.warning("one_voice.readiness reason=not_configured")
         response = VoiceReadinessResponse(enabled=False, status="not_configured")
@@ -294,18 +296,19 @@ def _live_factory(config: OneVoiceLiveConfig):
 
     @asynccontextmanager
     async def _factory(model: str, live_config: dict[str, Any]):
-        selected = config
         if model != config.model_id:
-            selected = config.for_legacy_client()
-            if selected.model_id != model:
-                raise ValueError("Voice session model does not match its negotiated processor")
+            raise ValueError("Voice session model does not match its configured processor")
         cfg = build_live_config(
             system_instruction=str(live_config["system_instruction"]),
             tool_declarations=list(live_config["tool_declarations"]),
             voice_name=voice_name(),
             resumption_handle=live_config.get("resumption_handle"),
         )
-        async with connect_live(selected, cfg) as live:
+        async with connect_live(
+            config,
+            cfg,
+            playback_acknowledgements=live_config.get("playback_acknowledgements") is True,
+        ) as live:
             yield live
 
     return _factory

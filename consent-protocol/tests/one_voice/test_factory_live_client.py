@@ -185,7 +185,7 @@ def _azure_event(kind, **values):
     return SimpleNamespace(type=kind, **values)
 
 
-def _azure_session(events=()):
+def _azure_session(events=(), *, playback_acknowledgements=False):
     from types import SimpleNamespace
 
     from hushh_mcp.one_voice.azure_live import AzureLiveSession
@@ -203,6 +203,7 @@ def _azure_session(events=()):
                 }
             ]
         },
+        playback_acknowledgements=playback_acknowledgements,
     ), connection
 
 
@@ -218,6 +219,32 @@ def test_azure_resampling_preserves_the_client_rate_and_frame_continuity():
     assert 237 <= len(whole) // 2 <= 240
     with pytest.raises(ValueError):
         chunked.push(b"odd")
+
+
+async def test_azure_accepts_buffered_audio_up_to_the_public_protocol_bound():
+    import base64
+
+    from hushh_mcp.one_voice.azure_live import MAX_PCM_FRAME_BYTES, Pcm16Resampler
+    from hushh_mcp.one_voice.protocol import MAX_AUDIO_FRAME_BYTES
+
+    raw = b"\x01\x00" * (MAX_AUDIO_FRAME_BYTES // 2)
+    session, connection = _azure_session()
+    await session.send_audio(base64.b64encode(raw).decode("ascii"))
+    sent = b"".join(
+        base64.b64decode(call.kwargs["audio"])
+        for call in connection.input_audio_buffer.append.await_args_list
+    )
+    resampler = Pcm16Resampler()
+    expected = b"".join(resampler.push(raw[i : i + 8000]) for i in range(0, len(raw), 8000))
+    assert sent == expected
+    assert all(
+        len(base64.b64decode(call.kwargs["audio"])) <= MAX_PCM_FRAME_BYTES * 3 // 2 + 2
+        for call in connection.input_audio_buffer.append.await_args_list
+    )
+    prior = connection.input_audio_buffer.append.await_count
+    with pytest.raises(ValueError):
+        await session.send_audio(base64.b64encode(raw + b"\x00\x00").decode("ascii"))
+    assert connection.input_audio_buffer.append.await_count == prior
 
 
 async def test_azure_tool_batch_settles_exact_call_ids_before_one_continuation():
@@ -340,19 +367,93 @@ async def test_azure_interrupt_rechecks_function_authority_after_lock_wait():
     assert connection.response.create.await_count == 0
 
 
-async def test_azure_barge_in_uses_acknowledged_playback_not_sent_duration():
+@pytest.mark.parametrize("played_ms", [None, 125])
+async def test_azure_barge_in_uses_acknowledged_playback_not_sent_duration(played_ms):
     session, connection = _azure_session()
     session.audio_items["item1"] = {"bytes": 48000, "played_ms": 0, "content_index": 0}
     session.audio_item = "item1"
-    await session.acknowledge_playback("item1", 125)
+    session.response_id = "old_response"
+    if played_ms is not None:
+        await session.acknowledge_playback("item1", played_ms)
     with pytest.raises(ValueError):
         await session.acknowledge_playback("item1", 1100)
     await session.interrupt()
     assert connection.conversation.item.truncate.await_args.kwargs == {
         "item_id": "item1",
         "content_index": 0,
-        "audio_end_ms": 125,
+        "audio_end_ms": played_ms or 0,
     }
+    assert connection.response.cancel.await_args.kwargs == {"response_id": "old_response"}
+    await session.send_text("New synthetic request after interruption")
+    assert connection.conversation.item.create.await_count == 1
+
+
+@pytest.mark.parametrize("playback_acknowledgements", [False, True])
+@pytest.mark.parametrize("with_tool", [False, True])
+async def test_azure_completed_answer_survives_an_ordinary_legacy_follow_up(
+    playback_acknowledgements,
+    with_tool,
+):
+    import base64
+    from types import SimpleNamespace as NS
+
+    events = [
+        _azure_event("response.created", response=NS(id="completed_response")),
+        _azure_event(
+            "response.output_audio.delta",
+            response_id="completed_response",
+            delta=base64.b64encode(b"\x00\x00" * 2400).decode("ascii"),
+            item_id="completed_item",
+            content_index=0,
+        ),
+        *(
+            [
+                _azure_event(
+                    "response.output_item.done",
+                    response_id="completed_response",
+                    item=NS(
+                        type="function_call", call_id="tool1", name="synthetic", arguments="{}"
+                    ),
+                )
+            ]
+            if with_tool
+            else []
+        ),
+        _azure_event("response.done", response=NS(id="completed_response", status="completed")),
+        _azure_event("input_audio_buffer.speech_started", item_id="follow_up"),
+        _azure_event("input_audio_buffer.speech_stopped", item_id="follow_up"),
+        _azure_event(
+            "conversation.item.input_audio_transcription.completed",
+            item_id="follow_up",
+            transcript="Please explain the completed answer",
+        ),
+    ]
+    session, connection = _azure_session(
+        events, playback_acknowledgements=playback_acknowledgements
+    )
+    observed = []
+    async for event in session.events():
+        observed.append(event)
+        if event.kind in {"turn_complete", "tool_call"} and playback_acknowledgements:
+            await session.acknowledge_playback("completed_item", 75)
+    assert any(event.kind == ("tool_call" if with_tool else "turn_complete") for event in observed)
+    assert any(event.kind == "tool_cancel" for event in observed) is with_tool
+    assert any(
+        event.kind == "input_transcript" and event.input_item_id == "follow_up"
+        for event in observed
+    )
+    assert connection.response.cancel.await_count == 0
+    assert connection.response.create.await_count == 1
+    if playback_acknowledgements:
+        assert connection.conversation.item.truncate.await_args.kwargs == {
+            "item_id": "completed_item",
+            "content_index": 0,
+            "audio_end_ms": 75,
+        }
+    else:
+        assert connection.conversation.item.truncate.await_count == 0
+    # A new capture still advances interruption/tool authority for both clients.
+    assert session._interruption_generation == 1
 
 
 async def test_azure_transcript_timeout_cannot_be_extended_by_other_buffered_events():

@@ -270,9 +270,11 @@ page retrieval. Exact public-page review uses the existing public-network fence.
 The selected UAT Azure adapters use workload federation rather than stored keys.
 Live input is resampled from the existing 16 kHz client contract to 24 kHz Azure
 PCM; output remains 24 kHz. Playback acknowledgements come from the player clock
-and fence interrupted context. Older Voice clients negotiate their existing
-Vertex transport before connection and report its actual health; no transcript
-is replayed to another provider. BYOK and non-UAT processor selection retain
+and fence interrupted context. Older Voice clients use the same selected
+processor. Without playback acknowledgements, an in-flight interruption truncates output
+at zero and may discard already-heard context. Completed generated turns remain
+in conversation history for ordinary follow-ups; completion is not proof of playback.
+No transcript is replayed to another provider. BYOK and non-UAT processor selection retain
 their existing contracts. Local E5 Drive/action embeddings are unchanged. The
 768-dimensional Location prototype separates cache generations by model and
 processor; this migration does not activate it or backfill a production index.

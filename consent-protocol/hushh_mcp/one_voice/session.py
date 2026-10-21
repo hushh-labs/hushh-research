@@ -477,6 +477,7 @@ class VoiceSession:
         # Set from the auth frame before any tool runs; UTC until then.
         self._client_timezone = "UTC"
         self._mail_review_supported = False
+        self._playback_acknowledgements = False
         self._mail_input_generation = 0
         self._read_input_generation = 0
         self._read_admission: ContextVar[int | None] = ContextVar("read_admission", default=None)
@@ -952,11 +953,7 @@ class VoiceSession:
         # route's authority object and stays untouched.
         self._client_timezone = frame.timezone or "UTC"
         self._mail_review_supported = "mail_draft_review" in (frame.client.get("features") or [])
-        if self.config.provider == "azure_openai" and "audio_playback" not in (
-            frame.client.get("features") or []
-        ):
-            self.config = self.config.for_legacy_client()
-            logger.info("one_voice.compatibility provider=vertex reason=client_playback_protocol")
+        self._playback_acknowledgements = "audio_playback" in (frame.client.get("features") or [])
         return auth
 
     async def _open_conversation(self, auth: AuthResult) -> None:
@@ -1044,6 +1041,7 @@ class VoiceSession:
             timezone=self._client_timezone,
         )
         live_config = {
+            "playback_acknowledgements": self._playback_acknowledgements,
             "system_instruction": instruction,
             "tool_declarations": declarations,
             "resumption_handle": self.conversation.live_resumption_handle

@@ -246,6 +246,57 @@ def test_grouped_failure_identifies_leaf_without_recording_private_error_text():
     assert "token" not in json.dumps(details)
 
 
+@pytest.mark.parametrize("playback_acknowledgements", [False, True])
+async def test_older_client_auth_and_reconnect_keep_azure_without_replaying_a_vertex_handle(
+    monkeypatch,
+    playback_acknowledgements,
+):
+    conversations = MemoryConversationStore()
+    await conversations.open(
+        user_id=USER,
+        conversation_id=CONV,
+        model_id=CONFIG.model_id,
+        model_location=CONFIG.location,
+    )
+    conversations.rows[CONV].live_resumption_handle = "old-vertex-handle"
+    auth = {**AUTH, "client": {"features": ["audio_playback"] if playback_acknowledgements else []}}
+    transport = FakeTransport([auth, {"type": "end"}])
+    fake = FakeLive([])
+    azure = replace(CONFIG, provider="azure_openai", model_id="synthetic-realtime")
+    from api.routes.one import voice
+    from hushh_mcp.one_voice import azure_live
+
+    negotiated = []
+
+    @asynccontextmanager
+    async def connect(config, *, playback_acknowledgements=False):
+        candidate = azure_live.AzureLiveSession(
+            SimpleNamespace(),
+            SimpleNamespace(require_current=lambda: None),
+            {"tools": []},
+            playback_acknowledgements=playback_acknowledgements,
+        )
+        negotiated.append(candidate.playback_acknowledgements)
+        assert config.session_resumption.handle is None
+        assert "playback_acknowledgements" not in config.model_dump(exclude_none=True)
+        yield fake
+
+    monkeypatch.setattr(azure_live, "connect_azure_live", connect)
+    session = _session(transport, fake, config=azure, conversations=conversations)
+    session.live_factory = voice._live_factory(azure)
+    await _run(session)
+    assert negotiated == [playback_acknowledgements]
+    assert session.config is azure
+    ready = transport.frames("session.ready")[0]
+    assert ready["model"] == azure.model_id
+    assert ready["resumed"] is False
+    assert protocol.INPUT_MIME == "audio/pcm;rate=16000"
+    assert protocol.OUTPUT_MIME == "audio/pcm;rate=24000"
+    # Azure never receives the old provider's resumption handle. The relay's
+    # factory receives it as None; the provider config carries no client hint.
+    assert session.conversation.live_resumption_handle == "old-vertex-handle"
+
+
 async def test_first_frame_must_be_auth():
     transport = FakeTransport([{"type": "ping"}])
     await _run(_session(transport, FakeLive([])))

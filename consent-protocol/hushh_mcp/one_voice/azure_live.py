@@ -19,6 +19,7 @@ from google.genai import types
 from jsonschema import Draft202012Validator
 
 from hushh_mcp.one_voice.live_client import LiveEvent
+from hushh_mcp.one_voice.protocol import MAX_AUDIO_FRAME_BYTES
 from hushh_mcp.runtime_providers.azure_adk import _identifier, _instruction, _schema
 from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding
 
@@ -99,8 +100,16 @@ def azure_session_config(binding: ManagedAzureBinding, config: types.LiveConnect
 
 
 class AzureLiveSession:
-    def __init__(self, connection: Any, binding: ManagedAzureBinding, config: dict):
+    def __init__(
+        self,
+        connection: Any,
+        binding: ManagedAzureBinding,
+        config: dict,
+        *,
+        playback_acknowledgements: bool = False,
+    ):
         self.connection, self.binding = connection, binding
+        self.playback_acknowledgements = playback_acknowledgements
         self.resampler = Pcm16Resampler()
         self.tools = {item["name"]: item for item in config["tools"]}
         self.inputs: OrderedDict[str, dict] = OrderedDict()
@@ -140,11 +149,17 @@ class AzureLiveSession:
     async def send_audio(self, pcm16_b64: str) -> None:
         self.binding.require_current()
         pcm = base64.b64decode(pcm16_b64, validate=True)
-        converted = self.resampler.push(pcm)
-        if converted:
-            await self.connection.input_audio_buffer.append(
-                audio=base64.b64encode(converted).decode("ascii")
-            )
+        if len(pcm) % 2 or len(pcm) > MAX_AUDIO_FRAME_BYTES:
+            raise ValueError("Invalid Live PCM16 input frame")
+        # Preserve the public frame bound for buffered/older clients while
+        # keeping each resampling and provider append operation bounded.
+        for offset in range(0, len(pcm), MAX_PCM_FRAME_BYTES):
+            self.binding.require_current()
+            converted = self.resampler.push(pcm[offset : offset + MAX_PCM_FRAME_BYTES])
+            if converted:
+                await self.connection.input_audio_buffer.append(
+                    audio=base64.b64encode(converted).decode("ascii")
+                )
 
     async def send_audio_stream_end(self) -> None:
         # Server VAD owns commits. An explicit commit after every client endpoint
@@ -405,6 +420,11 @@ class AzureLiveSession:
                     }
                 elif kind == "response.done":
                     self.response_id = None
+                    if event.response.status == "completed" and not self.playback_acknowledgements:
+                        # Legacy clients cannot report playback. Retain completed
+                        # generated turns for ordinary follow-ups, without claiming
+                        # they were heard. Only in-flight interruption uses zero.
+                        self.audio_item = None
                     if event.response.status == "cancelled":
                         yield LiveEvent(kind="interrupted")
                     elif event.response.status != "completed":
@@ -453,7 +473,13 @@ class AzureLiveSession:
 
 
 @asynccontextmanager
-async def connect_azure_live(config: types.LiveConnectConfig, *, binding=None, client_factory=None):
+async def connect_azure_live(
+    config: types.LiveConnectConfig,
+    *,
+    binding=None,
+    client_factory=None,
+    playback_acknowledgements: bool = False,
+):
     binding = binding or ManagedAzureBinding.from_environment()
     if binding is None:
         raise RuntimeError("Azure Live is not the selected managed processor")
@@ -478,4 +504,6 @@ async def connect_azure_live(config: types.LiveConnectConfig, *, binding=None, c
             await connection.session.update(
                 session=cast(RealtimeSessionCreateRequestParam, session)
             )
-            yield AzureLiveSession(connection, binding, session)
+            yield AzureLiveSession(
+                connection, binding, session, playback_acknowledgements=playback_acknowledgements
+            )

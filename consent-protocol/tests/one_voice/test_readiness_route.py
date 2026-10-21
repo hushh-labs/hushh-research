@@ -295,7 +295,7 @@ def test_retired_paths_stay_retired_while_live_is_enabled(monkeypatch):
 
 
 @pytest.mark.parametrize("unavailable", ["azure_openai", "vertex"])
-def test_readiness_matches_the_negotiated_playback_protocol_and_separates_health_caches(
+def test_readiness_keeps_older_clients_on_the_selected_provider_and_separates_health_caches(
     monkeypatch, unavailable
 ):
     azure = OneVoiceLiveConfig(
@@ -306,7 +306,6 @@ def test_readiness_matches_the_negotiated_playback_protocol_and_separates_health
     )
     vertex = OneVoiceLiveConfig(enabled=True, model_id=LIVE_MODEL, location="us-central1")
     monkeypatch.setattr(OneVoiceLiveConfig, "from_environment", lambda: azure)
-    monkeypatch.setattr(OneVoiceLiveConfig, "for_legacy_client", lambda self: vertex)
     seen = []
 
     async def probe(config):
@@ -318,9 +317,13 @@ def test_readiness_matches_the_negotiated_playback_protocol_and_separates_health
     client = TestClient(_app())
     modern = client.get("/api/one/voice/readiness?playback=1").json()
     legacy = client.get("/api/one/voice/readiness").json()
-    assert modern["enabled"] is (unavailable != "azure_openai")
-    assert legacy["enabled"] is (unavailable != "vertex")
-    assert modern["model"] == azure.model_id and legacy["model"] == vertex.model_id
-    client.get("/api/one/voice/readiness?playback=1")
-    client.get("/api/one/voice/readiness")
+    assert modern == legacy
+    assert legacy["enabled"] is (unavailable != "azure_openai")
+    assert legacy["model"] == azure.model_id
+    assert seen == ["azure_openai"]
+    # A real administrator processor change must not reuse Azure's cache.
+    monkeypatch.setattr(OneVoiceLiveConfig, "from_environment", lambda: vertex)
+    switched = client.get("/api/one/voice/readiness").json()
+    assert switched["enabled"] is (unavailable != "vertex")
+    assert switched["model"] == vertex.model_id
     assert seen == ["azure_openai", "vertex"]
