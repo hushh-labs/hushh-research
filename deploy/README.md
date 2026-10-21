@@ -201,6 +201,53 @@ deployment. Actual over-budget capacity remains blocking in both phases.
 Manual Cloud Run changes outside governed releases require an explicit maintenance
 dispatch; the settled-receipt optimization does not claim to detect those changes.
 
+### Fixed production capacity bridge
+
+When the serving, latest-created and rollback-protected backend revisions consume
+the next release's admission budget, a governed operator may dispatch the existing
+maintenance workflow with `environment=production`, the verified healthy serving
+`healthy_release_run_id`, `apply=true` and `production_capacity_bridge=true`.
+Scheduled passes and UAT cannot create this bridge. Both source checks force a
+fresh inspection, and mutation still holds the production deployment lock.
+
+The fixed `serving_backend_clone_v1` profile creates one zero-traffic revision
+from the healthy serving backend's immutable image, preserving its runtime
+identity, bindings and service-level controls. It changes only revision scaling
+to one instance and its database pools to two asyncpg plus two SQLAlchemy
+connections per worker, with no overflow. The unchanged two-worker source therefore
+admits eight connections. The global limit, administrative reserve, existing
+revisions, worker candidate and readiness jobs remain counted. For three retained
+80-connection backends, the bridge admission is `240 + 8 + 6 + 16 + 30 = 300`;
+the ordinary 80-connection release would require 372 and remains blocked.
+
+The v1 operation supports the verified source's `latest` secret selectors only.
+It pins enabled numeric versions after verifying that every version since source
+creation has the same value. Changed, disabled, missing or ambiguous history
+blocks creation. Payload comparisons happen only in memory; receipts contain
+numeric resource names and evidence flags, never payloads or payload digests.
+Source/service drift before mutation or configuration drift afterwards also blocks
+completion. The clone may execute the existing runtime's background work; zero
+traffic is not a promise of zero database writes.
+
+Before the provider request, `completed.json.capacity_bridge` records durable
+intent. A timeout never authorizes another create: a later pass observes only
+that exact deterministic revision. Until readiness, frozen configuration,
+unchanged positive traffic, HTTP health and connection admission are proven,
+the receipt blocks conflicting deployment. The temporary health tag is removed
+by ordinary retention. A verified rerun accepts its removal without recreating
+the revision. The formerly latest revision is deleted only through the existing
+3,660-second backend drain and ordinary protection checks. After that deletion,
+`160 + 8 + 80 + 6 + 16 + 30 = 300` admits the ordinary backend release.
+
+If creation fails or its provider outcome is uncertain, preserve the checkpoint
+and all protected revisions. Reconcile via maintenance before another deployment;
+do not delete the bridge or a recovery anchor, shorten drainage, rewrite serving
+traffic, increase the connection limit, or retry creation blindly. A failed latest
+revision can require operator investigation before live readiness is provable.
+This is maintenance evidence, not a healthy application release or permission
+to promote the clone. An ordinary release and its existing rollback contract
+remain responsible for application rollout.
+
 ## What lives here
 
 | Path | Purpose |

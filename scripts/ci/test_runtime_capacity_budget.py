@@ -375,6 +375,17 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
         self.assertEqual(next_release["phase"], "pre-deploy")
         self.assertEqual(next_release["projected_connections"], 372)
         self.assertFalse(next_release["admitted"])
+        bridge = budget.evaluate(profile, "production", inventory, maintenance_profile="serving_backend_clone_v1")
+        self.assertEqual(bridge["projected_connections"], 300)
+        self.assertTrue(bridge["admitted"])
+        self.assertEqual(next(row["connections"] for row in bridge["services"] if row["name"] == "consent-protocol:new-candidate"), 8)
+        self.assertEqual(next(row["connections"] for row in bridge["services"] if row["name"] == "consent-protocol-drive-worker:new-candidate"), 6)
+        with self.assertRaises(budget.BudgetError):
+            budget.evaluate(profile, "production", inventory, maintenance_profile="serving_backend_clone_v1", candidate_services=frozenset({"consent-protocol"}))
+        altered = copy.deepcopy(profile)
+        altered["environments"]["production"]["maintenance_candidates"]["serving_backend_clone_v1"]["candidate"]["max_instances"] = 2
+        with self.assertRaises(budget.BudgetError):
+            budget.evaluate(altered, "production", inventory, maintenance_profile="serving_backend_clone_v1")
         current = budget.evaluate(
             profile, "production", inventory, phase="post-release"
         )

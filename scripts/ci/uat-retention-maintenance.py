@@ -25,6 +25,7 @@ from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
 retention = importlib.import_module("cloudrun-retention")
+capacity_bridge = importlib.import_module("production-capacity-bridge")
 REGION = "us-central1"
 LANES = {
     "uat": {
@@ -1746,8 +1747,11 @@ def main() -> int:
 
 
 def checkpoint(args, run_id, observed, pending, status):
+    receipt_file = args.state_dir / "completed.json"
+    prior = json.loads(receipt_file.read_text()) if receipt_file.exists() else {}
+    bridge = capacity_bridge.receipt_state(prior.get("capacity_bridge"))
     retention.atomic_state(
-        args.state_dir / "completed.json",
+        receipt_file,
         {
             "schema_version": 1,
             "checkpoint_version": 2,
@@ -1757,6 +1761,7 @@ def checkpoint(args, run_id, observed, pending, status):
             "observed_run_id": observed,
             "pass_status": status,
             "pending_services": list(pending),
+            **({"capacity_bridge": bridge} if bridge is not None else {}),
         },
     )
     output = os.environ.get("GITHUB_OUTPUT")
@@ -1859,6 +1864,9 @@ def assert_no_pending_mutations(repository, directory, environment):
     receipt = directory / "completed.json"
     if receipt.exists():
         state = json.loads(receipt.read_text())
+        bridge = capacity_bridge.receipt_state(state.get("capacity_bridge"))
+        if bridge is not None and bridge["status"] != "verified":
+            raise retention.UnsafeState("Capacity bridge provider outcome requires maintenance reconciliation")
         if state.get("pass_status", "complete") == "unresolved":
             raise retention.UnsafeState(
                 "Cleanup provider outcome is unresolved; reconcile maintenance before deployment"
@@ -1889,6 +1897,7 @@ def maintenance_pass() -> int:
     parser.add_argument("--release-run-id", default="")
     parser.add_argument("--state-dir", type=Path, required=True)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--production-capacity-bridge", action="store_true")
     parser.add_argument("--verify-source-only", action="store_true")
     parser.add_argument("--check-mutations", action="store_true")
     parser.add_argument(
@@ -1898,6 +1907,10 @@ def maintenance_pass() -> int:
     )
     parser.add_argument("--environment", choices=tuple(LANES), default="uat")
     args = parser.parse_args()
+    if args.production_capacity_bridge and (args.environment != "production" or not args.apply
+            or args.verify_source_only or args.check_mutations or not args.force_inspection
+            or os.getenv("GITHUB_EVENT_NAME") != "workflow_dispatch" or os.getenv("GITHUB_REF_NAME") != "main"):
+        parser.error("capacity bridge requires explicit manual production apply with forced inspection")
     if (args.verify_source_only or args.check_mutations) and args.apply:
         parser.error("source verification cannot apply cleanup")
     if args.release_run_id and not args.release_run_id.isdigit():
@@ -1979,6 +1992,15 @@ def maintenance_pass() -> int:
                 if isinstance(exc, retention.MutationUncertain)
                 else "deferred"
             )
+            checkpoint(args, run_id, observation, pending, outcome)
+            record_uat_cleanup_outcome(args, outcome)
+            return 0
+    if args.apply and args.environment == "production":
+        try:
+            capacity_bridge.maintain(release, args.state_dir / "completed.json", create=args.production_capacity_bridge)
+        except (retention.BudgetExpired, retention.MutationUncertain) as exc:
+            bridge = capacity_bridge.receipt_state(json.loads((args.state_dir / "completed.json").read_text()).get("capacity_bridge"))
+            outcome = "unresolved" if isinstance(exc, retention.MutationUncertain) or (bridge is not None and bridge["status"] == "intent" and bridge["requested"]) else "deferred"
             checkpoint(args, run_id, observation, pending, outcome)
             record_uat_cleanup_outcome(args, outcome)
             return 0
