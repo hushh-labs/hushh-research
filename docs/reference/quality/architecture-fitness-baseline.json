@@ -16891,7 +16891,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_prod_drive_deploy_contract.py",
       "symbol": "test_older_target_keeps_release_tooling_but_cannot_enable_drive",
-      "value": 202
+      "value": 212
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26243,7 +26243,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_prod_drive_deploy_contract.py",
       "symbol": null,
-      "value": 591
+      "value": 602
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -82829,6 +82829,32 @@
         "reviewers": [
           "root",
           "adk_frontend_conflicts"
+        ]
+      }
+    ],
+    "budgets_changed": false,
+    "non_size_findings_changed": false
+  },
+  "browser_main_production_companion_review_20261021": {
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/tests/test_prod_drive_deploy_contract.py|test_older_target_keeps_release_tooling_but_cannot_enable_drive|function exceeds the advisory gene budget",
+        "before": 202,
+        "after": 212,
+        "source_sha256": "5a74134412f2b6b55a6707e420b35cc743ea3b015596e889e9f39ff542e1abc2",
+        "review": "Retain recursive branch shell dependency checks and main exact managed-provider Python dependency preservation for older application targets.37 cases plus repaired owning case pass; no deployment authority change.",
+        "reviewers": [
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_prod_drive_deploy_contract.py||module exceeds the advisory operon budget",
+        "before": 591,
+        "after": 602,
+        "source_sha256": "5a74134412f2b6b55a6707e420b35cc743ea3b015596e889e9f39ff542e1abc2",
+        "review": "Retain recursive branch shell dependency checks and main exact managed-provider Python dependency preservation for older application targets.37 cases plus repaired owning case pass; no deployment authority change.",
+        "reviewers": [
+          "root"
         ]
       }
     ],

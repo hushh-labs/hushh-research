@@ -2,8 +2,8 @@
 
 **Status:** authorized execution, refreshed 2026-10-21 UTC. Continue on the
 infrastructure branch; preserve concurrent work and the active ADK tree. Prior
-main/ADK integration remains preserved. Main through `04402b50d3` and frozen ADK `914e7c044c` are integrated through
-`cb36d8a2ee`. Main's messaging and Azure managed-provider selection is preserved alongside
+main/ADK integration remains preserved. Main through `2d9de0df07` and frozen ADK `914e7c044c` are integrated through
+`702c0bdc5d`. Main's messaging and Azure managed-provider selection is preserved alongside
 private-pod admission, Browser phase history and release publication. Nine peer
 edits and the active ADK worktree remain unchanged.
 
@@ -58,7 +58,7 @@ resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 
-- Main through `04402b50d3` is integrated by `cb36d8a2ee`, preserving its
+- Main through `2d9de0df07` is integrated by `702c0bdc5d`, preserving its
   Profile/mobile, consent, deletion, PLG, Calendar and migrations 365–369 alongside
   pod authority. New content routes retain Shared-only admission; signed PLG
   operational exports retain their separate bounds and disabled defaults. The
