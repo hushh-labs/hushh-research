@@ -109,9 +109,9 @@ describe("isSosShareReadyRecipient", () => {
     expect(isSosShareReadyRecipient(r)).toBe(false);
   });
 
-  it("returns false when the SMS contact no longer has a verified phone", () => {
+  it("accepts a connected receiving-ready contact without a phone claim", () => {
     const r = makeRecipient("u1", { phoneVerified: false });
-    expect(isSosShareReadyRecipient(r)).toBe(false);
+    expect(isSosShareReadyRecipient(r)).toBe(true);
   });
 
   it("returns false when keyId is null", () => {
@@ -150,13 +150,13 @@ describe("sosRecipientReadinessMessage", () => {
     );
   });
 
-  it("names phone verification when that is the blocking requirement", () => {
+  it("does not confuse missing receiving keys with phone or account verification", () => {
     expect(
       sosRecipientReadinessMessage([
-        makeRecipient("u1", { phoneVerified: false }),
+        makeRecipient("u1", { phoneVerified: false, keyId: null }),
       ]),
     ).toBe(
-      "Your SMS contacts' setup could not be confirmed. Try again.",
+      "Your SMS contacts are not ready to receive location yet.",
     );
   });
 

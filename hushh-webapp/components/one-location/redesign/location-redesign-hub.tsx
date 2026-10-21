@@ -758,8 +758,8 @@ export type LocationHubViewModel = {
   recipientSubtitle: (r: OneLocationRecipient) => string;
   isRecipientShareReady: (r: OneLocationRecipient) => boolean;
   /**
-   * Save My Soul readiness: ordinary sharing needs a location key; the SMS
-   * lane also needs a verified phone. The SOS panel counts and enables from
+   * Save My Soul readiness requires the recipient's encryption key. The
+   * panel counts and enables from
    * this so what it offers is exactly what the trigger accepts. Falls back to
    * `isRecipientShareReady` for callers that do not distinguish.
    */
@@ -1671,7 +1671,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             recipientLabel={vm.recipientLabel}
             recipientSubtitle={vm.recipientSubtitle}
             // The roster editor and the SOS panel must agree on who is ready:
-            // the SMS lane needs a verified phone as well as a key.
+            // both use the selected connections' encryption keys.
             isRecipientShareReady={
               vm.isSosRecipientShareReady ?? vm.isRecipientShareReady
             }
@@ -4845,6 +4845,7 @@ function SosFlow({
         stopBusy={vm.sosBusy}
         onClose={onClose}
         onEditContacts={onEditContacts}
+        onRefreshRecipients={onRefreshSmsContacts}
         recipientLabel={vm.recipientLabel}
         isRecipientShareReady={
           vm.isSosRecipientShareReady ?? vm.isRecipientShareReady

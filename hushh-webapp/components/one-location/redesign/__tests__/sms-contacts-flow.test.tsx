@@ -232,10 +232,7 @@ describe("SmsContactsFlow", () => {
     expect(onAdd).toHaveBeenCalledWith("available");
   });
 
-  it("with the Save My Soul rule, a keyed contact without a verified phone is not addable", () => {
-    // Save My Soul is the one lane that also needs a verified phone. The
-    // key-only rule the ordinary sharing screens use would offer "Add" here
-    // and the person would then be skipped by the alert.
+  it("adds a receiving-ready contact without requiring phone onboarding", () => {
     const unverified: OneLocationRecipient = {
       ...recipients[1],
       userId: "unverified",
@@ -243,23 +240,18 @@ describe("SmsContactsFlow", () => {
       phoneVerified: false,
     };
     const props = { ...baseProps, recipients: [...recipients, unverified] };
-    const keyOnly = render(
-      <SmsContactsFlow {...props} isRecipientShareReady={(r) => r.canReceiveLocation} />,
-    );
-    openAllContacts();
-    expect(screen.getByRole("button", { name: "Add Rohan" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Add Rohan" })).toHaveTextContent("Add");
-    keyOnly.unmount();
-
+    const onAdd = vi.fn();
     render(
       <SmsContactsFlow
         {...props}
+        onAdd={onAdd}
         isRecipientShareReady={isSosShareReadyRecipient}
       />,
     );
     openAllContacts();
-    expect(screen.getByRole("button", { name: "Add Rohan" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Add Rohan" })).toHaveTextContent("Setup");
+    expect(screen.getByRole("button", { name: "Add Rohan" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Add Rohan" }));
+    expect(onAdd).toHaveBeenCalledWith("unverified");
     expect(screen.getByRole("button", { name: "Add Neelesh" })).toBeEnabled();
   });
 

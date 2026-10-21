@@ -822,6 +822,13 @@ const LOCATION_VOICE_CONTROLS = [
     actionId: "location.refresh",
     role: "button",
   },
+  {
+    id: "one-location-refresh-sms-contacts",
+    label: "Refresh circle",
+    purpose: "Check the current emergency contacts and receiving readiness.",
+    actionId: "location.refresh_sms_contacts",
+    role: "button",
+  },
   // One control, two contract actions: the direction is whichever one the
   // switch is not already in. It is rendered in the header and again in
   // Settings, so both places answer to the same id.
@@ -6242,7 +6249,6 @@ export function OneLocationAgentPageContent({
         const selection = resolveCircleRecipientSelection({
           circle,
           currentUserId: auth.userId,
-          requirePhoneVerified: true,
         });
         const alreadySelected = new Set(smsContactUserIds);
         const requested = memberUserIds ? new Set(memberUserIds) : null;
@@ -8865,13 +8871,12 @@ export function OneLocationAgentPageContent({
   const handleResolveNamedCircleRecipients = useCallback(
     async (
       circleId: string,
-      purpose: "location" | "sms" = "location",
+      _purpose: "location" | "sms" = "location",
     ): Promise<CircleRecipientSelection> => {
       const circle = await handleLoadNamedCircle(circleId);
       return resolveCircleRecipientSelection({
         circle,
         currentUserId: auth.userId,
-        requirePhoneVerified: purpose === "sms",
       });
     },
     [auth.userId, handleLoadNamedCircle],
@@ -11160,6 +11165,14 @@ export function OneLocationAgentPageContent({
     await refresh({ throwOnError: true });
     return { status: "succeeded", summary: "Location refreshed." };
   }, { prepare: () => ({ status: "ready", binding: { owner: auth.userId }, summary: "Refresh Location." }) });
+  useLocalOnboardingActionHandler("location.refresh_sms_contacts", async () => {
+    const roster = await refreshSmsRosterForSos();
+    return roster === null
+      ? { status: "failed", summary: "Couldn't refresh your circle. Try again." }
+      : { status: "succeeded", summary: "Emergency contacts refreshed." };
+  }, { prepare: () => auth.userId && vaultOwnerToken
+    ? { status: "ready", binding: { owner: auth.userId }, summary: "Refresh your emergency contacts." }
+    : { status: "blocked", gate: "input", summary: "Unlock One to check emergency contacts." } });
   // Wired in the generated gateway as execution_target.path: "control" -- a
   // dropdown item the person taps directly, not a route or a distinct
   // local_handler-named function. handleSyncContactSignal already catches
@@ -12669,7 +12682,7 @@ export function OneLocationAgentPageContent({
       requiresReady: adding, extra: { currentMembership: [...members].sort(), added: adding },
     });
     if (prepared.status !== "ready") return { ...prepared, summary: pool.length ? prepared.summary : adding
-      ? "No eligible emergency contacts are available. A contact needs a connection, verified phone and Location setup."
+      ? "No eligible emergency contacts are available. Choose a connection ready to receive location in One."
       : "No matching emergency contact could be verified. Review your current SOS list." };
     return { ...prepared, summary: `${adding ? "Add" : "Remove"} ${(prepared.binding.people as Array<{name: string}>).map((person) => person.name).join(", ")} ${adding ? "to" : "from"} your emergency contacts. ${adding ? "They will receive your Location when you send an SOS." : "Future SOS alerts will no longer include them."}` };
   };
@@ -14557,7 +14570,7 @@ export function OneLocationAgentPageContent({
     recipientLabel,
     recipientSubtitle: recipientRecommendationLine,
     isRecipientShareReady: isShareReadyRecipient,
-    // Save My Soul is the one lane that also needs a verified phone; the
+    // Save My Soul uses the same receiving-key readiness as private sharing; the
     // panel's count and enabled state must match what handleTriggerSos accepts.
     isSosRecipientShareReady: isSosShareReadyRecipient,
     requestOwnerLabel: (request) => requestOwnerLabel(request, recipients),

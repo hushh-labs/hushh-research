@@ -842,27 +842,9 @@ def _classify_share_kind(reason: str | None) -> str:
     return "check_in"
 
 
-def requires_recipient_phone_verification(
-    *,
-    share_kind: str | None,
-    reason: str | None,
-) -> bool:
-    """Keep the verified-phone gate on the emergency SMS lane only.
-
-    Ordinary private shares are authorized by an active One relationship and
-    encrypted to the recipient's active Location key.  Requiring an unrelated
-    phone claim after the recipient picker has already proved both facts makes
-    a connected, cryptographically ready Google-only account impossible to
-    share with.  SOS is different: its recipient list is explicitly the SMS
-    contact list, so that lane keeps the verified-phone requirement.
-
-    Classify legacy callers from ``reason`` exactly as grant creation does, so
-    an older ``sos_panic`` request cannot bypass the SMS protection merely by
-    omitting ``shareKind``.
-    """
-
-    resolved_kind = share_kind or _classify_share_kind(reason)
-    return _is_sos_lane(resolved_kind)
+def is_sos_share(*, share_kind: str | None, reason: str | None) -> bool:
+    """Classify current and legacy emergency requests through the grant owner."""
+    return _is_sos_lane(share_kind or _classify_share_kind(reason))
 
 
 def _is_until_stopped_share(duration_mode: str | None) -> bool:
@@ -5714,7 +5696,9 @@ class OneLocationAgentService:
                 "Choose a different connection as an SMS contact.",
                 status_code=422,
             )
-        self._recipient_key_row(recipient_user_id=contact_user_id, require_phone_verified=True)
+        # Save My Soul is delivered to an account in One, not to a phone.
+        # The Circle writer still validates the selected active relationship.
+        self._recipient_key_row(recipient_user_id=contact_user_id, require_phone_verified=False)
         result = self._sms_circle_service().set_sms_contact(
             owner_user_id=owner_user_id,
             contact_user_id=contact_user_id,
@@ -6314,7 +6298,7 @@ class OneLocationAgentService:
         reason: str | None = None,
         share_kind: str | None = None,
         source_circle_id: str | None = None,
-        require_recipient_phone_verified: bool = True,
+        require_recipient_phone_verified: bool = False,
         enforce_connection: bool = False,
         require_owned_source_circle: bool = False,
         source: str | None = None,
@@ -6582,7 +6566,7 @@ class OneLocationAgentService:
         reason: str | None = None,
         share_kind: str | None = None,
         source_circle_id: str | None = None,
-        require_recipient_phone_verified: bool = True,
+        require_recipient_phone_verified: bool = False,
         enforce_connection: bool = False,
     ) -> dict[str, Any]:
         """Atomically replace a grant and persist its first ciphertext envelope.

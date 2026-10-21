@@ -121,6 +121,7 @@ capabilities:
   - { capability_id: location.checkout_nearby, kind: action, feature_group_id: checkins }
   - { capability_id: location.open_sos, kind: action, feature_group_id: safety }
   - { capability_id: location.open_sms_contacts, kind: action, feature_group_id: safety }
+  - { capability_id: location.refresh_sms_contacts, kind: action, feature_group_id: safety }
   - { capability_id: location.open_settings, kind: action, feature_group_id: safety }
   - capability_id: location.review_notifications
     kind: action

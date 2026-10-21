@@ -45,43 +45,38 @@ export class SosPanicError extends Error {
 // ---------------------------------------------------------------------------
 
 /**
- * Narrowed recipient type — still has a verified SMS identity and all three
- * fields required to receive an encrypted location envelope: the
+ * Narrowed recipient type with all three fields required to receive an
+ * encrypted location envelope: the
  * canReceiveLocation flag, a keyId, and a JWK.
  */
 export type SosShareReadyRecipient = OneLocationRecipient & {
-  phoneVerified: true;
   keyId: string;
   publicKeyJwk: JsonWebKey;
 };
 
 /**
  * Type predicate that narrows `OneLocationRecipient` to `SosShareReadyRecipient`.
- * Ordinary Location sharing intentionally does not require a phone claim; SMS
- * is the one lane where it does. Keeping that distinction in this guard stops
- * the UI from offering an emergency recipient the backend must reject.
+ * Save My Soul delivers in One, not through a phone number. Its selected
+ * Circle membership and active relationship are checked by the server; a
+ * phone claim is unrelated to receiving the encrypted location.
  */
 export function isSosShareReadyRecipient(
   r: OneLocationRecipient,
 ): r is SosShareReadyRecipient {
   return Boolean(
-    r.phoneVerified && r.canReceiveLocation && r.keyId && r.publicKeyJwk,
+    r.canReceiveLocation && r.keyId && r.publicKeyJwk,
   );
 }
 
 /**
  * Explain why an SMS alert has no eligible recipient without leaking backend
- * policy wording into the screen. A verified phone is an SMS-only safety rule,
- * so ordinary Location sharing never calls this helper.
+ * policy wording into the screen or confusing receiving setup with identity.
  */
 export function sosRecipientReadinessMessage(
   recipients: OneLocationRecipient[],
 ): string {
   if (!recipients.length) {
     return "Add at least one SMS contact before sending an alert.";
-  }
-  if (recipients.some((recipient) => !recipient.phoneVerified)) {
-    return "Your SMS contacts' setup could not be confirmed. Try again.";
   }
   return "Your SMS contacts are not ready to receive location yet.";
 }

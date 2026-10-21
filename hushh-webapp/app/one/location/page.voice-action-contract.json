@@ -1137,6 +1137,30 @@
       }
     },
     {
+      "action_id": "location.refresh_sms_contacts",
+      "label": "Refresh emergency contacts",
+      "meaning": "Reloads the selected Save My Soul Circle and its current receiving readiness. Does not request location permission, change members or send an alert.",
+      "aliases": ["refresh emergency contacts", "refresh sms circle", "check emergency contacts again"],
+      "search_keywords": ["refresh", "circle", "sms", "emergency", "contacts", "readiness"],
+      "reachability": {
+        "routes": ["/one/location"],
+        "screens": ["one_location"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in", "vault_unlocked"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.refresh_sms_contacts"
+      },
+      "control_ids": ["one-location-refresh-sms-contacts"],
+      "state_exposure": ["selected emergency contacts and receiving readiness"],
+      "command": {"review_route": "/one/location?action=sos"}
+    },
+    {
       "action_id": "location.pause_updates",
       "label": "Pause my location",
       "meaning": "Stops this device sending new location updates and takes you off nearby presence. This is what a bare 'stop sharing' with no name attached means -- the safe, decisive reading of an urgent request. People you have already granted keep their grant, but it stops moving until you resume. This affects your device for everyone at once; to end a share with just one person while staying visible to everyone else, use stop_share instead.",
@@ -4012,6 +4036,7 @@
       "sos": [
         "location.trigger_sos",
         "location.stop_sos",
+        "location.refresh_sms_contacts",
         "location.sos_default"
       ],
       "people": [

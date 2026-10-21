@@ -89,6 +89,31 @@ Ask and SMS surfaces also repair missed transitions while visible every minute.
 Missing recipient keys or optional Location preferences never establish that an
 account is deleted or inactive; proper deletion removes the graph itself.
 
+### Save My Soul recipient readiness
+
+Save My Soul (SMS) delivers encrypted location in One through account-scoped
+notifications and the existing email fallback, not carrier text messages.
+A connected or eligible Circle member with an active receiving key can be added
+and alerted without a verified phone or completed Location onboarding. The
+client, Circle picker, grant routes and voice tools use this same boundary.
+Sending still requires the owner's explicit SMS roster selection, current peer
+eligibility, the recipient's active key and a valid encrypted envelope. Existing
+phone verification for contact discovery and public invitation claims is separate.
+An identity-provider outage cannot block an otherwise ready emergency recipient.
+Only an absent identity projection triggers bounded recovery through the existing
+canonical identity writer, after confirming an existing actor profile. Missing or
+disabled provider accounts and deletion tombstones cannot create replacement
+identities; a missing phone on an existing row never triggers this recovery.
+
+The panel groups unavailable receiving keys under one explanation and lists the
+affected names once. Missing authoritative roster entries have a separate count
+and a Refresh circle action. A missing phone claim never becomes an account
+verification warning, an invitation requirement or evidence of account deletion.
+Ready contacts remain sendable while another contact is unavailable; delivery
+results still report partial failures. The earlier connection lifecycle fix
+(PR #8272) repaired key bootstrap and roster invalidation, but did not remove the
+inherited SMS phone gate or compact this disclosure.
+
 The introduction has three steps: Features, an optional Save a place step, then the
 existing Circle invite, copy/share, Join and Find contacts finale. Continue on
 Features asks for device location and a position once, only to centre the pin;
@@ -313,7 +338,7 @@ owner/link metadata plus the attached public location snapshot.
   who join after confirmation.
 - Save My Soul keeps the stricter durable `one_location_sms_contacts` boundary.
   Choosing "Add Circle" in SMS contacts explicitly adds only the Circle's
-  current phone-verified, recipient-key-ready members as individual SMS
+  current recipient-key-ready members as individual SMS
   contacts. It never follows future membership automatically, and the user may
   remove any person independently.
 - Check-In and SMS contacts surface an in-context "grow this Circle" affordance

@@ -347,6 +347,7 @@
           "sos": [
             "location.trigger_sos",
             "location.stop_sos",
+            "location.refresh_sms_contacts",
             "location.sos_default"
           ],
           "people": [
@@ -7966,6 +7967,119 @@
             "type": "action",
             "action_id": "location.refresh",
             "label": "Refresh location",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=sos"
+      },
+      "action_id": "location.refresh_sms_contacts",
+      "surface_id": "one_location",
+      "label": "Refresh emergency contacts",
+      "aliases": [
+        "refresh emergency contacts",
+        "refresh sms circle",
+        "check emergency contacts again"
+      ],
+      "search_keywords": [
+        "refresh",
+        "circle",
+        "sms",
+        "emergency",
+        "contacts",
+        "readiness"
+      ],
+      "meaning": "Reloads the selected Save My Soul Circle and its current receiving readiness. Does not request location permission, change members or send an alert.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.refresh_sms_contacts"
+      },
+      "control_ids": [
+        "one-location-refresh-sms-contacts"
+      ],
+      "state_exposure": [
+        "selected emergency contacts and receiving readiness"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.refresh_sms_contacts",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.refresh_sms_contacts",
+            "label": "Refresh emergency contacts",
             "failure_behavior": "stop"
           }
         ],

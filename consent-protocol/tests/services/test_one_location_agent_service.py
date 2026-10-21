@@ -5078,15 +5078,15 @@ def test_four_user_location_workflow_contract(monkeypatch: pytest.MonkeyPatch) -
         service.view_latest_envelope(recipient_user_id=user_c, grant_id=grant_b["id"])
     assert denied_c.value.code == "LOCATION_GRANT_NOT_FOUND"
 
-    with pytest.raises(OneLocationAgentError) as unverified_share:
-        service.create_grant(
-            owner_user_id=user_a,
-            recipient_user_id=user_c,
-            recipient_key_id=f"key-{user_c}",
-            duration_hours=1,
-        )
-    assert unverified_share.value.code == "LOCATION_RECIPIENT_UNAVAILABLE"
-    assert "SMS setup could not be confirmed" in str(unverified_share.value)
+    # A missing phone claim is unrelated to private, account-keyed receiving.
+    grant_c = service.create_grant(
+        owner_user_id=user_a,
+        recipient_user_id=user_c,
+        recipient_key_id=f"key-{user_c}",
+        duration_hours=1,
+    )
+    assert grant_c["recipientUserId"] == user_c
+    assert service.identities[user_c]["phone_verified"] is False
 
     request_event_count = sum(
         event["event_type"] == "location_access_request" for event in service.events.values()
