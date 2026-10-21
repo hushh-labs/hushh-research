@@ -43,6 +43,10 @@ import httpx
 from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+from hushh_mcp.runtime_providers.managed_azure_text import (
+    ManagedAzureTextClient,
+    adk_model_for_client,
+)
 from hushh_mcp.services.ria_claim_service import title_case_name
 
 logger = logging.getLogger(__name__)
@@ -339,7 +343,7 @@ async def _run_model(prompt: str) -> tuple[dict[str, Any], str]:
     # Production managed clients use the manifest-owned single-turn gene.
     # Lightweight deterministic test clients retain the direct seam and never
     # acquire credentials or network access.
-    if isinstance(client, Client):
+    if isinstance(client, (Client, ManagedAzureTextClient)):
         try:
             from google.adk.models import Gemini
 
@@ -347,7 +351,7 @@ async def _run_model(prompt: str) -> tuple[dict[str, Any], str]:
             agent = build_single_turn_agent(
                 gene,
                 output_schema=_RIA_BROCHURE_SCHEMA,
-                model=Gemini(model=GEMINI_MODEL, client=client),
+                model=adk_model_for_client(client, GEMINI_MODEL, legacy_factory=Gemini),
             )
             parsed = await run_single_turn(
                 agent,

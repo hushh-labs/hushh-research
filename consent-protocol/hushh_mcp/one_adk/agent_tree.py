@@ -2529,12 +2529,20 @@ def _build_wallet_agent(*, model: Any | None = None) -> LlmAgent:
 def build_google_search_agent(*, model: Any | None = None) -> LlmAgent:
     """The manifest-owned public Search child, shared by One's bounded tasks."""
     manifest = next(child for child in _ONE_MANIFEST.subagents if child.id == "google_search")
+    from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
+    from hushh_mcp.runtime_providers.managed_azure_text import AzurePublicSearchTool
+
+    resolved = model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
     return managed_text_agent(
         name=manifest.name,
-        model=model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL),
+        model=resolved,
         description=manifest.description,
         instruction=manifest.system_instruction,
-        tools=[GoogleSearchTool()],
+        tools=[
+            AzurePublicSearchTool()
+            if isinstance(resolved, AzureOpenAIAdkModel)
+            else GoogleSearchTool()
+        ],
     )
 
 

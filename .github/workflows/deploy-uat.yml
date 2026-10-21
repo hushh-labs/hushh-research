@@ -303,6 +303,8 @@ jobs:
           cp scripts/ops/verify_uat_release.py \
             "${RUNNER_TEMP}/release-tools/verify_uat_release.py"
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
+            cp scripts/ci/managed_provider_readiness.py \
+              "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py"
             cp deploy/backend.cloudbuild.yaml \
               "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
             cp deploy/email-auth/bind_secrets.sh \
@@ -328,6 +330,8 @@ jobs:
           cp "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py" \
             scripts/ops/verify_passkey_domain_associations.py
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
+            cp "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py" \
+              scripts/ci/managed_provider_readiness.py
             cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
               deploy/backend.cloudbuild.yaml
             mkdir -p deploy/email-auth
@@ -1319,11 +1323,46 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
-            "--substitutions=^##^${SUBSTITUTIONS}"
+            "--substitutions=^##^${SUBSTITUTIONS}" 2>&1 | tee /tmp/uat-backend-build.log
           finished_at="$(date +%s)"
           echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
           echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
+
+      - name: Capture managed provider readiness receipt
+        if: always() && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("/tmp/uat-backend-build.log")
+          receipts = {}
+          for line in path.read_text().splitlines() if path.exists() else []:
+              start = line.find('{')
+              if start < 0:
+                  continue
+              try:
+                  value = json.loads(line[start:])
+              except ValueError:
+                  continue
+              for marker in ("managed_provider_readiness", "managed_provider_selection"):
+                  if isinstance(value, dict) and marker in value:
+                      receipts[marker] = value
+          if receipts:
+              readiness = receipts.get("managed_provider_readiness", {}).get("managed_provider_readiness", {})
+              selection = receipts.get("managed_provider_selection", {})
+              verified = (
+                  selection.get("context") == readiness.get("context")
+                  and selection.get("managed_provider_selection", {}).get("status") == "verified"
+                  and selection.get("managed_provider_selection", {}).get("provider") == readiness.get("selected_provider")
+              )
+              report = {"readiness": readiness, "selection": selection, "selection_verified": verified}
+              Path("/tmp/uat-managed-provider-readiness.json").write_text(
+                  json.dumps(report, indent=2, sort_keys=True) + "\n"
+              )
+          PY
 
       # The structure evaluator exercises the backend candidate image. Keep it
       # before the frontend build so an advisory model-quality warning is
@@ -3418,6 +3457,7 @@ jobs:
             /tmp/uat-frontend-image-manifest.json
             /tmp/uat-backend-candidate.json
             /tmp/uat-backend-candidate-readiness.json
+            /tmp/uat-managed-provider-readiness.json
             /tmp/uat-backend-candidate-health.json
             /tmp/uat-backend-promoted-service.json
             /tmp/uat-account-deletion-fence-install.log

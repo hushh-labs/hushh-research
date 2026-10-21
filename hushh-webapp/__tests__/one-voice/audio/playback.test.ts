@@ -349,3 +349,26 @@ describe("LivePlaybackScheduler", () => {
     expect(s.speaking).toBe(false);
   });
 });
+
+describe("provider playback acknowledgement", () => {
+  it("reports player-clock progress excluding queued and fenced audio", () => {
+    vi.useFakeTimers();
+    const { context, scheduler: s } = scheduler();
+    const progress: Array<[string, string, number]> = [];
+    s.onPlaybackProgress((turnId, itemId, playedMs) => progress.push([turnId, itemId, playedMs]));
+    s.enqueue(chunk(24000), "012345abcdef", "item1");
+    s.enqueue(chunk(24000), "012345abcdef", "item1");
+    context.currentTime = 0.03;
+    vi.advanceTimersByTime(50);
+    expect(progress).toEqual([]);
+    context.currentTime = 0.205; // 125 ms rendered after the 80 ms lead.
+    vi.advanceTimersByTime(50);
+    expect(progress.at(-1)).toEqual(["012345abcdef", "item1", 124]);
+    s.fenceTurn("012345abcdef");
+    context.currentTime = 5;
+    vi.advanceTimersByTime(500);
+    expect(progress.at(-1)?.[2]).toBeLessThanOrEqual(125);
+    expect(s.enqueue(chunk(24000), "012345abcdef", "item1")).toBe(false);
+    s.close();
+  });
+});

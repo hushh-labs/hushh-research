@@ -21,24 +21,33 @@ Define environment policy for IAM changes without risking production behavior.
 
 `private_drive_text_uat` in `consent-protocol/config/managed-ai-runtime.json`
 owns the versioned administrator policy for `one_text_chat_and_drive_requests`.
-All existing and new UAT accounts use Azure primary for managed One text chat
-and semantic Drive document-request planning and relevance assessment. Historical
+All existing and new UAT accounts use the candidate-verified provider for managed
+One text chat and semantic Drive document-request planning and relevance assessment.
+Azure is preferred when both providers pass; Vertex is selected when only it passes.
+Neither passing blocks release. The API and both worker revisions share that binding. Historical
 personal pilot receipts and model preferences do not select that processor.
 Their original acceptance/revocation timestamps remain unchanged; no receipt is
-created or marked accepted by this rollout. Production, BYOK, voice, native
-Google Search and separately opted-in public research keep their own contracts.
+created or marked accepted by this rollout. The separate `managed_runtime_uat`
+administrator policy extends selected-UAT processing to text/media, Search, exact
+public-source retrieval, Location transcription/semantics, narration, Live Voice
+and compatible embeddings. It grants no owner-information or action authority.
+Every declared capability must have an Azure replacement before this release
+can proceed; candidate admission accepts either complete provider bundle.
+Production and BYOK retain their existing processor contracts.
 
 `runtime_providers/managed_text.py` owns policy resolution, central Azure binding,
 per-call fallback and safe provider telemetry. It reuses the existing UAT PWM
-Azure endpoint/deployment and workload identity. Each model call tries Azure
-first; one Gemini call is allowed only for an unobserved timeout, connection
+Azure endpoint/deployment and workload identity. Each model call tries the selected
+provider first; one alternate call is allowed only for an unobserved timeout, connection
 failure, quota response or transient 500/502/503/504. Configuration, authentication,
 permission/consent errors, schema failure and cancellation do not allow fallback.
 Any emitted model frame prevents replay. No Runner, tool, payment or grant is
 retried by provider failover. Chat allocates 10s + 8s before first output within its existing event
 budget; an observed stream has a bounded 60s completion window and remains
 subject to the caller deadline. Drive allocates 30s + 20s within its owning request deadlines. Existing
-bounded model correction budgets still apply. Policy generation and current
+bounded model correction budgets still apply. Vertex selection adds a distinct policy
+generation and binding fingerprint; the unchanged Azure selection preserves its
+existing bindings. Policy generation and current
 invocation authority are checked again immediately before Azure send, after
 workload-token acquisition, and before fallback. This is processor authority,
 never file/request/payment authority.

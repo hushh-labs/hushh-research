@@ -86,6 +86,26 @@ def job_spec(service: dict, *, sha: str, run_id: str) -> dict:
     }
 
 
+def expected_policy_generation(spec: dict) -> str:
+    """Bind the recovery receipt to the processor inherited by this exact job."""
+    from uuid import UUID, uuid5
+
+    entries = spec["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]["env"]
+    env = {entry["name"]: entry.get("value") for entry in entries}
+    ai = env.get("HUSHH_UAT_MANAGED_AI_PROVIDER")
+    text = env.get("HUSHH_UAT_MANAGED_TEXT_PROVIDER")
+    selected = ai or text or "azure_openai"
+    if selected not in {"azure_openai", "vertex"} or (ai and text and ai != text):
+        raise ValueError("Recovery processor bindings disagree")
+    policy = json.loads(
+        (
+            Path(__file__).resolve().parents[2] / "consent-protocol/config/managed-ai-runtime.json"
+        ).read_text()
+    )["private_drive_text_uat"]
+    version = policy["version"] + (":vertex" if selected == "vertex" else "")
+    return str(uuid5(UUID(policy["policy_id"]), version))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--service-json", type=Path, required=True)
@@ -93,6 +113,7 @@ def main():
     parser.add_argument("--run-id", required=True)
     args = parser.parse_args()
     spec = job_spec(json.loads(args.service_json.read_text()), sha=args.sha, run_id=args.run_id)
+    expected_generation = expected_policy_generation(spec)
     name = spec["metadata"]["name"]
     common = ["--project=hushh-pda-uat", "--region=us-central1", "--quiet"]
     try:
@@ -144,15 +165,6 @@ def main():
                     except json.JSONDecodeError:
                         continue
                 if isinstance(value, dict) and value.get("uat_processor_recovery") == "completed":
-                    from uuid import UUID, uuid5
-
-                    policy = json.loads(
-                        (
-                            Path(__file__).resolve().parents[2]
-                            / "consent-protocol/config/managed-ai-runtime.json"
-                        ).read_text()
-                    )["private_drive_text_uat"]
-                    expected_generation = str(uuid5(UUID(policy["policy_id"]), policy["version"]))
                     if (
                         value.get("mode") != "apply"
                         or value.get("limit") != 20

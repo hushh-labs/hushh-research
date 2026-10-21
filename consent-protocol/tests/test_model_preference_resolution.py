@@ -546,11 +546,15 @@ async def test_private_approval_postgres_replay_revoke_and_generation_fence(monk
 
 
 @pytest.mark.asyncio
-async def test_uat_effective_model_is_managed_for_saved_and_missing_choices(monkeypatch):
+@pytest.mark.parametrize("provider,label", [("azure_openai", "Azure"), ("vertex", "Vertex")])
+async def test_uat_effective_model_is_managed_for_saved_and_missing_choices(
+    monkeypatch, provider, label
+):
     from hushh_mcp.runtime_providers.managed_text import managed_text_binding
 
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", provider)
     for selected in (None, "gemini-3.7-flash"):
 
         async def stored(_owner, choice=selected):
@@ -562,6 +566,7 @@ async def test_uat_effective_model_is_managed_for_saved_and_missing_choices(monk
         assert payload["source"] == "administrator_policy"
         assert payload["selected_model"] == selected
         assert len(payload["choices"]) == 1
+        assert payload["choices"][0]["label"] == f"{label} · managed in UAT"
         with pytest.raises(prefs.ModelPreferenceError) as denied:
             await prefs.set_preference(user_id="arbitrary-owner", model_id=selected)
         assert denied.value.code == "MODEL_MANAGED_BY_POLICY"
