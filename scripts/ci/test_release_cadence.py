@@ -127,6 +127,17 @@ class CadenceTransitionTest(unittest.TestCase):
                 patch.object(github, "receipt", side_effect=lambda repo, identity, prefix:
                              state["sources"][f"{identity:040x}"]["receipt"]):
             github.verify_recovery(ledger, ledger.head, controller, GOVERNANCE, NEW_POLICY)
+            original_observed = observed
+            def clock_observed(repo, identity):
+                value = original_observed(repo, identity)
+                if identity in {100, 101}:
+                    value.update(event="repository_dispatch", actor={"login": "github-actions[bot]"})
+                return value
+            with patch.object(github, "run_info", side_effect=clock_observed):
+                github.verify_recovery(ledger, ledger.head, controller, GOVERNANCE, NEW_POLICY)
+                denied = {**controller, "event": "repository_dispatch", "actor": {"login": "github-actions[bot]"}}
+                with self.assertRaisesRegex(core.UnsafeRelease, "production operator"):
+                    github.verify_recovery(ledger, ledger.head, denied, GOVERNANCE, NEW_POLICY)
             state["requests"]["4"]["lanes"]["deploy"] = {"state": "pending"}
             with self.assertRaisesRegex(core.UnsafeRelease, "lane mismatch"):
                 github.verify_recovery(ledger, ledger.head, controller, GOVERNANCE, NEW_POLICY)
@@ -387,6 +398,75 @@ class AdmissionTest(unittest.TestCase):
 
 
 class ReconciliationTest(unittest.TestCase):
+    def test_clock_wake_requires_exact_bot_event_before_any_state_access(self):
+        controller = run(100, core.CONTROLLER, "github-actions[bot]")
+        controller["event"] = "repository_dispatch"
+        tick = {"action": "capacity-maintenance-clock"}
+        ledger = FakeLedger(core.new_state("0" * 40, "2026-10-22T00:00:00Z"))
+        with patch.object(github, "configuration", return_value=(POLICY, GOVERNANCE)), \
+                patch.object(github, "run_info", return_value=controller), \
+                patch.object(github, "Ledger", return_value=ledger) as open_ledger, \
+                patch.object(github, "runs", return_value=[]), \
+                patch.object(github, "reconcile_children"), patch.object(github, "dispatch_pending"):
+            github.reconcile(REPOSITORY, 100, tick)
+            open_ledger.assert_called_once()
+            invalid = [({}, {}, {}), ({}, {"action": "another-event"}, {}),
+                       ({"actor": {"login": "maintainer"}}, tick, {}),
+                       ({"actor": {"login": "outsider"}}, tick, {}),
+                       ({"head_branch": "feature"}, tick, {}),
+                       ({"path": ".github/workflows/other.yml"}, tick, {}),
+                       ({"event": "push"}, tick, {}),
+                       ({"run_attempt": 2, "triggering_actor": {"login": "outsider"}}, tick, {}),
+                       ({}, tick, {"full": True}), ({}, tick, {"recovery_head": "f" * 40})]
+            original = deepcopy(controller)
+            for change, payload, options in invalid:
+                with self.subTest(change=change, payload=payload, options=options):
+                    controller.clear()
+                    controller.update({**original, **change})
+                    open_ledger.reset_mock()
+                    with self.assertRaises(core.UnsafeRelease):
+                        github.reconcile(REPOSITORY, 100, payload, **options)
+                    open_ledger.assert_not_called()
+            controller.clear()
+            controller.update({**original, "run_attempt": 2, "triggering_actor": {"login": "maintainer"}})
+            github.reconcile(REPOSITORY, 100, tick)
+
+    def test_failed_exact_child_retry_is_polled_without_a_completion_event(self):
+        ledger = FakeLedger(counted(4))
+        child = ledger.state["requests"]["4"]["lanes"]["testflight"]
+        child.update(state="failure", run_id=200, run_attempt=1)
+        observed = run(200, "ship-ios-testflight.yml", "github-actions[bot]")
+        observed.update(display_title=core.marker("4", ledger.state["requests"]["4"], "testflight"),
+                        run_attempt=2, triggering_actor={"login": "outsider"})
+        with patch.object(github, "configuration", return_value=(POLICY, GOVERNANCE)), \
+                patch.object(github, "run_info", return_value=observed), \
+                patch.object(monitor, "run_info", return_value=observed), \
+                patch.object(monitor, "runs", return_value=[]), \
+                patch.object(monitor, "git", return_value=observed["created_at"]), \
+                patch.object(monitor, "evidence", return_value="Verified receipt"):
+            with self.assertRaisesRegex(core.UnsafeRelease, "retry actor"):
+                github.reconcile_children(ledger)
+            self.assertEqual(child["state"], "failure")
+            previous = {"release_highwater": 4, "seen": {"release:4:testflight": "200:1:failure"}}
+            journal, notices = monitor.observations(REPOSITORY, ledger.state, {}, previous, True)
+            self.assertEqual(notices, [])
+            self.assertIn("release:4:testflight", journal["pending_releases"])
+            observed["triggering_actor"]["login"] = "maintainer"
+            github.reconcile_children(ledger)
+            self.assertEqual((child["state"], child["run_attempt"]), ("success", 2))
+            recovered, notices = monitor.observations(REPOSITORY, ledger.state, {}, journal, True)
+            self.assertTrue(any("success" in notice and "Verified receipt" in notice for notice in notices))
+            _, repeated = monitor.observations(REPOSITORY, ledger.state, {}, recovered, True)
+            self.assertEqual(repeated, [])
+        ledger = FakeLedger(counted(84))
+        for request in ledger.state["requests"].values():
+            for child in request["lanes"].values():
+                child.update(state="failure", run_id=200)
+        with patch.object(github, "run_info") as info:
+            with self.assertRaisesRegex(core.UnsafeRelease, "20 unresolved"):
+                github.reconcile_children(ledger)
+            info.assert_not_called()
+
     def test_expired_or_missing_deferral_is_not_mistaken_for_a_public_release(self):
         ledger = FakeLedger(counted(8))
         request = ledger.state["requests"]["8"]
@@ -515,6 +595,12 @@ class AuthorityTest(unittest.TestCase):
                 patch.object(github, "run_info", side_effect=lambda repo, identity: {100: controller, 8: source}[identity]), \
                 patch.object(ledger, "verify_checkpoint", side_effect=verify_snapshot):
             self.assertEqual(github.recorded_authority(REPOSITORY, child)[1], "deploy")
+            controller.update(event="repository_dispatch", actor={"login": "github-actions[bot]"})
+            self.assertEqual(github.recorded_authority(REPOSITORY, child)[1], "deploy")
+            controller["actor"]["login"] = "maintainer"
+            with self.assertRaisesRegex(core.UnsafeRelease, "repository bot"):
+                github.recorded_authority(REPOSITORY, child)
+            controller["actor"]["login"] = "github-actions[bot]"
             ledger.state["requests"]["8"]["submit_for_review"] = True
             with self.assertRaisesRegex(core.UnsafeRelease, "not controller authority"):
                 github.recorded_authority(REPOSITORY, child)

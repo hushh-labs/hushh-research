@@ -142,9 +142,17 @@ both policy periods. Missing transition metadata means the original 4/8 policy.
 
 Monitoring runs in GitHub inside the same observer job, after checkpoint
 publication. It adds no workflow, runner job, polling loop or UAT dependency.
-Completion events report failures and verified milestones promptly; the existing
-hourly schedule catches missed observations and long UAT queues. GitHub can delay
-scheduled runs. The monitor uses only standard-library code and the existing
+Completion events report failures and verified milestones when delivered. The
+observer also subscribes to the existing `capacity-maintenance-clock` repository
+dispatch, whose GitHub environment timer waits without a runner. This reuses its
+hourly broadcast without changing the clock, adding a producer job or touching
+UAT. The existing hourly cron remains a fallback; GitHub can delay scheduled runs.
+Only the repository bot's exact clock event is accepted on protected main; clock
+events cannot request full replay or checkpoint recovery. Unresolved recorded
+child failures are rechecked for governed retries without replaying settled
+release artifacts. More than 20 unresolved failures stops reconciliation for
+operator recovery rather than silently dropping history or growing polling work.
+The monitor uses only standard-library code and the existing
 repository token, with `issues: write` added for one bot-owned `UAT release monitor`
 issue assigned to `monitor_issue_assignee` in the policy. Notification delivery
 follows that person's GitHub notification settings.
