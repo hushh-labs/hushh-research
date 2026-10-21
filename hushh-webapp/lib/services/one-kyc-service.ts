@@ -1,3 +1,6 @@
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import type { ApiFetchOptions } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { apiJson } from "@/lib/services/api-client";
 import type {
@@ -156,14 +159,25 @@ function authHeaders(vaultOwnerToken: string): HeadersInit {
   };
 }
 
-async function connectorAuthHeaders(userId: string, vaultOwnerToken: string): Promise<HeadersInit> {
+async function connectorAuthority(userId: string, vaultOwnerToken: string): Promise<ApiFetchOptions> {
   if (!vaultOwnerToken) throw new Error("Unlock your vault before continuing.");
+  const generation = getAuthSessionGeneration();
+  const epoch = snapshotVaultSessionEpoch();
+  const isCurrent = () => generation === getAuthSessionGeneration() && isVaultSessionEpochCurrent(epoch);
+  const assertCurrent = () => {
+    if (!isCurrent()) throw new DOMException("The account or vault session changed.", "AbortError");
+  };
   const idToken = await AuthService.getIdTokenWithRetry({ expectedUserId: userId });
+  assertCurrent();
   if (!idToken) throw new Error("Your account session is still restoring. Please try again.");
   return {
-    Authorization: `Bearer ${idToken}`,
-    "X-Hushh-Consent": vaultOwnerToken,
-    "Content-Type": "application/json",
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      "X-Hushh-Consent": vaultOwnerToken,
+      "Content-Type": "application/json",
+    },
+    beforeDispatch: async () => { assertCurrent(); },
+    isEffectCurrent: isCurrent,
   };
 }
 
@@ -448,7 +462,7 @@ export class OneKycService {
     const query = new URLSearchParams({ user_id: userId });
     return apiJson<OneKycClientConnectorResponse>(
       `/api/one/kyc/client-connector?${query.toString()}`,
-      { headers: await connectorAuthHeaders(userId, vaultOwnerToken) }
+      await connectorAuthority(userId, vaultOwnerToken)
     );
   }
 
@@ -459,7 +473,7 @@ export class OneKycService {
   }: AuthInput & { connector: KycClientConnectorPrivateRecord }): Promise<OneKycClientConnectorResponse> {
     return apiJson<OneKycClientConnectorResponse>("/api/one/kyc/client-connector", {
       method: "POST",
-      headers: await connectorAuthHeaders(userId, vaultOwnerToken),
+      ...await connectorAuthority(userId, vaultOwnerToken),
       body: JSON.stringify({
         user_id: userId,
         connector_public_key: connector.connector_public_key,
