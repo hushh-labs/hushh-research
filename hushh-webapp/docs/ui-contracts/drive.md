@@ -5,6 +5,13 @@ Status: current source-backed product reference inspected at revision
 Owner: frontend architecture with the connector, Documents specialist, sharing,
 consent and payment service owners. Classification: `canonical`, package-local.
 
+Presentation amendment, 21 October 2026: the Profile v18 request dialogs use
+the shared [illustrated request composition](../../components/app-ui/illustrated-request-dialog.tsx)
+and its [local styles](../../components/app-ui/illustrated-request-dialog.module.css).
+The affected requester copy, geometry and typography below reflect that change.
+Service, consent, pricing, retry and delivery contracts retain the inspected
+source boundary above. Executed verification is scoped in the fixture section.
+
 This is the Drive counterpart to the [Mail](./mail.md) and
 [Calendar](./calendar.md) contracts. It follows the actual reachable interaction
 paths from first connection through selected files, background preparation,
@@ -523,7 +530,7 @@ Wrapper label `Drive question`; title `Ask {personName} about their Drive`; summ
 | Dates invalid/absent | `Choose exact start and end dates with your private agent before sending this request.`; oversize `This question is too long to send.` | Both Ask-as-question and Request-files buttons disabled when exact dates absent; question character/UTF8 validity also required. Do not assume questions universally need Google sign-in: this path does not. | `:303`, `:315` |
 | Ask as question | `Ask as a question` -> `Sending…` | Explicit POST pending question with ownerPersonRef,clientRequestId,query. Reuses same id for unchanged retry. On success replaces inline draft with outgoing DriveQueryRequestCard; dispatches consent refresh. No Drive read occurs until owner allows. | `:205`, `:286`, `:324` |
 | Send errors | sharing_unavailable/connector_unavailable `Drive questions aren't available for this connection yet.`; connection_required `You need an active connection with this person.`; request_changed `This question was already sent with different words. Start a new question.`; invalid_argument `Check your question and try again.`; fallback `Couldn't confirm it was sent. Send again. It won't be sent twice.` | Shows role alert, preserves same id for unchanged retry. Draft card has no Cancel button or outside/Escape dismissal of its own. | `:246` |
-| Non-draft manual question dialog (same component, launched on person surfaces) | `Ask about files`; title `Ask about their Drive`; label `Your question`; textarea placeholder `e.g. Find my bank statement from March`; maxLength2000; error `Shorten your question.`; submit `Send` / `Sending…`; negative `Cancel`; post-send `View question`, `Ask another question`. | Close while sending ignored; close otherwise does not cancel server request. This manual dialog is not the inline draft presentation. The request and payment sections below describe the file, identity, quote and checkout paths. | `:197`, `:336`, `:349`, `:400` |
+| Non-draft manual question dialog (same component, launched on person surfaces) | Trigger/title `Ask about files`; recipient `To {personName}`; label `Your question`; textarea placeholder `Which file has your latest project update?`; maxLength2000; error `Shorten your question.`; submit `Send request` / `Sending…`; negative `Cancel`; acknowledged title `Question sent`; post-send `View question`, `Ask another question`. Disclosure remains below the textarea. | Close while sending ignored; close otherwise does not cancel server request. The shared illustrated modal presents this branch; the inline draft remains separate. The request and payment sections below describe the file, identity, quote and checkout paths. | `:197`, `:344–453` |
 
 #### Date clarification is an assistant message, not a date picker
 
@@ -690,7 +697,7 @@ Additional reachability clarification: `DriveSearchService.streamStatus` **is re
 
 ### File and question creation, copy and actions
 
-File wizard ([components/consent/document-file-request.tsx:326-578](../../components/consent/document-file-request.tsx#L326)): trigger/title “Request files”; SR context “Request files from {personName}.”; subtitle “To {personName}”. Inputs: “What do you need?” / placeholder “Six months of bank statements” (required, max 2000), gated “Requesting as” options “Myself” / “Verified RIA”, “Reason” or “Reason (optional)” / “Why do you need these documents?” (max 500; RIA required), “Period (required)”, “Start date”, “End date”, gated “Access period” options “7 days”, “30 days”, “90 days” (default30). Missing dates: “Choose a start and end date.” Invalid range: “The end date must be on or after the start date.” Submit: “Send request” / “Add Google account” / “Sending…”, requires valid terms and quote and idle. Cancel available while identity verification, disabled during actual request POST; close/outside/Escape uses same close() refusing only sending (363-367). No X until created. Cancelling verifying fences late result; cannot guarantee provider popup cancellation. Created “Request sent.”, packet row “Waiting for {personName} · {dateRange}”, “View request” links to pending sent document request, “Request more files” resets created state/hook only. Form fields reset after success.
+File wizard ([components/consent/document-file-request.tsx:314](../../components/consent/document-file-request.tsx#L314)): trigger/initial title “Request files”; SR context “Request files from {personName}.”; subtitle “To {personName}”. Inputs: “Which files do you need?” / placeholder “Bank statements” (required, max 2000), gated “Requesting as” options “Myself” / “Verified RIA”, “Reason” or “Reason (optional)” / “Why do you need these documents?” (max 500; RIA required), “Dates covered”, “Start date”, “End date”, gated “Access period” options “7 days”, “30 days”, “90 days” (default30). Accessible date guidance always says “Start and end dates are required.”; after a partial range, visible guidance says “Choose a start and end date.” Invalid range: “The end date must be on or after the start date.” Submit: “Send request” / “Add Google account” / “Sending…”, requires valid terms and quote and idle. Cancel and X are available while identity verification; Cancel is disabled and X hidden during actual request POST. Close/outside/Escape uses the same close() refusing only sending (351–356). Cancelling verifying fences late result; cannot guarantee provider popup cancellation. Acknowledged title “Request sent” retains the “Request sent.” status, packet row “Waiting for {personName} · {dateRange}”, “View request” link to pending sent document request, and “Request more files” reset of created state/hook only. Form fields reset after success.
 
 Identity preview (`91-158`) silently hides unavailable checks; ready “Files will be shared with {email}”, missing “Add a Google account to receive the files.”. Sending re-verifies rather than trusting preview. It uses AuthService.documentRequestIdentityToken or after explicit Add Google account AuthService.linkGoogleIdentity, then service POST. Identity error catalog in [file-request-errors.ts:5-46](../../components/consent/file-request-errors.ts#L5) contains exact cancellation/busy/timeout/mismatch/popup/duplicate-account/web-required/update-app/connection/price/changed errors (full literal appendix).
 
@@ -698,7 +705,7 @@ Idempotency (`useFileRequest`, `166-298`): memory-only attempt keyed by normaliz
 
 Mobile dates ([mobile-document-date-range.tsx:63-85,88-197](../../components/consent/mobile-document-date-range.tsx#L63)): “Choose date”; buttons “Start date: {date}”/“End date: {date}”; picker group “Choose {start|end} date”; announcement “Choose a start date.” / “Choose an end date on or after the start date.”; “Previous month”, “Month”, “Year”, “Next month”; Sunday–Saturday abbreviated header; full localized day aria labels; choosing start clears earlier end and advances to end; choosing end collapses. Deferred month disables stale grid. No local useBackLayer: shared overlay Back can close the full wizard while calendar expanded.
 
-Question ([document-request-button.tsx:346-445](../../components/consent/document-request-button.tsx#L346)): “Ask about files” opens “Ask about their Drive”. Helper exact: “They see your question and decide. Nothing in their Drive is read unless they allow it. If they share files, you get Viewer access through the Google account linked to your One sign-in.” Form “Your question”, “e.g. Find my bank statement from March”, max2000 characters and2048 UTF-8 bytes ([drive-sharing-service.ts:456-465](../../lib/services/drive-sharing-service.ts#L456)); “Shorten your question.”; “Send”/“Sending…” and “Cancel”. close/outside/X/Escape refuses sending, otherwise preserves question. Success card + “View question” sent query link, “Ask another question” resets created/error. Unknown send outcome copy explicitly says repeat is not duplicated. Query fingerprint person+trimmed question reuses retry UUID. No Google identity needed to create question.
+Question ([document-request-button.tsx:344](../../components/consent/document-request-button.tsx#L344)): “Ask about files” opens the same title with “To {personName}” in the shared illustrated modal. Helper below the textarea: “They see your question and decide. Nothing in their Drive is read unless they allow it. If they share files, you get Viewer access through the Google account linked to your One sign-in.” Form “Your question”, “Which file has your latest project update?”, max2000 characters and2048 UTF-8 bytes ([drive-sharing-service.ts:456-465](../../lib/services/drive-sharing-service.ts#L456)); “Shorten your question.”; “Send request”/“Sending…” and “Cancel”. close/outside/X/Escape refuses sending, otherwise preserves question. Acknowledged title “Question sent” retains the success card + “View question” sent query link; “Ask another question” resets created/error. Unknown send outcome copy explicitly says repeat is not duplicated. Query fingerprint person+trimmed question reuses retry UUID. No Google identity needed to create question.
 
 Chat draft boundary ([document-request-button.tsx:275-334](../../components/consent/document-request-button.tsx#L275)): draft file success switches to DocumentShareReview; question success to DriveQueryRequestCard. Draft question “Ask {personName}: “{question}””; helper “Request files: You get original Drive links for the files they share with you.” and “Ask as a question: {ASK_HELPER}”; exact dates required “Choose exact start and end dates with your private agent before sending this request.”; too-long “This question is too long to send.” Primary “Request files”/“Add Google account”/“Sending…” vs secondary “Ask as a question”/“Sending…”. Both cannot send concurrently; by-client lookup restores existing file request for draft key.
 
@@ -842,56 +849,58 @@ Strings below retain authored wording, punctuation, errors and accessible names;
 
 | Exact text/template | Source line(s) |
 |---|---|
-| You get original Drive links for the files they share with you. | 64 |
+| You get original Drive links for the files they share with you. | 52 |
 
 **Recipient account preview**
 
 | Exact text/template | Source line(s) |
 |---|---|
-| Files will be shared with {preview.email} | 152 |
-| Add a Google account to receive the files. | 157 |
+| Files will be shared with {preview.email} | 141 |
+| Add a Google account to receive the files. | 145 |
 
 **Submit status**
 
 | Exact text/template | Source line(s) |
 |---|---|
-| Sending… | 321, 554 |
-| Add Google account | 322, 556 |
-| Request files | 322, 391, 405 |
+| Sending… | 309, 541 |
+| Add Google account | 310, 543 |
+| Request files | 310, 379, 383 |
 
 **Wizard header and sent receipt**
 
 | Exact text/template | Source line(s) |
 |---|---|
-| Request files from {personName}. | 402 |
-| To {personName} | 406 |
-| Request sent. | 412 |
-| Waiting for {personName} | 417 |
-| View request | 432 |
-| Request more files | 446 |
+| Request files from {personName}. | 388 |
+| To {personName} | 384 |
+| Request sent | 383 |
+| Request sent. | 393 |
+| Waiting for {personName} | 398 |
+| View request | 415 |
+| Request more files | 429 |
 
 **Wizard fields, date validation and actions**
 
 | Exact text/template | Source line(s) |
 |---|---|
-| What do you need? | 461 |
-| Six months of bank statements | 470 |
-| Requesting as | 475 |
-| Myself | 480 |
-| Verified RIA | 481 |
-| Reason{ /  (optional)} | 485 |
-| Why do you need these documents? | 489 |
-| Period (required) | 493 |
-| Start date | 502 |
-| End date | 512 |
-| Access period | 524 |
-| 7 days | 529 |
-| 30 days | 530 |
-| 90 days | 531 |
-| Choose a start and end date. | 535 |
-| The end date must be on or after the start date. | 539 |
-| Send request | 557 |
-| Cancel | 568 |
+| Which files do you need? | 445 |
+| Bank statements | 454 |
+| Requesting as | 459 |
+| Myself | 464 |
+| Verified RIA | 465 |
+| Reason{ /  (optional)} | 469 |
+| Why do you need these documents? | 473 |
+| Dates covered | 477 |
+| Start and end dates are required. | 478 |
+| Start date | 487 |
+| End date | 497 |
+| Access period | 509 |
+| 7 days | 514 |
+| 30 days | 515 |
+| 90 days | 516 |
+| Choose a start and end date. | 520 |
+| The end date must be on or after the start date. | 524 |
+| Send request | 544 |
+| Cancel | 555 |
 
 #### components/consent/mobile-document-date-range.tsx
 
@@ -924,40 +933,41 @@ Strings below retain authored wording, punctuation, errors and accessible names;
 
 | Exact text/template | Source line(s) |
 |---|---|
-| They see your question and decide. Nothing in their Drive is read unless they allow it. If they share files, you get Viewer access through the Google account linked to your One sign-in. | 55 |
-| {purpose} ({draft.periodStart} to {draft.periodEnd}) | 61 |
-| Drive questions aren't available for this connection yet. | 252 |
-| You need an active connection with this person. | 254 |
-| This question was already sent with different words. Start a new question. | 256 |
-| Check your question and try again. | 258 |
-| Couldn't confirm it was sent. Send again. It won't be sent twice. | 259 |
+| They see your question and decide. Nothing in their Drive is read unless they allow it. If they share files, you get Viewer access through the Google account linked to your One sign-in. | 52 |
+| {purpose} ({draft.periodStart} to {draft.periodEnd}) | 58 |
+| Drive questions aren't available for this connection yet. | 250 |
+| You need an active connection with this person. | 252 |
+| This question was already sent with different words. Start a new question. | 254 |
+| Check your question and try again. | 256 |
+| Couldn't confirm it was sent. Send again. It won't be sent twice. | 257 |
 
 **Chat-draft question/file alternative**
 
 | Exact text/template | Source line(s) |
 |---|---|
-| Drive questions are unavailable here. | 284 |
-| Ask {personName}: “{question}” | 295 |
-| Request files: {FILE_REQUEST_HELPER} | 298 |
-| Ask as a question: {ASK_HELPER} | 302 |
-| Choose exact start and end dates with your private agent before sending this request. | 305 |
-| This question is too long to send. | 309 |
-| Sending… | 330, 427 |
-| Ask as a question | 330 |
+| Drive questions are unavailable here. | 282 |
+| Ask {personName}: “{question}” | 293 |
+| Request files: {FILE_REQUEST_HELPER} | 296 |
+| Ask as a question: {ASK_HELPER} | 300 |
+| Choose exact start and end dates with your private agent before sending this request. | 303 |
+| This question is too long to send. | 307 |
+| Sending… | 327, 435 |
+| Ask as a question | 327 |
 
 **Question dialog and sent receipt**
 
 | Exact text/template | Source line(s) |
 |---|---|
-| Ask about files | 347 |
-| Ask about their Drive | 358 |
-| View question | 377 |
-| Ask another question | 389 |
-| Your question | 401 |
-| e.g. Find my bank statement from March | 409 |
-| Shorten your question. | 413 |
-| Send | 427 |
-| Cancel | 438 |
+| Ask about files | 345, 357 |
+| To {personName} | 358 |
+| Question sent | 357 |
+| View question | 382 |
+| Ask another question | 394 |
+| Your question | 406 |
+| Which file has your latest project update? | 414 |
+| Shorten your question. | 419 |
+| Send request | 435 |
+| Cancel | 446 |
 
 #### components/consent/file-request-errors.ts
 
@@ -2407,9 +2417,9 @@ No numeric Y can be asserted without content height. Mobile bottom Sheet `Y=H−
 | ConnectorConfirm web | Raw AlertDialog size=sm; centered50% x/y with−50% translate; width100% with max-w-xs320 data variant over base max(V−32); p24/gap16/radius-feature/border1/feature shadow; header grid/gap6/center, footer2 columns gap8. No explicit data-profile-type-scale on content. Thus do not claim pane's12px type just because invoked from Profile. Generic title token clamp20–22/1.2/600 wins title utility18. Need computed small-viewport margin assertion because size-sm320 and base viewport cap compete. | connector-confirm.tsx:151–178; ui/alert-dialog.tsx:73–162; globals.css:326–329,5524–5529 |
 | ConnectorConfirm Capacitor | Vaul Drawer (not SwiftUI) on any native platform, radius20; bottomK/max80vh−K inherited; bottom paddingmax12,envSb; content px16/pt8; title authored17/22 but base title token lock must be considered; description15/20; buttons h48/fullwidth/radius14/gap8/mt16, requested17/600. Raw Drawer handle100×8/mt16 inherited; no task normalization. | connector-confirm.tsx:81–82,112–147; ui/drawer.tsx:85–100 |
 | Raw Dialog | Content body portal; center50%/translate−50%; width100%, max(V−32)→512 at640 unless caller overrides; min0/maxH=H−32−St−Sb; flex column/gap16/p24/y-scroll; border-feature/radius/shadow; close icon16+p8 (32visual), no automatic44 task replacement unless task caller. | ui/dialog.tsx:80–121 |
-| Request files form | Raw modal Dialog (not AdaptiveDetailSurface). Below640 CSS resets centered translate on element utilities; fixed full-width bottomK/maxH=H−K−St−8; padding16 top/4px horizontal/(16+Sb)bottom; radius-feature top only. At640+ centered Dialog max448, p24, max85dvh constrained by keyboard rule. One scroll owner includes form/calendar/actions. Form16 stack, label groups8; header helper recipient; conditional role/reason/access fields. | document-file-request.tsx:382–405,451–574; globals.css:3381–3409 |
-| Mobile request date calendar | inline (not portal), visible<640; date triggers2col/gap8,min56; calendar six×seven days with44×44 minimum, seven-column week label min44; month header min44/gap4; prev/next44; month select flex1,min0; year72. Current deferred grid disables stale cells. Requires308px calendar track; form4px inset deliberately allows320. | mobile-document-date-range.tsx:39–60,88–198 |
-| Ask about files | distinct raw Dialog branch; max85dvh/y-scroll, default close; header/title/description, form16 stack. It does not carry REQUEST_FILES_DIALOG_TYPE by default. | document-request-button.tsx:349–444 |
+| Request files form | Shared IllustratedRequestContent over TaskDialogContent. Below768 full-width bottom presentation; at768+ centered max480;28px corners,20px phone/28px desktop gutters. Header/body/footer retain shared body scrolling and frame fallback, keyboard cap and negotiated native seats. Existing controlled form, role/reason/access fields and actions remain owned by RequestFilesButton. | document-file-request.tsx:370–562; app-ui/illustrated-request-dialog.tsx:93–166; illustrated-request-dialog.module.css:1–143,230–320 |
+| Mobile request date calendar | inline (not portal), visible<640; date triggers2col/gap8,min56; calendar six×seven days with44×44 minimum, seven-column week label min44; month header min44/gap4; prev/next44; month select flex1,min0; year72. Current deferred grid disables stale cells. Requires308px calendar track; only calendar borrows form gutters at≤360 to leave4px inset, with select padding4px. | mobile-document-date-range.tsx:39–60,88–198; illustrated-request-dialog.module.css:345–354 |
+| Ask about files | Same illustrated request family and modal owner as Request files, with recipient header, textarea/disclosure body and shared actions region. Acknowledged title and real question receipt remain controlled by DocumentRequestButton. | document-request-button.tsx:344–453; app-ui/illustrated-request-dialog.tsx:93–166 |
 | Provider web Google picker | Google-owned UI requested size `max(280,min(900,V−16)) × max(300,min(600,H−32))`. Neither app DOM hierarchy/type nor exact iframe coordinate is owned here. At very shortH<332 requested300 can exceed availableH−32. Google provider callback/abort disposes picker; no CSS z peer certainty. | google-drive-picker-service.ts:130–149,151–185; connectors-panel.tsx:1503–1528 |
 | OAuth popup/browser/native picker | Browser window/OS presentation, not CSS stacking peers; exact provider prompt/font/colors depend on provider/OS. App reports handoff and waits for authoritative return. | connectors-panel.tsx:1169–1379,1435–1528 |
 
@@ -2444,10 +2454,29 @@ Semantic defaults remain existing typography.md: Body/Row17/22/400; compact Row1
 | Catalog trailing actions |Unlayered desired11/600 pill is overridden to12/15.6 by base-important `.profile-pane-scroll-root .app-page-shell .connectors [settings-row-trailing] button`. Target88×≥44 remains. | auxiliary CSS:120–129,148–157 |
 | Portal Packet wallet |Own @layer base important card/group/rows: heading10/14/600/.02em;title13/15.86/400;description12/15.6/400 with margin-top3; trailing inherited12, Tabular raw span inherits; compact card17/min58/padding9×12/gap10. This explicitly travels with portal. | profile-your-account.module.css:27–127,171–207 |
 | Generic task modal header |Task frame declares title3=20/28/600. Base-important title slot reads these final tokens. Task header letter-spacing−.025em is normal; generic base slot tracking uses foundation−.012em (not important) and unlayered task rule can win. Description Task normal14/20 versus explicit ui-text-row-description has semantic rules: verify exact computed resolver. | task-surfaces.module.css:1–14,65–80; globals.css:5524–5529 |
-| **Document-flow task header caveat** |DOCUMENT_FLOW_SURFACE_TYPE authors utility variables15/20/600, but unlayered `.frame.frame` token20/28/600 wins normal layered utility custom-properties. AdaptiveDetailSurface always uses task frame. Source-derived expected title20/28, despite15/20 comments. Raw RequestFiles Dialog has no task frame and can consume15/20 utility vars. Needs focused computed fixture; do not publish15px as measured across flow. | lib/consent/document-request-flow.ts:35–42; task-surfaces.module.css:1–6; task-surfaces.tsx:108–141; settings-ui.tsx:1038,1155 |
+| **Document-flow task header caveat** |DOCUMENT_FLOW_SURFACE_TYPE authors utility variables15/20/600, but unlayered `.frame.frame` token20/28/600 wins normal layered utility custom-properties. Unchanged owner/Feed AdaptiveDetailSurface uses task frame; source-derived expected title20/28, despite15/20 comments. Needs focused computed fixture; do not publish15px as measured across those surfaces. The requester illustrated family has its own explicit scale below. | lib/consent/document-request-flow.ts:35–42; task-surfaces.module.css:1–6; task-surfaces.tsx:108–141; settings-ui.tsx:1038,1155 |
 | Task actions/inputs |Frame sets standard/compact buttons13/20/600; mobile input16/22→14/22 at768. Existing mobile input16 important floor may bind; Profile direct13 important can beat it. Preserve exact context. | task-surfaces.module.css:7–14,154–155; globals.css:86–100,9722–9738 |
-| Document flow inner body |Semantic row vars13/1.25 and description11/1.35;≤360:12.5/1.25 and10/1.35. Explicit body/helper class utilities override ordinary semantic classes where they are not base-important. MediumRowLabel narrow-size below360 is not listed in the small-size utility; don't silently equate every role. Form labels13/1.25 in RequestFiles wrapper; inputs retain their own floor. | document-request-flow.ts:14–29; document-file-request.tsx:48–52,398–400 |
+| Document flow inner body |Unchanged owner/detail semantic row vars13/1.25 and description11/1.35;≤360:12.5/1.25 and10/1.35. Explicit body/helper class utilities override ordinary semantic classes where they are not base-important. MediumRowLabel narrow-size below360 is not listed in the small-size utility; do not silently equate every role. Requester forms use the illustrated family scale below. | document-request-flow.ts:14–29 |
 | Raw ConnectorConfirm title |No local Profile/Dialog type-scope tokens; generic title3 clamp20px→22px, line1.2, weight600. Native Vaul's authored17px similarly competes with generic base-important title-slot lock. Description/web14/20(native15/20); actions semantic standard button unless explicit caller context. | alert-dialog.tsx:143–162; connector-confirm.tsx:120–139; globals.css:326–329,5524–5529 |
+
+The portal-local illustrated request family covers files, Drive questions,
+scope questions and card requests. Existing Dialog/TaskSurface primitives own
+backdrop blur, focus containment, Back and native isolation. Titles are24/32/600
+at768+ and22/30/600 below768; recipient descriptions13/20; labels13/20/600;
+helpers12/19; fields16/24; footer actions14/20/600 with48px targets. Retained
+body actions preserve their existing size. Artwork is168×100
+desktop,150×86 phone and122×64 at viewport height≤640. The frame is480px on
+desktop with28px gutters and a full-width bottom presentation with20px gutters
+on phone. These values are scoped to the family, independent of generic task
+or opted-in Profile scales. Sources:
+[composition](../../components/app-ui/illustrated-request-dialog.tsx),
+[styles](../../components/app-ui/illustrated-request-dialog.module.css).
+
+The scope trigger remains “Request scope”; its dialog is “Ask a question”,
+with “Your question”, “What is the best way to contact you?” and acknowledged
+“Question sent”. Card requests retain successful close and the disabled sent
+trigger; they do not add a success screen. The existing controllers retain all
+submission, permission, validation and retry decisions.
 
 ### Native composition differs materially
 
@@ -2466,18 +2495,18 @@ Native Back is explicitly authored, unlike any assumption from web CSS: pending 
 | Fixture/spec | What it authoritatively exercises | What it does not establish |
 |---|---|---|
 | [e2e/profile-legal-connectors.layout.spec.ts:27–108,281–322,392–431](../../e2e/profile-legal-connectors.layout.spec.ts#L27) | Vite production-component bundle, scanned Tailwind, component CSS, product font, LightningCSS minify. Real Profile/connector entrypoints, query ownership, common gutter, Calendar row10/13/12 +detail13/12 computed sizes. Narrowest place to extend actual Drive status/selected-review/preparation/packet/trust and portal cascade. | Defaults route connector API to empty response; explicit typography test exercises Calendar, not connected Drive/packets/trust; no provider grant/native UI. Existing widths320/390/768/1440 vary by case; not every state×width matrix. |
-| [e2e/document-share-review.layout.spec.ts:189–415,537–727](../../e2e/document-share-review.layout.spec.ts#L189) | Real requester form at320/390/768/1440; min viewport cases320×568,390×844,etc;320 keyboard K240/St44 source-driven checks; calendar308 track/44day, panel no x-overflow; exact review/approval/recovery; source imports production components and product font. Cheapest matching form/price/consent inner state proof. | Does not currently assert task15-vs20 title cascade or all7 requested widths; mocked services do not prove real payment/provider/account safety/state. |
+| [e2e/document-share-review.layout.spec.ts:189–415,537–727](../../e2e/document-share-review.layout.spec.ts#L189) | Real requester form with emitted CSS modules and poster assets at320/390/768/1440; min viewport cases320×568,390×844,etc;320 keyboard K240/St44 source-driven checks; calendar308 track/44day with disjoint targets, shared scroll owner, panel no x-overflow; exact review/approval/recovery; source imports production components and product font. Cheapest matching form/price/consent inner state proof. | Does not currently assert task15-vs20 title cascade or all7 requested widths; mocked services do not prove real payment/provider/account safety/state. |
 | [e2e/drive-sharing-card.layout.spec.ts:160–250](../../e2e/drive-sharing-card.layout.spec.ts#L160) | Real bulk progress/card at375/430/1440 light/dark; history sidebar390/1440; bounds/dismissibility/close contrast and Stop distinct from Close; source product font. | Not connector catalog, owner packet listing, trusted rule revocation, all chat selection cards, native scene, or actual provider traffic. Its CSS build currently lacks explicit LightningCSS transform seen in Profile fixture. |
 | [e2e/profile-pane-close.layout.spec.ts:188–527,565–595](../../e2e/profile-pane-close.layout.spec.ts#L188) | Real feature-page production optimized layering, reserved seats, full-window phone/native class cases, phone390/tablet1024/desktop1440; negative control for full-height geometry; inner typography fixture320/1280. | Some later header/title assertions use handbuilt/system-font markup; cannot substitute for complete connected Drive subtree or actual UIKit transition. |
 | [e2e/profile-scale-surfaces.layout.spec.ts](../../e2e/profile-scale-surfaces.layout.spec.ts) | Existing opted-in Profile/Feed/agent semantic type proof (including explicit scoped AlertDialog15/18). | That AlertDialog opt-in is not mounted in ConnectorConfirm, so its15px result does not transfer. |
 
-Test runner/compile commands not run. A source stamp or test file’s existence establishes no executed pass or pixel measurement at this revision. Before expensive local work verification must respect the shared-host resource budget. Prefer one focused optimized fixture invocation after adding assertions only for a real contract; don't run all browser packs locally.
+The original Drive reference was a source audit; it did not execute the listed fixtures. The bounded Profile v18 amendment executed24 WebKit Profile layout cases (including40 dialog/theme/viewport combinations) and all28 existing Drive review/request cases, with CSS modules, real poster assets and optimized production CSS. It also passed92 focused component tests,94 cache cases,489 Back cases, UI contract validation and the full local core mirror including the production build. These results cover requester presentation and retained behavior; they do not certify every Drive surface, provider flow or physical device. A source stamp or test file’s existence alone establishes no executed pass or pixel measurement. Before expensive local work verification must respect the shared-host resource budget. Prefer one focused optimized fixture invocation after adding assertions only for a real contract; don't run all browser packs locally.
 
 ### Source findings and open visual QA cases
 
 1. Document-trust confirmation differs by presentation: web [trusted-document-rules.tsx:69](../../components/consent/trusted-document-rules.tsx#L69) immediately calls revoke; the [adopted native scene](../../components/profile/use-native-connectors.tsx#L189) adds confirmation. This reference and the [Connectors supplement](./profile-connectors.md) record that difference. Uniform confirmation would require an implementation change and its own proof.
 2. Existing generic Back prose exceeds inspected web local hooks: native explicitly handles selection/price/packet/busy; web does not contain equivalent local registration in these files. Verify same-session pane Back while selection/edit/listing is open and while modal is top. Distinguish raw overlay Escape from shell Back and route pop.
-3. Task surface's unlayered token defaults conflict with document-flow utility variable intent15/20; raw requester form and task-based owner/Feed dialogs can differ. Confirm computed before documenting exact final size; never patch global token schema to conceal a local mismatch.
+3. Task surface's unlayered token defaults conflict with document-flow utility variable intent15/20 in unchanged owner/Feed dialogs. Confirm computed before documenting exact final size there; never patch global token schema to conceal a local mismatch. Requester dialogs have an explicit family scale and optimized-CSS proof.
 4. Packet title defaults truncate/description clamp2; owner document rows wrap, packet list rows truncate. A screenshot with short titles cannot prove full legal file identity or large text readability.
 5. Small AlertDialog size-sm320px can override max(V−32) cap; keyboard maxheight treatment for raw AlertDialog differs from Dialog (`globals3373` selects dialog-content; native-reserved broad rule adds both). Need short-height/keyboard check for remove/disconnect if required; no reproduced overflow claimed.
 6. Google picker requested min300px high can exceed short viewport; requested sizes aren't provider measured sizes. No app font contract for provider UI.
@@ -2488,7 +2517,7 @@ Test runner/compile commands not run. A source stamp or test file’s existence 
 
 - Generic task descriptions emitted by AdaptiveDetailSurface have `.ui-text-row-description` (`settings-ui.tsx1069–1072,1184–1188`). Its **unlayered important** font/line declaration (`globals.css8834–8841`) beats task module's normal14/20 description. They read `--type-row-description-*`: default13/18; document-flow surface opts11/1.35 (10≤360) because task frame does not redeclare that description token. Therefore task title can be20/28 while its explicitly flow-scoped description remains11/14.85. This is the exact header-role asymmetry to test.
 - Packet wallet rows narrow again at viewport≤380: row padding-inline10/gap7; separator left48/right10 (`profile-your-account.module.css449–478`). At other widths row padding9×12/gap10 and separator left53/right12.
-- History content gutter uses responsive `--page-inline-gutter-standard`:16 below640;20 at640–1023;24 at1024–1279;28 at1280+ (`globals.css915,3050–3101`). It is distinct from Profile-inner12/28 gutter. Width640–767 is a bottom adaptive detail sheet but RequestFiles is already centered desktop-style448 dialog from640; do not conflate sm640 and mobile breakpoint768.
+- History content gutter uses responsive `--page-inline-gutter-standard`:16 below640;20 at640–1023;24 at1024–1279;28 at1280+ (`globals.css915,3050–3101`). It is distinct from Profile-inner12/28 gutter. Request dialogs retain bottom presentation through767; their date controls switch to native date inputs at640. Keep that date-control breakpoint separate from the modal breakpoint768.
 - Explicit provider picker request widths forV320/360/390/430/768/1024/1440 are304/344/374/414/752/900/900, respectively; requested width, not measured iframe.
 
 ## Drive API contract projection

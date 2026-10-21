@@ -581,7 +581,7 @@ describe("PersonProfilePage native profile route", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     fireEvent.click(cards[1]);
-    expect(await screen.findByRole("dialog", { name: "Ask about their Drive" })).toBeVisible();
+    expect(await screen.findByRole("dialog", { name: "Ask about files" })).toBeVisible();
   });
 
   it("sends one eligible Professional root request instead of twelve child requests", async () => {
@@ -1685,7 +1685,7 @@ describe("Request scope during profile authority refresh", () => {
   async function openQuestion() {
     const rendered = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={initialProfile} />);
     fireEvent.click(await screen.findByRole("button", { name: "Ask a question", exact: true }));
-    fireEvent.change(await screen.findByLabelText("Question"), { target: { value: "What are your food preferences?" } });
+    fireEvent.change(await screen.findByLabelText("Your question"), { target: { value: "What are your food preferences?" } });
     return rendered;
   }
   function answerDoorbell() {
@@ -1727,7 +1727,7 @@ describe("Request scope during profile authority refresh", () => {
     act(answerDoorbell);
     await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
     const send = screen.getByRole("button", { name: "Send request", exact: true });
-    expect(screen.getByLabelText("Question")).toHaveValue("What are your food preferences?");
+    expect(screen.getByLabelText("Your question")).toHaveValue("What are your food preferences?");
     expect(send).toBeDisabled();
     fireEvent.submit(send.closest("form")!);
     expect(mocks.answerCreate).not.toHaveBeenCalled();
@@ -1746,7 +1746,7 @@ describe("Request scope during profile authority refresh", () => {
     mocks.getViewer.mockReturnValueOnce(new Promise(() => {}));
     act(answerDoorbell);
     await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
-    expect(screen.getByLabelText("Question")).toHaveValue("What are your food preferences?");
+    expect(screen.getByLabelText("Your question")).toHaveValue("What are your food preferences?");
     fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByRole("button", { name: "Share profile" })).toHaveFocus();
@@ -1772,7 +1772,7 @@ describe("Request scope during profile authority refresh", () => {
       await waitFor(() => expect(screen.queryByText(/Request sent\./)).toBeNull());
       expect(screen.queryByRole("link", { name: "View request" })).toBeNull();
       fireEvent.click(await screen.findByRole("button", { name: "Ask a question", exact: true }));
-      expect(await screen.findByLabelText("Question")).toHaveValue("");
+      expect(await screen.findByLabelText("Your question")).toHaveValue("");
       expect(mocks.answerCreate).toHaveBeenCalledTimes(1);
     },
   );

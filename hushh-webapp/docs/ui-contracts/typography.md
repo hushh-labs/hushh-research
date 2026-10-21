@@ -181,6 +181,30 @@ remove-connection dialog also opt in locally. Chat uses `"chat"` for its
 authored welcome context and preserves its separate 16px composer rule.
 Source: [context definitions](../../app/globals.css).
 
+## Illustrated request dialogs
+
+Profile v18's four request intents compose the existing TaskDialogContent in a
+portal-local family. Its explicit variables apply independently of generic task
+and `data-profile-type-scale` contexts; they do not redefine those scales.
+
+| Role | Size / line height / weight |
+| --- | --- |
+| Title, desktop at768+ | 24 / 32 / 600 |
+| Title, phone below768 | 22 / 30 / 600 |
+| Recipient description | 13 / 20 / regular |
+| Field label / legend | 13 / 20 / 600 |
+| Helper | 12 / 19 / regular |
+| Input / textarea / select | 16 / 24 / regular |
+| Footer action | 14 / 20 / 600;48px minimum target |
+
+Retained body actions preserve their existing size. The desktop frame is480px with28px gutters; phone presentation is full-width
+at the bottom with20px gutters. Artwork is168×100 desktop,150×86 phone and
+122×64 at viewport height≤640. Existing modal primitives retain backdrop,
+scrolling and keyboard/native-seat ownership. Feature controllers retain
+validation, submission and acknowledged outcomes.
+Sources: [composition](../../components/app-ui/illustrated-request-dialog.tsx)
+and [local styles](../../components/app-ui/illustrated-request-dialog.module.css).
+
 ## Current Connect and Feed context schema
 
 At the checked revision **Connect owns `data-connect-type-scale="page"`** and

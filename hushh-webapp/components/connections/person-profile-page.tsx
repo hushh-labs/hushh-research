@@ -864,6 +864,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 />
                 {viewerProfile?.relationship.status === "connected" ? (
                   <RequestCardsButton
+                    returnFocusRef={requestScopeReturnFocusRef}
                     key={`card:${user.uid}:${resolvedPersonRef}`}
                     personRef={resolvedPersonRef}
                     personName={profile.displayName || "this person"}
