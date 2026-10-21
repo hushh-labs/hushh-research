@@ -2,7 +2,7 @@
 
 import { RadioGroup as RadioPrimitive } from "radix-ui";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
-import { GeminiLogo } from "@/components/brand/gemini-logo";
+import { Cloud } from "@/components/icons/legacy-ui-icons";
 import { MicrosoftAzureLogo } from "@/components/brand/microsoft-azure-logo";
 import { GoogleCloudLogo } from "@/components/brand/google-cloud-logo";
 import { Badge } from "@/components/ui/badge";
@@ -29,7 +29,7 @@ export function CloudAiChoice({ placement, title, disabled, requiresExplicitSele
               leading={
                 placement === "azure" ? <MicrosoftAzureLogo decorative className="h-8 w-8" />
                   : placement === "gcp" ? <GoogleCloudLogo decorative className="h-8 w-8" /> : (
-                  <GeminiLogo className="h-8 w-8" />
+                  <Cloud aria-hidden="true" className="h-8 w-8" />
                 )
               }
               title={title}
@@ -40,7 +40,7 @@ export function CloudAiChoice({ placement, title, disabled, requiresExplicitSele
                   : placement === "gcp"
                     ? `Vertex AI · ${cloudAiVerified ? "Verified" : "Check connection"}`
                     : placement === "shared"
-                      ? "Managed Gemini. No key needed."
+                      ? "Managed for you. No key needed."
                       : placement === "pending"
                         ? "Your cloud setup is still finishing."
                         : placement === "loading"

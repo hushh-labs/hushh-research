@@ -115,7 +115,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     expect(runtimeChoice("profile-managed-runtime")).toBeDisabled();
   });
 
-  it("on the first-run step keeps Gemini selectable and defers the coming-soon models", async () => {
+  it("on the first-run step offers the managed runtime without assuming its provider", async () => {
     render(
       <GeminiRuntimeSettingsCard
         userId="fresh-user"
@@ -131,10 +131,10 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    expect(screen.getByText("Use Hussh's Gemini")).toBeTruthy();
+    expect(screen.getByText("Use Hussh AI")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Bring your own AI" })).toBeTruthy();
     // Restraint Charter: the mandatory first-run step lets the person choose only
-    // Gemini, so the future-providers list is deferred to the settings context
+    // managed AI, so the future-providers list is deferred to the settings context
     // rather than competing with the one decision here.
     expect(screen.queryByRole("heading", { name: "Coming soon" })).toBeNull();
     expect(screen.queryByTestId("profile-coming-soon-openai")).toBeNull();
@@ -865,7 +865,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
         onCanContinueChange={readiness}
       />,
     );
-    const managed = screen.getByRole("radio", { name: /Use Hussh's Gemini/ });
+    const managed = screen.getByRole("radio", { name: /Use Hussh AI/ });
     const own = runtimeChoice("profile-byok-runtime");
     expect(managed).toHaveAttribute("aria-checked", "false");
     await waitFor(() => expect(managed).toBeEnabled());

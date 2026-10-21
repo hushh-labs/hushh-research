@@ -182,6 +182,13 @@ require a verified update receipt, independently of the managed-app announcement
 | Browser | Unavailable for persistent private work | Same owner container; explicit GCP sandbox-on / Azure sandbox-off qualification, owner policy and installed acceptance |
 | Scheduled private work | Explain the private-pod requirement | Only supported, qualified task types; no implied general cron capability |
 
+Shared AI is selected by the environment’s managed provider policy, independently
+of hosting and owner-key choices. The current UAT policy uses Azure GPT-5 mini as
+the primary text deployment; dev retains its Gemini configuration. Capability-
+specific processing, including Shared Files analysis, keeps its own disclosed
+provider contract. Generic setup copy says **Hussh AI** rather than assuming
+Gemini from Shared placement. BYOC continues to use the owner’s verified connection.
+
 Use authoritative placement/capability observations in onboarding, Settings, chat
 and navigation. Enforce the same policy server-side. Preserve last verified state
 while refreshing; offline, stale, incompatible and permission-denied are not ready.
@@ -189,7 +196,7 @@ while refreshing; offline, stale, incompatible and permission-denied are not rea
 ### Shared defaults and unavailable-state copy
 
 **Required UX, reviewed 2026-10-19; not a claim that every message is implemented.**
-Shared retains managed Gemini chat, currently supported owner-key choices, encrypted
+Shared retains its environment-selected managed AI, supported owner-key choices, encrypted
 memory, consent and existing connected tools under their current contracts. Do not
 disable existing consented mail scheduling or platform background infrastructure
 because new autonomous private work needs a pod. Shared voice follows its existing

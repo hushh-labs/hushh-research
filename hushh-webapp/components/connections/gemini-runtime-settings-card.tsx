@@ -129,7 +129,7 @@ export function useGeminiRuntimeSettingsModel({
   const [cloudAiVerified, setCloudAiVerified] = useOwnerPresentationState(visit, false);
   const { placement } = useAiPlacement(captureOwnerGuard, setCloudAiVerified);
   const privateCloud = placement === "gcp" || placement === "azure";
-  const defaultLabel = privateCloud ? "Use existing cloud" : "Use Hussh's Gemini";
+  const defaultLabel = privateCloud ? "Use existing cloud" : "Use Hussh AI";
   const [showAiAlternatives, setShowAiAlternatives] = useOwnerPresentationState(visit, false);
   const [pendingAiProviders, setPendingAiProviders] = useOwnerPresentationState<Record<string, boolean>>(visit, EMPTY_PENDING_AI_PROVIDERS);
   const externalAiPending = Object.values(pendingAiProviders).some(Boolean);
@@ -383,7 +383,7 @@ export function useGeminiRuntimeSettingsModel({
       // the shared two-line toast ceiling.
       setAgentOutcome(agentLine);
       toast.success(
-        privateCloud ? "Using your cloud’s AI." : "Using Hussh’s Gemini.",
+        privateCloud ? "Using your cloud’s AI." : "Using Hussh AI.",
       );
       return true;
     } catch (error) {
