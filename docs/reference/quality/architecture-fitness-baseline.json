@@ -4489,7 +4489,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 3033,
+  "finding_count": 3035,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4687,7 +4687,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/actor_identity_service.py",
       "symbol": "ActorIdentityService",
-      "value": 1907
+      "value": 1930
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -18745,7 +18745,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/actor_identity_service.py",
       "symbol": null,
-      "value": 2019
+      "value": 2042
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21940,7 +21940,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_browser_boundary.py",
       "symbol": null,
-      "value": 1170
+      "value": 1206
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26774,7 +26774,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/direct-chat.layout.spec.ts",
       "symbol": null,
-      "value": 1187
+      "value": 1206
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30963,7 +30963,7 @@
       "path": "consent-protocol/hushh_mcp/services/pod_browser/playwright_executor.py",
       "symbol": "PlaywrightExecutor",
       "detail": "class exceeds the advisory operon budget",
-      "value": 310,
+      "value": 318,
       "limit": 250,
       "key": "class_size|consent-protocol/hushh_mcp/services/pod_browser/playwright_executor.py|PlaywrightExecutor|class exceeds the advisory operon budget"
     },
@@ -31340,7 +31340,7 @@
       "kind": "function_size",
       "path": "consent-protocol/hushh_mcp/services/plg_evidence.py",
       "detail": "function exceeds the advisory gene budget",
-      "value": 102,
+      "value": 127,
       "limit": 80,
       "symbol": "snapshot",
       "key": "function_size|consent-protocol/hushh_mcp/services/plg_evidence.py|snapshot|function exceeds the advisory gene budget"
@@ -31412,7 +31412,7 @@
       "kind": "function_size",
       "path": "consent-protocol/hushh_mcp/services/plg_audience.py",
       "detail": "function exceeds the advisory gene budget",
-      "value": 87,
+      "value": 104,
       "limit": 80,
       "symbol": "audience_page",
       "key": "function_size|consent-protocol/hushh_mcp/services/plg_audience.py|audience_page|function exceeds the advisory gene budget"
@@ -31502,7 +31502,7 @@
       "kind": "module_size",
       "path": "consent-protocol/tests/services/test_plg_evidence.py",
       "detail": "module exceeds the advisory operon budget",
-      "value": 840,
+      "value": 1112,
       "limit": 500,
       "symbol": null,
       "key": "module_size|consent-protocol/tests/services/test_plg_evidence.py||module exceeds the advisory operon budget"
@@ -31781,7 +31781,7 @@
       "kind": "function_size",
       "path": "consent-protocol/tests/services/test_account_service_export.py",
       "detail": "function exceeds the advisory gene budget",
-      "value": 136,
+      "value": 188,
       "limit": 80,
       "symbol": "test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory",
       "key": "function_size|consent-protocol/tests/services/test_account_service_export.py|test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory|function exceeds the advisory gene budget"
@@ -31794,6 +31794,24 @@
       "limit": 80,
       "symbol": "from_entries",
       "key": "function_size|scripts/ci/capture_managed_provider_receipt.py|from_entries|function exceeds the advisory gene budget"
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_plg_evidence.py|test_projection_bounds_owner_and_window_and_carries_deletion_without_content|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_plg_evidence.py",
+      "symbol": "test_projection_bounds_owner_and_window_and_carries_deletion_without_content",
+      "value": 112
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_plg_evidence.py|test_audience_live_page_excludes_deleted_accounts_and_never_serializes_provider_records|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_plg_evidence.py",
+      "symbol": "test_audience_live_page_excludes_deleted_accounts_and_never_serializes_provider_records",
+      "value": 95
     }
   ],
   "inspected_files": 6625,
@@ -83117,6 +83135,113 @@
         "source_sha256": "d3b35ca2a7f342ac08d461c17a49ca9470ded943923fb30a4e35ddb2beaf3e3f",
         "reviewer": "agent_layout_audit",
         "review": "One-line correction of observed hosted failure; explicit local fixture context or actual restored transitive deployment dependency. All production model/consent gates and global budgets preserved."
+      }
+    ]
+  },
+  "browser_profile_and_c85_review_20261021": {
+    "source_parent": "dd03a98f825567c6b8aca186ddf47894c8e0cd80",
+    "frozen_main": "c85b09967f7ed24e2665e133f8e96ec0639a03f3",
+    "policy": "Selective rank-zero review only; two new main test-function findings, nine exact existing-ceiling replacements; no blanket baseline regeneration.",
+    "budgets_changed": false,
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/actor_identity_service.py|ActorIdentityService|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1907,
+        "after": 1930,
+        "source_sha256": "6117bd74aa8313bab4d7a5311ba63381ccf687cc359ebf0417ead57a22685c33",
+        "reviewer": "agent_layout_audit",
+        "review": "Exact bounded Browser transport regression or reconciled frozen-main c85 change; original policy, owner fences and 500/250/80 budgets unchanged."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/pod_browser/playwright_executor.py|PlaywrightExecutor|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 310,
+        "after": 318,
+        "source_sha256": "013f81ab94f4a4026b221e19b60f31d6609b4c6a0e4a72714e811e5f822fc498",
+        "reviewer": "agent_layout_audit",
+        "review": "Exact bounded Browser transport regression or reconciled frozen-main c85 change; original policy, owner fences and 500/250/80 budgets unchanged."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_account_service_export.py|test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 136,
+        "after": 188,
+        "source_sha256": "4ae8ae69d79339c24b7a2579884497796037f12cc78581622e6b2b74d51655e0",
+        "reviewer": "agent_layout_audit",
+        "review": "Exact bounded Browser transport regression or reconciled frozen-main c85 change; original policy, owner fences and 500/250/80 budgets unchanged."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/plg_evidence.py|snapshot|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 102,
+        "after": 127,
+        "source_sha256": "d296d997da3d2e0dc414235e3b71927d1d7dc614c8b9bd6efbbfb6ed3329770f",
+        "reviewer": "agent_layout_audit",
+        "review": "Exact bounded Browser transport regression or reconciled frozen-main c85 change; original policy, owner fences and 500/250/80 budgets unchanged."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_plg_evidence.py|test_projection_bounds_owner_and_window_and_carries_deletion_without_content|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 112,
+        "source_sha256": "6fa05bb15db9452c04fdca31c844c4652fd90f0428c435a666ca2e0bac1b2346",
+        "reviewer": "agent_layout_audit",
+        "review": "Exact bounded Browser transport regression or reconciled frozen-main c85 change; original policy, owner fences and 500/250/80 budgets unchanged."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/plg_audience.py|audience_page|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 87,
+        "after": 104,
+        "source_sha256": "2282861445802c0d09277e7bfdd508ece473644544b8c4d9e47137f3369ddc2f",
+        "reviewer": "agent_layout_audit",
+        "review": "Exact bounded Browser transport regression or reconciled frozen-main c85 change; original policy, owner fences and 500/250/80 budgets unchanged."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_plg_evidence.py|test_audience_live_page_excludes_deleted_accounts_and_never_serializes_provider_records|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 95,
+        "source_sha256": "6fa05bb15db9452c04fdca31c844c4652fd90f0428c435a666ca2e0bac1b2346",
+        "reviewer": "agent_layout_audit",
+        "review": "Exact bounded Browser transport regression or reconciled frozen-main c85 change; original policy, owner fences and 500/250/80 budgets unchanged."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/actor_identity_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 2019,
+        "after": 2042,
+        "source_sha256": "6117bd74aa8313bab4d7a5311ba63381ccf687cc359ebf0417ead57a22685c33",
+        "reviewer": "agent_layout_audit",
+        "review": "Exact bounded Browser transport regression or reconciled frozen-main c85 change; original policy, owner fences and 500/250/80 budgets unchanged."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_browser_boundary.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1170,
+        "after": 1206,
+        "source_sha256": "ed50895ff497188bfa851a0b97399852e5732e8c17680babe0b8e12089cc2113",
+        "reviewer": "agent_layout_audit",
+        "review": "Exact bounded Browser transport regression or reconciled frozen-main c85 change; original policy, owner fences and 500/250/80 budgets unchanged."
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/direct-chat.layout.spec.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1187,
+        "after": 1206,
+        "source_sha256": "e1a28b79d62fa599c9f5945f99210b951bd4de3794ec1d8c0883737c9a894dc6",
+        "reviewer": "agent_layout_audit",
+        "review": "Exact bounded Browser transport regression or reconciled frozen-main c85 change; original policy, owner fences and 500/250/80 budgets unchanged."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_plg_evidence.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 840,
+        "after": 1112,
+        "source_sha256": "6fa05bb15db9452c04fdca31c844c4652fd90f0428c435a666ca2e0bac1b2346",
+        "reviewer": "agent_layout_audit",
+        "review": "Exact bounded Browser transport regression or reconciled frozen-main c85 change; original policy, owner fences and 500/250/80 budgets unchanged."
       }
     ]
   }

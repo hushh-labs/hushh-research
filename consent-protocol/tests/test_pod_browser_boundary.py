@@ -71,16 +71,31 @@ async def test_shared_owner_execution_qualifies_explicit_mode_without_old_isolat
 
 
 @pytest.mark.parametrize("sandbox", [True, False])
+@pytest.mark.parametrize("launch_fails", [True, False])
 async def test_chromium_uses_only_the_qualified_mode_and_never_retries_without_sandbox(
-    monkeypatch, sandbox
+    monkeypatch, sandbox, launch_fails
 ):
     import sys
     from types import SimpleNamespace
-    from unittest.mock import AsyncMock
+    from unittest.mock import AsyncMock, Mock, call
 
     from hushh_mcp.services.pod_browser.playwright_executor import PlaywrightExecutor
 
-    launch = AsyncMock(side_effect=RuntimeError("synthetic startup failure"))
+    cdp = SimpleNamespace(
+        send=AsyncMock(return_value={"frameTree": {"frame": {"id": "synthetic"}}}), on=Mock()
+    )
+    page = SimpleNamespace(set_default_timeout=Mock(), set_default_navigation_timeout=Mock())
+    context = SimpleNamespace(
+        new_page=AsyncMock(return_value=page),
+        new_cdp_session=AsyncMock(return_value=cdp),
+        route_web_socket=AsyncMock(),
+        on=Mock(),
+    )
+    browser = SimpleNamespace(new_context=AsyncMock(return_value=context), close=AsyncMock())
+    launch = AsyncMock(
+        side_effect=RuntimeError("synthetic startup failure") if launch_fails else None,
+        return_value=browser,
+    )
     stop = AsyncMock()
     playwright = SimpleNamespace(chromium=SimpleNamespace(launch=launch), stop=stop)
     monkeypatch.setitem(
@@ -91,10 +106,29 @@ async def test_chromium_uses_only_the_qualified_mode_and_never_retries_without_s
         ),
     )
     executor = PlaywrightExecutor(network=Authority(), chromium_sandbox=sandbox)
-    with pytest.raises(BrowserRefused, match="STARTUP_FAILED"):
-        await executor.initialize()
-    assert launch.await_count == 1
-    assert launch.call_args.kwargs["chromium_sandbox"] is sandbox
+    try:
+        if launch_fails:
+            with pytest.raises(BrowserRefused, match="STARTUP_FAILED"):
+                await executor.initialize()
+            assert not cdp.send.called
+        else:
+            await executor.initialize()
+            # The real Chromium regression emitted client hints and en-US.
+            # Fix the trusted browser before interception; never broaden the
+            # public authority or silently sanitize interactive disclosures.
+            calls = cdp.send.await_args_list
+            assert calls[0] == call(
+                "Emulation.setUserAgentOverride",
+                {
+                    "userAgent": "HusshBrowser/1.0",
+                    "acceptLanguage": "en-US,en",
+                },
+            )
+            assert calls[-1].args[0] == "Fetch.enable"
+        assert launch.await_count == 1
+        assert launch.call_args.kwargs["chromium_sandbox"] is sandbox
+    finally:
+        await executor.close()
     stop.assert_awaited_once()
 
 
@@ -222,6 +256,8 @@ async def test_composed_public_authority_fences_unknown_requests_and_recovery(tm
         request.model_copy(update={"headers": (("Cookie", "synthetic"),)}),
         request.model_copy(update={"headers": (("Accept", "synthetic-private"),)}),
         request.model_copy(update={"headers": (("Accept-Language", "synthetic-private"),)}),
+        request.model_copy(update={"headers": (("Accept-Language", "en-US"),)}),
+        request.model_copy(update={"headers": (("Sec-CH-UA-Platform", '"Linux"'),)}),
         request.model_copy(update={"headers": (("Referer", "https://example.com/private"),)}),
         request.model_copy(update={"headers": (("X-Private", "synthetic"),)}),
         request.model_copy(update={"method": "POST"}),

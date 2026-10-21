@@ -205,6 +205,13 @@ subresources during normal execution. It does not prevent a compromised Browser
 from exercising the owner pod's privileges. Qualify the deployed pod identity's
 least privilege against other owners, platform secrets and bootstrap authority.
 
+Public research uses a fixed `HusshBrowser/1.0` transport profile. Before request
+interception, the page CDP session overrides Playwright's generated client hints
+and supplies unweighted language preferences; Chromium creates the approved wire
+header. Qualify the emitted headers on the pinned browser. Unknown headers,
+cookies and unapproved referrers still require their existing authority; do not
+strip interactive information or broaden public access to conceal a mismatch.
+
 Keep legacy isolation receipts below as historical evidence, not requirements or
 claims about the new shared-container path. The earlier VM proposal is superseded
 for this release; existing owners remain on their chosen services and resources.

@@ -1,5 +1,5 @@
 {
-  "version": "2026.10-dev.26",
+  "version": "2026.10-dev.27",
   "channel": "dev",
   "summary": "Browser runtime qualification candidate; installation awaits recovery verification.",
   "notes": {
@@ -8,6 +8,7 @@
       "Profile and native privacy updates are reconciled with the current application."
     ],
     "fixes": [
+      "Public websites use consistent browser settings for reliable private research.",
       "Owner control fences autonomous browser actions and joins cancellation.",
       "Reconnecting discovers existing tasks without resubmitting a goal."
     ],

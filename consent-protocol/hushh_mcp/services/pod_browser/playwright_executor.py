@@ -28,7 +28,7 @@ from .contracts import (
     BrowserRequest,
     BrowserResponse,
 )
-from .public_profile import LANGUAGE, USER_AGENT
+from .public_profile import CHROMIUM_LANGUAGES, LANGUAGE, USER_AGENT
 from .session_state import RememberedState
 
 T = TypeVar("T")
@@ -210,6 +210,14 @@ class PlaywrightExecutor:
             await self._context.route_web_socket("**/*", lambda ws: ws.close())
             self._page = await self._context.new_page()
             self._cdp = await self._context.new_cdp_session(self._page)
+            # Playwright also installs default UA metadata. Replace it before
+            # any page request: public research uses a fixed, non-private
+            # profile, not the host's client hints or locale. Chromium adds the
+            # language weights; sending the weighted wire value doubles them.
+            await self._cdp.send(
+                "Emulation.setUserAgentOverride",
+                {"userAgent": USER_AGENT, "acceptLanguage": CHROMIUM_LANGUAGES},
+            )
             tree = await self._cdp.send("Page.getFrameTree")
             self._main_frame_id = tree["frameTree"]["frame"]["id"]
             self._cdp.on("Fetch.requestPaused", self._request_paused)

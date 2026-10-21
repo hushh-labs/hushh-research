@@ -5,6 +5,8 @@ reads may bypass that review only with this finite, non-private browser profile.
 """
 
 USER_AGENT = "HusshBrowser/1.0"
+# CDP accepts preferences without weights and generates the wire value below.
+CHROMIUM_LANGUAGES = "en-US,en"
 LANGUAGE = "en-US,en;q=0.9"
 _VALUES = {
     "user-agent": {USER_AGENT},
