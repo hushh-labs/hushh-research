@@ -85,6 +85,21 @@ it("passes the final effect fence through the platform transport and never sends
   expect(JSON.stringify(options)).not.toContain(context.vaultKey);
 });
 
+it("checks current dispatch eligibility while accepting an already dispatched receipt", async () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  let eligible = true;
+  const dispatchContext = { ...context, canDispatch: () => eligible };
+  mocks.fetch.mockImplementationOnce(async (_path, options) => {
+    expect(options.isEffectCurrent()).toBe(true);
+    eligible = false; // A same-session permission refresh begins after dispatch.
+    expect(options.isEffectCurrent()).toBe(false);
+    return new Response(JSON.stringify({ id, status: "pending", role: "requester", requesterPersonRef: id, requesterName: "One", ownerName: "Two", createdAt: "2026-10-16T00:00:00Z", expiresAt: "2026-10-23T00:00:00Z" }));
+  });
+  await expect(WalletCardAccessService.createRequest(dispatchContext, id, id)).resolves.toMatchObject({ id });
+  await WalletCardAccessService.history(dispatchContext);
+  expect(mocks.fetch.mock.calls[1][1].isEffectCurrent).toBe(context.isCurrent);
+});
+
 it.each(["WALLET_CARD_ACCESS_DISABLED", "WALLET_CARD_ACCESS_NOT_READY", "private_diagnostic"])("keeps only allowlisted readiness reason %s", async code => {
   mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ detail: { code } }), { status: 503 }));
   await expect(WalletCardAccessService.history(context)).rejects.toMatchObject({

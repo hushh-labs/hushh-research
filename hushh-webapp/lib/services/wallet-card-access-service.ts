@@ -67,8 +67,10 @@ async function ownerRequest<T>(context: WalletAccessContext, path: string, metho
   if (!context.isCurrent()) throw new Error("Wallet changed.");
   const token = await context.getIdToken();
   if (!context.isCurrent()) throw new Error("Wallet changed.");
-  const result = await request<T>(token, path, method, body, context.vaultOwnerToken, signal,
-    () => context.isCurrent() && (method === "GET" || context.canDispatch?.() !== false));
+  const isEffectCurrent = method !== "GET" && context.canDispatch
+    ? () => context.isCurrent() && context.canDispatch?.() !== false
+    : context.isCurrent;
+  const result = await request<T>(token, path, method, body, context.vaultOwnerToken, signal, isEffectCurrent);
   if (!context.isCurrent()) throw new Error("Wallet changed.");
   return result;
 }
