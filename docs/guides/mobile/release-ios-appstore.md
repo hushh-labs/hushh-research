@@ -27,8 +27,12 @@ joins the exact healthy production run before upload, submits for Apple review
 and selects publication after approval. While an existing version awaits review,
 Ubuntu admission defers the latest candidate without allocating a Mac; the hourly
 observer revisits it. Privacy/export attestations and configured production App
-Review sign-in information remain required. Manual invocation defaults are
-unchanged.
+Review sign-in information remain required. New automatic releases yield to
+queued/running UAT and only one release bundle runs at a time; production
+deploy/archive remain a parallel pair. Pending releases stay outside runners and
+retry when UAT finishes, even after a failed UAT run. Existing releases are never
+cancelled. This reduces shared-pool contention but cannot reserve GitHub-hosted
+runner slots. Manual invocation defaults are unchanged.
 
 > **Why is UAT the default?** It preserves the historical UAT-backed release path. For a
 > production-backed release, explicitly select `backend_target=production`, verify that backend's

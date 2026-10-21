@@ -1,7 +1,7 @@
 {
   "schema_version": "kai.local_action_contract.v1",
   "surface_id": "kai_analysis",
-  "surface_title": "Kai Analysis Workspace",
+  "surface_title": "Stocks and Analysis Workspace",
   "docs_references": [
     "docs/reference/kai/kai-action-gateway-vnext.md"
   ],
@@ -19,7 +19,10 @@
       "meaning": "Navigates directly to the Kai analysis workspace and history route.",
       "aliases": [
         "open analysis",
-        "go to analysis"
+        "go to analysis",
+        "open stocks",
+        "go to stocks",
+        "company facts"
       ],
       "search_keywords": [
         "analysis",
@@ -188,7 +191,9 @@
           "ui"
         ]
       },
-      "control_ids": [],
+      "control_ids": [
+        "analysis_stock_details_preview"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/one/one-voice-kai-compatibility-runtime.md"

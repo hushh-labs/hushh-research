@@ -22,10 +22,12 @@ import {
 import { KAI_MARKET_PATH } from "@/lib/navigation/routes";
 import { KaiPreviewRouter } from "@/components/kai/views/kai-preview-router";
 import { KaiAnalysisPageContent } from "@/app/one/kai/analysis/page";
+import { KaiMarketHomeProvider } from "@/components/kai/shared/kai-market-home-context";
 import { scheduleFinanceWorkspaceWarmup } from "@/lib/kai/finance-workspace-warmup";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { resetKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
+import marketBriefingStyles from "@/components/kai/shared/market-briefing.module.css";
 
 const FINANCE_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.finance;
 type PortfolioTab = (typeof FINANCE_TAB_DEFINITION.tabs)[number]["value"];
@@ -109,7 +111,7 @@ export function KaiMarketHubPage() {
       fitContent
       width="agent"
       headerContentSpacing="compact"
-      className="relative"
+      className={visibleTab === "market" ? `relative ${marketBriefingStyles.typography}` : "relative"}
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -130,6 +132,7 @@ export function KaiMarketHubPage() {
           tabSet={{ ...FINANCE_TAB_DEFINITION, activeValue: visibleTab }}
         />
       </AppPageHeaderRegion>
+      <KaiMarketHomeProvider>
       <SwipeViews
         tabSetId={FINANCE_TAB_DEFINITION.id}
         activeValue={visibleTab}
@@ -163,6 +166,7 @@ export function KaiMarketHubPage() {
           </AppPageContentRegion>
         </div>
       </SwipeViews>
+      </KaiMarketHomeProvider>
     </AppPageShell>
   );
 }

@@ -19,8 +19,9 @@ import os
 import threading
 import time
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from defusedxml import ElementTree as DefusedET
@@ -363,6 +364,7 @@ async def _fetch_newsapi_articles(ticker: str, days_back: int) -> List[Dict[str,
                     "publishedAt": str(row.get("publishedAt") or datetime.utcnow().isoformat()),
                     "source": {"name": str((row.get("source") or {}).get("name") or "NewsAPI")},
                     "provider": "newsapi",
+                    "image_url": row.get("urlToImage"),
                 }
             )
         return articles
@@ -551,6 +553,7 @@ async def _fetch_finnhub_company_news(ticker: str, days_back: int) -> List[Dict[
                     "publishedAt": published_at,
                     "source": {"name": str((row or {}).get("source") or "Finnhub")},
                     "provider": "finnhub",
+                    "image_url": (row or {}).get("image"),
                 }
             )
         return articles
@@ -597,6 +600,7 @@ async def _fetch_pmp_news(ticker: str) -> List[Dict[str, Any]]:
                     ),
                     "source": {"name": "PMP/FMP"},
                     "provider": "pmp_fmp",
+                    "image_url": (row or {}).get("image"),
                 }
             )
         return articles
@@ -624,7 +628,7 @@ async def _fetch_finnhub_peers(ticker: str) -> List[str]:
         return peers
 
 
-async def _fetch_yfinance_quote(ticker: str) -> Dict[str, Any]:
+async def _fetch_yfinance_quote(ticker: str, *, timeout_seconds: float = 3.5) -> Dict[str, Any]:
     try:
         import yfinance as yf
     except ImportError as exc:
@@ -638,7 +642,7 @@ async def _fetch_yfinance_quote(ticker: str) -> Dict[str, Any]:
         return await asyncio.to_thread(_blocking_fetch)
 
     try:
-        info = await asyncio.wait_for(_get_info(), timeout=3.5)
+        info = await asyncio.wait_for(_get_info(), timeout=timeout_seconds)
     except asyncio.TimeoutError as exc:
         raise RuntimeError("yfinance_timeout") from exc
 
@@ -657,6 +661,20 @@ async def _fetch_yfinance_quote(ticker: str) -> Dict[str, Any]:
         "company_name": info.get("longName", ticker.upper()),
         "sector": info.get("sector", "Unknown"),
         "industry": info.get("industry", "Unknown"),
+        "business_summary": info.get("longBusinessSummary"),
+        # Yahoo reports debt/equity as a percentage. The Market contract uses a multiple.
+        "debt_to_equity": (
+            float(info["debtToEquity"]) / 100
+            if isinstance(info.get("debtToEquity"), (int, float))
+            and math.isfinite(info["debtToEquity"])
+            else None
+        ),
+        "financial_period_end": (
+            datetime.fromtimestamp(info["mostRecentQuarter"], tz=timezone.utc).date().isoformat()
+            if isinstance(info.get("mostRecentQuarter"), (int, float))
+            and info["mostRecentQuarter"] > 0
+            else None
+        ),
         "source": "yfinance (Real-time)",
         "fetched_at": datetime.utcnow().isoformat(),
         "ttl_seconds": 60,
@@ -711,42 +729,78 @@ def _parse_yahoo_chart_meta(meta: Dict[str, Any]) -> Dict[str, Any] | None:
     if not symbol:
         return None
     price = meta.get("regularMarketPrice")
-    if not isinstance(price, (int, float)) or not math.isfinite(float(price)):
+    if (
+        isinstance(price, bool)
+        or not isinstance(price, (int, float))
+        or not math.isfinite(float(price))
+        or price <= 0
+    ):
         return None
 
-    # The chart endpoint reports the previous close, not a change, so the move is derived. A zero
-    # or missing previous close has no honest percentage, and reporting 0 beats dividing into inf.
-    previous_close = meta.get("chartPreviousClose") or meta.get("previousClose") or 0
+    # Unknown change is distinct from a measured flat session.
+    previous_close = meta.get("chartPreviousClose") or meta.get("previousClose")
     try:
         previous_close = float(previous_close)
     except (TypeError, ValueError):
         previous_close = 0.0
     change_percent = (
-        ((float(price) - previous_close) / previous_close) * 100 if previous_close else 0
+        ((float(price) - previous_close) / previous_close) * 100
+        if math.isfinite(previous_close) and previous_close > 0
+        else None
     )
+
+    now = datetime.now(timezone.utc)
+    quoted_at = None
+    quote_time = meta.get("regularMarketTime")
+    if isinstance(quote_time, (int, float)) and not isinstance(quote_time, bool):
+        try:
+            quoted_at = datetime.fromtimestamp(quote_time, tz=timezone.utc).isoformat()
+        except (OverflowError, OSError, ValueError):
+            pass
+    delay = meta.get("exchangeDataDelayedBy")
+    delay = (
+        float(delay)
+        if isinstance(delay, (int, float)) and math.isfinite(delay) and delay >= 0
+        else None
+    )
+    regular = (meta.get("currentTradingPeriod") or {}).get("regular") or {}
+    start, end = regular.get("start"), regular.get("end")
+    market_state = None
+    if isinstance(start, (int, float)) and isinstance(end, (int, float)):
+        market_state = "open" if start <= now.timestamp() < end else "closed"
+    is_delayed = bool(delay and delay > 0) or bool(
+        market_state == "open" and quoted_at and now.timestamp() - quote_time > 10 * 60
+    )
+    # The shared equity cache still feeds the legacy analysis calculator, which
+    # expects numeric placeholders. Keep that contract until analysis is migrated.
+    absent_fundamental = None if symbol.startswith("^") else 0
 
     return {
         "ticker": symbol,
         "price": float(price),
         "change_percent": change_percent,
-        "volume": meta.get("regularMarketVolume") or 0,
-        # v8 `meta` carries no fundamentals. Zero here is not a measurement, and callers already
-        # treat these as absent; inventing a value would be worse than reporting none.
-        "market_cap": 0,
-        "pe_ratio": 0,
-        "pb_ratio": 0,
-        "dividend_yield": 0,
-        "company_name": meta.get("longName") or meta.get("shortName") or symbol,
+        "volume": meta.get("regularMarketVolume"),
+        "market_cap": absent_fundamental,
+        "pe_ratio": absent_fundamental,
+        "pb_ratio": absent_fundamental,
+        "dividend_yield": absent_fundamental,
+        "company_name": str(meta.get("longName") or meta.get("shortName") or symbol).strip(),
         "sector": "Unknown",
         "industry": "Unknown",
         "source": "Yahoo Chart (Batch)",
-        "fetched_at": datetime.utcnow().isoformat(),
+        "fetched_at": now.isoformat(),
+        "quoted_at": quoted_at,
+        "quote_delay_minutes": delay,
+        "market_state": market_state,
+        "is_delayed": is_delayed,
         "ttl_seconds": 60,
         "is_stale": False,
     }
 
 
-async def _fetch_yahoo_quotes(symbols: List[str]) -> List[Dict[str, Any]]:
+async def _fetch_yahoo_quotes(
+    symbols: List[str], *, range_period: str = "1d"
+) -> List[Dict[str, Any]]:
     """Free-rung batch quotes, from the chart endpoint rather than the quote endpoint.
 
     `v7/finance/quote` answers 401 Unauthorized to any client without Yahoo credentials
@@ -771,7 +825,12 @@ async def _fetch_yahoo_quotes(symbols: List[str]) -> List[Dict[str, Any]]:
             async with semaphore:
                 res = await client.get(
                     f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}",
-                    params={"range": "1d", "interval": "1d"},
+                    params={
+                        "range": range_period,
+                        "interval": "5m"
+                        if symbol.startswith("^") and range_period == "1d"
+                        else "1d",
+                    },
                 )
                 # One delisted or mistyped symbol must not fail the whole batch. A 429 or 5xx is
                 # the provider talking, so that one is raised for the caller's cooldown to see.
@@ -783,7 +842,49 @@ async def _fetch_yahoo_quotes(symbols: List[str]) -> List[Dict[str, Any]]:
                 results = (payload.get("chart") or {}).get("result") or []
                 if not results:
                     return None
-                return _parse_yahoo_chart_meta(results[0].get("meta") or {})
+                chart = results[0]
+                row = _parse_yahoo_chart_meta(chart.get("meta") or {})
+                if row and (symbol.startswith("^") or range_period != "1d"):
+                    quotes = (chart.get("indicators") or {}).get("quote") or [{}]
+                    closes = quotes[0].get("close") or []
+                    points = [
+                        {"t": timestamp, "p": float(close)}
+                        for timestamp, close in zip(
+                            chart.get("timestamp") or [], closes, strict=False
+                        )
+                        if isinstance(timestamp, (int, float))
+                        and math.isfinite(timestamp)
+                        and isinstance(close, (int, float))
+                        and not isinstance(close, bool)
+                        and math.isfinite(close)
+                        and close > 0
+                    ]
+                    points.sort(key=lambda point: point["t"])
+                    if range_period != "1d":
+                        # Yahoo can append a second live bar for the same daily
+                        # session. Count sessions, not rows, for 1D/1W returns.
+                        try:
+                            exchange_zone = ZoneInfo(
+                                (chart.get("meta") or {}).get("exchangeTimezoneName") or "UTC"
+                            )
+                        except (ZoneInfoNotFoundError, ValueError):
+                            exchange_zone = timezone.utc
+                        sessions = {}
+                        for point in points:
+                            session = datetime.fromtimestamp(point["t"], tz=exchange_zone).date()
+                            sessions[session] = point
+                        points = list(sessions.values())
+                    row["sparkline_points"] = points
+                    row["sparkline"] = [point["p"] for point in points]
+                    if range_period != "1d":
+                        # A multi-session chart's chartPreviousClose is the range
+                        # boundary, not yesterday. Keep its quote change honest too.
+                        row["change_percent"] = (
+                            (points[-1]["p"] / points[-2]["p"] - 1) * 100
+                            if len(points) >= 2
+                            else None
+                        )
+                return row
 
         settled = await asyncio.gather(
             *(fetch_one(symbol) for symbol in symbols), return_exceptions=True
@@ -803,6 +904,38 @@ async def _fetch_yahoo_quotes(symbols: List[str]) -> List[Dict[str, Any]]:
     if provider_error is not None and not parsed:
         raise provider_error
     return parsed
+
+
+async def fetch_market_company_facts(symbol: str) -> Dict[str, Any]:
+    """Public company facts, independent of the price-only quote cache."""
+    quote = await _fetch_yfinance_quote(symbol, timeout_seconds=8.0)
+
+    def finite(field: str, *, positive: bool = False) -> float | None:
+        value = quote.get(field)
+        if not isinstance(value, (int, float)) or not math.isfinite(value):
+            return None
+        if positive and value <= 0:
+            return None
+        return float(value)
+
+    return {
+        "symbol": symbol,
+        "market_cap": finite("market_cap", positive=True),
+        "pe_ratio": finite("pe_ratio", positive=True),
+        "pb_ratio": finite("pb_ratio", positive=True),
+        "debt_to_equity": finite("debt_to_equity"),
+        "summary": str(quote.get("business_summary") or "").strip() or None,
+        "financial_period_end": quote.get("financial_period_end"),
+        "ratio_basis": "P/E trailing twelve months; P/B latest reported book value; total debt/equity multiple",
+        "source": "Yahoo Finance",
+        "retrieved_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def fetch_market_session_history(symbols: List[str]) -> Dict[str, List[Dict[str, float]]]:
+    """Observed daily closes for period comparisons; never stored as spot quotes."""
+    rows = await _fetch_yahoo_quotes(symbols, range_period="1mo")
+    return {row["ticker"]: row.get("sparkline_points") or [] for row in rows}
 
 
 async def fetch_market_data_batch(
@@ -1424,9 +1557,11 @@ async def fetch_market_data(
         providers: list[tuple[str, Any]] = []
         skip_yahoo_fast_for_symbol = False
 
-        if finnhub_enabled:
+        # Index symbols are not supported by the equity plans. A rejected index
+        # request must never put stock quotes into a global provider cooldown.
+        if finnhub_enabled and not symbol.startswith("^"):
             providers.append(("finnhub", _fetch_finnhub_quote))
-        if pmp_enabled:
+        if pmp_enabled and not symbol.startswith("^"):
             providers.append(("pmp", _fetch_pmp_quote))
         # In fast-only mode we still use yfinance when rescue is explicitly requested
         # or when no paid providers are configured at all.

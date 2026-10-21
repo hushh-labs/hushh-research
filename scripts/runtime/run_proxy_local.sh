@@ -78,6 +78,9 @@ fi
 # short-lived Cloud SQL credential file. Use the managed backend interpreter,
 # never whichever Python happens to be first on the developer's PATH.
 BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/bin/python"
+if [ ! -x "$BACKEND_VENV_PYTHON" ] && [ -f "$REPO_ROOT/consent-protocol/.venv/Scripts/python.exe" ]; then
+  BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/Scripts/python.exe"
+fi
 if [ ! -x "$BACKEND_VENV_PYTHON" ]; then
   echo "Missing backend virtual environment: $BACKEND_VENV_PYTHON" >&2
   echo "Run './bin/hushh bootstrap --mode local' to install backend dependencies." >&2
