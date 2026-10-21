@@ -3378,36 +3378,6 @@ html.kb-open [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]):n
   margin-top: calc(var(--kb-height, 0px) / -2);
 }
 
-/* The request form stays in one phone sheet while its inline range calendar
-   opens. Keep 44px day targets inside a 320px viewport and lift the whole
-   surface above the keyboard without changing desktop dialogs.
-
-   The dialog primitive centers with the independent `translate` property
-   (Tailwind v4 `translate-x/y-[-50%]`). Do NOT reset it here: the production
-   optimizer (Lightning CSS, minify) folds `translate: none` into the sibling
-   `transform` and drops it, so production kept the -50% shift and the sheet
-   rendered half off the left edge of a phone. The reset lives on the element
-   as `max-sm:translate-x-0 max-sm:translate-y-0` utilities instead. */
-@media (max-width: 639px) {
-  [data-request-files-dialog] {
-    top: auto !important;
-    bottom: var(--kb-height, 0px) !important;
-    left: 0 !important;
-    width: 100% !important;
-    max-width: none !important;
-    max-height: calc(
-      100dvh - var(--kb-height, 0px) -
-        var(--app-safe-area-top-effective, 0px) - 0.5rem
-    ) !important;
-    margin-top: 0 !important;
-    transform: none !important;
-    padding: 1rem 0.25rem
-      calc(1rem + var(--app-safe-area-bottom-effective, 0px));
-    border-radius: var(--app-card-radius-feature)
-      var(--app-card-radius-feature) 0 0;
-  }
-}
-
 /* The fixed "Talk to One" agent launcher lifts above the on-screen keyboard by
  * --kb-height. On a plain form screen (e.g. Connect's people search) that lands
  * it directly on top of the focused input, obscuring typed text. While a real

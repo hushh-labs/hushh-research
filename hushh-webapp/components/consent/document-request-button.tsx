@@ -21,6 +21,7 @@ import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { IllustratedRequestContent, IllustratedRequestForm, IllustratedRequestBody, IllustratedRequestActions } from "@/components/app-ui/illustrated-request-dialog";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -38,10 +39,6 @@ import {
 } from "@/components/consent/document-file-request";
 import {
   Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog";
 
 type RequestDraft = {
@@ -113,6 +110,7 @@ function UnlockedRequestButton({
   const [enabled, setEnabled] = useState(false);
   const [agentPackagesEnabled, setAgentPackagesEnabled] = useState(false);
   const [open, setOpen] = useState(false);
+  const questionTriggerRef = useRef<HTMLButtonElement>(null);
   const [query, setQuery] = useState(draft ? draftQuestion(draft) : "");
   const [phase, setPhase] = useState<"idle" | "sending">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -343,25 +341,32 @@ function UnlockedRequestButton({
         agentPackagesEnabled={agentPackagesEnabled}
         renderTrigger={renderTrigger}
       />
-      <Button size="standard" variant="none" onClick={() => setOpen(true)}>
+      <Button ref={questionTriggerRef} size="standard" variant="none" onClick={() => setOpen(true)}>
         {renderTrigger?.("Ask about files") ?? "Ask about files"}
       </Button>
       <Dialog
+        modal
         open={open}
         onOpenChange={(value) => {
           if (value) setOpen(true);
           else close();
         }}
       >
-        <DialogContent className="max-h-[85dvh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Ask about their Drive</DialogTitle>
-            <DialogDescription className="break-words">
-              {ASK_HELPER}
-            </DialogDescription>
-          </DialogHeader>
+        <IllustratedRequestContent
+          intent="drive"
+          title={created ? "Question sent" : "Ask about files"}
+          description={`To ${personName}`}
+          success={Boolean(created)}
+          showCloseButton={phase !== "sending"}
+          onCloseAutoFocus={(event) => {
+            if (questionTriggerRef.current) {
+              event.preventDefault();
+              questionTriggerRef.current.focus();
+            }
+          }}
+        >
           {created ? (
-            <div className="min-w-0 space-y-4">
+            <IllustratedRequestBody>
               <DriveQueryRequestCard
                 requestId={created.requestId}
                 direction="outgoing"
@@ -388,15 +393,15 @@ function UnlockedRequestButton({
               >
                 Ask another question
               </Button>
-            </div>
+            </IllustratedRequestBody>
           ) : (
-            <form
-              className="min-w-0 space-y-4"
+            <IllustratedRequestForm
               onSubmit={(event) => {
                 event.preventDefault();
                 void send();
               }}
             >
+              <IllustratedRequestBody>
               <div className="space-y-2">
                 <Label htmlFor="drive-query-text">Your question</Label>
                 <Textarea
@@ -406,9 +411,10 @@ function UnlockedRequestButton({
                   maxLength={2000}
                   required
                   disabled={phase !== "idle"}
-                  placeholder="e.g. Find my bank statement from March"
+                  placeholder="Which file has your latest project update?"
                 />
               </div>
+              <HelperText as="p">{ASK_HELPER}</HelperText>
               {tooLong ? (
                 <HelperText role="status">Shorten your question.</HelperText>
               ) : null}
@@ -417,6 +423,8 @@ function UnlockedRequestButton({
                   {error}
                 </HelperText>
               ) : null}
+              </IllustratedRequestBody>
+              <IllustratedRequestActions>
               <FlowActionGroup
                 primary={
                   <Button
@@ -424,7 +432,7 @@ function UnlockedRequestButton({
                     size="prominent"
                     disabled={!valid || phase !== "idle"}
                   >
-                    {phase === "sending" ? "Sending…" : "Send"}
+                    {phase === "sending" ? "Sending…" : "Send request"}
                   </Button>
                 }
                 secondary={
@@ -439,9 +447,10 @@ function UnlockedRequestButton({
                   </Button>
                 }
               />
-            </form>
+              </IllustratedRequestActions>
+            </IllustratedRequestForm>
           )}
-        </DialogContent>
+        </IllustratedRequestContent>
       </Dialog>
     </>
   );

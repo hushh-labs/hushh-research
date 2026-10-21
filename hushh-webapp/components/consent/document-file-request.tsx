@@ -15,10 +15,6 @@ import {
 } from "@/lib/services/drive-sharing-service";
 import { DriveRequestRequesterService } from "@/lib/services/drive-request-requester-service";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import {
-  DOCUMENT_FLOW_SURFACE_TYPE,
-  DOCUMENT_FLOW_TEXT_SCALE,
-} from "@/lib/consent/document-request-flow";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
@@ -29,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { MobileDocumentDateRange } from "@/components/consent/mobile-document-date-range";
+import { IllustratedRequestContent, IllustratedRequestForm, IllustratedRequestBody, IllustratedRequestActions } from "@/components/app-ui/illustrated-request-dialog";
 import {
   DocumentRequestQuoteNotice,
   useDocumentRequestQuote,
@@ -39,17 +36,8 @@ import { dayRangeLabel } from "@/components/consent/packets/packet-copy";
 import type { DriveRequestQuote } from "@/lib/services/drive-request-pricing-service";
 import {
   Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-
-const REQUEST_FILES_DIALOG_TYPE = [
-  DOCUMENT_FLOW_SURFACE_TYPE,
-  DOCUMENT_FLOW_TEXT_SCALE,
-  "[&_.ui-text-form-label]:!text-[13px] [&_.ui-text-form-label]:!leading-[1.25]",
-].join(" ");
 
 export type FileRequestTerms = {
   purpose: string;
@@ -390,25 +378,18 @@ export function RequestFilesButton({
         <DialogTrigger asChild>
           <Button size="standard" variant="none">{renderTrigger?.("Request files") ?? "Request files"}</Button>
         </DialogTrigger>
-        <DialogContent
+        <IllustratedRequestContent
+          intent="files"
+          title={created ? "Request sent" : "Request files"}
+          description={`To ${personName}`}
+          success={Boolean(created)}
           data-request-files-dialog
-          // Phone sheet geometry lives in globals.css ([data-request-files-dialog]);
-          // the centering translate is reset here because a CSS `translate`
-          // reset does not survive production minification.
-          // The flow's Feed type scale: 15px title, 13px body and labels,
-          // 11px secondary. Inputs keep their own 16px so iOS never zooms.
-          className={`max-h-[85dvh] overflow-y-auto max-sm:translate-x-0 max-sm:translate-y-0 sm:max-w-md ${REQUEST_FILES_DIALOG_TYPE}`}
-          showCloseButton={Boolean(created)}
+          showCloseButton={request.phase !== "sending"}
           srDescription={`Request files from ${personName}.`}
         >
-          <DialogHeader>
-            <DialogTitle>Request files</DialogTitle>
-            <HelperText as="p" className="break-words">
-              To {personName}
-            </HelperText>
-          </DialogHeader>
           {created ? (
-            <div className="min-w-0 space-y-4">
+            <>
+              <IllustratedRequestBody>
               <BodyText role="status">Request sent.</BodyText>
               {agentPackagesEnabled && <SettingsGroup density="compact">
                 <PacketRow item={{
@@ -420,6 +401,8 @@ export function RequestFilesButton({
                   tone: "waiting",
                 }} />
               </SettingsGroup>}
+              </IllustratedRequestBody>
+              <IllustratedRequestActions>
               <FlowActionGroup
                 primary={
                   <Button asChild size="prominent">
@@ -447,18 +430,19 @@ export function RequestFilesButton({
                   </Button>
                 }
               />
-            </div>
+              </IllustratedRequestActions>
+            </>
           ) : (
-            <form
-              className="min-w-0 space-y-4"
+            <IllustratedRequestForm
               onSubmit={(event) => {
                 event.preventDefault();
                 void submit();
               }}
             >
+              <IllustratedRequestBody>
               <div className="space-y-2">
                 <Label htmlFor="document-request-purpose">
-                  What do you need?
+                  Which files do you need?
                 </Label>
                 <Textarea
                   id="document-request-purpose"
@@ -467,7 +451,7 @@ export function RequestFilesButton({
                   maxLength={2000}
                   required
                   disabled={busy}
-                  placeholder="Six months of bank statements"
+                  placeholder="Bank statements"
                 />
               </div>
               {agentPackagesEnabled && <>
@@ -489,8 +473,9 @@ export function RequestFilesButton({
                     placeholder="Why do you need these documents?" />
                 </div>
               </>}
-              <fieldset className="min-w-0" disabled={busy}>
-                <legend className="mb-2">Period (required)</legend>
+              <fieldset className="min-w-0" disabled={busy} aria-describedby="document-period-help">
+                <legend className="mb-2">Dates covered</legend>
+                <span id="document-period-help" className="sr-only">Start and end dates are required.</span>
                 <MobileDocumentDateRange
                   start={start}
                   end={end}
@@ -531,7 +516,7 @@ export function RequestFilesButton({
                   <option value={90}>90 days</option>
                 </select>
               </div>}
-              {!start || !end ? (
+              {(start || end) && (!start || !end) ? (
                 <HelperText role="status">Choose a start and end date.</HelperText>
               ) : null}
               {start && end && !validDocumentRequestPeriod(start, end) ? (
@@ -547,6 +532,8 @@ export function RequestFilesButton({
               <RecipientIdentityNotice preview={identity} />
               <DocumentRequestQuoteNotice quote={quote.quote} loading={quote.loading}
                 error={quote.error} onRetry={quote.refresh} personName={personName} />
+              </IllustratedRequestBody>
+              <IllustratedRequestActions>
               <FlowActionGroup
                 primary={
                   <Button type="submit" size="prominent" disabled={!valid || !quote.quote || busy}>
@@ -569,9 +556,10 @@ export function RequestFilesButton({
                   </Button>
                 }
               />
-            </form>
+              </IllustratedRequestActions>
+            </IllustratedRequestForm>
           )}
-        </DialogContent>
+        </IllustratedRequestContent>
       </Dialog>
     </>
   );
