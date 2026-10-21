@@ -52,7 +52,7 @@ class _Gate:
 
 
 def _ready(location="global"):
-    async def _probe():
+    async def _probe(**_):
         return runtime_route.ManagedGeminiReadinessResponse(
             status="ready", model="gemini-3-pro", location=location
         )
@@ -61,7 +61,7 @@ def _ready(location="global"):
 
 
 def _not_ready():
-    async def _probe():
+    async def _probe(**_):
         raise HTTPException(
             status_code=503,
             detail={"code": "MANAGED_GEMINI_NOT_READY", "status": "temporary_unavailable"},
@@ -124,7 +124,7 @@ async def test_a_cached_probe_still_reaches_the_gate(monkeypatch):
 
     gate = _Gate()
 
-    async def _must_not_probe():
+    async def _must_not_probe(**_):
         raise AssertionError("a warm cache must not re-probe the model")
 
     # Seed a warm cache entry, which is the state this test is about. Stubbing the
@@ -141,6 +141,7 @@ async def test_a_cached_probe_still_reaches_the_gate(monkeypatch):
         ),
     )
     monkeypatch.setattr(runtime_route, "_probe_managed_gemini", _must_not_probe)
+    monkeypatch.setattr(runtime_route, "_managed_readiness_binding", ("vertex", ""))
     monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
 
     await runtime_route.select_managed_gemini(request=None, firebase_uid="u1")

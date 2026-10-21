@@ -403,8 +403,8 @@ class TestAgentTreeShape:
             "rather than judging whether you feel certain" in ONE_IDENTITY_INSTRUCTION
         )
         assert (
-            "Call list_app_actions first unless their words are already a "
-            "close match to one of the visible labels" in ONE_IDENTITY_INSTRUCTION
+            "are not a close match to one of the visible labels, call list_app_actions"
+            in ONE_IDENTITY_INSTRUCTION
         )
         assert "correlated app action settlement" in ONE_IDENTITY_INSTRUCTION
         assert (
@@ -783,6 +783,8 @@ class TestSpecialistTurn:
         from hushh_mcp.managed_ai_config import load_profile
 
         monkeypatch.setenv("HUSHH_DEPLOY_ENV", deploy_env)
+        monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+        monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "vertex")
         expected_project = load_profile(deploy_env)["project"]
         from hushh_mcp.runtime_providers import (
             ManagedGeminiRuntimeBinding,
@@ -1247,7 +1249,7 @@ class TestGmailEmailDraftDirective:
         assert "'what you know about me'" in ONE_IDENTITY_INSTRUCTION
         assert "answer from CONSENTED TURN INFORMATION" in ONE_IDENTITY_INSTRUCTION
         assert "otherwise read it with read_my_pkm_domain_summary" not in ONE_IDENTITY_INSTRUCTION
-        assert "Do not use a connector to fill a personal-memory gap" in ONE_IDENTITY_INSTRUCTION
+        assert "Use Drive only when the person's request asks for files" in ONE_IDENTITY_INSTRUCTION
         assert "call it their memory, never PKM" in ONE_IDENTITY_INSTRUCTION
         bullet = ONE_IDENTITY_INSTRUCTION[ONE_IDENTITY_INSTRUCTION.index("- Memory:") :]
         bullet = bullet[: bullet.index("\n")]

@@ -1954,7 +1954,7 @@ export class ApiService {
     try {
       const authToken = await this.getFirebaseToken();
       if (!authToken) return closed;
-      const response = await apiFetch("/api/one/voice/readiness", {
+      const response = await apiFetch("/api/one/voice/readiness?playback=1", {
         method: "GET",
         cache: "no-store",
         headers: { Authorization: `Bearer ${authToken}` },

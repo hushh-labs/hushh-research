@@ -13,6 +13,9 @@ from hushh_mcp.hushh_adk.manifest import AgentSubagentConfig, ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
 from hushh_mcp.runtime_providers import build_managed_runtime_client
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+from hushh_mcp.runtime_providers.managed_azure_text import (
+    adk_model_for_client,
+)
 
 _MANIFEST_PATH = Path(__file__).with_name("agent.yaml")
 
@@ -95,7 +98,7 @@ async def run_connected_systems_gene(
     agent = build_single_turn_agent(
         gene,
         output_schema=output_schema,
-        model=Gemini(model=model_name, client=client),
+        model=adk_model_for_client(client, model_name, legacy_factory=Gemini),
     )
     result = await run_single_turn(
         agent,

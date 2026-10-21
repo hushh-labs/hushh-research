@@ -438,6 +438,9 @@ env_vars=(
   "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
 )
 configure_backend_process_bounds
+if [[ "${_DEPLOY_ENV}" == "uat" ]]; then
+  env_vars+=("HUSHH_UAT_MANAGED_TEXT_PROVIDER=azure_openai" "HUSHH_UAT_MANAGED_AI_PROVIDER=azure_openai")
+fi
 env_vars+=("WEB_CONCURRENCY=${worker_count}")
 append_optional_env() {
   local env_name="$1"

@@ -658,3 +658,32 @@ def test_runtime_contract_directory_adapter_keeps_file_checks(tmp_path, monkeypa
     assert "runtime.py" in capsys.readouterr().err
     source.write_text("# no runtime settings\n")
     assert module.main() == 0
+
+
+def test_managed_capability_policy_is_uat_only_versioned_and_rejects_conflicting_selection(
+    monkeypatch, tmp_path
+):
+    import json
+
+    import pytest
+
+    from hushh_mcp.managed_ai_config import PROFILE_PATH, load_managed_runtime_policy
+
+    for key in ("HUSHH_UAT_MANAGED_AI_PROVIDER", "HUSHH_UAT_MANAGED_TEXT_PROVIDER"):
+        monkeypatch.delenv(key, raising=False)
+    assert load_managed_runtime_policy(environment="production") is None
+    azure = load_managed_runtime_policy(environment="uat")
+    assert azure["provider"] == "azure_openai" and azure["azure"]["embedding_dimensions"] == 768
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    vertex = load_managed_runtime_policy(environment="uat")
+    assert vertex["generation"] != azure["generation"]
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "azure_openai")
+    with pytest.raises(ValueError, match="disagree"):
+        load_managed_runtime_policy(environment="uat")
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER")
+    value = json.loads(PROFILE_PATH.read_text())
+    value["managed_runtime_uat"]["azure"]["embedding_dimensions"] = 384
+    path = tmp_path / "profile.json"
+    path.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="768"):
+        load_managed_runtime_policy(path, environment="uat")

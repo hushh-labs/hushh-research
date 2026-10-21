@@ -4489,7 +4489,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 3012,
+  "finding_count": 3029,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4624,7 +4624,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/one_voice/session.py",
       "symbol": "VoiceSession",
-      "value": 3656
+      "value": 3713
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4939,7 +4939,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "DriveOwnerSearchService",
-      "value": 1980
+      "value": 1983
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5560,7 +5560,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py",
       "symbol": "PKMAgentLabService",
-      "value": 5438
+      "value": 5439
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -6073,7 +6073,7 @@
       "limit": 250,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": "TestSpecialistTurn",
-      "value": 393
+      "value": 395
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -7684,7 +7684,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/agents/location/command_brain.py",
       "symbol": "transcribe",
-      "value": 81
+      "value": 102
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8242,7 +8242,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_voice/session.py",
       "symbol": "__init__",
-      "value": 137
+      "value": 141
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8296,7 +8296,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_voice/session.py",
       "symbol": "_handle_client_frame",
-      "value": 137
+      "value": 152
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8305,7 +8305,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_voice/session.py",
       "symbol": "_handle_live_event",
-      "value": 160
+      "value": 183
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -9007,7 +9007,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/app_intelligence_runtime.py",
       "symbol": "retrieve_location_brain_candidates",
-      "value": 113
+      "value": 116
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12562,7 +12562,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py",
       "symbol": "_run_agent_contract",
-      "value": 294
+      "value": 295
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -13840,7 +13840,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/voice_narration.py",
       "symbol": "narrate_digest_stream",
-      "value": 87
+      "value": 109
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -14740,7 +14740,7 @@
       "limit": 80,
       "path": "consent-protocol/scripts/verify_managed_vertex_runtime.py",
       "symbol": "main",
-      "value": 229
+      "value": 248
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16171,7 +16171,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
       "symbol": "test_worker_deploy_traffic_flags_match_service_state",
-      "value": 178
+      "value": 192
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18295,7 +18295,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/voice.py",
       "symbol": null,
-      "value": 742
+      "value": 775
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18574,7 +18574,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_voice/protocol.py",
       "symbol": null,
-      "value": 573
+      "value": 596
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18583,7 +18583,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_voice/session.py",
       "symbol": null,
-      "value": 4097
+      "value": 4154
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18691,7 +18691,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/operons/kai/llm.py",
       "symbol": null,
-      "value": 1071
+      "value": 1084
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18772,7 +18772,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/app_intelligence_runtime.py",
       "symbol": null,
-      "value": 7449
+      "value": 7518
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19042,7 +19042,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": null,
-      "value": 3430
+      "value": 3433
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19582,7 +19582,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py",
       "symbol": null,
-      "value": 6170
+      "value": 6175
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19807,7 +19807,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/ria_brochure_profile_service.py",
       "symbol": null,
-      "value": 697
+      "value": 701
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20356,7 +20356,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/one_voice/test_relay_protocol.py",
       "symbol": null,
-      "value": 4549
+      "value": 4661
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21427,7 +21427,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
       "symbol": null,
-      "value": 791
+      "value": 805
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21634,7 +21634,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_managed_runtime_selection.py",
       "symbol": null,
-      "value": 521
+      "value": 522
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21715,7 +21715,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": null,
-      "value": 6515
+      "value": 6517
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22327,7 +22327,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 2004
+      "value": 2595
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24451,7 +24451,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-voice/voice-session-provider.tsx",
       "symbol": null,
-      "value": 2245
+      "value": 2254
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25288,7 +25288,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/one-voice/live-client.ts",
       "symbol": null,
-      "value": 805
+      "value": 814
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25297,7 +25297,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/one-voice/protocol.ts",
       "symbol": null,
-      "value": 501
+      "value": 505
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26035,7 +26035,7 @@
       "limit": 500,
       "path": "scripts/deploy/backend-deploy.sh",
       "symbol": null,
-      "value": 1047
+      "value": 1050
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27575,7 +27575,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/world_model.py",
       "symbol": "run_world_model",
-      "value": 473
+      "value": 483
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27958,7 +27958,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/world_model.py",
       "symbol": "search_public_web",
-      "value": 156
+      "value": 157
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -28138,7 +28138,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/world_model_source_review.py",
       "symbol": "prepare",
-      "value": 120
+      "value": 148
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29129,7 +29129,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": "test_one_time_uat_vertex_skip_is_bound_to_the_approved_release",
-      "value": 151
+      "value": 152
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29228,7 +29228,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_drive_worker_release_rollback.py",
       "symbol": null,
-      "value": 559
+      "value": 579
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -29579,7 +29579,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_request_package_service.py",
       "symbol": null,
-      "value": 682
+      "value": 683
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29615,7 +29615,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_request_package_assessment.py",
       "symbol": null,
-      "value": 1083
+      "value": 1093
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29633,7 +29633,7 @@
       "limit": 500,
       "path": "consent-protocol/scripts/verify_managed_vertex_runtime.py",
       "symbol": null,
-      "value": 632
+      "value": 653
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29849,7 +29849,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/managed_ai_config.py",
       "symbol": "load_pwm_policy",
-      "value": 92
+      "value": 112
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29876,7 +29876,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": "test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict",
-      "value": 122
+      "value": 128
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29957,7 +29957,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/world_model.py",
       "symbol": null,
-      "value": 571
+      "value": 581
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30011,7 +30011,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_drive_v1_worker_lane.py",
       "symbol": "test_paused_release_never_dispatches_or_resumes_work",
-      "value": 116
+      "value": 130
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -30308,7 +30308,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "_semantic_assessment_page",
-      "value": 161
+      "value": 164
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -30722,7 +30722,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_managed_vertex_readiness_script.py",
       "symbol": null,
-      "value": 906
+      "value": 910
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30740,7 +30740,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_request_package_service.py",
       "symbol": null,
-      "value": 637
+      "value": 665
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30758,7 +30758,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_azure_adk.py",
       "symbol": null,
-      "value": 880
+      "value": 1222
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -31520,7 +31520,7 @@
       "kind": "module_size",
       "path": "consent-protocol/tests/test_runtime_settings_maps.py",
       "detail": "module exceeds the advisory operon budget",
-      "value": 660,
+      "value": 689,
       "limit": 500,
       "symbol": null,
       "key": "module_size|consent-protocol/tests/test_runtime_settings_maps.py||module exceeds the advisory operon budget"
@@ -31529,7 +31529,7 @@
       "kind": "module_size",
       "path": "consent-protocol/tests/test_model_preference_resolution.py",
       "detail": "module exceeds the advisory operon budget",
-      "value": 567,
+      "value": 572,
       "limit": 500,
       "symbol": null,
       "key": "module_size|consent-protocol/tests/test_model_preference_resolution.py||module exceeds the advisory operon budget"
@@ -31605,6 +31605,159 @@
       "limit": 80,
       "symbol": "observations",
       "key": "function_size|scripts/ci/release_cadence_monitor.py|observations|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "class_size",
+      "path": "consent-protocol/hushh_mcp/one_voice/azure_live.py",
+      "detail": "class exceeds the advisory operon budget",
+      "value": 371,
+      "limit": 250,
+      "symbol": "AzureLiveSession",
+      "key": "class_size|consent-protocol/hushh_mcp/one_voice/azure_live.py|AzureLiveSession|class exceeds the advisory operon budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/scripts/probe_managed_capabilities.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 340,
+      "limit": 80,
+      "symbol": "probe_managed_capabilities",
+      "key": "function_size|consent-protocol/scripts/probe_managed_capabilities.py|probe_managed_capabilities|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "scripts/ci/managed_provider_readiness.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 227,
+      "limit": 80,
+      "symbol": "collect",
+      "key": "function_size|scripts/ci/managed_provider_readiness.py|collect|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/one_voice/azure_live.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 198,
+      "limit": 80,
+      "symbol": "events",
+      "key": "function_size|consent-protocol/hushh_mcp/one_voice/azure_live.py|events|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 102,
+      "limit": 80,
+      "symbol": "_provider_fixture",
+      "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|_provider_fixture|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/runtime_providers/azure_adk.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 98,
+      "limit": 80,
+      "symbol": "_history",
+      "key": "function_size|consent-protocol/hushh_mcp/runtime_providers/azure_adk.py|_history|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/runtime_providers/azure_adk.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 98,
+      "limit": 80,
+      "symbol": "_response",
+      "key": "function_size|consent-protocol/hushh_mcp/runtime_providers/azure_adk.py|_response|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "scripts/ci/managed_provider_readiness.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 93,
+      "limit": 80,
+      "symbol": "valid_capabilities",
+      "key": "function_size|scripts/ci/managed_provider_readiness.py|valid_capabilities|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "scripts/ci/managed_provider_readiness.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 92,
+      "limit": 80,
+      "symbol": "evaluate",
+      "key": "function_size|scripts/ci/managed_provider_readiness.py|evaluate|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 87,
+      "limit": 80,
+      "symbol": "test_collector_waits_for_terminal_and_retains_later_contract_failure",
+      "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_collector_waits_for_terminal_and_retains_later_contract_failure|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/scripts/probe_managed_capabilities.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 86,
+      "limit": 80,
+      "symbol": "live",
+      "key": "function_size|consent-protocol/scripts/probe_managed_capabilities.py|live|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "deploy/drive/verify_worker_revision.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 84,
+      "limit": 80,
+      "symbol": "verify_revision",
+      "key": "function_size|deploy/drive/verify_worker_revision.py|verify_revision|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/test_managed_vertex_readiness_script.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 81,
+      "limit": 80,
+      "symbol": "test_chat_credit_project_requires_a_successful_runtime_identity_probe",
+      "key": "function_size|consent-protocol/tests/test_managed_vertex_readiness_script.py|test_chat_credit_project_requires_a_successful_runtime_identity_probe|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "scripts/ci/managed_provider_readiness.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 800,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|scripts/ci/managed_provider_readiness.py||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "consent-protocol/hushh_mcp/runtime_providers/azure_adk.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 628,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|consent-protocol/hushh_mcp/runtime_providers/azure_adk.py||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "consent-protocol/tests/one_voice/test_factory_live_client.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 548,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|consent-protocol/tests/one_voice/test_factory_live_client.py||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "consent-protocol/hushh_mcp/one_voice/azure_live.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 509,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|consent-protocol/hushh_mcp/one_voice/azure_live.py||module exceeds the advisory operon budget"
     }
   ],
   "inspected_files": 6625,
@@ -81270,6 +81423,923 @@
         "source_sha256": "6797d47710034f2b16c745bfdb91649fe7dcf3c6cfcdaeb34883f43a775d058b",
         "reviewer": "root with independent backend/browser reviewers",
         "review": "Explicit Shared placement fixture preserves unknown/private placement refusal."
+      }
+    ]
+  },
+  "fresh_azure_managed_main_review_20261021": {
+    "main_revision": "f0eca1f98328c602c6172f546a0fbb9ae4c6a46d",
+    "parent_revision": "8332995bea5fa550b02a17673fff7bc4c4892090",
+    "policy": "Only exact inherited or reviewed merged size ceilings. Historical findings and budgets unchanged; no direction/import exception.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py|PKMAgentLabService|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 5438,
+        "after": 5439,
+        "source_sha256": "1925896a264d08258e0371216738a152abe9b4c613cdbf1d871c29b76bbc8ef6",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/one_voice/session.py|VoiceSession|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 3656,
+        "after": 3713,
+        "source_sha256": "f7795e4ff1effae533a8e14b5bd0106fbeaba2841f848ae28742c40804abb1dd",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|DriveOwnerSearchService|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1980,
+        "after": 1983,
+        "source_sha256": "8a76885f6ebabae60b7fc59c6a374d8f363f52dd2c3ec1d0c4c0f5080c7ee1bd",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestSpecialistTurn|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 393,
+        "after": 395,
+        "source_sha256": "23656da0d327a340a769e0054a766b52a163dff3996155423ca9fcaad9576584",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/one_voice/azure_live.py|AzureLiveSession|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 371,
+        "source_sha256": "7259809486b5b5fe57b1ed8e25f52702e35e6bce60cbb3451106fc4ff47aa005",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/world_model.py|run_world_model|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 473,
+        "after": 483,
+        "source_sha256": "6587b1ffe9bdca9aef8b5bbd098c74bbf71fb14cf9a0edc1c88f6e60cb9f010d",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/scripts/probe_managed_capabilities.py|probe_managed_capabilities|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 340,
+        "source_sha256": "ab25b6e68649f8bf029d544a54d84db2e8b2d62cb9d0aed15f10ac9c1c3f2ee7",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py|_run_agent_contract|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 294,
+        "after": 295,
+        "source_sha256": "1925896a264d08258e0371216738a152abe9b4c613cdbf1d871c29b76bbc8ef6",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/scripts/verify_managed_vertex_runtime.py|main|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 229,
+        "after": 248,
+        "source_sha256": "4d621b775a9386287d34222d1350ba0e86c84108797e9b7fa7d7845518eabf60",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|scripts/ci/managed_provider_readiness.py|collect|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 227,
+        "source_sha256": "d32536771dc9970177ccae35806653aa950407892a7d2ea323af0113af80b657",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/azure_live.py|events|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 198,
+        "source_sha256": "7259809486b5b5fe57b1ed8e25f52702e35e6bce60cbb3451106fc4ff47aa005",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_drive_work_drain_scheduler_contract.py|test_worker_deploy_traffic_flags_match_service_state|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 178,
+        "after": 192,
+        "source_sha256": "3d7198d1ce854e3cc55a8348d3fd8e0ef9d8aa769a6f6b570ab4700e1bac9973",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_handle_live_event|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 160,
+        "after": 183,
+        "source_sha256": "f7795e4ff1effae533a8e14b5bd0106fbeaba2841f848ae28742c40804abb1dd",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|_semantic_assessment_page|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 161,
+        "after": 164,
+        "source_sha256": "8a76885f6ebabae60b7fc59c6a374d8f363f52dd2c3ec1d0c4c0f5080c7ee1bd",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/world_model.py|search_public_web|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 156,
+        "after": 157,
+        "source_sha256": "6587b1ffe9bdca9aef8b5bbd098c74bbf71fb14cf9a0edc1c88f6e60cb9f010d",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_handle_client_frame|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 137,
+        "after": 152,
+        "source_sha256": "f7795e4ff1effae533a8e14b5bd0106fbeaba2841f848ae28742c40804abb1dd",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_one_time_uat_vertex_skip_is_bound_to_the_approved_release|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 151,
+        "after": 152,
+        "source_sha256": "2c9bd23175092ff63da3853a10f5fb5698f582289dc7dc7a505ddf9dbd555a7c",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/world_model_source_review.py|prepare|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 120,
+        "after": 148,
+        "source_sha256": "f5b88e71f74f4011ee85eac7a160bf4db0d6562bbd73bf6cfe1ed7c279c3feb7",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|__init__|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 137,
+        "after": 141,
+        "source_sha256": "f7795e4ff1effae533a8e14b5bd0106fbeaba2841f848ae28742c40804abb1dd",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_drive_v1_worker_lane.py|test_paused_release_never_dispatches_or_resumes_work|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 116,
+        "after": 130,
+        "source_sha256": "00e81f8bff7c8251694f5c6a4829ac66e183e0e414904063ab7dd18b96204a1f",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 122,
+        "after": 128,
+        "source_sha256": "2c9bd23175092ff63da3853a10f5fb5698f582289dc7dc7a505ddf9dbd555a7c",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/app_intelligence_runtime.py|retrieve_location_brain_candidates|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 113,
+        "after": 116,
+        "source_sha256": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/managed_ai_config.py|load_pwm_policy|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 92,
+        "after": 112,
+        "source_sha256": "36a1c93e61e739761654b76897c417e95d2155c78357fb70188bfe64c0e059b4",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/voice_narration.py|narrate_digest_stream|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 87,
+        "after": 109,
+        "source_sha256": "1869fadba3fe878a9ad9dd169194a61bddbdfb2c2267df87e2ccf40cc31c9c7b",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/agents/location/command_brain.py|transcribe|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 81,
+        "after": 102,
+        "source_sha256": "a6c9fa0ac4a8385750d71a4249a40e69d65e37b776639af3fe335858afb901d7",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|_provider_fixture|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 102,
+        "source_sha256": "2c9bd23175092ff63da3853a10f5fb5698f582289dc7dc7a505ddf9dbd555a7c",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/runtime_providers/azure_adk.py|_history|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 98,
+        "source_sha256": "1cfca0808d911112c593c71d96896c1f4aa87aee3c95fd9defc9bd387fa7475b",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/runtime_providers/azure_adk.py|_response|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 98,
+        "source_sha256": "1cfca0808d911112c593c71d96896c1f4aa87aee3c95fd9defc9bd387fa7475b",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|scripts/ci/managed_provider_readiness.py|valid_capabilities|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 93,
+        "source_sha256": "d32536771dc9970177ccae35806653aa950407892a7d2ea323af0113af80b657",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|scripts/ci/managed_provider_readiness.py|evaluate|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 92,
+        "source_sha256": "d32536771dc9970177ccae35806653aa950407892a7d2ea323af0113af80b657",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_collector_waits_for_terminal_and_retains_later_contract_failure|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 87,
+        "source_sha256": "2c9bd23175092ff63da3853a10f5fb5698f582289dc7dc7a505ddf9dbd555a7c",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/scripts/probe_managed_capabilities.py|live|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 86,
+        "source_sha256": "ab25b6e68649f8bf029d544a54d84db2e8b2d62cb9d0aed15f10ac9c1c3f2ee7",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|deploy/drive/verify_worker_revision.py|verify_revision|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 84,
+        "source_sha256": "2be8c56ca7030a8b72d8dcb9eb07474701dd7928d35e1aea974acac03e1a0a2e",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_managed_vertex_readiness_script.py|test_chat_credit_project_requires_a_successful_runtime_identity_probe|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 81,
+        "source_sha256": "4903ae61a43d9987f75bfb985c914dd2daa096a938e0bce379940e746871d853",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/app_intelligence_runtime.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 7449,
+        "after": 7518,
+        "source_sha256": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_one_adk_agent_tree.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 6515,
+        "after": 6517,
+        "source_sha256": "23656da0d327a340a769e0054a766b52a163dff3996155423ca9fcaad9576584",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 6170,
+        "after": 6175,
+        "source_sha256": "1925896a264d08258e0371216738a152abe9b4c613cdbf1d871c29b76bbc8ef6",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/one_voice/test_relay_protocol.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 4549,
+        "after": 4661,
+        "source_sha256": "b6c8e93a3592a54eb8079c756bbfa0a1b95b235d13ee18a24710b761cdef8663",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/one_voice/session.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 4097,
+        "after": 4154,
+        "source_sha256": "f7795e4ff1effae533a8e14b5bd0106fbeaba2841f848ae28742c40804abb1dd",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 3430,
+        "after": 3433,
+        "source_sha256": "8a76885f6ebabae60b7fc59c6a374d8f363f52dd2c3ec1d0c4c0f5080c7ee1bd",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 2004,
+        "after": 2595,
+        "source_sha256": "2c9bd23175092ff63da3853a10f5fb5698f582289dc7dc7a505ddf9dbd555a7c",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/components/one-voice/voice-session-provider.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 2245,
+        "after": 2254,
+        "source_sha256": "e088f553e6b63559e32f8daf96512e99c8fa608fce6c433555f33463b086f1e6",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_azure_adk.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 880,
+        "after": 1222,
+        "source_sha256": "b1aa7982c3a4668503ef6fc15329677b3e4d0144f6d508c98513645fcca3b951",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_package_assessment.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1083,
+        "after": 1093,
+        "source_sha256": "1a8047a33f7f118dee5d172f943d2e17c4b302c6fb88da30ba396b82ef7cfec9",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/operons/kai/llm.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1071,
+        "after": 1084,
+        "source_sha256": "ecc3ecd11ddf3a0908fa1cfc99da260661db08231e38def47822d831c07dd512",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|scripts/deploy/backend-deploy.sh||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1047,
+        "after": 1050,
+        "source_sha256": "06c8edcea5d4b1a73ecd4e7e13a7817872a0e39e91a88a71b40af2f53892c9cb",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_managed_vertex_readiness_script.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 906,
+        "after": 910,
+        "source_sha256": "4903ae61a43d9987f75bfb985c914dd2daa096a938e0bce379940e746871d853",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/one-voice/live-client.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 805,
+        "after": 814,
+        "source_sha256": "0fbd75f70df7755b612a57aba2dcd046ae7a9f9229ca7b4a32ec56347959827f",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_drive_work_drain_scheduler_contract.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 791,
+        "after": 805,
+        "source_sha256": "3d7198d1ce854e3cc55a8348d3fd8e0ef9d8aa769a6f6b570ab4700e1bac9973",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|scripts/ci/managed_provider_readiness.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 800,
+        "source_sha256": "d32536771dc9970177ccae35806653aa950407892a7d2ea323af0113af80b657",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/one/voice.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 742,
+        "after": 775,
+        "source_sha256": "cc452502108235181f5055dae1942ca2c915b2aa5bade03c4134a2b7d4ef7cc2",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/ria_brochure_profile_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 697,
+        "after": 701,
+        "source_sha256": "df667a8a6f2f416f5c50302cb08ec46d8928d94af1606e3c09bd52d175957457",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_runtime_settings_maps.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 660,
+        "after": 689,
+        "source_sha256": "c7571b4661fef3c1c1037c032fda80d5d9876f0108a6bd16e5b1d8273e25916d",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_package_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 682,
+        "after": 683,
+        "source_sha256": "7d993302f93caa9f2a5399bb9cc33369cf0ff58ba47d306c8095282793007c17",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_request_package_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 637,
+        "after": 665,
+        "source_sha256": "1dbb27dc5e65e460ba960ccdeed642b3063cc04625d5f15f9dac77bc392221cc",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/scripts/verify_managed_vertex_runtime.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 632,
+        "after": 653,
+        "source_sha256": "4d621b775a9386287d34222d1350ba0e86c84108797e9b7fa7d7845518eabf60",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/runtime_providers/azure_adk.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 628,
+        "source_sha256": "1cfca0808d911112c593c71d96896c1f4aa87aee3c95fd9defc9bd387fa7475b",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/one_voice/protocol.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 573,
+        "after": 596,
+        "source_sha256": "61b86235153070e1d16655c7ab120b161e0591b2e03182446927f85817173cb9",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/one_adk/world_model.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 571,
+        "after": 581,
+        "source_sha256": "6587b1ffe9bdca9aef8b5bbd098c74bbf71fb14cf9a0edc1c88f6e60cb9f010d",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_drive_worker_release_rollback.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 559,
+        "after": 579,
+        "source_sha256": "afaf97349c13cc5fea8e22f9cbf41ec104c8e8123e42613a772565dc1c2a56f7",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_model_preference_resolution.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 567,
+        "after": 572,
+        "source_sha256": "b9ec1ba71f665306d9b3a01673c76a88d3549312594da1e5470ebbc5c4db646a",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/one_voice/test_factory_live_client.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 548,
+        "source_sha256": "a88a26f3282166f7335da8c590011940a8d2b278c4864f725b76c837e7c15969",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_managed_runtime_selection.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 521,
+        "after": 522,
+        "source_sha256": "6411041e3b8171a90c6eba3fe69a83b810e131d1719248ae5f0fb95de7e81c8f",
+        "matches_main": false,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/one_voice/azure_live.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 509,
+        "source_sha256": "7259809486b5b5fe57b1ed8e25f52702e35e6bce60cbb3451106fc4ff47aa005",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/one-voice/protocol.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 501,
+        "after": 505,
+        "source_sha256": "8374618b47dbff9d51c83062945074ddf57eec14e1eb98f4a46a54b4094c5b06",
+        "matches_main": true,
+        "review": "Main Azure managed-runtime inheritance or reviewed union. Retains private placement, phase-aware Browser history, media/search and provider-cache boundaries; nearest seam suites validate composition. No non-size exception.",
+        "reviewers": [
+          "adk_backend_conflicts",
+          "adk_frontend_conflicts",
+          "root"
+        ]
       }
     ]
   }

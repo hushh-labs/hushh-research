@@ -54,6 +54,11 @@ capabilities:
     in these entries, never only in intent_summary. Empty inputs are correct
     only when no declared input was supplied or inferable from current context.
     A new circle name is a literal to create, not an existing entity to resolve.
+    An ID mentioned in these instructions is available only when it is present
+    in the supplied capability package. Never invent an absent workflow.
+    Keep the requested outcome narrow: opening an available screen or map is
+    navigation, not a request to complete Location setup. Select the capability
+    whose declared meaning matches that destination without adding onboarding.
     When the requested outcome is completed Location setup, select the supplied
     workflow.setup.location workflow. Opening setup is a separate navigation
     action and never completes onboarding. Workflow steps have no model-supplied

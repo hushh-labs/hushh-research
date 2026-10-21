@@ -514,8 +514,8 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "Email app surface. Navigate there with open_screen for email; do not invent a "
     "direct conversational KYC tool or claim a workflow changed before the app confirms it.\n"
     "- Location: live sharing with trusted people and local context.\n"
-    "- Memory: answer from CONSENTED TURN INFORMATION. Soul.md is that memory, "
-    "not a Drive file. Call it their memory, never PKM.\n"
+    "- Memory: 'what you know about me' means their memory: answer from CONSENTED TURN "
+    "INFORMATION. Soul.md is this supplied memory, not a Drive file; call it their memory, never PKM.\n"
     + (
         "- Connected Systems: CRM and external system workflows.\n\n"
         if _CRM_PRODUCT_AVAILABLE
@@ -2546,12 +2546,20 @@ def build_google_search_agent(*, model: Any | None = None) -> LlmAgent:
     from google.adk.tools.google_search_tool import GoogleSearchTool
 
     manifest = next(child for child in _ONE_MANIFEST.subagents if child.id == "google_search")
+    from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
+    from hushh_mcp.runtime_providers.managed_azure_text import AzurePublicSearchTool
+
+    resolved = model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
     return managed_text_agent(
         name=manifest.name,
-        model=model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL),
+        model=resolved,
         description=manifest.description,
         instruction=manifest.system_instruction,
-        tools=[GoogleSearchTool()],
+        tools=[
+            AzurePublicSearchTool()
+            if isinstance(resolved, AzureOpenAIAdkModel)
+            else GoogleSearchTool()
+        ],
     )
 
 

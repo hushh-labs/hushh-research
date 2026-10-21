@@ -81,16 +81,27 @@ class VoiceReadinessResponse(BaseModel):
     ws_path: str = "/api/one/voice/live"
 
 
-_readiness_cache: tuple[float, VoiceReadinessResponse] | None = None
+_readiness_cache: dict[tuple, tuple[float, VoiceReadinessResponse]] = {}
 
 
 def reset_readiness_cache() -> None:
-    global _readiness_cache
-    _readiness_cache = None
+    _readiness_cache.clear()
 
 
 async def _probe_live_connect(config: OneVoiceLiveConfig) -> None:
     """Open and immediately close one Live session. No audio, no output."""
+    if config.provider == "azure_openai":
+        cfg = build_live_config(
+            system_instruction="Synthetic readiness only.",
+            tool_declarations=[],
+            voice_name="coral",
+            resumption_handle=None,
+        )
+        async with connect_live(config, cfg) as live:
+            async for event in live.events():
+                if event.kind == "setup_complete":
+                    return
+        raise RuntimeError("Azure Live setup was not acknowledged")
     client = build_managed_live_client(
         model=config.model_id,
         location=config.location,
@@ -103,22 +114,37 @@ async def _probe_live_connect(config: OneVoiceLiveConfig) -> None:
         return
 
 
-async def compute_readiness() -> VoiceReadinessResponse:
-    """Evaluate the flag, the contract, and (when enabled) a cached connect probe."""
-    global _readiness_cache
+async def compute_readiness(*, playback: bool = False) -> VoiceReadinessResponse:
+    """Probe the configured processor for every supported client protocol.
+
+    The optional playback hint remains wire-compatible; acknowledgements refine
+    interrupted context, not processor selection or authentication.
+    """
     now = time.monotonic()
-    if _readiness_cache and now - _readiness_cache[0] <= _READINESS_TTL_SECONDS:
-        return _readiness_cache[1]
     try:
         config = OneVoiceLiveConfig.from_environment()
     except OneVoiceConfigError:
         logger.warning("one_voice.readiness reason=not_configured")
         response = VoiceReadinessResponse(enabled=False, status="not_configured")
-        _readiness_cache = (now, response)
         return response
     if not config.enabled:
         # Not cached: turning the flag on must take effect on the next request.
         return VoiceReadinessResponse(enabled=False, status="disabled")
+    from hushh_mcp.managed_ai_config import load_managed_runtime_policy
+
+    policy = load_managed_runtime_policy()
+    key = (
+        config.provider,
+        config.model_id,
+        config.location,
+        config.vertex_project,
+        policy["generation"] if policy else None,
+    )
+    cached = _readiness_cache.get(key)
+    if cached is not None and now - cached[0] <= _READINESS_TTL_SECONDS:
+        return cached[1]
+    if len(_readiness_cache) >= 8:
+        _readiness_cache.clear()
     try:
         await asyncio.wait_for(
             _probe_live_connect(config), timeout=_READINESS_PROBE_TIMEOUT_SECONDS
@@ -134,7 +160,7 @@ async def compute_readiness() -> VoiceReadinessResponse:
             model=config.model_id,
             location=config.location,
         )
-        _readiness_cache = (now, response)
+        _readiness_cache[key] = (now, response)
         return response
     response = VoiceReadinessResponse(
         enabled=True,
@@ -142,7 +168,7 @@ async def compute_readiness() -> VoiceReadinessResponse:
         model=config.model_id,
         location=config.location,
     )
-    _readiness_cache = (now, response)
+    _readiness_cache[key] = (now, response)
     return response
 
 
@@ -150,6 +176,7 @@ async def compute_readiness() -> VoiceReadinessResponse:
 @limiter.limit(RateLimits.AGENT_CHAT)
 async def voice_readiness(
     request: Request,
+    playback: bool = Query(default=False),
     _firebase_uid: str = Depends(require_firebase_auth),
 ) -> VoiceReadinessResponse:
     """Cached, output-suppressed proof that a Live session can be opened.
@@ -158,7 +185,7 @@ async def voice_readiness(
     provider outage reports ``provider_unavailable`` and hides the control; it
     never falls back to another model or region.
     """
-    return await compute_readiness()
+    return await compute_readiness(playback=playback)
 
 
 # --------------------------------------------------------------------------
@@ -282,13 +309,19 @@ def _live_factory(config: OneVoiceLiveConfig):
 
     @asynccontextmanager
     async def _factory(model: str, live_config: dict[str, Any]):
+        if model != config.model_id:
+            raise ValueError("Voice session model does not match its configured processor")
         cfg = build_live_config(
             system_instruction=str(live_config["system_instruction"]),
             tool_declarations=list(live_config["tool_declarations"]),
             voice_name=voice_name(),
             resumption_handle=live_config.get("resumption_handle"),
         )
-        async with connect_live(config, cfg) as live:
+        async with connect_live(
+            config,
+            cfg,
+            playback_acknowledgements=live_config.get("playback_acknowledgements") is True,
+        ) as live:
             yield live
 
     return _factory

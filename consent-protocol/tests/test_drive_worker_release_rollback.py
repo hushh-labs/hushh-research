@@ -72,7 +72,21 @@ def flag(name, default=None):
 def save():
     state_path.write_text(json.dumps(state, sort_keys=True))
 
-if args[:3] == ["run", "services", "list"]:
+if args[:4] == ["run", "services", "describe", "consent-protocol"]:
+    print(json.dumps({"status": {"traffic": [{"revisionName": "consent-protocol-01234-api", "percent": 100}]}}))
+elif args[:4] == ["run", "revisions", "describe", "consent-protocol-01234-api"]:
+    print(json.dumps({
+        "metadata": {"name": "consent-protocol-01234-api"},
+        "spec": {"serviceAccountName": os.environ["RUNTIME_SERVICE_ACCOUNT"], "containers": [{
+            "image": os.environ["IMAGE_REFERENCE"],
+            "env": [{"name": key, "value": value} for key, value in {
+                "HUSHH_DEPLOY_SHA": os.environ["DEPLOY_SHA"],
+                "HUSHH_DEPLOY_RUN_ID": os.environ["RELEASE_RUN_ID"],
+                "HUSHH_DEPLOY_ENV": "uat", "HUSHH_UAT_MANAGED_TEXT_PROVIDER": "azure_openai", "HUSHH_UAT_MANAGED_AI_PROVIDER": "azure_openai",
+            }.items()],
+        }]}, "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+    }))
+elif args[:3] == ["run", "services", "list"]:
     print("[]")
 elif args[:3] == ["run", "services", "describe"]:
     if "--format=value(status.latestCreatedRevisionName)" in args:
@@ -97,12 +111,18 @@ elif args[:3] == ["run", "revisions", "describe"]:
              "env": [{"name": "DRIVE_WORK_DRAIN_ENABLED",
                       "value": state.get("deployed_drain_enabled", "true")},
                      {"name": "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER",
-                      "value": state["deployed_semantic_model_provider"]}]},
+                      "value": state["deployed_semantic_model_provider"]},
+                     {"name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER",
+                      "value": state["deployed_managed_text_provider"]},
+                     {"name": "HUSHH_UAT_MANAGED_AI_PROVIDER",
+                      "value": state["deployed_managed_ai_provider"]}]},
             {"name": "clamav", "image": os.environ["MOCK_CLAMAV_IMAGE"]},
         ]},
         "status": {"conditions": [{"type": "Ready", "status": "True"}]},
     }))
 elif args[:2] == ["run", "deploy"]:
+    state["deployed_managed_text_provider"] = flag("--set-env-vars").split("HUSHH_UAT_MANAGED_TEXT_PROVIDER=", 1)[1].split("|", 1)[0]
+    state["deployed_managed_ai_provider"] = flag("--set-env-vars").split("HUSHH_UAT_MANAGED_AI_PROVIDER=", 1)[1].split("|", 1)[0]
     state["deployed_drain_enabled"] = flag("--set-env-vars").split("DRIVE_WORK_DRAIN_ENABLED=", 1)[1].split("|", 1)[0]
     state["deployed_semantic_model_provider"] = flag("--set-env-vars").split("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=", 1)[1].split("|", 1)[0]
     state["deployed_scaling"] = {

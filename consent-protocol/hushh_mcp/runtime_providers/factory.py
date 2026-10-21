@@ -526,6 +526,13 @@ def build_managed_runtime_client(runtime_provider: str, managed_credential: str 
     """
 
     provider = normalize_provider(runtime_provider)
+    if provider == "gemini":
+        from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding
+
+        if ManagedAzureBinding.from_environment() is not None:
+            from hushh_mcp.runtime_providers.managed_azure_text import ManagedAzureTextClient
+
+            return ManagedAzureTextClient()
     key = (managed_credential or "").strip()
     if provider != "gemini" and not key:
         raise RuntimeError("Managed runtime API key is not configured")
@@ -571,6 +578,11 @@ def build_managed_gemini_adk_model(
     the initial request too. Omission preserves ADK's existing transport defaults.
     """
 
+    from hushh_mcp.runtime_providers.managed_azure_text import build_azure_text_model
+
+    azure = build_azure_text_model(model, http_options=http_options)
+    if azure is not None:
+        return azure
     return ManagedGeminiRuntimeBinding.from_environment().build_adk_model(
         model,
         location=vertex_location,
@@ -583,6 +595,11 @@ def build_managed_regional_gemini_adk_model(
 ) -> Any:
     """Build a tool-less single-turn ADK model with bounded regional failover."""
 
+    from hushh_mcp.runtime_providers.managed_azure_text import build_azure_text_model
+
+    azure = build_azure_text_model(model)
+    if azure is not None:
+        return azure
     return ManagedGeminiRuntimeBinding.from_environment(
         vertex_project=vertex_project
     ).build_regional_adk_model(model)

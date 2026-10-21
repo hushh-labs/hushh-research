@@ -4,6 +4,21 @@
 # Candidate probe logic; Cloud Build supplies its explicit environment.
 
 set -euo pipefail
+finish_provider_probe() {
+  probe_status=$?
+  trap - EXIT
+  record_status=0
+  READINESS_STEP_EXIT="${probe_status}" python3 scripts/ci/managed_provider_readiness.py record --provider=vertex --job="${job_name:-}" || record_status=$?
+  if [[ -n "${job_name:-}" ]]; then
+    gcloud run jobs delete "${job_name}" --project="$PROJECT_ID" --region="${_REGION}" --quiet >/dev/null 2>&1 || true
+  fi
+  # UAT's required aggregate validates both collected providers after deployment.
+  # Other environments retain their original predeployment Vertex gate.
+  if [[ "${_DEPLOY_ENV}" == "uat" ]]; then exit 0; fi
+  if [[ "${record_status}" != "0" ]]; then exit "${record_status}"; fi
+  exit "${probe_status}"
+}
+trap finish_provider_probe EXIT
 if [[ "${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE:-false}" == "true" ]]; then
   echo "WARNING: user-authorized one-time UAT Vertex probe skip; managed Chat and Voice are unverified by this release gate."
   exit 0
@@ -30,19 +45,17 @@ fi
 # One job per Cloud Build keeps a concurrent execution from replacing
 # this build's verdict while Cloud Logging is ingesting it.
 job_name="genai-ready-${BUILD_ID}"
-trap 'gcloud run jobs delete "${job_name}" --project="$PROJECT_ID" --region="${_REGION}" --quiet >/dev/null 2>&1 || true' EXIT
-# This isolated model probe sends only synthetic requests. Clear any
-# retained job secrets so it cannot inherit a retired Live key or
-# application signing/vault authority from an earlier deployment.
+# Only the configured signing/vault references required by packaged imports;
+# no inherited secrets, customer prompts or state enter this synthetic probe.
 gcloud run jobs deploy "${job_name}" \
   --project="$PROJECT_ID" \
   --region="${_REGION}" \
   --image="${image_reference}" \
   --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
-  --clear-secrets \
+  --set-secrets="APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest" \
   --command="python3" \
   --args="scripts/verify_managed_vertex_runtime.py" \
-  --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}|HUSHH_ONE_VOICE_VERTEX_PROJECT=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}|HUSHH_MANAGED_VERTEX_PROBE_MODE=${probe_mode}|ENVIRONMENT=${_DEPLOY_ENV}|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}|ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}|VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}|VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}" \
+  --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}|HUSHH_ONE_VOICE_VERTEX_PROJECT=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}|HUSHH_MANAGED_VERTEX_PROBE_MODE=${probe_mode}|HUSHH_UAT_MANAGED_AI_PROVIDER=vertex|HUSHH_UAT_MANAGED_TEXT_PROVIDER=vertex|ENVIRONMENT=${_DEPLOY_ENV}|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}|ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}|VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}|VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}" \
   --cpu=2 \
   --memory=2Gi \
   --max-retries=0 \

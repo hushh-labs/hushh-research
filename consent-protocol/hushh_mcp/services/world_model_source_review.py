@@ -122,17 +122,45 @@ async def prepare(user_id, token, body: SourceReviewInput):
         model_name = resolve_fleet_model_name(task.model.name)
         source_instruction = task.system_instruction.split("OWNER-SUPPLIED SOURCE REVIEW\n", 1)[1]
         async with asyncio.timeout(150):
-            response = await build_managed_runtime_client("gemini").aio.models.generate_content(
-                model=model_name,
-                contents=json.dumps(body.model_dump()),
-                config=types.GenerateContentConfig(
-                    system_instruction=source_instruction,
-                    tools=[types.Tool(url_context=types.UrlContext())],
-                    max_output_tokens=8192,
-                ),
-            )
+            from hushh_mcp.managed_ai_config import load_managed_runtime_policy
+
+            runtime_policy = load_managed_runtime_policy()
+            if runtime_policy is not None:
+                from hushh_mcp.one_adk.public_source_fetch import retrieve_public_sources
+
+                async def current():
+                    current_policy = load_managed_runtime_policy()
+                    if (
+                        current_policy is None
+                        or current_policy["generation"] != runtime_policy["generation"]
+                    ):
+                        raise PermissionError("Source-review processor selection changed")
+                    await require_owner(user_id, token)
+
+                retrieved = await retrieve_public_sources(body.urls, require_current=current)
+                sources = {item.ref: item.url for item in retrieved}
+                parts = [types.Part(text=json.dumps(body.model_dump()))]
+                parts.extend(part for item in retrieved for part in item.parts)
+                response = await build_managed_runtime_client("gemini").aio.models.generate_content(
+                    model=model_name,
+                    contents=types.Content(role="user", parts=parts),
+                    config=types.GenerateContentConfig(
+                        system_instruction=source_instruction,
+                        max_output_tokens=8192,
+                    ),
+                )
+            else:
+                response = await build_managed_runtime_client("gemini").aio.models.generate_content(
+                    model=model_name,
+                    contents=json.dumps(body.model_dump()),
+                    config=types.GenerateContentConfig(
+                        system_instruction=source_instruction,
+                        tools=[types.Tool(url_context=types.UrlContext())],
+                        max_output_tokens=8192,
+                    ),
+                )
+                sources = successful_sources(response, body.urls)
             await require_owner(user_id, token)
-            sources = successful_sources(response, body.urls)
             agent = LlmAgent(
                 name=task.id,
                 model=build_managed_regional_gemini_adk_model(model_name),

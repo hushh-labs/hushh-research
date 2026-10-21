@@ -66,6 +66,8 @@ def test_flag_on_reads_the_pinned_contract(monkeypatch):
 
 
 def test_voice_uses_shared_uat_project_ignoring_retired_override(monkeypatch):
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "vertex")
     monkeypatch.setenv(ONE_VOICE_LIVE_ENABLED_ENV, "true")
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
     monkeypatch.setenv(HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV, "retired-project")
