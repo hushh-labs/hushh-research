@@ -189,6 +189,10 @@ jobs:
             "${RUNNER_TEMP}/release-tools/plg/bind_secrets.sh"
           cp scripts/ci/assert_one_voice_live_probe.py \
             "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py"
+          # Current Cloud Build records and evaluates provider readiness through
+          # this companion, even when the approved application predates it.
+          cp scripts/ci/managed_provider_readiness.py \
+            "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py"
           # Orchestration must remain current when rolling back to an older image.
           mkdir -p "${RUNNER_TEMP}/release-tools/drive"
           for tool in resolve_prod_release_mode.py verify_prod_prerequisites.py verify_hashcoin_config.sh setup_native_callback_log_exclusion.sh \
@@ -239,6 +243,8 @@ jobs:
             deploy/plg/bind_secrets.sh
           cp "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py" \
             scripts/ci/assert_one_voice_live_probe.py
+          cp "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py" \
+            scripts/ci/managed_provider_readiness.py
           mkdir -p deploy/drive
           cp "${RUNNER_TEMP}/release-tools/drive/"* deploy/drive/
           cp "${RUNNER_TEMP}/release-tools/sync_backend_runtime_secrets.py" \

@@ -6,6 +6,7 @@ import base64
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -457,6 +458,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         "scripts/ci/verify-prod-places-readiness.py",
         "scripts/ci/cloudrun-retention.py",
         "scripts/ci/account-deletion-fence-decision.py",
+        "scripts/ci/managed_provider_readiness.py",
         "scripts/ops/verify-env-secrets-parity.py",
         *(f"deploy/drive/{name}" for name in tools),
         *(
@@ -532,7 +534,16 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     referenced = cloudbuild_sourced_shell_helpers(repo, build)
     assert "scripts/deploy/backend-deploy.sh" in referenced
     assert "scripts/deploy/verify-managed-vertex-runtime.sh" in referenced
+    referenced.update(
+        match
+        for step in build["steps"]
+        for argument in step.get("args", [])
+        for match in re.findall(
+            r"\bpython3\s+(scripts/ci/managed_provider_readiness\.py)\b", argument
+        )
+    )
     assert referenced, "Exercise the preserved Cloud Build source dependencies"
+    assert "scripts/ci/managed_provider_readiness.py" in referenced
     upload_filter = pathspec.GitIgnoreSpec.from_lines(
         (repo / ".gcloudignore").read_text().splitlines()
     )
