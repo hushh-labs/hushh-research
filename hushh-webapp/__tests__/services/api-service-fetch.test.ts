@@ -1626,6 +1626,26 @@ describe("ApiService.apiFetch", () => {
     expect(payload.meta?.market_mode).toBe("baseline");
   });
 
+  it("keeps US Market session status independent of the viewer timezone", async () => {
+    const resolvedOptions = new Intl.DateTimeFormat().resolvedOptions();
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      ...resolvedOptions,
+      timeZone: "Asia/Kolkata",
+    });
+    mockFetch.mockResolvedValueOnce(jsonResponse({ generated_at: "2026-10-22T14:00:00Z" }));
+
+    await ApiService.getKaiMarketInsights({
+      userId: "user_123",
+      vaultOwnerToken: "fixture-vault-token",
+    });
+
+    const [calledUrl] = mockFetch.mock.calls[0] as [string];
+    const query = new URL(calledUrl, "http://localhost").searchParams;
+    expect(query.get("tz")).toBe("Asia/Kolkata");
+    expect(query.get("exchange")).toBe("US");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("starts UAT phone test verification through the account proxy", async () => {
     mockFetch.mockResolvedValueOnce(
       jsonResponse({

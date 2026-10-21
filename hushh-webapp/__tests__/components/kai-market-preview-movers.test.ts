@@ -162,6 +162,20 @@ describe("toMoverGroups", () => {
     movers: { gainers, losers, active: [mover("HIDDEN", 1, false)], degraded },
   } as unknown as KaiHomeInsightsV2);
 
+  it("opens the clicked mover through the ticker preview contract", () => {
+    const navigate = vi.fn();
+    window.addEventListener("app-internal-navigation-requested", navigate);
+    try {
+      render(createElement(OneMarketMovers, { groups: groupsFor([mover("AAPL", 1)], []) }));
+      fireEvent.click(screen.getByRole("button", { name: /AAPL/ }));
+      expect(navigate).toHaveBeenCalledOnce();
+      const href = (navigate.mock.calls[0]![0] as CustomEvent<{ href: string }>).detail.href;
+      expect(href).toBe("/one/kai?tab=analysis&ticker=AAPL");
+    } finally {
+      window.removeEventListener("app-internal-navigation-requested", navigate);
+    }
+  });
+
   it("shares cached status only for the displayed rows and retains exact common observation time", () => {
     const groups = groupsFor([mover("A", 4), mover("B", 3), mover("C", 2), mover("FOURTH", 1, false)], [mover("D", -1)]);
     const { container } = render(createElement(OneMarketMovers, { groups }));

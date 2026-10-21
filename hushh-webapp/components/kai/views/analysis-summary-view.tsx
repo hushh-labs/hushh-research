@@ -15,6 +15,7 @@ import { toInvestorDecisionLabel } from "@/lib/copy/investor-language";
 import {
   fetchLatestMarketSnapshot,
   getLatestMarketSnapshotFromCache,
+  marketSnapshotForTicker,
   pickPreferredMarketSnapshot,
   type TickerMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
@@ -115,6 +116,7 @@ function resolveDailyChangePct(rawCard: Record<string, unknown>): number | null 
 
 function resolveRawCardMarketSnapshot(
   rawCard: Record<string, unknown>,
+  ticker: string,
   _fallbackObservedAt?: string
 ): TickerMarketSnapshot | null {
   const marketSnapshotRaw =
@@ -126,6 +128,7 @@ function resolveRawCardMarketSnapshot(
   const direct = readNumber(marketSnapshotRaw.last_price);
   if (rawCard.market_snapshot && typeof rawCard.market_snapshot === "object") {
     return {
+      ticker: ticker.trim().toUpperCase(),
       last_price: direct !== null && direct > 0 ? direct : null,
       change_pct: readNumber(marketSnapshotRaw.change_pct),
       observed_at:
@@ -140,6 +143,7 @@ function resolveRawCardMarketSnapshot(
   const fallback = resolveCurrentPrice(rawCard);
   if (fallback !== null && fallback > 0) {
     return {
+      ticker: ticker.trim().toUpperCase(),
       last_price: fallback,
       change_pct: resolveDailyChangePct(rawCard),
       observed_at: null,
@@ -210,13 +214,15 @@ export function AnalysisSummaryView({
     () =>
       resolveRawCardMarketSnapshot(
         rawCard,
+        entry.ticker,
         String(rawCard.analysis_updated_at || entry.timestamp || "")
       ),
-    [entry.timestamp, rawCard]
+    [entry.ticker, entry.timestamp, rawCard]
   );
-  const [marketSnapshot, setMarketSnapshot] = useState<TickerMarketSnapshot | null>(
+  const [marketSnapshotState, setMarketSnapshot] = useState<TickerMarketSnapshot | null>(
     rawCardSnapshot
   );
+  const marketSnapshot = marketSnapshotForTicker(marketSnapshotState, entry.ticker);
 
   useEffect(() => {
     setMarketSnapshot(rawCardSnapshot);
@@ -228,7 +234,7 @@ export function AnalysisSummaryView({
 
     const cached = getLatestMarketSnapshotFromCache(userId, entry.ticker);
     if (!cancelled) {
-      setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, cached));
+      setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, cached, entry.ticker));
     }
 
     if (!vaultOwnerToken) return () => {
@@ -244,7 +250,7 @@ export function AnalysisSummaryView({
           daysBack: 7,
         });
         if (!cancelled) {
-          setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, live));
+          setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, live, entry.ticker));
         }
       } catch {
         // Non-blocking: keep best known snapshot.

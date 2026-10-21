@@ -390,7 +390,7 @@ export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, 
                 ? <p key={key} className="py-4 text-sm text-muted-foreground">No {title.toLowerCase()} available.</p>
                 : <span key={key} aria-hidden="true" />;
               return <button key={`${key}:${row.symbol}`} type="button" aria-describedby={`${id}-${key}`}
-                onClick={() => openOneMarketHref(buildKaiMarketRoute("analysis", { symbol: row.symbol }))}
+                onClick={() => openOneMarketHref(buildKaiMarketRoute("analysis", { ticker: row.symbol }))}
                 className="flex min-h-12 min-w-0 w-full flex-col items-stretch gap-1 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                 <span className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-1 gap-y-1">
                   <span className="min-w-0 break-words text-sm font-semibold text-foreground">{row.symbol}</span>
