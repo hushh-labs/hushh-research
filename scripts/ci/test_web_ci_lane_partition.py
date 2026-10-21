@@ -3,7 +3,7 @@
 
 PR Validation runs two web lanes as matrices to shorten the critical path:
 
-* ``Web Targeted Contracts`` as a ``node`` leg and three native Playwright
+* ``Web Targeted Contracts`` as a ``node`` leg and four native Playwright
   browser shards (``WEB_TARGETED_PART`` and ``PLAYWRIGHT_SHARD``), and
 * ``Web Full Suite (Vitest)`` as Vitest shards (``WEB_FULL_SUITE_SHARD``).
 * 100 KB editor latency and History motion as a macOS browser job, outside Linux's
@@ -17,7 +17,7 @@ drives the real scripts with a stub ``npm`` that records what would have run,
 so the assertion is about the scripts' behaviour, not about their text.
 
 With web dependencies installed, ``--collect-browser-shards`` also uses native
-Playwright ``--list`` to prove that all three shards partition every browser command
+Playwright ``--list`` to prove that all four shards partition every browser command
 selected for this diff. It never starts a browser or runs test hooks.
 """
 
@@ -207,10 +207,10 @@ def test_node_leg_leaves_diagram_rendering_to_browser_leg() -> None:
     )
     assert code == 0, output[-2000:]
     assert not calls and "Rendered " not in output
-    for index in (1, 2, 3):
+    for index in (1, 2, 3, 4):
         code, calls, output = _run(
             TARGETED,
-            {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": "docs/README.md", "PLAYWRIGHT_SHARD": f"{index}/3"},
+            {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": "docs/README.md", "PLAYWRIGHT_SHARD": f"{index}/4"},
             stub_diagrams=True,
         )
         assert code == 0, output[-2000:]
@@ -353,7 +353,7 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
 
 def test_browser_shard_setting_is_validated_before_any_pack() -> None:
     gene = ROOT / "hushh-webapp/scripts/testing/playwright-shard.cjs"
-    for shard, primary in (("", "1"), ("1/3", "1"), ("2/3", "0"), ("3/3", "0")):
+    for shard, primary in (("", "1"), ("1/4", "1"), ("2/4", "0"), ("3/4", "0"), ("4/4", "0")):
         result = subprocess.run(
             ["node", str(gene)],
             env={**os.environ, "PLAYWRIGHT_SHARD": shard},
@@ -457,8 +457,8 @@ def collect_browser_shards() -> None:
             baseline = identities(collect(argv, env, None), None)
             linux_identities.update(baseline)
             shards = [
-                identities(collect(argv, env, f"{index}/3"), f"{index}/3")
-                for index in (1, 2, 3)
+                identities(collect(argv, env, f"{index}/4"), f"{index}/4")
+                for index in (1, 2, 3, 4)
             ]
             assert baseline, f"empty baseline: {pack} {argv}"
             assert sum(map(len, shards)) == len(set().union(*shards)), f"overlapping shards: {pack} {argv}"

@@ -47,7 +47,7 @@ retains its disclosed boundary.
 ### Retained Shared deletion
 
 The synthetic account, vault and original library remain fenced after
-`409 FILES_ERASURE_WAITING_FOR_WRITES`. Provider-session 412 is not terminal proof.
+`409 FILES_ERASURE_WAITING_FOR_WRITES`. A bounded read-only provider probe confirms 412 / conditionNotMet at If-Match; retained bytes do not match the exact write digest. This is not terminal proof. The write fence remains unchanged; no provider cancellation or SQL transition was repeated.
 No SQL override, direct provider deletion or blind retry is permitted. Its earlier
 32 KiB upload/Move/download/Undo used operator authentication/phone fixtures, not
 ordinary Google/CAPTCHA/SMS onboarding. The old RAM-only passphrase is gone;
@@ -76,13 +76,13 @@ light/dark cases pass. The test now awaits its polling effect; 43 focused Settin
 and update cases pass. Azure Browser review uses the canonical owner-cloud check,
 with backend qualification still required. Protocol retains all tests and serial
 database isolation; its measured timeout envelope is now 32 minutes within a
-35-minute job. These repairs still require exact-SHA hosted validation.
+35-minute job. Exact candidate `58181b7b88` passed 23 hosted jobs, including Protocol, web/native builds, security and the other browser packs. Browser pack three exceeded its thirty-minute limit twice after completed groups passed; final mobile results were interrupted. The next candidate retains every test and worker limit across four browser shards, with native collection proving the partition. Hosted success remains required.
 
 The GCP Browser configuration offer now binds an optional approved dev inference
 bridge to the exact runtime identity, discloses its processing project and verifies
 the installed setting. Image-only updates preserve absence. The 101 focused
 configuration, bridge-authority and image-update checks pass; installed access is
-still unverified.
+still unverified. The deployment secret synchronizer now preserves only an explicitly configured, environment-pinned dev bridge; 86 nearest configuration/hydration checks pass and the original omission fails its regression. The bridge is not implicitly activated.
 
 Browser implementation is committed at `80731a80b3`; main through `2d9de0df07`
 and frozen ADK `914e7c044c` are preserved in the combined ancestry. This candidate

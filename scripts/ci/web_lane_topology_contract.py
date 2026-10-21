@@ -18,9 +18,10 @@ def assert_web_lane_topology(workflow: str, scripts: Mapping[str, str], playwrig
         r'- part: (node|browser)\n\s+label: ([\w-]+)\n\s+shard: "([^"]*)"', targeted
     )
     assert [(part, shard) for part, _, shard in entries] == [
-        ("node", ""), ("browser", "1/3"), ("browser", "2/3"), ("browser", "3/3")
-    ], "run node once and all three browser shards"
-    assert len({label for _, label, _ in entries}) == 4, "matrix names must be unique"
+        ("node", ""), ("browser", "1/4"), ("browser", "2/4"),
+        ("browser", "3/4"), ("browser", "4/4")
+    ], "run node once and all four browser shards"
+    assert len({label for _, label, _ in entries}) == 5, "matrix names must be unique"
     assert 'name: "Web Targeted Contracts (${{ matrix.label }})"' in targeted
     assert "name: web-targeted-npm-audit-report-${{ matrix.label }}" in targeted
     assert "WEB_TARGETED_PART: ${{ matrix.part }}" in targeted
