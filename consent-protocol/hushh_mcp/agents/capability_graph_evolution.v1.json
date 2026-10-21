@@ -2026,6 +2026,38 @@
       "from_version": 2,
       "to_version": 2,
       "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.delete_account",
+      "from_revision": "f81cd566f223f92d",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:setup.finish_connections",
+      "from_revision": "f81cd566f223f92d",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:setup.open_connections",
+      "from_revision": "f81cd566f223f92d",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "f81cd566f223f92d",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
     }
   ]
 }

@@ -67,6 +67,18 @@ custody and sealed BYOK precedence; it does not authorize Browser execution.
 The [model project runbook](../../../docs/reference/operations/dev-pod-first-light-runbook.md#model-project-ownership)
 owns this exception and its installed-access checks.
 
+## Capacity observations
+
+The existing owner-authenticated pod status response includes an additive
+`resources` snapshot: cgroup-v2 memory usage, peak, limit and OOM counters;
+cumulative CPU/throttling counters; and whole `/dev/shm` filesystem occupancy.
+Readings are bounded numeric observations taken after local owner authorization.
+`partial` and `unavailable` preserve missing evidence; an unlimited limit is
+explicit. CPU rates require successive observations. Filesystem occupancy is not
+Browser-only scratch usage, and the snapshot is not atomic. Use these readings
+with request timings and provider observations for the capacity rehearsal;
+source implementation alone does not qualify a size.
+
 ## Visual Map
 
 Owner-container topology; dashed paths remain gated until composed owner acceptance.

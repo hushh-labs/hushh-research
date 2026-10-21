@@ -247,7 +247,10 @@ def test_renew_returns_a_fresh_session(pod):
 # -- roles on the app surface ----------------------------------------------------------
 
 
-def test_a_device_role_session_is_refused_on_app_routes(pod):
+def test_a_device_role_session_is_refused_on_app_routes(pod, monkeypatch):
+    monkeypatch.setattr(
+        pod_session, "resource_snapshot", lambda: pytest.fail("sampled before owner authorization")
+    )
     device = _admit(pod["client"], Subject("tdv_mac_1", "macos"))
     assert device.get("role") == "device", device
     client = pod["client"]
@@ -261,7 +264,10 @@ def test_a_device_role_session_is_refused_on_app_routes(pod):
         assert response.json()["detail"]["code"] == "role_mismatch"
 
 
-def test_no_bearer_and_a_hub_token_are_refused_by_shape(pod):
+def test_no_bearer_and_a_hub_token_are_refused_by_shape(pod, monkeypatch):
+    monkeypatch.setattr(
+        pod_session, "resource_snapshot", lambda: pytest.fail("sampled before owner authorization")
+    )
     client = pod["client"]
     assert client.get("/api/one/pod/status").status_code == 401
     assert client.get("/api/one/pod/status").json()["detail"]["code"] == "not_local_authority"
@@ -274,7 +280,9 @@ def test_no_bearer_and_a_hub_token_are_refused_by_shape(pod):
 # -- status and config -----------------------------------------------------------------
 
 
-def test_status_reports_config_identity_epoch_subjects_and_image(pod):
+def test_status_reports_config_identity_epoch_subjects_and_image(pod, monkeypatch):
+    snapshot = {"status": "unavailable", "observedAtMs": 123}
+    monkeypatch.setattr(pod_session, "resource_snapshot", lambda: snapshot)
     app = Subject("tdv_web_1", "web")
     session = _admit(pod["client"], app)
     _admit(pod["client"], Subject("tdv_mac_1", "macos"))
@@ -290,6 +298,63 @@ def test_status_reports_config_identity_epoch_subjects_and_image(pod):
     assert subjects["tdv_web_1"]["role"] == "app" and subjects["tdv_mac_1"]["role"] == "device"
     assert "subject_public_key" not in response.text
     assert "puppy" in body
+    assert body["resources"] == snapshot
+
+
+def test_resource_snapshot_is_bounded_numeric_and_reports_missing_limits(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import pod_resource_snapshot as resources
+
+    monkeypatch.setattr(resources, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(resources, "_CGROUP", tmp_path)
+    monkeypatch.setattr(
+        resources,
+        "os",
+        SimpleNamespace(
+            statvfs=lambda _: SimpleNamespace(f_blocks=100, f_bfree=70, f_bavail=60, f_frsize=4096)
+        ),
+    )
+    values = {
+        "memory.current": "256",
+        "memory.peak": "512",
+        "memory.max": "1024",
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\nprivate_sentinel 99",
+        "cpu.stat": "usage_usec 10\nuser_usec 6\nsystem_usec 4\nnr_periods 2\nnr_throttled 1\nthrottled_usec 3",
+    }
+    for name, value in values.items():
+        (tmp_path / name).write_text(value)
+    snapshot = resources.resource_snapshot()
+    assert snapshot["status"] == "available"
+    assert snapshot["memory"]["peakBytes"] == 512
+    assert snapshot["memory"]["limitBytes"] == 1024
+    assert snapshot["memory"]["unlimited"] is False
+    assert snapshot["cpu"]["throttled_usec"] == 3
+    assert snapshot["sharedMemory"]["usedBytes"] == 30 * 4096
+    assert "private_sentinel" not in json.dumps(snapshot)
+    (tmp_path / "memory.max").write_text("max")
+    assert resources.resource_snapshot()["memory"]["unlimited"] is True
+    (tmp_path / "memory.peak").unlink()
+    (tmp_path / "memory.max").write_text("-1")
+    (tmp_path / "cpu.stat").write_text("usage_usec " + "9" * 9000)
+    partial = resources.resource_snapshot()
+    assert partial["status"] == "partial"
+    assert partial["memory"]["currentBytes"] == 256
+    assert partial["memory"]["peakBytes"] is None
+    assert partial["memory"]["limitBytes"] is None and partial["cpu"] == {}
+
+    def absent_volume(_):
+        raise OSError
+
+    for file in tmp_path.iterdir():
+        file.unlink()
+    (tmp_path / "memory.max").write_text("max")
+    monkeypatch.setattr(resources, "os", SimpleNamespace(statvfs=absent_volume))
+    limit_only = resources.resource_snapshot()
+    assert limit_only["status"] == "partial" and limit_only["memory"]["unlimited"] is True
+    monkeypatch.setattr(resources, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(resources, "_read", lambda _: pytest.fail("off-Linux cgroup read"))
+    assert resources.resource_snapshot()["status"] == "unavailable"
 
 
 def test_config_write_updates_the_active_record_and_refuses_unknown_fields(pod):

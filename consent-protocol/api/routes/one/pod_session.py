@@ -26,6 +26,7 @@ from api.middlewares.rate_limit import get_trusted_forwarded_client_ip, limiter
 from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.pod_config import PodConfigError, active_pod_config
 from hushh_mcp.services.pod_platform import pod_revision_name, workload_platform
+from hushh_mcp.services.pod_resource_snapshot import resource_snapshot
 from hushh_mcp.services.pod_session_authority import (
     ROLE_APP,
     SCOPE_POD_CONFIG,
@@ -297,6 +298,7 @@ async def pod_status(authorization: Optional[str] = Header(default=None)) -> dic
         "imageTag": (os.getenv("HUSSH_POD_IMAGE_TAG") or "").strip()[:128] or None,
         "revision": pod_revision_name()[:128] or None,
         "puppy": await _puppy_report(authority.hushh_id),
+        "resources": resource_snapshot(),
     }
 
 

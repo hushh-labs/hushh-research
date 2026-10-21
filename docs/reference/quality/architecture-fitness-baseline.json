@@ -4489,7 +4489,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 3031,
+  "finding_count": 3033,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5434,7 +5434,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": "OneLocationAgentService",
-      "value": 10557
+      "value": 10571
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -17989,7 +17989,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/account.py",
       "symbol": null,
-      "value": 2255
+      "value": 2277
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20977,7 +20977,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_one_location_agent_service.py",
       "symbol": null,
-      "value": 9432
+      "value": 9448
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21778,7 +21778,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_location_routes.py",
       "symbol": null,
-      "value": 1622
+      "value": 1659
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22327,7 +22327,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 2595
+      "value": 2802
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22975,7 +22975,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/vault/vault-context-resume.test.tsx",
       "symbol": null,
-      "value": 752
+      "value": 771
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23317,7 +23317,7 @@
       "limit": 500,
       "path": "hushh-webapp/app/one/location/page.tsx",
       "symbol": null,
-      "value": 15991
+      "value": 16007
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24271,7 +24271,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx",
       "symbol": null,
-      "value": 731
+      "value": 755
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25621,7 +25621,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/one-kyc-service.ts",
       "symbol": null,
-      "value": 580
+      "value": 606
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25792,7 +25792,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/vault/vault-context.tsx",
       "symbol": null,
-      "value": 1084
+      "value": 1087
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30002,7 +30002,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": "_list_state",
-      "value": 458
+      "value": 459
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -31610,7 +31610,7 @@
       "kind": "class_size",
       "path": "consent-protocol/hushh_mcp/one_voice/azure_live.py",
       "detail": "class exceeds the advisory operon budget",
-      "value": 371,
+      "value": 397,
       "limit": 250,
       "symbol": "AzureLiveSession",
       "key": "class_size|consent-protocol/hushh_mcp/one_voice/azure_live.py|AzureLiveSession|class exceeds the advisory operon budget"
@@ -31637,7 +31637,7 @@
       "kind": "function_size",
       "path": "consent-protocol/hushh_mcp/one_voice/azure_live.py",
       "detail": "function exceeds the advisory gene budget",
-      "value": 198,
+      "value": 213,
       "limit": 80,
       "symbol": "events",
       "key": "function_size|consent-protocol/hushh_mcp/one_voice/azure_live.py|events|function exceeds the advisory gene budget"
@@ -31745,7 +31745,7 @@
       "kind": "module_size",
       "path": "consent-protocol/tests/one_voice/test_factory_live_client.py",
       "detail": "module exceeds the advisory operon budget",
-      "value": 548,
+      "value": 603,
       "limit": 500,
       "symbol": null,
       "key": "module_size|consent-protocol/tests/one_voice/test_factory_live_client.py||module exceeds the advisory operon budget"
@@ -31754,7 +31754,7 @@
       "kind": "module_size",
       "path": "consent-protocol/hushh_mcp/one_voice/azure_live.py",
       "detail": "module exceeds the advisory operon budget",
-      "value": 509,
+      "value": 535,
       "limit": 500,
       "symbol": null,
       "key": "module_size|consent-protocol/hushh_mcp/one_voice/azure_live.py||module exceeds the advisory operon budget"
@@ -31776,6 +31776,24 @@
       "path": "consent-protocol/api/routes/one/pod_agent_chat.py",
       "symbol": null,
       "value": 505
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/services/test_account_service_export.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 136,
+      "limit": 80,
+      "symbol": "test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory",
+      "key": "function_size|consent-protocol/tests/services/test_account_service_export.py|test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "scripts/ci/capture_managed_provider_receipt.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 127,
+      "limit": 80,
+      "symbol": "from_entries",
+      "key": "function_size|scripts/ci/capture_managed_provider_receipt.py|from_entries|function exceeds the advisory gene budget"
     }
   ],
   "inspected_files": 6625,
@@ -82860,5 +82878,200 @@
     ],
     "budgets_changed": false,
     "non_size_findings_changed": false
+  },
+  "reviewed_main_a8f03c_20261021": {
+    "frozen_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+    "preserved_parent": "dffa9ddeea995bb1f161f97fc645273d410c3d5b",
+    "merge_base": "2d9de0df07bbd0c94f35dcced63ac198a76d0078",
+    "policy": "Only 17 independently reviewed rank-specific inherited size ceilings. Global budgets and all non-size checks remain unchanged. No peer file or new root growth is adopted.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|OneLocationAgentService|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 10557,
+        "after": 10571,
+        "source_sha256": "ed070de5dfaf5668dc15732a100eef1593ef6c091236a3ad147c8ff2737d7054",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": false,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/one_voice/azure_live.py|AzureLiveSession|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 371,
+        "after": 397,
+        "source_sha256": "7822e90a88e9a45c25e0dceb0cf49c0831ed6c9bfecb09ce4ca5a172e3ff66f0",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": true,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|_list_state|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 458,
+        "after": 459,
+        "source_sha256": "ed070de5dfaf5668dc15732a100eef1593ef6c091236a3ad147c8ff2737d7054",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": false,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/azure_live.py|events|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 198,
+        "after": 213,
+        "source_sha256": "7822e90a88e9a45c25e0dceb0cf49c0831ed6c9bfecb09ce4ca5a172e3ff66f0",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": true,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_account_service_export.py|test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 136,
+        "source_sha256": "c49b14aec6270325762f477a9291e64060314618670a1cfd722b391da37fe3f5",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": true,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "function_size|scripts/ci/capture_managed_provider_receipt.py|from_entries|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 127,
+        "source_sha256": "598c655278f6d4636673a8ead5565cb094742be57ee0e84cbb4edc1b6e211ac9",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": true,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "module_size|hushh-webapp/app/one/location/page.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 15991,
+        "after": 16007,
+        "source_sha256": "3342e8d0f434741e2b1148ece519190ee3d2bc9df04d379e44ec77a7e2103de4",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": false,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_one_location_agent_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 9432,
+        "after": 9448,
+        "source_sha256": "ab40da926daf4ab4f877d73c23af95fb2c8ef266a1124560e4467568ccc47d9f",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": true,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 2595,
+        "after": 2802,
+        "source_sha256": "e3b043b258ac816dc248f2c3168c6f7d33b08645a1ce50ed1139f831dfe9c4ad",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": false,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/account.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 2255,
+        "after": 2277,
+        "source_sha256": "1e30fe55734849c0f0d6515596d2a4fe9acf74446556dcbf705f4c43f6675d08",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": false,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_one_location_routes.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1622,
+        "after": 1659,
+        "source_sha256": "f5b86cad5289a7c0a46eb537146a6f913a3f9f025ecba3a75d31df960dcf786d",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": true,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/vault/vault-context.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1084,
+        "after": 1087,
+        "source_sha256": "53f509e4ae8544b6e9f0b79b7bd2e4fcc5d89bc9fcf06650395117e6bdf160f0",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": true,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/vault/vault-context-resume.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 752,
+        "after": 771,
+        "source_sha256": "5e8014157efaf85d307d9158dbea3da82f3148880753bf8e1a8bb39c864881b6",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": true,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 731,
+        "after": 755,
+        "source_sha256": "0ff6e975c64c94a70cbf78773e0259e12ef31b061e85d7e18b86e53c696ad4d0",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": true,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/one-kyc-service.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 580,
+        "after": 606,
+        "source_sha256": "93c11ebcf1d09f6a3e123c73b5aacb329fd7c1157f6f1de41f97ed79a3aa88ef",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": true,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/one_voice/test_factory_live_client.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 548,
+        "after": 603,
+        "source_sha256": "90acdda761291ff1017396b2e467e45d495da6ce9d9bb977c80e471e5a1cdf51",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": false,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/one_voice/azure_live.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 509,
+        "after": 535,
+        "source_sha256": "7822e90a88e9a45c25e0dceb0cf49c0831ed6c9bfecb09ce4ca5a172e3ff66f0",
+        "source_main": "a8f03c0b6c8d3e98eeb29374fd46caab4a02b6f2",
+        "byte_identical_to_main": true,
+        "reviewer": "agent_layout_audit",
+        "review": "Verified main inheritance or exact additive preservation; behavioral review and 743 backend/381 frontend focused checks retain export, dual authority, SOS, Azure playback and exact provider receipts. Not installed acceptance."
+      }
+    ]
   }
 }
