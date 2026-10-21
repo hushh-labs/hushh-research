@@ -353,6 +353,7 @@ function parseRequestSetup(value: Record<string, unknown>): DocumentRequestSetup
 }
 export type SharingDelivery = {
   status: string;
+  noChargeReason?: "existing_access";
   accessStopStatus?: "pending" | "removed" | "needs_attention" | null;
   canStopAccess?: boolean;
   files: SharingDeliveryFile[];
@@ -1702,6 +1703,7 @@ export class DriveSharingService {
       throw new DriveSharingError("invalid_response");
     return {
       status: string(result.status, 80),
+      ...(result.noChargeReason === "existing_access" ? { noChargeReason: "existing_access" as const } : {}),
       ...(result.accessStopStatus == null ? {} : {
         accessStopStatus: accessStopStatus(result.accessStopStatus),
       }),

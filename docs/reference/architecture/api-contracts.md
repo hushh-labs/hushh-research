@@ -4292,6 +4292,25 @@ Reconnect sends a reset, and scheduled workers recover missed wakes. Migration
 Feed reset after an earning's status changes. Price selection, setup completion,
 a browser return and a stream notification never prove payment or delivery.
 
+For ordinary automatic requests, a completed, nonincomplete final selection of
+at most 120 discovered matches can finish without payment when fresh Drive ACL checks prove
+the requester already has access to every file. Current Allow/Trusted authority,
+connection generation, source versions and exact recipient are revalidated.
+`POST /api/connectors/google_drive/sharing/requests/{id}/payment/checkout`
+then returns `{requestId,existingAccess:true}` (HTTP 200) instead of a Stripe URL.
+Both checkout callers refresh the current request; they do not redirect or show
+an error. Delivery adds `noChargeReason:"existing_access"`. Normal outcome events
+and unmanaged `preexisting` receipts expose all original links in the current
+request and Feed; this does not create new Google permissions.
+
+An existing bound Stripe checkout must first be proven expired and unpaid.
+Allocated-but-unbound attempts, paid or uncertain provider outcomes cannot waive
+payment. Session/attempt IDs remain retained; a durable obligation waiver marker
+allows signed late money to be refunded once, including after account erasure.
+No completed payment or sharing history is rewritten. The normal paid streaming
+flow remains available before the final set is known; already-paid requests do
+not retroactively become free.
+
 The delivery-confirmed owner settlement and proportional-refund rules are in
 [Drive request payment gate](../operations/drive-request-stripe-paywall.md).
 

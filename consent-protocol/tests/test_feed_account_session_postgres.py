@@ -70,7 +70,7 @@ def feed_db():
                   recipient_user_id TEXT, status TEXT, expires_at TIMESTAMPTZ,
                   access_stop_requested_at TIMESTAMPTZ, payment_required BOOLEAN,
                   settlement_method TEXT, preparation_error_code TEXT,
-                  quoted_amount_cents BIGINT);
+                  quoted_amount_cents BIGINT, existing_access_waived_at TIMESTAMPTZ);
                 CREATE TABLE drive_request_payment_orders(request_id UUID PRIMARY KEY,
                   stripe_mode TEXT, status TEXT, stripe_checkout_session_id TEXT,
                   stripe_checkout_expires_at TIMESTAMPTZ, amount_cents BIGINT,

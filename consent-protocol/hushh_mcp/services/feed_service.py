@@ -571,6 +571,9 @@ class FeedService:
                              AS current_refund_amount_cents,
                            o.amount_cents AS current_payment_amount_cents,
                            r.payment_required AS view_payment_required,
+                           (r.existing_access_waived_at IS NOT NULL AND NOT r.payment_required
+                            AND r.status='completed' AND COALESCE(o.status,'expired') NOT IN ('paid','refunded'))
+                            AS current_existing_access_nocharge,
                            r.preparation_error_code AS view_preparation_error_code,
                            r.quoted_amount_cents AS view_quoted_amount_cents,
                            o.reconciliation_reason AS view_reconciliation_reason,
@@ -631,6 +634,9 @@ class FeedService:
                 if key not in _DRIVE_DELIVERY_COUNT_FIELDS
             }
             projection: dict[str, Any] = {}
+            metadata.pop("current_existing_access_nocharge", None)
+            if current.get("current_existing_access_nocharge") is True:
+                projection["current_existing_access_nocharge"] = True
             if (
                 row.get("event_type") == "document_share_outcome"
                 and current.get("current_request_status") == "partial"
