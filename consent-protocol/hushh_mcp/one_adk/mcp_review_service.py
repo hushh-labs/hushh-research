@@ -4,7 +4,7 @@ No prompt, private result, approval arguments or credential is persisted here.
 The existing encrypted session, registry and action ledger retain authority.
 """
 
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import Any, cast
 from uuid import uuid4
 
@@ -27,7 +27,7 @@ from hushh_mcp.one_adk.mcp_pending_call import (
     review_refusal,
 )
 from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope, validate_mcp_turn_configurations
-from hushh_mcp.one_adk.request_secrets import store_request_secret
+from hushh_mcp.one_adk.request_secrets import consume_request_secret, store_request_secret
 from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.action_directive_ledger import (
     ActionDirectiveAuthorityError,
@@ -175,6 +175,34 @@ async def discover_catalog(
         }
 
 
+@contextmanager
+def _review_context(*, owner, token, conversation_id, sessions, connector_label, vault_only):
+    reference = store_request_secret(token["token"])
+    try:
+        # Do not supply recovered conversation content to an external server. Only
+        # authenticated invocation metadata is needed to run this reviewed call.
+        invocation = InvocationContext(
+            session_service=sessions,
+            invocation_id=uuid4().hex,
+            session=Session(
+                id=conversation_id,
+                app_name="hussh_one",
+                user_id=owner,
+                state={
+                    "hussh:user_id": owner,
+                    "hussh:conversation_id": conversation_id,
+                    "hussh:consent_token": reference,
+                    "temp:one_execution_surface": "typed_chat",
+                    "temp:hussh:workspace_chat_admission": not vault_only,
+                    "temp:mcp_connector_label": connector_label,
+                },
+            ),
+        )
+        yield Context(invocation, function_call_id=uuid4().hex)
+    finally:
+        consume_request_secret(reference)
+
+
 @asynccontextmanager
 async def review_tool(
     *,
@@ -185,6 +213,7 @@ async def review_tool(
     configuration: dict[str, Any] | None = None,
     sessions=None,
     owner_admission=None,
+    configuration_admissions=None,
     vault_only: bool = False,
 ):
     owner = str(token["user_id"])
@@ -216,41 +245,30 @@ async def review_tool(
         raise ExternalMcpError(
             "Conversation unavailable.", code="MCP_CONVERSATION_MISSING", status_code=404
         )
-    # Do not supply recovered conversation content to an external server. Only
-    # authenticated invocation metadata is needed to run this reviewed call.
-    invocation = InvocationContext(
-        session_service=sessions,
-        invocation_id=uuid4().hex,
-        session=Session(
-            id=conversation_id,
-            app_name="hussh_one",
-            user_id=owner,
-            state={
-                "hussh:user_id": owner,
-                "hussh:conversation_id": conversation_id,
-                "hussh:consent_token": store_request_secret(token["token"]),
-                "temp:one_execution_surface": "typed_chat",
-                "temp:hussh:workspace_chat_admission": not vault_only,
-                "temp:mcp_connector_label": connector_label,
-            },
-        ),
-    )
-    context = Context(invocation, function_call_id=uuid4().hex)
-    async with mcp_turn_scope(
-        conversation_id,
-        owner_id=owner,
-        configurations=[configuration] if configuration is not None else None,
-        owner_admission=owner_admission,
+    with _review_context(
+        owner=owner,
+        token=token,
+        conversation_id=conversation_id,
+        sessions=sessions,
+        connector_label=connector_label,
         vault_only=vault_only,
-    ) as scope:
-        toolset = await scope.acquire(context, connector_id, authorize_call=_never_execute)
-        tools = await toolset.get_tools(context)
-        tool = next((item for item in tools if item.name == tool_name), None)
-        if tool is None:
-            raise ExternalMcpError(
-                "Refresh this connector's tools.", code="MCP_CATALOG_CHANGED", status_code=409
-            )
-        yield context, tool
+    ) as context:
+        async with mcp_turn_scope(
+            conversation_id,
+            owner_id=owner,
+            configurations=[configuration] if configuration is not None else None,
+            owner_admission=owner_admission,
+            configuration_admissions=configuration_admissions,
+            vault_only=vault_only,
+        ) as scope:
+            toolset = await scope.acquire(context, connector_id, authorize_call=_never_execute)
+            tools = await toolset.get_tools(context)
+            tool = next((item for item in tools if item.name == tool_name), None)
+            if tool is None:
+                raise ExternalMcpError(
+                    "Refresh this connector's tools.", code="MCP_CATALOG_CHANGED", status_code=409
+                )
+            yield context, tool
 
 
 def current_approval(context: Context, tool: Any, arguments: dict[str, Any]) -> McpCallApproval:

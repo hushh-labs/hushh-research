@@ -342,3 +342,33 @@ async def test_pod_turn_composes_custody_without_a_hub_resolver(agent, monkeypat
         assert resolved.review_policy == "always"
     await runner._pod_mcp_scope.close()
     registry.assert_not_awaited()
+
+
+async def _connection(records, *, custody):
+    async with mcp_turn_scope(
+        "conv-l6",
+        owner_id=h.OWNER_UID,
+        configurations=records,
+        configuration_admissions=custody_configuration_admissions(records) if custody else None,
+        owner_admission=AsyncMock(return_value=True),
+        vault_only=True,
+    ) as scope:
+        return await scope.resolve_connection(h.tool_context(), records[0]["connectorId"])
+
+
+async def test_only_attested_custody_preserves_approval_identity_across_access_token_refresh(agent):
+    first, _ = _tokens((200, {"access_token": "first-access", "expires_in": 3600}))
+    second, _ = _tokens((200, {"access_token": "fresh-access", "expires_in": 7200}))
+    before, after = await custody_configurations(first), await custody_configurations(second)
+    old, fresh = await _connection(before, custody=True), await _connection(after, custody=True)
+    assert old.binding == fresh.binding
+    assert old.headers != fresh.headers
+    assert fresh.headers == {"Authorization": "Bearer fresh-access"}
+    assert old.review_policy == fresh.review_policy == "always"
+    browser_old = await _connection(before, custody=False)
+    browser_fresh = await _connection(after, custody=False)
+    assert browser_old.binding != browser_fresh.binding
+    assert browser_fresh.binding != fresh.binding
+    _change_login("rotation")
+    replacement = await custody_configurations(second)
+    assert (await _connection(replacement, custody=True)).binding != fresh.binding

@@ -283,7 +283,7 @@ class PodMcpApprovalPort:
             raise ActionDirectiveAuthorityError("Private connector recovery was not verified.")
         return {**previous, "directiveId": mutation.directiveId, "podReview": target.model_dump()}
 
-    async def consume(self, approval, *, directive_id: str, receipt: str):
+    async def _pending_review(self, approval) -> PodMcpTerms:
         from google.adk.sessions import Session
 
         from hushh_mcp.one_adk.mcp_pending_call import current_pending_handle, pending_call_details
@@ -295,8 +295,15 @@ class PodMcpApprovalPort:
         recorded = PodMcpTerms.model_validate((pending.get("review") or {}).get("podReview"))
         if recorded.model_copy(update={"serviceUid": None}) != self.terms(approval):
             raise ActionDirectiveAuthorityError("Private connector terms changed.")
+        return recorded
+
+    async def _consume_review(self, recorded: PodMcpTerms, *, directive_id: str, receipt: str):
         result = await self._call(
             "consume", PodMcpMutation(review=recorded, directiveId=directive_id, receipt=receipt)
         )
         if result != {"status": "consumed"}:
             raise ActionDirectiveAuthorityError("Private confirmation consumption unverified.")
+
+    async def consume(self, approval, *, directive_id: str, receipt: str):
+        recorded = await self._pending_review(approval)
+        await self._consume_review(recorded, directive_id=directive_id, receipt=receipt)

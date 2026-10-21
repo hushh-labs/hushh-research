@@ -10,14 +10,18 @@ from hushh_mcp.services.pod_scheduled_authority import scheduled_tool_context
 from hushh_mcp.services.pod_scheduled_checkpoint import ScheduledOneResult
 
 
-def build_scheduled_one_agent(*, model: Any) -> LlmAgent:
+def build_scheduled_one_agent(*, model: Any, consent_bundle_lookup=None) -> LlmAgent:
     # Keep import-time registration and route composition independent of this
     # optional task execution head. The ordinary constructor owns every tool,
     # instruction and callback; task mode omits unbound client-only receipt tools.
     from hushh_mcp.one_adk.agent_tree import build_one_text_agent
 
     return build_one_text_agent(
-        model=model, allow_private_mcp=True, execution_mode="task", output_schema=ScheduledOneResult
+        model=model,
+        allow_private_mcp=True,
+        execution_mode="task",
+        output_schema=ScheduledOneResult,
+        consent_bundle_lookup=consent_bundle_lookup,
     )
 
 

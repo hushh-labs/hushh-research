@@ -72,6 +72,8 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/files/worker",
         "/api/one/pod/tasks",
         "/api/one/pod/tasks/control",
+        "/api/one/pod/tasks/review",
+        "/api/one/pod/tasks/continue",
         "/api/one/pod/tasks/worker",
         "/api/one/pod/files/jobs",
         "/api/one/pod/files/repair-index",

@@ -21,7 +21,9 @@ async def admitted_task(tmp_path, hub_key, monkeypatch):
     world = World(tmp_path)
     authority = await world.boot()
     subject = Subject("scheduled-owner", "web")
-    await world.admit(subject, _binding(subject, scopes=["pod.act", "pkm.read", "pod.status"]))
+    session_token, session_claims = await world.admit(
+        subject, _binding(subject, scopes=["pod.act", "pkm.read", "pod.status"])
+    )
     monkeypatch.setenv("HUSSH_ID", OWNER)
     clock = [int(time.time())]
     grants = ScheduledGrantAuthority(
@@ -69,6 +71,8 @@ async def admitted_task(tmp_path, hub_key, monkeypatch):
         world=world,
         authority=authority,
         subject=subject,
+        session_token=session_token,
+        session_claims=session_claims,
         runtime=runtime,
         invocation=grants.invocation(lease),
         lease=lease,

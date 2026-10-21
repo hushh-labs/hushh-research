@@ -105,6 +105,7 @@ class VertexRegionalClient:
         self._cooldown_seconds = max(0.0, cooldown_seconds)
         self._lock = threading.Lock()
         self._cooldowns: dict[str, float] = {}
+        self._closed = False
         self._clients: dict[str, Any] = {locations[0]: self._new_client(locations[0])}
         self.aio = _AsyncNamespace(self)
         self.models = _SyncModels(self)
@@ -112,8 +113,29 @@ class VertexRegionalClient:
     def _new_client(self, location: str) -> Any:
         return self._client_factory(vertexai=True, project=self._project, location=location)
 
+    async def aclose(self) -> None:
+        """Invocation owner calls only after all regional requests have joined."""
+        from hushh_mcp.runtime_providers.lifecycle import close_owned_model_client
+
+        with self._lock:
+            self._closed = True
+            clients, self._clients = list(self._clients.values()), {}
+        failure: BaseException | None = None
+        try:
+            for client in clients:
+                try:
+                    await close_owned_model_client(client)
+                except BaseException as exc:
+                    failure = failure or exc
+        finally:
+            clients.clear()
+        if failure is not None:
+            raise failure
+
     def _client_for(self, location: str) -> Any:
         with self._lock:
+            if self._closed:
+                raise RuntimeError("Model client is closed")
             client = self._clients.get(location)
             if client is None:
                 client = self._new_client(location)

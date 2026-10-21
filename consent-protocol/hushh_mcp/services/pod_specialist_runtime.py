@@ -478,6 +478,12 @@ def _metadata_admission(
     return check
 
 
+def _record_model_unsupported(capability: str) -> None:
+    trace = _TRACE.get()
+    if trace is not None:
+        trace.record_unsupported(capability)
+
+
 def build_pod_specialist_runtime(
     *,
     user_id: str,
@@ -497,13 +503,13 @@ def build_pod_specialist_runtime(
     session_owner_id: str | None = None,
     invocation_deadline_ms: int | None = None,
     owner_read_admission: Callable[[str, str], Awaitable[None]] | None = None,
+    provider_access: Callable[[], Awaitable[None]] | None = None,
 ) -> SpecialistRuntime:
     # Construction does no storage/provider I/O. Admission precedes resolution.
     # ``verifier``: a turn admitted by the pod's own session authority threads its
     # local verifier here, so a specialist re-checks the owner against the pod's
     # tombstones rather than asking the hub. None keeps the hub-verified path.
     log: Any = None
-    client: Any = None
     invocation_expires_at = _invocation_deadline(invocation_deadline_ms)
 
     # The hub keeps authority-sensitive specialists unwired at import time. A pod has
@@ -530,6 +536,10 @@ def build_pod_specialist_runtime(
     )
 
     async def require_access() -> None:
+        if model_calls.closed:
+            raise PermissionError("Pod invocation is closed")
+        if provider_access is not None:
+            await provider_access()
         if int(time.time() * 1000) >= invocation_expires_at:
             raise PermissionError("Pod invocation authority expired")
         trace = _TRACE.get()
@@ -566,30 +576,18 @@ def build_pod_specialist_runtime(
         user_id, data_door_grants, owner_read_authority=require_local_metadata_read
     )
 
-    async def model_call(contents: Any, config: Any) -> Any:
-        nonlocal client
-        await require_access()
-        if client is None:
-            # Legacy service calls and native ADK tasks use the same provider
-            # authority; otherwise a specialist can diverge from One's model.
-            if runtime_mode is None:
-                raise RuntimeError("Pod model authority unavailable")
-            client = adk_model._client()
-        try:
-            result = await asyncio.wait_for(
-                client.aio.models.generate_content(model=model, contents=contents, config=config),
-                timeout=specialist_model_timeout_seconds(runtime_mode),
-            )
-        except PuppyCapabilityUnsupported as exc:
-            # Not "unavailable": the device answered and said no to a capability.
-            trace = _TRACE.get()
-            if trace is not None:
-                trace.record_unsupported(exc.capability)
-            raise PodSpecialistCapabilityUnsupported(exc.capability) from None
-        except Exception:
-            raise RuntimeError("Pod specialist provider unavailable") from None
-        await require_access()
-        return result
+    from hushh_mcp.services.pod_specialist_model import PodSpecialistModelCalls
+
+    model_calls = PodSpecialistModelCalls(
+        model=model,
+        runtime_mode=runtime_mode,
+        client_factory=adk_model._client,
+        check=require_access,
+        timeout=specialist_model_timeout_seconds(runtime_mode),
+        on_unsupported=_record_model_unsupported,
+        unsupported_error=PodSpecialistCapabilityUnsupported,
+    )
+    model_call = model_calls.generate
 
     async def service_for(agent_id: str) -> Any:
         nonlocal log
@@ -733,5 +731,10 @@ def build_pod_specialist_runtime(
         )
 
     return SpecialistRuntime(
-        user_id, require_access, service_for, session_owner_id or hushh_id, admit_owner
+        user_id,
+        require_access,
+        service_for,
+        session_owner_id or hushh_id,
+        admit_owner,
+        model_calls.aclose,
     )

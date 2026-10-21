@@ -1,12 +1,8 @@
-"""Task-local MCP resources on the existing shared Chat runner.
+"""Per-turn MCP resources; configuration never authorizes execution.
 
-The scope carries request-only configuration, not permission to execute tools.
-Each acquisition resolves the current owner's connection; tool calls independently
-revalidate owner authority. The person's own connectors run without review;
-curated first-party rows keep exact-call review. Vault projections
-replace private DB definitions when supplied. The HTTP/review callers must admit
-them outside persisted ADK state and discard their original request references.
-No authenticated toolset is retained on the process-wide root agent.
+Resolve and revalidate the owner at each call. Custody logins keep exact review;
+device records retain their credential policy. Admit private projections outside
+persisted ADK state. No authenticated toolset lives on the process-wide root.
 """
 
 from __future__ import annotations
@@ -352,10 +348,15 @@ class McpTurnResources:
             headers["Authorization"] = f"Bearer {auth['accessToken']}"
         elif auth["kind"] == "api_key":
             headers[auth["header"]] = auth["value"]
-        # Full-record binding prevents reused client revisions from preserving an
-        # old approval after an endpoint, credential, or configuration change.
+        # Only server custody can attest stable credential identity/generation.
+        # A fresh access token does not change that identity. Browser records
+        # retain full-record binding even when a client reuses its revision.
+        bound_record = record
+        custody_oauth = admission is not None and auth["kind"] == "oauth"
+        if custody_oauth:
+            bound_record = {**record, "authentication": {"kind": "oauth"}}
         digest = hashlib.sha256(
-            json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
+            json.dumps(bound_record, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
         blocked = {(item["id"], item["fingerprint"]) for item in record.get("blockedTools", [])}
 
@@ -374,7 +375,7 @@ class McpTurnResources:
                 1,
                 1,
                 record["endpoint"],
-                ("vault", record["revision"], digest),
+                ("custody" if custody_oauth else "vault", record["revision"], digest),
             ),
             {} if metadata_only else headers,
             catalog_policy=admitted,

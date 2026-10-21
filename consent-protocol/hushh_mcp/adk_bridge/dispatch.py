@@ -22,6 +22,7 @@ class SpecialistRuntime:
     service_for: Callable[[str], Awaitable[Any]]
     session_owner_id: str | None = None
     admit_owner: Callable[[str, str], Awaitable[int]] | None = None
+    aclose: Callable[[], Awaitable[None]] | None = None
 
 
 @dataclass(frozen=True)

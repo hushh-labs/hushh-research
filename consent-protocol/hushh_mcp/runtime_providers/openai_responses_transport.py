@@ -204,6 +204,11 @@ class OpenAIResponsesTransport(ProviderTransport):
         if http_client is not None:
             client_kwargs["http_client"] = http_client
         self._client = client if client is not None else AsyncOpenAI(**client_kwargs)
+        self._owns_client = client is None and http_client is None
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.close()
 
     def _request_kwargs(self, request: NeutralRequest, *, model: str) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
@@ -253,6 +258,13 @@ class OpenAIResponsesTransport(ProviderTransport):
         stream = await self._client.responses.create(
             stream=True, **self._request_kwargs(request, model=model)
         )
+        async with stream:
+            async for chunk in self._stream_events(stream, request=request):
+                yield chunk
+
+    async def _stream_events(
+        self, stream: Any, *, request: NeutralRequest
+    ) -> AsyncIterator[NormalizedChunk]:
         calls: list[NormalizedFunctionCall] = []
         aliases = _aliases(request)
         reported = ""

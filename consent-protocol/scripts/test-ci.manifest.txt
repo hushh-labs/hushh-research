@@ -669,6 +669,8 @@ tests/test_pod_scheduled_authority.py
 tests/test_pod_scheduled_continuation.py
 tests/test_pod_scheduled_continuation_postgres.py
 tests/test_pod_scheduled_reclaim.py
+tests/test_pod_scheduled_one.py
+tests/test_model_client_lifecycle.py
 tests/test_pod_files_queue_recovery.py
 tests/test_pod_specialist_capability_matrix.py
 tests/test_pod_files_provisioning.py

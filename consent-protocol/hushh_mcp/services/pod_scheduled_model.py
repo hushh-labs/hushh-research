@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from hushh_mcp.services.pod_ai_selection import (
     AiSelection,
@@ -13,6 +13,10 @@ from hushh_mcp.services.pod_ai_selection import (
 )
 from hushh_mcp.services.pod_scheduled_checkpoint import ScheduledModelBinding
 from hushh_mcp.services.pod_scheduled_contracts import ScheduleRefused
+
+if TYPE_CHECKING:
+    from hushh_mcp.adk_bridge.dispatch import SpecialistRuntime
+    from hushh_mcp.services.pod_scheduled_authority import ScheduledInvocationAuthority
 
 
 @dataclass(frozen=True)
@@ -27,6 +31,34 @@ class ScheduledModel:
             return _runtime_model(**self._kwargs)
         except (ValueError, RuntimeError):
             raise ScheduleRefused("SCHEDULE_MODEL_UNAVAILABLE") from None
+
+    def specialist_runtime(
+        self,
+        invocation: ScheduledInvocationAuthority,
+        token: str,
+        *,
+        check: Callable[[], Awaitable[None]],
+    ) -> SpecialistRuntime:
+        from hushh_mcp.services.pod_specialist_runtime import build_pod_specialist_runtime
+
+        return build_pod_specialist_runtime(
+            user_id=invocation.owner_id,
+            hushh_id=invocation.pod_id,
+            session_owner_id=invocation.owner_id,
+            consent_token=token,
+            provider=self.binding.provider,
+            model=self.binding.model,
+            runtime_mode=self.binding.runtime_mode,
+            credential=self._kwargs.get("runtime_credential"),
+            credential_transport=self._kwargs.get("runtime_credential_transport", "developer_api"),
+            vertex_project=self._kwargs.get("runtime_vertex_project"),
+            vertex_location=self._kwargs.get("runtime_vertex_location"),
+            data_door_grants={},
+            verifier=invocation.verify,
+            owner_read_admission=invocation.owner_read_admission,
+            invocation_deadline_ms=invocation.deadline_ms,
+            provider_access=check,
+        )
 
 
 def _selected(selection: AiSelection, default_model: str, floor: int) -> ScheduledModel:
@@ -109,7 +141,9 @@ def _default(default_provider: str, default_model: str, floor: int) -> Scheduled
         if configured.auth_mode != "vertex_adc":
             raise ScheduleRefused("SCHEDULE_MODEL_UNAVAILABLE")
         bridge = owner_inference_bridge()
-        provider, model, mode = "gemini", default_model, "user_adc"
+        from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+
+        provider, model, mode = "gemini", resolve_fleet_model_name(default_model), "user_adc"
         destination = {
             "project": bridge.project if bridge else configured.project,
             "location": configured.primary_location,

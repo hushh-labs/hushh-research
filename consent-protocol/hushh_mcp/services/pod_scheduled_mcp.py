@@ -11,7 +11,8 @@ class ScheduledMcpApprovalPort(PodMcpApprovalPort):
         self.storage = storage
 
     async def consume(self, approval, *, directive_id: str, receipt: str):
+        recorded = await self._pending_review(approval)
         # An unconfirmed/changed call still fails in the existing ledger. Any
         # lost response after this point remains a non-replayable task intent.
         await self.storage.begin_dispatch(current_pending_handle())
-        await super().consume(approval, directive_id=directive_id, receipt=receipt)
+        await self._consume_review(recorded, directive_id=directive_id, receipt=receipt)

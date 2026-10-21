@@ -16,6 +16,7 @@ ever ran and nothing of One's answer reached memory.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import Any
 
 from google.adk.models.base_llm import BaseLlm
@@ -157,7 +158,19 @@ class ProviderAdkModel(BaseLlm):
     async def generate_content_async(
         self, llm_request: LlmRequest, stream: bool = False
     ) -> AsyncGenerator[LlmResponse, None]:
+        from .lifecycle import close_owned_model_client
+
         client = self._client()
+        try:
+            async with aclosing(self._generate_owned(client, llm_request, stream)) as responses:
+                async for response in responses:
+                    yield response
+        finally:
+            await close_owned_model_client(client)
+
+    async def _generate_owned(
+        self, client: Any, llm_request: LlmRequest, stream: bool
+    ) -> AsyncGenerator[LlmResponse, None]:
         if stream:
             aggregator = StreamingResponseAggregator()
             chunks = await client.aio.models.generate_content_stream(
@@ -167,15 +180,16 @@ class ProviderAdkModel(BaseLlm):
             )
             trailing_usage = None
             trailing_model_version = None
-            async for chunk in chunks:
-                # Terminal metadata can arrive after the last text or tool delta.
-                trailing_usage = self._usage_metadata(chunk) or trailing_usage
-                trailing_model_version = self._model_version(chunk) or trailing_model_version
-                response = self._genai_response(chunk)
-                if response is None:
-                    continue
-                async for llm_response in aggregator.process_response(response):
-                    yield llm_response
+            async with aclosing(chunks):
+                async for chunk in chunks:
+                    # Terminal metadata can arrive after the last text or tool delta.
+                    trailing_usage = self._usage_metadata(chunk) or trailing_usage
+                    trailing_model_version = self._model_version(chunk) or trailing_model_version
+                    response = self._genai_response(chunk)
+                    if response is None:
+                        continue
+                    async for llm_response in aggregator.process_response(response):
+                        yield llm_response
             final = aggregator.close()
             if final is not None:
                 if final.usage_metadata is None and trailing_usage is not None:

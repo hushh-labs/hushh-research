@@ -24,6 +24,20 @@ def no_store(response: Response):
 class PrivateScheduleRoute(PrivateBrowserRoute):
     validation_refusal_code = "SCHEDULE_REQUEST_INVALID"
 
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def private_handler(request):
+            try:
+                result = await handler(request)
+            except HTTPException as exc:
+                exc.headers = {**(exc.headers or {}), "Cache-Control": "no-store, private"}
+                raise
+            no_store(result)
+            return result
+
+        return private_handler
+
 
 router = APIRouter(
     prefix="/api/one/pod/tasks", tags=["personal-agent"], route_class=PrivateScheduleRoute
@@ -142,6 +156,89 @@ class Wake(StrictContract):
     schedule_id: str = Field(pattern=r"^schedule_[a-f0-9]{32}$")
     revision: int = Field(ge=1)
     occurrence_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+
+
+class Review(StrictContract):
+    schedule_id: str = Field(pattern=r"^schedule_[a-f0-9]{32}$")
+    revision: int = Field(ge=1)
+    occurrence_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    pending_handle: str = Field(pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$", repr=False)
+
+
+class Approval(StrictContract):
+    directiveId: str = Field(pattern=r"^dir_[a-f0-9]{32}$")
+    connectorId: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
+    toolName: str = Field(pattern=r"^mcp_[a-f0-9]{40}$")
+    pendingHandle: str = Field(pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$", repr=False)
+    receipt: str = Field(pattern=r"^[A-Za-z0-9_-]{32,128}$", repr=False)
+
+
+class Continue(Review):
+    confirmation_id: str = Field(min_length=1, max_length=256)
+    approval: Approval = Field(repr=False)
+
+
+def review_refused(exc):
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+    from hushh_mcp.services.external_mcp_client import ExternalMcpError
+
+    if isinstance(exc, ScheduleRefused):
+        return refused(exc)
+    if isinstance(exc, ExternalMcpError):
+        return HTTPException(exc.status_code, detail={"code": exc.code})
+    if isinstance(exc, ActionDirectiveAuthorityError):
+        return HTTPException(409, detail={"code": "SCHEDULE_REVIEW_REFUSED"})
+    raise exc
+
+
+@router.post("/review")
+async def review_task(
+    body: Review, response: Response, authorization: str | None = Header(default=None)
+):
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+    from hushh_mcp.services.external_mcp_client import ExternalMcpError
+    from hushh_mcp.services.pod_scheduled_review import review_scheduled_call
+
+    no_store(response)
+    try:
+        runtime, claims, caller_check = owner(authorization, write=True)
+        authority, _ = verified_session(authorization, role=ROLE_APP, scope="pkm.read")
+        return await review_scheduled_call(
+            runtime,
+            authority=authority,
+            claims=claims,
+            caller_check=caller_check,
+            **body.model_dump(),
+        )
+    except (ScheduleRefused, ActionDirectiveAuthorityError, ExternalMcpError) as exc:
+        raise review_refused(exc) from None
+
+
+@router.post("/continue")
+async def continue_task(
+    body: Continue, response: Response, authorization: str | None = Header(default=None)
+):
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+    from hushh_mcp.services.external_mcp_client import ExternalMcpError
+    from hushh_mcp.services.pod_scheduled_contracts import ScheduledContinuation
+
+    no_store(response)
+    try:
+        runtime, claims, caller_check = owner(authorization, write=True)
+        result = await runtime.runner.continue_review(
+            body.schedule_id,
+            body.revision,
+            body.occurrence_id,
+            ScheduledContinuation(
+                body.pending_handle, body.confirmation_id, body.approval.model_dump()
+            ),
+            caller_check=caller_check,
+            caller_grant={"subject_id": claims["subject_id"], "version": claims["version"]},
+        )
+        await caller_check()
+        return result
+    except (ScheduleRefused, ActionDirectiveAuthorityError, ExternalMcpError) as exc:
+        raise review_refused(exc) from None
 
 
 @router.post("/worker")

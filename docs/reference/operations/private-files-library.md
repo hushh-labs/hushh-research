@@ -293,8 +293,24 @@ that budget. Expiry is rechecked after awaited admission. Lost running claims
 and uncertain dispatch remain non-resumable. Shielded cleanup retains the update
 permit until quiescence and durable settlement; failed reconciliation retains
 bounded repair identity, not a finished task's private traceback. Focused local
-tests cover these races. Production worker composition, other specialist/effect
-ports and the owner continuation route remain open.
+tests cover these races.
+
+The local One segment now composes the native Runner, claim admission, frozen
+model, specialist dependencies, server-custody MCP and encrypted checkpoints.
+`/api/one/pod/tasks/review` authenticates the owner and exposes only the exact
+parked call for existing ledger confirmation; `/continue` resumes that occurrence,
+not its original goal. A cold pod epoch replaces an unconsumed review with a fresh
+directive at the original expiry. Even a previously confirmed receipt cannot
+authorize the replacement. Uncertain dispatch cannot rebind or replay.
+
+Custody OAuth access-token refresh retains the credential ID/generation binding;
+rotation, account lineage or configuration changes invalidate it. Browser-supplied
+records retain full credential binding. Reviews discard request credentials on
+every exit. Provider clients and streams close on completion and cancellation;
+cleanup is joined through repeated cancellation. Debug content capture is refused
+before custody hydration. These are controlled local SDK/PostgreSQL receipts,
+with scripted model/MCP transport. The active registry still exposes Files only;
+general tool adapters, owner UI, Azure timers and installed acceptance remain open.
 
 The sealed pod log owns the schedule, occurrence claim, cancellation and settlement.
 The due-time delivery contains identifiers only; an exact authenticated worker route

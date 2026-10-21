@@ -21,7 +21,7 @@ async def prepare_private_review(owner, connector_id, body):
         await permit.release()
 
 
-async def _prepare_private_review(owner, connector_id, body):
+async def _prepare_private_review(owner, connector_id, body, *, configuration_admissions=None):
     await owner.require_access()
     if not body.pendingHandle or body.arguments or body.connectorConfiguration is None:
         raise ActionDirectiveAuthorityError("Review the pending private connector call.")
@@ -44,6 +44,7 @@ async def _prepare_private_review(owner, connector_id, body):
         configuration=body.connectorConfiguration,
         sessions=owner.sessions,
         owner_admission=owner._mcp_owner_admission,
+        configuration_admissions=configuration_admissions,
         vault_only=True,
     ) as (context, tool):
         approval = current_approval(context, tool, pending["arguments"])

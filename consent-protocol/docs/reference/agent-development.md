@@ -22,6 +22,16 @@ evaluation threshold, performance budget, kill switch, rollout, and rollback.
 Invocation authority never implies private-data access or mutation authority.
 
 
+## Visual Context
+
+Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
+Founder-language mapping:
+
+- `TrustLink / A2A delegation` means delegated authority must inherit the same consent boundary this doc enforces
+- `Capability Tokens` remain explicit here because agent entry points, tools, and operons validate concrete token scopes
+- `Separation of Duties` is implemented through the DNA model: agents orchestrate, tools expose callable surfaces, operons hold business logic, and services touch persistence
+
 ## One authored fleet, explicit runtime dependencies
 
 Keep each specialist's existing task and result contract. Register an optional
@@ -62,6 +72,14 @@ Dependency hooks do not register additional agents, grant information access,
 or establish deployment readiness. Preserve shared defaults when transferring
 portable changes from a private deployment branch; keep deployment adapters and
 pod admission policy with their owning topology.
+
+Scheduled One uses the same authored task head and roster through a claim-owned
+execution segment. Model clients, MCP resources and specialist dependencies have
+explicit invocation lifetimes; teardown joins before the update permit can close.
+Its sealed checkpoint and owner review routes are source-qualified locally. The
+active registry remains Files-only until the remaining tool adapters and cloud
+delivery are qualified; constructor wiring is not installed acceptance. Follow
+the [Scheduled tasks runbook](../../../docs/reference/operations/private-files-library.md#scheduled-tasks--local-source-not-deployed-acceptance).
 
 ## Architecture Review Questions
 
@@ -139,16 +157,6 @@ These decisions follow Google's [ADK safety guidance](https://adk.dev/safety/),
 [credential and session-state guidance](https://adk.dev/tools-custom/authentication/),
 and [A2A integration guidance](https://adk.dev/a2a/). The checked-in code and
 pin-specific tests decide what this repository actually supports.
-
-## Visual Context
-
-Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
-
-Founder-language mapping:
-
-- `TrustLink / A2A delegation` means delegated authority must inherit the same consent boundary this doc enforces
-- `Capability Tokens` remain explicit here because agent entry points, tools, and operons validate concrete token scopes
-- `Separation of Duties` is implemented through the DNA model: agents orchestrate, tools expose callable surfaces, operons hold business logic, and services touch persistence
 
 ## Visual Map
 
