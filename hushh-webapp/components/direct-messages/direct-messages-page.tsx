@@ -2506,7 +2506,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete chat with {chatDeleteRequest ? conversationLabel(chatDeleteRequest.conversation) : "this person"}?</AlertDialogTitle>
-            <AlertDialogDescription>Your chat history is deleted. Their copy and your connection stay.</AlertDialogDescription>
+            <AlertDialogDescription>Deletes this chat for you only.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={Boolean(deletingChat)}>Cancel</AlertDialogCancel>
