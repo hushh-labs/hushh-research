@@ -1254,7 +1254,7 @@ def _recommendation_from_counts(payload: dict[str, Any]) -> tuple[str, str]:
     return "HOLD", "Analyst distribution is mixed to neutral."
 
 
-async def _fetch_market_status(exchange: str = DEFAULT_EXCHANGE) -> dict[str, Any]:
+async def _legacy_fetch_market_status(exchange: str = DEFAULT_EXCHANGE) -> dict[str, Any]:
     code = _normalize_exchange(exchange)
     api_key = _finnhub_api_key()
     if not api_key:
@@ -1696,7 +1696,7 @@ def _normalize_mover_row(row: dict[str, Any], source: str) -> dict[str, Any] | N
     }
 
 
-async def _fetch_symbol_price_series(symbol: str) -> list[float] | None:
+async def _legacy_fetch_symbol_price_series(symbol: str) -> list[float] | None:
     """Short recent daily close series for a single symbol via FMP's light
     EOD chart endpoint. Returns None (never a fabricated shape) when the
     provider has no data, is in cooldown, or the key is unavailable."""
@@ -1719,7 +1719,7 @@ async def _fetch_symbol_price_series(symbol: str) -> list[float] | None:
     return [price for _, price in closes[-20:]]
 
 
-async def _fetch_symbol_series_batch(symbols: list[str]) -> dict[str, list[float]]:
+async def _legacy_fetch_symbol_series_batch(symbols: list[str]) -> dict[str, list[float]]:
     """Bounded-concurrency fan-out of `_fetch_symbol_price_series` across a
     small symbol set (index benchmarks + current mover rows). Never issues
     one request per row sequentially; capped in-flight requests instead."""
@@ -1746,7 +1746,7 @@ async def _fetch_symbol_series_batch(symbols: list[str]) -> dict[str, list[float
     return results
 
 
-async def _fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str]]:
+async def _legacy_fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str]]:
     status_map: dict[str, str] = {}
 
     gainers_task = _fetch_pmp_json(
@@ -1780,7 +1780,7 @@ async def _fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str]]:
     }, status_map
 
 
-async def _fetch_sector_rotation_from_fmp() -> tuple[list[dict[str, Any]], str]:
+async def _legacy_fetch_sector_rotation_from_fmp() -> tuple[list[dict[str, Any]], str]:
     # FMP's /stable/sector-performance-snapshot requires a `date` query param
     # (confirmed against the official docs); the endpoint returns an empty/
     # error payload without it. The snapshot lags real time (no data yet for
@@ -3692,3 +3692,60 @@ async def get_stock_preview(
         },
         "advisor_summary": advisor_summary,
     }
+
+
+async def _fetch_market_status(exchange: str = DEFAULT_EXCHANGE):
+    from hushh_mcp.services.market_data_provider import (
+        MarketDataRequest,
+        fetch_with_market_provider,
+    )
+
+    return await fetch_with_market_provider(
+        MarketDataRequest("market_status", exchange=exchange),
+        lambda: _legacy_fetch_market_status(exchange=exchange),
+    )
+
+
+async def _fetch_movers_from_fmp():
+    from hushh_mcp.services.market_data_provider import (
+        MarketDataRequest,
+        fetch_with_market_provider,
+    )
+
+    return await fetch_with_market_provider(
+        MarketDataRequest("movers"), lambda: _legacy_fetch_movers_from_fmp()
+    )
+
+
+async def _fetch_sector_rotation_from_fmp():
+    from hushh_mcp.services.market_data_provider import (
+        MarketDataRequest,
+        fetch_with_market_provider,
+    )
+
+    return await fetch_with_market_provider(
+        MarketDataRequest("sector_rotation"), lambda: _legacy_fetch_sector_rotation_from_fmp()
+    )
+
+
+async def _fetch_symbol_price_series(symbol: str):
+    from hushh_mcp.services.market_data_provider import (
+        MarketDataRequest,
+        fetch_with_market_provider,
+    )
+
+    return await fetch_with_market_provider(
+        MarketDataRequest("intraday", (symbol,)), lambda: _legacy_fetch_symbol_price_series(symbol)
+    )
+
+
+async def _fetch_symbol_series_batch(symbols: list[str]):
+    from hushh_mcp.services.market_data_provider import (
+        MarketDataRequest,
+        fetch_with_market_provider,
+    )
+
+    return await fetch_with_market_provider(
+        MarketDataRequest("intraday", tuple(symbols)),
+        lambda: _legacy_fetch_symbol_series_batch(symbols),
+    )
