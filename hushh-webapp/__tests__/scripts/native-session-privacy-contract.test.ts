@@ -167,7 +167,13 @@ describe("native resumed-session privacy shield contract", () => {
     expect(controller).toContain("requestedGeneration == generation");
     expect(controller).toContain("requestedGeneration > 0");
     expect(controller).toContain("appIsActive");
-    expect(controller).toContain("overlay.isOpaque = true");
+    // The input blocker stays full strength while its opaque visual child
+    // fades only after validated handback; renewed inactivity restores it.
+    expect(controller).toContain("visual.isOpaque = true");
+    expect(controller).toContain("visualCover?.alpha = 1");
+    for (const edge of ["leading", "trailing", "top", "bottom"]) {
+      expect(controller).toContain(`visual.${edge}Anchor.constraint(equalTo: overlay.${edge}Anchor)`);
+    }
     expect(controller).toContain(
       'accessibilityIdentifier = "session-privacy-shield"',
     );
@@ -198,7 +204,8 @@ describe("native resumed-session privacy shield contract", () => {
     expect(controller).toContain("title.numberOfLines = 0");
     expect(controller.indexOf("state.restartSession()")).toBeLessThan(controller.indexOf("reloadDocument?()"));
     expect(controller.indexOf("documents.restart()")).toBeLessThan(controller.indexOf("reloadDocument?()"));
-    expect(controller).toContain("guard documents.accepts(documentId)");
+    expect(controller).toContain("guard pendingRelease == nil, documents.accepts(documentId),");
+    expect(controller).toContain("self.documents.accepts(documentId), UIApplication.shared.applicationState == .active");
     expect(bridgeController).toContain("self?.webView?.reload()");
   });
 

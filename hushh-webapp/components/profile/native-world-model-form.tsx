@@ -1,5 +1,7 @@
 "use client";
 
+import { nativeProfileSceneCanPrepare, nativeProfileActionsAllowed } from "@/lib/capacitor/native-profile-preparation";
+
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -42,7 +44,7 @@ export function NativeWorldModelForm({ model, destinationId }: { model: NativeWo
   }), []);
   const publish = useCallback(() => {
     const current = replica.current, next = live.current;
-    if (!current || !next.appearance || !next.model.ready || !next.privacy || next.privacy.shielded || !next.privacy.appIsActive) return;
+    if (!current || !next.appearance || !next.model.ready || !next.privacy || !nativeProfileSceneCanPrepare(next.privacy, current.identity.scene, current.identity.destinationId)) return;
     const edit = next.edit.identity === current.identity ? next.edit : { revision: 0, composing: false };
     const state = { ...current.identity, ...next.appearance, ...next.model.form, privacyGeneration: next.privacy.generation,
       draftRevision: next.model.revision, acknowledgedEditRevision: edit.revision,
@@ -51,10 +53,10 @@ export function NativeWorldModelForm({ model, destinationId }: { model: NativeWo
     if (fingerprint === current.fingerprint) { current.presentation.refreshActions(actions()); return; }
     if (current.presentation.publish({ ...state, updateSequence: ++current.sequence } as NativeWorldModelProjection, actions())) current.fingerprint = fingerprint;
   }, [actions]);
-  const epoch = snapshotVaultSessionEpoch(), generation = privacy?.generation, shielded = privacy?.shielded, active = privacy?.appIsActive;
+  const epoch = snapshotVaultSessionEpoch(), generation = privacy?.generation, presentationBlocked = !nativeProfileSceneCanPrepare(privacy, model.form.scene, destinationId), active = privacy?.appIsActive;
   const scene = model.form.scene;
   useEffect(() => {
-    if (!model.ready || generation === undefined || shielded || !active) return;
+    if (!model.ready || generation === undefined || presentationBlocked || !active) return;
     const base = createNativeDrawerIdentity("profile");
     if (!base) return;
     const identity: NativeWorldModelIdentity = { ...base, family: "profile", scene, destinationId };
@@ -63,7 +65,7 @@ export function NativeWorldModelForm({ model, destinationId }: { model: NativeWo
     const isCurrent = () => current && live.current.model.ready && live.current.model.owner === owner && live.current.model.id === visit &&
       live.current.model.form.scene === scene && live.current.destinationId === destinationId && snapshotValidatedAuthSessionOwner()?.userId === owner &&
       snapshotVaultSessionEpoch() === epoch && nativeDrawerOwnerIsCurrent(identity) && live.current.privacy?.generation === generation &&
-      !live.current.privacy.shielded && live.current.privacy.appIsActive;
+      nativeProfileSceneCanPrepare(live.current.privacy, identity.scene, identity.destinationId);
     const plugin = nativeDrawers() as ReturnType<typeof nativeDrawers> & NativeWorldModelScenePort;
     const presentation = new NativeProfileScenePresentation<NativeWorldModelProjection, NativeWorldModelEdit, NativeWorldModelAction, undefined>(identity, {
       source: plugin, apply: state => plugin.applyProfileWorldModelScene(state), confirm: event => plugin.confirmProfileWorldModelAction(event),
@@ -72,12 +74,12 @@ export function NativeWorldModelForm({ model, destinationId }: { model: NativeWo
     }, new NativeWorldModelFence(identity), validNativeWorldModelProjection, isCurrent, phase => {
       if (!current) return;
       setPhase(phase); if (phase === "fallback") live.current.model.fallback();
-    }, true, state => ({ ...state, draft: { ...state.draft } } as NativeWorldModelProjection));
+    }, true, state => ({ ...state, draft: { ...state.draft } } as NativeWorldModelProjection), () => isCurrent() && nativeProfileActionsAllowed());
     const instance = { identity, presentation, sequence: 0, fingerprint: null as string | null };
     replica.current = instance; setEdit({ identity, revision: 0, composing: false });
     void presentation.listen().then(ready => { if (ready && isCurrent()) publish(); });
     return () => { current = false; if (replica.current === instance) replica.current = null; void presentation.retire(); };
-  }, [model.ready, model.owner, model.id, scene, destinationId, epoch, generation, shielded, active, publish]);
+  }, [model.ready, model.owner, model.id, scene, destinationId, epoch, generation, presentationBlocked, active, publish]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, 100, () => {
     const current = replica.current;

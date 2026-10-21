@@ -382,6 +382,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getCapabilities", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setPresentationRegions", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "acquireContentPane", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmContentPanePreparation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "releaseContentPane", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setCanvasAppearance", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "prepare", returnType: CAPPluginReturnPromise),
@@ -493,11 +494,13 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                         self.keyboardVisible = false
                     }
                     if note.name == UIApplication.willResignActiveNotification ||
-                        note.name == HushhSessionPrivacyShield.presentationDidChange {
+                        note.name == HushhSessionPrivacyShield.presentationDidChange &&
+                            HushhSessionPrivacyShield.shared.snapshot().shielded {
                         self.invalidatePresentation(conceal: true)
                     } else {
-                        // Keyboard movement changes action eligibility, not
-                        // ownership or material identity. Keep every host.
+                        // Release and keyboard movement change eligibility,
+                        // not material identity. In particular a release must
+                        // not destroy a replacement prepared under its cover.
                         self.interactionGeneration += 1
                         self.reconcileKeyboardInteraction()
                     }
@@ -712,6 +715,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                           "contentBackedPresentation": contentBacked,
                           "coherentPresentation": self?.compositor?.wholeNativeDrawers == true && NativeDrawerQualificationPolicy.coherentShell,
                           "ownedContentPane": self?.compositor?.wholeNativeDrawers == true && self?.chatControlsAdmitted == true,
+                          "contentPanePreparation": self?.compositor?.wholeNativeDrawers == true && self?.chatControlsAdmitted == true,
                           "reservedPresentationRegions": legacyRegions,
                           "fullWindowOverlays": legacyRegions,
                           "drawerClipping": self?.compositor?.drawerClipping == true,
@@ -746,17 +750,39 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     @objc func acquireContentPane(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.chatControlsAdmitted, self.canMirrorPresentation,
+            guard let self, self.chatControlsAdmitted,
                   let identity = self.readContentPaneCall(call), let viewport = self.presentationViewport(call),
                   HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
                   !self.retiredDocuments.contains(identity.document) else { call.reject("NATIVE_CONTENT_PANE_REFUSED"); return }
+            let shield = HushhSessionPrivacyShield.shared
+            let visit = call.getString("preparationVisitId")
+            let preparing = visit.map { shield.canPrepareProfilePane(identity, visit: $0) } == true
+            guard self.canMirrorPresentation || preparing else { call.reject("NATIVE_CONTENT_PANE_REFUSED"); return }
             self.acceptDocument(identity.document)
-            self.compositor?.revealUnderlay()
-            guard self.compositor?.acquireContentPane(identity, viewport: viewport) == true else {
+            if !preparing { self.compositor?.revealUnderlay() }
+            guard self.compositor?.acquireContentPane(identity, viewport: viewport, preparing: preparing) == true else {
                 call.reject("NATIVE_CONTENT_PANE_REFUSED"); return
+            }
+            if preparing, let visit {
+                guard shield.beginProfilePanePreparation(identity, visit: visit, viewport: viewport, ready: { [weak self] in
+                    guard let self, let container = self.compositor, let host = self.bridge?.viewController?.view else { return false }
+                    return container.contentPaneAdmits(identity) && container.preparationBaseIsConcealed &&
+                        container.window != nil && container.window === host.window && container.bounds.size == viewport
+                }) else { call.reject("NATIVE_CONTENT_PANE_PREPARATION_REFUSED"); return }
             }
             self.interactionGeneration += 1
             for slot in self.slots.values { slot.state.invalidateChoices(through: slot.sequence) }
+            call.resolve(self.paneReceipt(identity, phase: "active"))
+        }
+    }
+    @objc func confirmContentPanePreparation(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.readContentPaneCall(call),
+                  let visit = call.getString("preparationVisitId"), let id = call.getString("preparationId"),
+                  self.compositor?.contentPaneAdmits(identity) == true,
+                  HushhSessionPrivacyShield.shared.confirmProfilePanePreparation(identity, visit: visit, id: id) else {
+                call.reject("NATIVE_CONTENT_PANE_PAINT_REFUSED"); return
+            }
             call.resolve(self.paneReceipt(identity, phase: "active"))
         }
     }
@@ -768,6 +794,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                   self.compositor?.beginContentPaneRetirement(identity) == true else {
                 call.reject("NATIVE_CONTENT_PANE_RETIRE_STALE"); return
             }
+            HushhSessionPrivacyShield.shared.retireProfilePanePreparation(identity)
             let dismissal = DispatchGroup()
             for slot in self.slots.values where slot.contentPane?.sameLifetime(as: identity) == true {
                 slot.state.invalidate(); self.removeHosting(slot)

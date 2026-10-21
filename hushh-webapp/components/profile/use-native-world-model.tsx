@@ -101,7 +101,8 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
     return true;
   };
   const blocking = local.form?.busy === true || source.busy || invitations.busy || claim.busy || model.preferenceBusy || model.pending.size > 0 || sourceReview.busy || sourceReview.saveStarted;
-  if (!active) return { pages, rows, back, ancestor: () => false, nested: false, blocking: false, navigationBlocked: () => false, editor: (_destinationId: string) => null };
+  if (!active) return { pages, rows, back, ancestor: () => false, nested: false, blocking: false, navigationBlocked: () => false,
+    formScene: null, editor: (_destinationId: string) => null };
   const bind = (key: string, action: () => void | Promise<void>) => {
     const id = visit.handle(key); rows.set(id, () => { if (visit.current() && !visit.pending) return action(); }); return id;
   };
@@ -336,7 +337,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
     };
     return <NativeWorldModelForm key={form.id} model={scene} destinationId={destinationId} />;
   };
-  return { pages, rows, back, nested: pages.length > 1 || form !== null, blocking, navigationBlocked, editor,
+  return { pages, rows, back, nested: pages.length > 1 || form !== null, blocking, navigationBlocked, editor, formScene: form?.value.scene ?? null,
     ancestor: (choice: NativeDrawerChoice) => {
       if (!visit.current() || navigationBlocked() || blocking) return false;
       if (choice.rowId === "world-model") { model.closeDetail(); change(() => initial()); return true; }

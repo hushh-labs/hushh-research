@@ -11,7 +11,7 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
 import { NativeChromeLease, chromeControlId, chromeOwnerEpoch, currentChromeInstallation, canResumeNativeChrome, suspendOwnedNativeChrome, peekNativeChromeCapabilities, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry, type ChromeAgentSurface, type ChromeChoice, type ChromeChoiceOutcome, type ChromeOption, type ChromeControl, type ChromeAccentPalette } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
-import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
+import { nativeDocumentId, nativePrivacyCanInteract, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { isSessionChromeSuppressed, useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { getVoiceSurfaceMetadata, useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
@@ -164,7 +164,7 @@ export function NativeChatChrome(props: Props) {
     !moving.current && !slot.current?.closest("[inert]") &&
     !isSessionChromeSuppressed() && !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions &&
     document.visibilityState !== "hidden", []);
-  const canAct = useCallback(() => current.current.allowed && canReachPresentation(), [canReachPresentation]);
+  const canAct = useCallback(() => current.current.allowed && nativePrivacyCanInteract() && canReachPresentation(), [canReachPresentation]);
   // Preparing presentation grants no operation authority. A detail destination
   // is laid out while its native menu is still closing; rejecting preparation
   // solely for that coverage would expose a web Back or leave an empty slot.
@@ -356,7 +356,15 @@ export function NativeChatChrome(props: Props) {
     const invalidateRemoved = () => { removedLease.current = lease.current; invalidate(); };
     const readmit = () => {
       const active = lease.current, snapshot = current.current;
-      if (cancelled || subscriptionsFailed || !active?.ownsInstallation || active.context !== snapshot.context || active.projection.ownerEpoch !== snapshot.epoch || !snapshot.theme) return;
+      if (cancelled || subscriptionsFailed || !nativePrivacyCanInteract() || !snapshot.theme) return;
+      if (!active?.ownsInstallation || !active.admissionReady || removedLease.current === active ||
+          active.context !== snapshot.context || active.projection.ownerEpoch !== snapshot.epoch) {
+        // Privacy may have actually retired this host. Updating its invalid
+        // lease returns false; it cannot reconstruct the presentation. Rejoin
+        // the existing acknowledged retirement/admission owner, never an action.
+        if (canPrepare()) remeasure(count => count + 1);
+        return;
+      }
       void active.update({ ...snapshot.theme, enabled: canAct(), value: snapshot.value, expanded: snapshot.expanded }, true).then(applied => {
         if (applied) notifyPresentationReady(active);
       }).catch(() => {
@@ -401,7 +409,10 @@ export function NativeChatChrome(props: Props) {
             if (outcome && lease.current === active) reportChoice(outcome);
           }).catch(() => { if (lease.current === active) reportChoice("uncertain"); });
         })), retain(nativeChrome.addListener("invalidated", invalidateRemoved)),
-        retain(nativeChrome.addListener("readmissionRequested", readmit)), retain(subscribeNativeSessionPrivacy(invalidateRemoved))]);
+        retain(nativeChrome.addListener("readmissionRequested", readmit)), retain(subscribeNativeSessionPrivacy(state => {
+          if (!state.appIsActive || state.shielded) invalidateRemoved();
+          else readmit();
+        }))]);
         if (!cancelled) {
           setInPlaceUpdates(capability.inPlaceUpdates === true);
           setRetainedControls(capability.retainedControls === true);

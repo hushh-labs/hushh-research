@@ -4,6 +4,9 @@ import { act, render, screen, waitFor, fireEvent, within } from "@testing-librar
 import { ReferralsPanel } from "@/components/profile/referrals-panel";
 import { ApiError } from "@/lib/services/api-client";
 import { ReferralService, type ReferralSummary } from "@/lib/services/referral-service";
+import { Capacitor } from "@capacitor/core";
+import { Share } from "@capacitor/share";
+vi.mock("@capacitor/share", () => ({ Share: { share: vi.fn().mockResolvedValue({}) } }));
 
 // The panel reads the signed-in user to mint an ID token. Stubbing the hook
 // rather than the whole auth provider keeps the token in the assertions --
@@ -146,6 +149,20 @@ describe("ReferralsPanel", () => {
     await waitFor(() =>
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(summary.link),
     );
+  });
+
+  it("uses the native Share owner for a bridge action instead of activation-gated Web Share", async () => {
+    vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+    const webShare = vi.fn();
+    Object.defineProperty(navigator, "share", { configurable: true, value: webShare });
+    mockSummary();
+    try {
+      render(<ReferralsPanel />);
+      await waitFor(() => expect(screen.getByText(summary.link)).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: "Share" }));
+      await waitFor(() => expect(Share.share).toHaveBeenCalledWith(expect.objectContaining({ url: summary.link })));
+      expect(webShare).not.toHaveBeenCalled();
+    } finally { delete (navigator as { share?: unknown }).share; }
   });
 
   it("never renders anything identifying about a referred person", async () => {

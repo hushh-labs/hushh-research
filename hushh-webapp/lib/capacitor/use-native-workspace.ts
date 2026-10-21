@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import type { PluginListenerHandle } from "@capacitor/core";
 import { customNativePresentationEnabled } from "./native-presentation-policy";
 import { captureNativeDrawerOwner, nativeDrawerOwnerIsCurrent } from "./native-drawer-owner";
-import { nativeDrawers, nativeDrawerAcknowledged, subscribeNativeDrawerIsolation, nativeDrawerIsolation, observeNativeDrawerIsolation } from "./native-drawers";
+import { nativeDrawers, nativeDrawerAcknowledged, subscribeNativeDrawerIsolation, nativeDrawerIsolation, observeNativeDrawerIsolation, trackNativeWorkspaceRetirement } from "./native-drawers";
 import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "./session-privacy";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "../vault/session-epoch";
 import { useNativeControlAppearance } from "./native-control-appearance";
@@ -36,7 +36,9 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
   useLayoutEffect(() => { live.current = { owner, content, actions, back, current, appearance, privacy, editor, onRetirementOwner }; });
   const publish = useRef<() => void>(() => {});
   useLayoutEffect(() => { publish.current(); });
-  useEffect(() => {
+  // Layout cleanup precedes the persistent shell's next layout publish. A
+  // passive cleanup registers withdrawal too late for that same-commit handoff.
+  useLayoutEffect(() => {
     if (!customNativePresentationEnabled()) return;
     const base = captureNativeDrawerOwner();
     if (!base || !privacy?.appIsActive || privacy.shielded) return;
@@ -76,7 +78,11 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
     };
     const retire = () => {
       withdrawing = true; desired = undefined; applied = undefined; fingerprint = "";
-      withdrawal ??= retireOnce(); return withdrawal;
+      if (!withdrawal) {
+        withdrawal = retireOnce();
+        trackNativeWorkspaceRetirement(identity, withdrawal, port);
+      }
+      return withdrawal;
     };
     const fail = async () => { const absent = await retire(); if (active) setPhase(absent ? "web" : "blocked"); };
     const flush = async () => {

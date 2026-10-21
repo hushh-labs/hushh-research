@@ -495,15 +495,19 @@ function AppShellFrame({ children }: ProvidersProps) {
         report?.("unavailable");
         return;
       }
-      if (profilePaneUrlState.open || resolveProfilePaneUrlState(window.location.search).open) {
+      // The native pane consumes the current History entry synchronously.
+      // Next's concurrent query snapshot may still describe the just-closed
+      // pane; it must not discard a fresh Open as already_open.
+      const entrySearch = new URLSearchParams(window.location.search);
+      if (resolveProfilePaneUrlState(entrySearch).open) {
         report?.("already_open");
         return;
       }
       const target = (event as CustomEvent<ProfilePaneOpenDetail>).detail?.returnFocus;
       profileReturnFocus.current = target?.isConnected ? { owner: userId, target } : null;
       openProfilePane(
-        pathname || ROUTES.ONE_HOME,
-        searchParams,
+        window.location.pathname || pathname || ROUTES.ONE_HOME,
+        entrySearch,
         detail?.destination?.location ?? profilePaneResumeLocation,
         { returnsToOrigin: detail?.destination?.returnsToOrigin },
       );
@@ -521,28 +525,27 @@ function AppShellFrame({ children }: ProvidersProps) {
   }, [
     pathname,
     profilePaneEnabled,
-    profilePaneUrlState.open,
     profilePaneResumeLocation,
-    searchParams,
     userId,
   ]);
 
-  const profilePaneIsOpen = profilePaneUrlState.open;
   const handleProfilePaneOpenChange = useCallback(
     (nextOpen: boolean) => {
+      const entryPathname = window.location.pathname || pathname || ROUTES.ONE_HOME;
+      const entrySearch = new URLSearchParams(window.location.search);
       if (nextOpen) {
-        if (!profilePaneIsOpen) {
+        if (!resolveProfilePaneUrlState(entrySearch).open) {
           openProfilePane(
-            pathname || ROUTES.ONE_HOME,
-            searchParams,
+            entryPathname,
+            entrySearch,
             profilePaneResumeLocation,
           );
         }
         return;
       }
-      closeProfilePane(pathname || ROUTES.ONE_HOME, searchParams);
+      closeProfilePane(entryPathname, entrySearch);
     },
-    [profilePaneIsOpen, pathname, searchParams, profilePaneResumeLocation],
+    [pathname, profilePaneResumeLocation],
   );
 
   useEffect(() => {

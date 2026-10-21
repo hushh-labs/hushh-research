@@ -6,7 +6,8 @@ import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "./native
 import { NativeDrawerPresentation, type NativeDrawerActions } from "./native-drawer-presentation";
 import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged, type NativeDrawerFamily, type NativeDrawerSection, type NativeProfilePage, type NativeDrawerProjection } from "./native-drawers";
 import { useNativeControlAppearance } from "./native-control-appearance";
-import { getNativeSessionPrivacyState, nativePrivacyObservation, subscribeNativePrivacyObservation, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "./session-privacy";
+import { getNativeSessionPrivacyState, nativePrivacyCanInteract, nativePrivacyObservation, subscribeNativePrivacyObservation, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "./session-privacy";
+import { nativeProfileTargetCanPrepare, type ProfilePreparationDescription } from "./native-profile-preparation";
 
 export type NativeDrawerPort = {
   family: NativeDrawerFamily; owner: string | null; vaultEpoch: number; ready: boolean;
@@ -14,6 +15,7 @@ export type NativeDrawerPort = {
   profileMenuRows?: boolean;
   enabled?: boolean;
   surfaceOpen?: boolean;
+  preparation?: ProfilePreparationDescription;
   onPresented?: (state: NativeDrawerProjection) => void;
   onHidden?: (state: NativeDrawerProjection) => void;
   onAbsenceConfirmed?: (privacyGeneration: number) => void;
@@ -30,6 +32,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
   const [admission, readmit] = useState(0);
   const previousOpen = useRef(port.open);
   const contentHandoffSupported = useRef(false);
+  const preparationSupported = useRef(false);
   const current = useRef({ port, theme }); current.current = { port, theme };
   const privacyRef = useRef(privacy); privacyRef.current = privacy;
   const absentLease = useRef<{ isCurrent: () => boolean; privacy: number; delivered: boolean } | null>(null);
@@ -58,6 +61,8 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       title: nextPort.title, open: nextPort.open, enabled: nextPort.enabled !== false, backEnabled: !!next.actions.back,
       ...(contentHandoffSupported.current && nextPort.family === "profile" && nextPort.surfaceOpen !== undefined ? { surfaceOpen: nextPort.surfaceOpen } : {}),
       searchable: nextPort.searchable, loading: nextPort.loading, sections: next.sections,
+      ...(preparationSupported.current && nextPort.family === "profile" && nextPort.open && nextPort.preparation
+        ? { profilePreparation: nextPort.preparation } : {}),
       ...(next.navigationLocked === undefined ? {} : { navigationLocked: next.navigationLocked }),
       ...(next.profileStack ? { profileStack: next.profileStack, profileDestinationId: next.profileDestinationId,
         profileSupportDestinationId: next.profileSupportDestinationId } : {}) };
@@ -93,6 +98,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
     }).catch(() => { if (active) setPhase("blocked"); });
     void nativeDrawerAcknowledged(nativeDrawers().getCapabilities()).then(capability => {
       if (active) contentHandoffSupported.current = capability.profileContentHandoff === true;
+      if (active) preparationSupported.current = capability.profilePreparation === true;
       if (active) setSupported(capability.contractVersion === 1 && capability.supported && capability.wholePresentation &&
         (port.family !== "history" || capability.historyActions === true) &&
         (port.family !== "agent-profile" || capability.agentProfileMenu === true) &&
@@ -100,9 +106,11 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
     }).catch(() => { if (active) setSupported(false); });
     return () => { active = false; removeObservation(); void observer?.remove(); };
   }, [port.family, port.profileMenuRows]);
+  const presentationAllowed = port.family === "profile" && port.open && !!port.preparation && preparationSupported.current
+    ? nativeProfileTargetCanPrepare(privacy, port.preparation) : nativePrivacyCanInteract(privacy ?? undefined);
   useEffect(() => {
     if (!supported || !port.ready || !port.owner || snapshotValidatedAuthSessionOwner()?.userId !== port.owner ||
-      privacy?.generation === undefined || privacy.shielded || !privacy.appIsActive) return;
+      privacy?.generation === undefined || !presentationAllowed) return;
     const identity = createNativeDrawerIdentity(port.family);
     if (!identity) return;
     absentLease.current = null;
@@ -110,7 +118,8 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
     let active = true;
     const isCurrent = () => active && current.current.port.ready && current.current.port.owner === owner &&
       snapshotValidatedAuthSessionOwner()?.userId === owner && current.current.port.vaultEpoch === epoch &&
-      privacyRef.current?.generation === generation && !privacyRef.current.shielded && privacyRef.current.appIsActive &&
+      privacyRef.current?.generation === generation && (port.family === "profile" && current.current.port.open && !!current.current.port.preparation && preparationSupported.current
+        ? nativeProfileTargetCanPrepare(privacyRef.current, current.current.port.preparation) : nativePrivacyCanInteract(privacyRef.current ?? undefined)) &&
       nativeDrawerOwnerIsCurrent(identity);
     const presentation = new NativeDrawerPresentation(identity, nativeDrawers(), isCurrent, next => {
       if (active) setPhase(next === "active" ? "native" : next === "retired" ? "web" : next === "quarantined" ? "blocked" : "preparing");
@@ -125,7 +134,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       if (state.open) current.current.port.onPresented?.(state);
       else current.current.port.onHidden?.(state);
     },
-    () => isCurrent() && publish(true));
+    () => isCurrent() && publish(true), () => isCurrent() && nativePrivacyCanInteract(privacyRef.current ?? undefined));
     const instance = { presentation, update: 0, privacy: generation, owner, epoch, handles: new Map<string, string>(), fingerprint: null as string | null };
     replica.current = instance; setPhase("preparing");
     void (async () => { if (await presentation.listen() && isCurrent()) publish(); })()
@@ -136,7 +145,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       if (replica.current === instance) replica.current = null;
       void presentation.retire();
     };
-  }, [supported, port.family, port.ready, port.owner, port.vaultEpoch, privacy?.generation, privacy?.shielded, privacy?.appIsActive, admission]);
+  }, [supported, port.family, port.ready, port.owner, port.vaultEpoch, privacy?.generation, presentationAllowed, admission]);
   useLayoutEffect(() => { publish(); reportAbsence(); });
   return supported === false ? "web" : phase;
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { nativeProfileSceneCanPrepare, nativeProfileActionsAllowed } from "@/lib/capacitor/native-profile-preparation";
+
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -38,7 +40,7 @@ export function NativeVaultPasswordEditor({ model, userId, destinationId, onFall
   }), []);
   const publish = useCallback(() => {
     const current = replica.current, next = live.current;
-    if (!current || !next.appearance || !next.privacy || next.privacy.shielded || !next.privacy.appIsActive || !next.model.passphraseOpen) return;
+    if (!current || !next.appearance || !next.privacy || !nativeProfileSceneCanPrepare(next.privacy, current.identity.scene, current.identity.destinationId) || !next.model.passphraseOpen) return;
     const edit = next.edit.identity === current.identity ? next.edit : { revision: 0, composing: false };
     const value = { ...current.identity, ...next.appearance, privacyGeneration: next.privacy.generation,
       acknowledgedEditRevision: edit.revision, password: next.model.password, confirmation: next.model.confirmation,
@@ -49,16 +51,16 @@ export function NativeVaultPasswordEditor({ model, userId, destinationId, onFall
     if (current.presentation.publish({ ...value, updateSequence: ++current.sequence }, actions())) current.fingerprint = fingerprint;
   }, [actions]);
   const epoch = snapshotVaultSessionEpoch();
-  const generation = privacy?.generation, shielded = privacy?.shielded, active = privacy?.appIsActive;
+  const generation = privacy?.generation, presentationBlocked = !nativeProfileSceneCanPrepare(privacy, "vault-passphrase", destinationId), active = privacy?.appIsActive;
   useEffect(() => {
-    if (generation === undefined || shielded || !active) return;
+    if (generation === undefined || presentationBlocked || !active) return;
     const base = createNativeDrawerIdentity("profile");
     if (!base) return;
     const identity: NativePasswordIdentity = { ...base, family: "profile", scene: "vault-passphrase", destinationId };
     let current = true;
     const isCurrent = () => current && live.current.userId === userId && live.current.destinationId === destinationId &&
       snapshotValidatedAuthSessionOwner()?.userId === userId && snapshotVaultSessionEpoch() === epoch && nativeDrawerOwnerIsCurrent(identity) &&
-      live.current.privacy?.generation === generation && !live.current.privacy.shielded && live.current.privacy.appIsActive;
+      live.current.privacy?.generation === generation && nativeProfileSceneCanPrepare(live.current.privacy, identity.scene, identity.destinationId);
     const plugin = nativeDrawers() as ReturnType<typeof nativeDrawers> & NativePasswordScenePort;
     const presentation = new NativeProfileScenePresentation<NativePasswordProjection, NativePasswordEdit, NativePasswordAction, undefined>(identity, {
       source: plugin, apply: state => plugin.applyProfilePasswordScene(state), confirm: action => plugin.confirmProfilePasswordAction(action),
@@ -68,12 +70,12 @@ export function NativeVaultPasswordEditor({ model, userId, destinationId, onFall
       if (!current) return;
       setPhase(phase);
       if (phase === "fallback") live.current.onFallback();
-    }, false);
+    }, false, state => ({ ...state }), () => isCurrent() && nativeProfileActionsAllowed());
     const instance = { identity, presentation, sequence: 0, fingerprint: null as string | null };
     replica.current = instance; setEdit({ identity, revision: 0, composing: false });
     void presentation.listen().then(ready => { if (ready && isCurrent()) publish(); });
     return () => { current = false; if (replica.current === instance) replica.current = null; instance.fingerprint = null; void presentation.retire(); };
-  }, [userId, destinationId, epoch, generation, shielded, active, publish]);
+  }, [userId, destinationId, epoch, generation, presentationBlocked, active, publish]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, 100, () => {
     const current = replica.current;

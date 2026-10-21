@@ -173,6 +173,11 @@ written every 10 s while no gesture is in flight.
 - iOS JavaScript cost: `xcrun xctrace record --template 'Time Profiler' --all-processes` (the JavaScript thread lives in the WebContent process).
 - Android: `adb shell dumpsys gfxinfo com.hussh.app reset`, gestures, then `dumpsys gfxinfo com.hussh.app framestats`; Chrome DevTools over `chrome://inspect` shows forced reflows for the same JavaScript, which is the cheapest attribution even for iOS findings.
 
+Metric summaries (`summarize-xcresult-metrics.mjs`) preserve original numeric
+samples and medians: a measured `0.004 s` hitch must not become report zero.
+An export with positive FPS but zero rendered frames does not establish
+compositor acceptance; preserving precision cannot recover missing frames.
+
 Simulator numbers are attribution only. A simulator renders through the
 Mac's GPU and reports the Mac's refresh rate; it finds causes and cannot
 certify a frame rate. Sign-off numbers come from a phone, Release build,

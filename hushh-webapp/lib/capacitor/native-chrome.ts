@@ -71,6 +71,7 @@ export type NativeChromeCapabilities = {
   contentBackedPresentation?: boolean;
   coherentPresentation?: boolean;
   ownedContentPane?: boolean;
+  contentPanePreparation?: boolean;
   reservedPresentationRegions?: boolean;
   fullWindowOverlays?: boolean;
   /** Debug qualification: rectangular exposure of retained stationary chrome. */
@@ -80,7 +81,8 @@ export type NativeChromeCapabilities = {
 };
 
 export interface HushhNativeChromePlugin {
-  acquireContentPane(options: NativeContentPaneIdentity & { viewport: { width: number; height: number } }): Promise<NativeContentPaneReceipt>;
+  acquireContentPane(options: NativeContentPaneIdentity & { viewport: { width: number; height: number }; preparationVisitId?: string }): Promise<NativeContentPaneReceipt>;
+  confirmContentPanePreparation?(options: NativeContentPaneIdentity & { preparationVisitId: string; preparationId: string }): Promise<NativeContentPaneReceipt>;
   releaseContentPane(options: NativeContentPaneIdentity): Promise<NativeContentPaneReceipt>;
   setPresentationRegions(options: NativePresentationRegions): Promise<NativePresentationRegions>;
   interactionFeedback(options: { documentId: string; privacyGeneration: number; intentId: string; kind: "light" | "selection"; issuedAtMs: number }): Promise<{ played: boolean }>;

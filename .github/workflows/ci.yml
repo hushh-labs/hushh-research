@@ -380,6 +380,7 @@ jobs:
               - 'hushh-webapp/lib/capacitor/native-presentation-policy.ts'
               - 'hushh-webapp/lib/capacitor/native-presentation-regions.ts'
               - 'hushh-webapp/lib/capacitor/native-profile-legal.ts'
+              - 'hushh-webapp/lib/capacitor/native-profile-preparation.ts'
               - 'hushh-webapp/lib/capacitor/native-workspace.ts'
               - 'hushh-webapp/lib/capacitor/session-privacy.ts'
               - 'hushh-webapp/lib/capacitor/use-native-content-pane.ts'

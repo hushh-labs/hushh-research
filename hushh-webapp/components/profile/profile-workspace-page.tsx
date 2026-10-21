@@ -43,6 +43,8 @@ import { useNativeVaultMethods } from "./use-native-vault-methods";
 import { NativeVaultPasswordEditor } from "./native-vault-password-editor";
 import { NativeRequestPricingEditor, projectNativeRequestPricing } from "./native-request-pricing";
 import { useNativePayouts } from "./use-native-payouts";
+import { useNativeReferrals } from "./use-native-referrals";
+import { ReferralsPanelView } from "./referrals-panel";
 import { useNativeConnectors } from "./use-native-connectors";
 import { useNativeMemory } from "./use-native-memory";
 import { NativeMemoryEditor } from "./native-memory-editor";
@@ -1010,6 +1012,9 @@ function ProfilePageContent({
   const nativePayoutActive = presentation === "native-page" && nativeMenuOpen && nativePayoutAvailable &&
     activePanel === "payouts" && !activeDetail && vaultAccess.canMutateSecureData;
   const nativePayout = useNativePayouts(nativePayoutActive);
+  const nativeReferralActive = presentation === "native-page" && nativeMenuOpen &&
+    activePanel === "referrals" && isVaultUnlocked;
+  const nativeReferrals = useNativeReferrals(presentation === "native-page" && nativeMenuOpen && activePanel === "referrals", user?.uid ?? null);
   useBackLayer(pathname, nativePayoutActive && nativePayout.nested ? 3 : 0, nativePayout.back,
     isPanePresentation ? { profile_pane: "1" } : undefined);
   const [nativePricingEditorOpen, setNativePricingEditorOpen] = useState(false);
@@ -4613,7 +4618,7 @@ function ProfilePageContent({
       key: "panel:referrals",
       title: PROFILE_LABELS.referrals,
       description: "Your link and referrals.",
-      content: <ReferralsPanel panePresentation={isPanePresentation} />,
+      content: presentation === "native-page" ? <ReferralsPanelView panePresentation model={nativeReferrals.model} /> : <ReferralsPanel panePresentation={isPanePresentation} />,
     });
   } else if (!routeBlockedByVault && activePanel === "support") {
     profileStackEntries.push({
@@ -4637,7 +4642,7 @@ function ProfilePageContent({
     security: openSecurityPanel,
     devices: () => openVaultBackedPanel("security", "trusted-devices"),
     connectors: () => openVaultBackedPanel("connectors"),
-    invite: () => router.push(ROUTES.ONE_REFERRALS),
+    invite: () => updateProfileView({ panel: "referrals", detail: null }, "push"),
     support: () => updateProfileView({ panel: "support", detail: null }, "push"),
     "developer-tools": () => router.push("/one/profile/pkm-agent-lab"),
     privacy: () => updateProfileView({ panel: "legal", detail: "privacy" }, "push"),
@@ -5057,8 +5062,10 @@ function ProfilePageContent({
     ] }],
   } : undefined;
   return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable} onMemoryCapability={setNativeMemoryAvailable} onSharedMemoryCapability={setNativeSharedMemoryAvailable} onSecretMemoryCapability={setNativeSecretsAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable} onRuntimeCapability={setNativeRuntimeAvailable} onConnectorsCapability={setNativeConnectorsAvailable}
+    referrals={{ active: nativeReferralActive, pages: nativeReferrals.pages, rows: nativeReferrals.rows, editor: nativeReferrals.editor, formScene: nativeReferrals.formScene,
+      root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
     workspace={activePanel === "connectors" ? { kind: "connectors", active: nativeConnectorsActive && !showVaultUnlock,
-      visitKey: activeDetail ?? "catalog", pages: nativeConnectors.pages, rows: nativeConnectors.rows, editor: nativeConnectors.editor, ancestor: nativeConnectors.ancestor,
+      visitKey: activeDetail ?? "catalog", pages: nativeConnectors.pages, rows: nativeConnectors.rows, editor: nativeConnectors.editor, ancestor: nativeConnectors.ancestor, formScene: nativeConnectors.formScene,
       back: () => { if (nativeConnectors.navigationBlocked()) return false; if (!nativeConnectors.back()) popProfileStack(); return true; },
       root: () => {
         if (nativeConnectors.navigationBlocked()) return false;
@@ -5066,11 +5073,12 @@ function ProfilePageContent({
         updateProfileView({ panel: null, detail: null }, "replace"); return true;
       }
     } : activePanel === "world-model" ? { kind: "world-model", active: nativeWorldModelActive && !showVaultUnlock,
-      pages: nativeWorldModel.pages, rows: nativeWorldModel.rows, ancestor: nativeWorldModel.ancestor, editor: nativeWorldModel.editor,
+      pages: nativeWorldModel.pages, rows: nativeWorldModel.rows, ancestor: nativeWorldModel.ancestor, editor: nativeWorldModel.editor, formScene: nativeWorldModel.formScene,
       back: () => { if (nativeWorldModel.navigationBlocked()) return false; if (!nativeWorldModel.back()) popProfileStack(); return true; },
       root: () => { if (nativeWorldModel.navigationBlocked()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; }
     } : activePanel === "my-data" ? { kind: "memory", visitKey: activeDetail ?? "root", active: nativeMemoryActive && !showVaultUnlock && !nativeMemoryWebBody,
       pages: nativeMemory.pages, rows: nativeMemory.rows, ancestor: nativeMemory.ancestor,
+      formScene: nativeContextOpen && !nativeContextFailed ? "memory-financial-context" : null,
       editor: destinationId => nativeContextOpen && !nativeContextFailed ? <NativeMemoryEditor owner={nativeDetailOwner} destinationId={destinationId}
         model={{ current: contextVisit.current, draft: { category: financialContextCategory, text: financialContextText },
           inputRevision: () => financialDraft.current.revision, mutationPending: () => memoryOperations.writing("financial"),
@@ -5089,7 +5097,8 @@ function ProfilePageContent({
       ancestor: nativePayout.ancestor,
       back: () => { if (!nativePayout.back()) popProfileStack(); },
       root: () => updateProfileView({ panel: null, detail: null }, "replace") } : { kind: "request-pricing", active: nativePricingActive && !showVaultUnlock, pages: [nativePricing.page], rows: nativePricing.rows,
-      root: () => updateProfileView({ panel: null, detail: null }, "replace"), editor: destinationId => nativePricingEditorOpen ?
+      root: () => updateProfileView({ panel: null, detail: null }, "replace"), formScene: nativePricingEditorOpen ? "request-price" : null,
+      editor: destinationId => nativePricingEditorOpen ?
         <NativeRequestPricingEditor userId={user.uid} model={nativePricingModel} destinationId={destinationId}
           onClose={() => setNativePricingEditorOpen(false)} onFallback={() => { setNativePricingEditorOpen(false); setNativePricingFailed(true); }} /> : null }}
     detailOverlay={<>{nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
@@ -5120,6 +5129,7 @@ function ProfilePageContent({
     settings={{ active: !showVaultUnlock && (activePanel === "preferences" && (!activeDetail || activeDetail === "voice" && voiceParent !== null || nativeFinanceActive || nativeRuntimeActive) ||
         activePanel === "security" && (!activeDetail || activeDetail === "session" || devicesActive && nativeDevicesAvailable && devicesParent !== null ||
           vaultNativeActive && vaultParent !== null && !nativeVaultPasswordFallback)),
+      formScene: vaultNativeActive && passphraseDialogOpen ? "vault-passphrase" : nativeRuntimeActive ? nativeRuntime.formScene : nativePreferences.formScene,
       requiresVoice: activePanel === "preferences" && activeDetail === "voice",
       requiresFinance: nativeFinanceActive,
       requiresRuntime: nativeRuntimeActive,
@@ -5159,7 +5169,7 @@ function ProfilePageContent({
         {vaultNativeActive && passphraseDialogOpen && destinationId ? <NativeVaultPasswordEditor model={vaultMethods} userId={user.uid}
           destinationId={destinationId} onFallback={() => setNativeVaultPasswordFallback(true)} /> : null}</> }}
     account={{ active: activePanel === "account" && (!activeDetail || activeDetail === "phone" && !phoneLookupPending) && !nativeAccountException && !showVaultUnlock,
-      page: nativeAccountPage, confirmation: accountConfirmation,
+      page: nativeAccountPage, confirmation: accountConfirmation, formScene: editingDisplayName && activePanel === "account" && !activeDetail ? "account-name" : null,
       root: () => {
         if (isDeleting || isResetting) return;
         dismissAccountConfirmation(); updateProfileView({ panel: null, detail: null }, "replace");

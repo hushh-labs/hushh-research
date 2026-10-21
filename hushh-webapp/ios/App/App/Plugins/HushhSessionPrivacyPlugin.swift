@@ -62,21 +62,17 @@ struct HushhSessionPrivacyState {
         markAppActive() // This is an active-app failure, not a fabricated lifecycle event.
     }
 
-    @discardableResult
-    mutating func completeSessionValidation(
+    func canCompleteSessionValidation(
         generation requestedGeneration: Int,
         appIsActive: Bool
     ) -> Bool {
-        guard
-            presentationRetirements.isEmpty,
-            appIsActive,
-            shielded,
-            requestedGeneration > 0,
-            requestedGeneration == generation
-        else {
-            return false
-        }
+        presentationRetirements.isEmpty && appIsActive && shielded &&
+            requestedGeneration > 0 && requestedGeneration == generation
+    }
 
+    @discardableResult
+    mutating func completeSessionValidation(generation requestedGeneration: Int, appIsActive: Bool) -> Bool {
+        guard canCompleteSessionValidation(generation: requestedGeneration, appIsActive: appIsActive) else { return false }
         shielded = false
         cause = "inactive"
         return true
@@ -101,6 +97,48 @@ struct HushhSessionPrivacyDocumentState {
 
     func accepts(_ documentId: String) -> Bool {
         observed.contains(documentId) && !retired.contains(documentId)
+    }
+}
+
+/// Only nonsecret targets cross this boundary. An absent form is explicit;
+/// a settled parent must never stand in for an expected editor.
+struct NativeProfilePreparationTarget: Equatable, Decodable {
+    let documentId: String
+    let ownerEpoch: String
+    let ownerGeneration: Int
+    let revision: Int
+    let updateSequence: Int
+    let privacyGeneration: Int
+    let visitId: String
+    let destinationId: String?
+    let supportDestinationId: String?
+    let formScene: String?
+    var identity: NativeDrawerIdentity {
+        NativeDrawerIdentity(documentId: documentId, ownerEpoch: ownerEpoch,
+            ownerGeneration: ownerGeneration, revision: revision, family: "profile")
+    }
+    static let scenes: Set<String> = ["account-name", "referral-handle", "phone", "writing-style", "support",
+        "vault-passphrase", "request-price", "world-model-fact-edit", "world-model-sources", "world-model-public-profiles", "world-model-invitation",
+        "runtime-provider", "connector-custom-server", "connector-profile-link", "connector-packet-price", "memory-financial-context"]
+    var valid: Bool {
+        identity.valid && NativeDrawerIdentity.identifier(visitId) && updateSequence > 0 &&
+            updateSequence <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration &&
+            privacyGeneration > 0 && privacyGeneration <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration &&
+            (destinationId == nil || NativeDrawerIdentity.identifier(destinationId!)) &&
+            (supportDestinationId == nil || NativeDrawerIdentity.identifier(supportDestinationId!)) &&
+            (destinationId == nil || supportDestinationId == nil) &&
+            (formScene == nil || Self.scenes.contains(formScene!) && (destinationId != nil || supportDestinationId != nil))
+    }
+    func matches(_ projection: NativeDrawerProjection) -> Bool {
+        projection.identity == identity && projection.privacyGeneration == privacyGeneration &&
+            projection.updateSequence == updateSequence && projection.open &&
+            projection.profileDestinationId == destinationId && projection.profileSupportDestinationId == supportDestinationId &&
+            projection.profilePreparation?.visitId == visitId && projection.profilePreparation?.formScene == formScene
+    }
+    func matchesForm(_ identity: NativeDrawerIdentity, scene: String, destination: String?, privacy: Int) -> Bool {
+        identity.documentId == documentId && identity.ownerEpoch == ownerEpoch && identity.ownerGeneration == ownerGeneration &&
+            identity.family == "profile" && privacy == privacyGeneration && scene == formScene &&
+            destination != nil && destination == (destinationId ?? supportDestinationId)
     }
 }
 
@@ -139,30 +177,61 @@ final class HushhSessionPrivacyShield: NSObject {
         let generation: Int
         let cause: String
         let appIsActive: Bool
+        var preparationAuthorized = false
+        var preparationRevision: Int? = nil
+        var preparationVisitId: String? = nil
+        var preparationFormScene: String? = nil
+        var preparationBody: String? = nil
+        var profileMenuConcealed = false
+        var profilePreparationId: String? = nil
+        var presentationsRetiring = false
 
         var payload: [String: Any] {
-            ["shielded": shielded, "generation": generation,
-             "cause": cause, "appIsActive": appIsActive]
+            var result: [String: Any] = ["shielded": shielded, "generation": generation,
+                "cause": cause, "appIsActive": appIsActive, "profilePreparation": true,
+                "preparationAuthorized": preparationAuthorized, "presentationsRetiring": presentationsRetiring,
+                "profileMenuConcealed": profileMenuConcealed]
+            if let preparationBody { result["preparationBody"] = preparationBody }
+            if let profilePreparationId { result["profilePreparationId"] = profilePreparationId }
+            if let preparationRevision { result["preparationRevision"] = preparationRevision }
+            if let preparationVisitId {
+                result["preparationVisitId"] = preparationVisitId
+                result["preparationFormScene"] = preparationFormScene as Any? ?? NSNull()
+            }
+            return result
         }
     }
 
     private weak var hostView: UIView?
     private var overlayView: UIView?
+    private weak var visualCover: UIView?
     private var state = HushhSessionPrivacyState()
     private var documents = HushhSessionPrivacyDocumentState()
     private var lifecycleIsActive = false
     private var recoveryWorkItem: DispatchWorkItem?
     private weak var recoveryPanel: UIStackView?
     private weak var recoveryTitle: UILabel?
+    private var pendingRelease: (id: UUID, completion: (Bool) -> Void)?
+    private var preparationAuthorization: (document: String, generation: Int, sessionRevision: Int, profile: Bool,
+        compositionRevision: Int, visitId: String?, formScene: String?, body: String)?
+    private var profilePreparation: (id: String, target: NativeProfilePreparationTarget, ready: () -> Bool)?
+    private var panePreparation: (id: String, identity: NativeContentPaneIdentity, visit: String, viewport: CGSize, painted: Bool, ready: () -> Bool)?
+    var profilePresentationsConcealed: (() -> Bool)?
+    private var profilePreparationWasReady = false
+    private var profilePreparationRequired = false
     var onStateChanged: ((Snapshot, String) -> Void)?
     var reloadDocument: (() -> Void)?
 
-    private override init() { super.init() }
+    // Production adapters use shared. Host tests own an isolated window/shield
+    // so the real WebView's Auth receipts cannot retarget a synthetic document.
+    override init() { super.init() }
 
     func attach(to hostView: UIView) {
         dispatchPrecondition(condition: .onQueue(.main))
 
         if self.hostView !== hostView {
+            invalidatePreparation()
+            cancelPendingRelease()
             overlayView?.removeFromSuperview()
             overlayView = nil
             self.hostView = hostView
@@ -178,7 +247,11 @@ final class HushhSessionPrivacyShield: NSObject {
         dispatchPrecondition(condition: .onQueue(.main))
 
         lifecycleIsActive = false
+        let previousGeneration = state.generation
         state.protectForAppInactive()
+        if state.generation != previousGeneration { profilePreparationRequired = false }
+        invalidatePreparation()
+        cancelPendingRelease()
         cancelRecovery()
         installOverlayIfNeeded()
         hideRecoveryPanel()
@@ -189,6 +262,8 @@ final class HushhSessionPrivacyShield: NSObject {
         dispatchPrecondition(condition: .onQueue(.main))
         lifecycleIsActive = false
         state.markAppBackgrounded()
+        invalidatePreparation()
+        cancelPendingRelease()
         installOverlayIfNeeded()
         publishState()
     }
@@ -212,6 +287,7 @@ final class HushhSessionPrivacyShield: NSObject {
         dispatchPrecondition(condition: .onQueue(.main))
         guard lifecycleIsActive, UIApplication.shared.applicationState == .active, !state.shielded else { return }
         state.protectForPresentationRecovery()
+        invalidatePreparation()
         cancelRecovery()
         installOverlayIfNeeded() // Cover the actual window before retiring private presenters.
         recoveryPanel?.isHidden = false
@@ -223,7 +299,15 @@ final class HushhSessionPrivacyShield: NSObject {
         dispatchPrecondition(condition: .onQueue(.main))
         return Snapshot(shielded: state.shielded, generation: state.generation,
                         cause: state.cause,
-                        appIsActive: lifecycleIsActive && UIApplication.shared.applicationState == .active)
+                        appIsActive: lifecycleIsActive && UIApplication.shared.applicationState == .active,
+                        preparationAuthorized: preparationAuthorization != nil,
+                        preparationRevision: preparationAuthorization?.compositionRevision,
+                        preparationVisitId: preparationAuthorization?.visitId,
+                        preparationFormScene: preparationAuthorization?.formScene,
+                        preparationBody: preparationAuthorization?.body,
+                        profileMenuConcealed: profilePresentationsConcealed?() == true,
+                        profilePreparationId: profilePreparation?.id ?? panePreparation?.id,
+                        presentationsRetiring: state.hasPendingPresentationRetirement)
     }
 
     func observeDocument(_ documentId: String) {
@@ -236,11 +320,163 @@ final class HushhSessionPrivacyShield: NSObject {
         return documents.accepts(documentId)
     }
 
+    private var hasWindowCover: Bool {
+        guard let window = hostView?.window, let overlay = overlayView else { return false }
+        return overlay.superview === window && !overlay.isHidden && overlay.alpha == 1
+    }
+
+    /// Auth owns this authorization after rendering its validated destination.
+    /// It permits layout only. Raw shield state continues to revoke operations.
+    func authorizePreparation(document: String, generation: Int, sessionRevision: Int, profile: Bool,
+        compositionRevision: Int, visitId: String?, formScene: String?, body: String = "drawer") -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard documents.accepts(document), snapshot().appIsActive, state.shielded,
+              generation == state.generation, sessionRevision >= 0,
+              compositionRevision >= 0, !profile || sessionRevision > 0 && visitId.map(NativeDrawerIdentity.identifier) == true,
+              formScene == nil || NativeProfilePreparationTarget.scenes.contains(formScene!),
+              ["drawer", "pane"].contains(body), body != "pane" || profile && formScene == nil,
+              profile || visitId == nil && formScene == nil, hasWindowCover,
+              !state.hasPendingPresentationRetirement else { return false }
+        let previous = preparationAuthorization
+        if previous?.document == document && previous?.generation == generation &&
+            previous?.sessionRevision == sessionRevision && previous?.profile == profile &&
+            previous?.compositionRevision == compositionRevision && previous?.visitId == visitId && previous?.formScene == formScene && previous?.body == body { return true }
+        if let previous, previous.document == document, previous.generation == generation {
+            guard sessionRevision > previous.sessionRevision || sessionRevision == previous.sessionRevision && compositionRevision > previous.compositionRevision else { return false }
+        }
+        invalidatePreparation()
+        preparationAuthorization = (document, generation, sessionRevision, profile, compositionRevision, visitId, formScene, body)
+        profilePreparationRequired = profile
+        publishState()
+        return true
+    }
+
+    var coveredProfilePreparationIsAuthorized: Bool {
+        preparationAuthorization?.profile == true && snapshot().appIsActive && state.shielded && hasWindowCover
+    }
+
+    func requireProfilePreparation() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard state.shielded else { return }
+        profilePreparationRequired = true
+        cancelPendingRelease()
+    }
+
+    func canBeginProfilePreparation(_ target: NativeProfilePreparationTarget) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard target.valid, coveredProfilePreparationIsAuthorized, !state.hasPendingPresentationRetirement,
+              preparationAuthorization?.body == "drawer",
+              preparationAuthorization?.document == target.documentId,
+              preparationAuthorization?.generation == target.privacyGeneration,
+              preparationAuthorization?.visitId == target.visitId,
+              preparationAuthorization?.formScene == target.formScene else { return false }
+        if let current = profilePreparation, current.target == target { return true }
+        if let current = profilePreparation, current.target.identity == target.identity {
+            guard target.updateSequence > current.target.updateSequence else { return false }
+        }
+        return true
+    }
+
+    func beginProfilePreparation(_ target: NativeProfilePreparationTarget, ready: @escaping () -> Bool) -> String? {
+        guard canBeginProfilePreparation(target) else { return nil }
+        if let current = profilePreparation, current.target == target { return current.id }
+        cancelPendingRelease()
+        let id = UUID().uuidString
+        profilePreparation = (id, target, ready)
+        profilePreparationWasReady = false
+        return id
+    }
+
+    func acceptsPreparedDrawer(_ state: NativeDrawerProjection) -> Bool {
+        coveredProfilePreparationIsAuthorized && profilePreparation?.target.matches(state) == true
+    }
+
+    func acceptsPreparedForm(_ identity: NativeDrawerIdentity, scene: String, destination: String?, privacy: Int) -> Bool {
+        coveredProfilePreparationIsAuthorized && !state.hasPendingPresentationRetirement &&
+            profilePreparation?.target.matchesForm(identity, scene: scene, destination: destination, privacy: privacy) == true
+    }
+
+    func profilePreparationDidChange() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard state.shielded, profilePreparation != nil || panePreparation != nil else { return }
+        let ready = coveredProfilePreparationIsAuthorized && !state.hasPendingPresentationRetirement &&
+            (profilePreparation?.ready() ?? (panePreparation.map { $0.painted && $0.ready() && profilePresentationsConcealed?() == true } ?? false))
+        guard ready != profilePreparationWasReady else { return }
+        profilePreparationWasReady = ready
+        if !ready { cancelPendingRelease(); reassertCover() }
+        // Retry is a validation request, never an operation retry.
+        publishState(action: "retry")
+    }
+
+    private func invalidatePreparation() {
+        cancelPendingRelease()
+        preparationAuthorization = nil
+        profilePreparation = nil
+        panePreparation = nil
+        profilePreparationWasReady = false
+    }
+
+    private func compositionAllowsRelease(document: String, generation: Int, sessionRevision: Int?, compositionRevision: Int?, preparationId: String?) -> Bool {
+        guard let authorization = preparationAuthorization else { return !profilePreparationRequired && preparationId == nil }
+        guard authorization.document == document, authorization.generation == generation,
+              authorization.sessionRevision == sessionRevision, authorization.compositionRevision == compositionRevision else { return false }
+        if !authorization.profile { return preparationId == nil }
+        if authorization.body == "pane" {
+            guard let preparation = panePreparation, preparation.id == preparationId,
+                  preparation.identity.document == document, preparation.identity.privacyGeneration == generation,
+                  preparation.visit == authorization.visitId, preparation.painted, hasWindowCover,
+                  profilePresentationsConcealed?() == true else { return false }
+            return preparation.ready()
+        }
+        guard let preparation = profilePreparation, preparation.id == preparationId,
+              preparation.target.documentId == document, preparation.target.privacyGeneration == generation,
+              hasWindowCover else { return false }
+        return preparation.ready()
+    }
+
+    /// One complete React Profile pane, not independently admitted native
+    /// buttons. Layout can occur behind the window cover; actions cannot.
+    func canPrepareProfilePane(_ identity: NativeContentPaneIdentity, visit: String) -> Bool {
+        identity.valid && coveredProfilePreparationIsAuthorized && !state.hasPendingPresentationRetirement &&
+            preparationAuthorization?.body == "pane" && preparationAuthorization?.document == identity.document &&
+            preparationAuthorization?.generation == identity.privacyGeneration && preparationAuthorization?.visitId == visit
+    }
+
+    func beginProfilePanePreparation(_ identity: NativeContentPaneIdentity, visit: String, viewport: CGSize, ready: @escaping () -> Bool) -> Bool {
+        guard canPrepareProfilePane(identity, visit: visit) else { return false }
+        if let current = panePreparation, current.identity == identity && current.visit == visit && current.viewport == viewport { return true }
+        cancelPendingRelease()
+        panePreparation = (UUID().uuidString, identity, visit, viewport, false, ready)
+        profilePreparationWasReady = false
+        publishState()
+        return true
+    }
+
+    func retireProfilePanePreparation(_ identity: NativeContentPaneIdentity) {
+        guard let current = panePreparation, current.identity.sameLifetime(as: identity) else { return }
+        cancelPendingRelease()
+        panePreparation = nil
+        profilePreparationWasReady = false
+        if state.shielded { reassertCover(); publishState(action: "retry") }
+    }
+
+    func confirmProfilePanePreparation(_ identity: NativeContentPaneIdentity, visit: String, id: String) -> Bool {
+        guard canPrepareProfilePane(identity, visit: visit), let current = panePreparation,
+              current.identity == identity, current.visit == visit, current.id == id,
+              current.ready(), profilePresentationsConcealed?() == true else { return false }
+        panePreparation?.painted = true
+        profilePreparationDidChange()
+        return true
+    }
+
     /// Native presenters above the bridge must be detached before private
     /// content can be uncovered. This is process-local presentation ownership.
     func beginPresentationRetirement() -> UUID {
         dispatchPrecondition(condition: .onQueue(.main))
-        return state.beginPresentationRetirement()
+        let token = state.beginPresentationRetirement()
+        cancelPendingRelease()
+        if state.shielded { publishState() }
+        return token
     }
 
     func completePresentationRetirement(_ token: UUID) {
@@ -256,41 +492,64 @@ final class HushhSessionPrivacyShield: NSObject {
         if state.shielded { installOverlayIfNeeded() }
     }
 
-    @discardableResult
     func completeSessionValidation(
         generation requestedGeneration: Int,
         documentId: String,
-        appIsActive: Bool
-    ) -> Bool {
+        appIsActive: Bool,
+        sessionRevision: Int? = nil,
+        compositionRevision: Int? = nil,
+        preparationId: String? = nil,
+        completion: @escaping (Bool) -> Void
+    ) {
         dispatchPrecondition(condition: .onQueue(.main))
 
-        guard documents.accepts(documentId), state.completeSessionValidation(
+        guard pendingRelease == nil, documents.accepts(documentId),
+              compositionAllowsRelease(document: documentId, generation: requestedGeneration,
+                sessionRevision: sessionRevision, compositionRevision: compositionRevision, preparationId: preparationId), state.canCompleteSessionValidation(
             generation: requestedGeneration,
             appIsActive: lifecycleIsActive && appIsActive
-        ) else {
-            return false
+        ), let overlay = overlayView, let visual = visualCover, overlay.superview != nil else {
+            completion(false); return
         }
 
-        cancelRecovery()
-        if let overlay = overlayView {
-            overlayView = nil
-            // State is already released; the fade is presentation only. A new
-            // inactive cycle installs a fresh opaque cover above this one.
-            overlay.isUserInteractionEnabled = false
-            overlay.accessibilityElementsHidden = true
-            UIView.animate(
-                withDuration: Self.releaseFadeDuration,
-                delay: 0,
-                options: [.beginFromCurrentState, .curveEaseOut],
-                animations: { overlay.alpha = 0 },
-                completion: { _ in overlay.removeFromSuperview() }
-            )
+        let release = UUID()
+        pendingRelease = (release, completion)
+        // Keep interaction/AX and privacy admission covered through the actual
+        // animation. A receipt must never announce release while its cover still
+        // intercepts touches. Revalidate at completion, not just at admission.
+        UIView.animate(withDuration: Self.releaseFadeDuration, delay: 0,
+            options: [.beginFromCurrentState, .curveEaseOut], animations: { visual.alpha = 0 }
+        ) { [weak self, weak overlay, weak visual] finished in
+            guard let self, self.pendingRelease?.id == release else { return }
+            guard finished, let overlay, let visual, self.overlayView === overlay, self.visualCover === visual,
+                  self.documents.accepts(documentId), UIApplication.shared.applicationState == .active,
+                  self.compositionAllowsRelease(document: documentId, generation: requestedGeneration,
+                    sessionRevision: sessionRevision, compositionRevision: compositionRevision, preparationId: preparationId),
+                  self.state.canCompleteSessionValidation(
+                    generation: requestedGeneration, appIsActive: self.lifecycleIsActive && appIsActive
+                  ) else { self.cancelPendingRelease(); self.reassertCover(); return }
+            overlay.removeFromSuperview()
+            self.overlayView = nil
+            self.visualCover = nil
+            let released = self.state.completeSessionValidation(
+                generation: requestedGeneration, appIsActive: self.lifecycleIsActive && appIsActive)
+            self.pendingRelease = nil
+            if released {
+                self.cancelRecovery()
+                (self.hostView as? NativePresentationContainer)?.releasePrivacyIsolation()
+            }
+            else { self.installOverlayIfNeeded() }
+            self.publishState()
+            completion(released)
         }
-        // Release is authoritative state for every presentation consumer, not
-        // only the caller awaiting its bridge Promise. Broadcast it through the
-        // same lifecycle owner so a delayed receipt cannot strand JS isolation.
-        publishState()
-        return true
+    }
+
+    private func cancelPendingRelease() {
+        guard let pending = pendingRelease else { return }
+        pendingRelease = nil
+        visualCover?.layer.removeAllAnimations()
+        visualCover?.alpha = 1
+        pending.completion(false)
     }
 
     private func publishState(action: String = "state") {
@@ -335,7 +594,9 @@ final class HushhSessionPrivacyShield: NSObject {
         // Invalidate acknowledgements from the old document before reloading.
         // Firebase identity persists; the new JS runtime has no decrypted vault.
         state.restartSession()
+        invalidatePreparation()
         documents.restart()
+        cancelPendingRelease()
         cancelRecovery()
         // Retire sibling native presentation before a replacement document can configure it.
         publishState()
@@ -376,11 +637,20 @@ final class HushhSessionPrivacyShield: NSObject {
         overlay.translatesAutoresizingMaskIntoConstraints = false
         // Match LaunchScreen.storyboard exactly so the cover reads as the app
         // itself rather than a loading state.
-        overlay.backgroundColor = .systemBackground
-        overlay.isOpaque = true
+        // The full-window modal blocker never fades. Fade only its visual
+        // child, so UIKit cannot pass touches through a near-zero-alpha cover.
+        overlay.backgroundColor = .clear
+        overlay.isOpaque = false
         overlay.isUserInteractionEnabled = true
         overlay.accessibilityViewIsModal = true
         overlay.accessibilityIdentifier = Self.accessibilityIdentifier
+
+        let visual = UIView(frame: .zero)
+        visual.translatesAutoresizingMaskIntoConstraints = false
+        visual.backgroundColor = .systemBackground
+        visual.isOpaque = true
+        visualCover = visual
+        overlay.addSubview(visual)
 
         let splash = UIImageView(image: UIImage(named: "Splash"))
         splash.translatesAutoresizingMaskIntoConstraints = false
@@ -388,7 +658,7 @@ final class HushhSessionPrivacyShield: NSObject {
         splash.clipsToBounds = true
         splash.isAccessibilityElement = true
         splash.accessibilityLabel = "Hussh"
-        overlay.addSubview(splash)
+        visual.addSubview(splash)
 
         let title = UILabel(frame: .zero)
         title.translatesAutoresizingMaskIntoConstraints = false
@@ -432,10 +702,11 @@ final class HushhSessionPrivacyShield: NSObject {
         stack.spacing = 12
         stack.setCustomSpacing(20, after: detail)
         stack.backgroundColor = .systemBackground
+        stack.accessibilityIdentifier = "session-privacy-recovery"
         stack.isHidden = true
         recoveryPanel = stack
 
-        overlay.addSubview(stack)
+        visual.addSubview(stack)
         coverHost.addSubview(overlay)
         NSLayoutConstraint.activate([
             retry.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
@@ -444,6 +715,10 @@ final class HushhSessionPrivacyShield: NSObject {
             overlay.trailingAnchor.constraint(equalTo: coverHost.trailingAnchor),
             overlay.topAnchor.constraint(equalTo: coverHost.topAnchor),
             overlay.bottomAnchor.constraint(equalTo: coverHost.bottomAnchor),
+            visual.leadingAnchor.constraint(equalTo: overlay.leadingAnchor),
+            visual.trailingAnchor.constraint(equalTo: overlay.trailingAnchor),
+            visual.topAnchor.constraint(equalTo: overlay.topAnchor),
+            visual.bottomAnchor.constraint(equalTo: overlay.bottomAnchor),
             splash.leadingAnchor.constraint(equalTo: overlay.leadingAnchor),
             splash.trailingAnchor.constraint(equalTo: overlay.trailingAnchor),
             splash.topAnchor.constraint(equalTo: overlay.topAnchor),
@@ -467,6 +742,7 @@ public class HushhSessionPrivacyPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "HushhSessionPrivacy"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getState", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "prepareSessionValidation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "completeSessionValidation", returnType: CAPPluginReturnPromise),
     ]
 
@@ -492,6 +768,26 @@ public class HushhSessionPrivacyPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func prepareSessionValidation(_ call: CAPPluginCall) {
+        guard Set(call.options.keys).isSubset(of: ["generation", "documentId", "sessionRevision", "profile", "compositionRevision", "visitId", "formScene", "body"]),
+              let generation = call.getInt("generation"), let document = call.getString("documentId"),
+              NativeDrawerIdentity.identifier(document), let revision = call.getInt("sessionRevision"),
+              revision >= 0, revision <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
+              let composition = call.getInt("compositionRevision"), composition >= 0,
+              composition <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
+              let profile = call.getBool("profile"), !profile || call.options.keys.contains("formScene"),
+              call.options["body"] == nil || call.options["body"] is String,
+              call.options["formScene"] == nil || call.options["formScene"] is NSNull || call.options["formScene"] is String
+        else { call.reject("INVALID_PREPARATION"); return }
+        onMain {
+            let shield = HushhSessionPrivacyShield.shared
+            guard shield.authorizePreparation(document: document, generation: generation,
+                sessionRevision: revision, profile: profile, compositionRevision: composition,
+                visitId: call.getString("visitId"), formScene: call.getString("formScene"), body: call.getString("body") ?? "drawer") else { call.reject("PREPARATION_REFUSED"); return }
+            call.resolve(shield.snapshot().payload)
+        }
+    }
+
     @objc func completeSessionValidation(_ call: CAPPluginCall) {
         guard let requestedGeneration = call.getInt("generation"),
               let documentId = call.getString("documentId"), !documentId.isEmpty else {
@@ -500,15 +796,17 @@ public class HushhSessionPrivacyPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         onMain {
-            let released = HushhSessionPrivacyShield.shared.completeSessionValidation(
+            HushhSessionPrivacyShield.shared.completeSessionValidation(
                 generation: requestedGeneration,
                 documentId: documentId,
-                appIsActive: UIApplication.shared.applicationState == .active
-            )
-            let snapshot = HushhSessionPrivacyShield.shared.snapshot()
-            var payload = snapshot.payload
-            payload["released"] = released
-            call.resolve(payload)
+                appIsActive: UIApplication.shared.applicationState == .active,
+                sessionRevision: call.getInt("sessionRevision"), compositionRevision: call.getInt("compositionRevision"),
+                preparationId: call.getString("preparationId")
+            ) { released in
+                var payload = HushhSessionPrivacyShield.shared.snapshot().payload
+                payload["released"] = released
+                call.resolve(payload)
+            }
         }
     }
 
