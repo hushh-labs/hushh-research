@@ -1351,6 +1351,17 @@
       "updated_at",
       "reply_send_action_id"
     ],
+    "google_calendar_action_proposals": [
+      "proposal_id",
+      "user_id",
+      "action",
+      "payload_json",
+      "expected_event_etag",
+      "status",
+      "expires_at",
+      "executed_at",
+      "created_at"
+    ],
     "google_calendar_additional_accounts": [
       "user_id",
       "account_id",
@@ -1370,17 +1381,6 @@
       "revoked_at",
       "created_at",
       "updated_at"
-    ],
-    "google_calendar_action_proposals": [
-      "proposal_id",
-      "user_id",
-      "action",
-      "payload_json",
-      "expected_event_etag",
-      "status",
-      "expires_at",
-      "executed_at",
-      "created_at"
     ],
     "google_email_send_actions": [
       "action_id",
