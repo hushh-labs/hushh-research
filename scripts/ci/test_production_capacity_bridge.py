@@ -14,7 +14,7 @@ import unittest
 from unittest import mock
 
 bridge = importlib.import_module("production-capacity-bridge")
-IMAGE = "gcr.io/hushh-pda/consent-protocol@sha256:" + "a" * 64
+IMAGE = bridge.FROZEN_IMAGE
 SHA = "b" * 40
 
 
@@ -105,6 +105,185 @@ def inventory():
 
 
 class BridgeTests(unittest.TestCase):
+    def test_bootstrap_keeps_listener_headroom_and_overrides_the_real_frozen_launcher(
+        self,
+    ):
+        template = bridge.clone_template(
+            source(), pins(), "consent-protocol-displaced", bridge.PROFILE
+        )
+        container = template["spec"]["containers"][0]
+        self.assertEqual(container["command"], ["gunicorn"])
+        self.assertEqual(
+            container["args"],
+            [
+                "server:app",
+                "-w",
+                "1",
+                "-c",
+                "gunicorn.conf.py",
+                "-k",
+                "uvicorn.workers.UvicornWorker",
+                "--timeout",
+                "120",
+                "--graceful-timeout",
+                "8",
+                "-b",
+                "0.0.0.0:8080",
+            ],
+        )
+        env = {row["name"]: row.get("value") for row in container["env"]}
+        # Both frozen consent/referral LISTEN loops retain a pool connection.
+        # Keep two additional slots for mandatory startup and normal work.
+        self.assertEqual(env["DB_POOL_MAX_SIZE"], "4")
+        self.assertEqual(env["DB_SQLALCHEMY_POOL_SIZE"], "2")
+        self.assertEqual(env["WEB_CONCURRENCY"], "1")
+        profile = json.loads(bridge.budget.DEFAULT_PROFILE.read_text())
+        bridge.verify_profile(template, profile, bridge.PROFILE)
+        container["args"][2] = "2"
+        with self.assertRaisesRegex(bridge.budget.BudgetError, "conflicting worker"):
+            bridge.verify_profile(template, profile, bridge.PROFILE)
+        changed = source()
+        changed["status"]["imageDigest"] = IMAGE.replace("ae6f", "be6f")
+        with self.assertRaisesRegex(
+            bridge.retention.UnsafeState, "reviewed frozen image"
+        ):
+            bridge.clone_template(
+                changed, pins(), "consent-protocol-displaced", bridge.PROFILE
+            )
+
+    def test_unhealthy_predecessor_is_preserved_and_only_the_observed_successor_is_reconciled(
+        self,
+    ):
+        observed = inventory()
+        original = observed["services"][bridge.SERVICE]["revisions"][0]
+        service = observed["services"][bridge.SERVICE]["service"]
+        old_traffic = bridge.traffic(service)
+        controls = bridge.service_controls(service)
+        legacy = bridge.clone_template(original, pins(), "consent-protocol-displaced")
+        legacy["status"] = {
+            "imageDigest": IMAGE,
+            "conditions": [{"type": "Ready", "status": "True"}],
+        }
+        old_name = legacy["metadata"]["name"]
+        observed["services"][bridge.SERVICE]["revisions"].append(legacy)
+        service["status"].update(
+            latestCreatedRevisionName=old_name, latestReadyRevisionName=old_name
+        )
+        service["status"]["traffic"].append(
+            {
+                "revisionName": old_name,
+                "percent": 0,
+                "tag": "capacity-" + old_name.rsplit("-", 1)[-1],
+                "url": "https://predecessor-example.a.run.app",
+            }
+        )
+        prior = {
+            "version": 1,
+            "project": bridge.PROJECT,
+            "service": bridge.SERVICE,
+            "sourceFingerprint": bridge.fingerprint(
+                [original["metadata"]["name"], original["spec"], IMAGE]
+            ),
+            "serviceControlsFingerprint": controls,
+            "sourceRevision": original["metadata"]["name"],
+            "revision": old_name,
+            "pins": pins(),
+            "displacedLatestRevision": "consent-protocol-displaced",
+            "traffic": old_traffic,
+            "status": "intent",
+            "requested": True,
+        }
+        release = {
+            "sha": SHA,
+            "final": {"backend_revision": original["metadata"]["name"]},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory) / "completed.json"
+            checkpoint.write_text(json.dumps({"capacity_bridge": prior}))
+
+            def create(command, **_):
+                saved = json.loads(checkpoint.read_text())["capacity_bridge"]
+                self.assertEqual(saved["predecessor"]["status"], "intent")
+                self.assertEqual(saved["predecessor"]["revision"], old_name)
+                self.assertEqual(saved["profile"], bridge.PROFILE)
+                body = json.loads(Path(command[4]).read_text())
+                candidate = copy.deepcopy(body["spec"]["template"])
+                candidate["status"] = {
+                    "imageDigest": IMAGE,
+                    "conditions": [{"type": "Ready", "status": "True"}],
+                }
+                observed["services"][bridge.SERVICE]["revisions"].append(candidate)
+                service["spec"] = body["spec"]
+                service["status"].update(
+                    latestCreatedRevisionName=candidate["metadata"]["name"],
+                    latestReadyRevisionName=candidate["metadata"]["name"],
+                )
+                service["status"]["traffic"] = copy.deepcopy(body["spec"]["traffic"])
+                service["status"]["traffic"][-1]["url"] = (
+                    "https://successor-example.a.run.app"
+                )
+                self.assertIn(
+                    old_name, [row["revisionName"] for row in body["spec"]["traffic"]]
+                )
+                raise subprocess.TimeoutExpired(command, 150)
+
+            with (
+                mock.patch.dict(
+                    bridge.os.environ,
+                    {
+                        "GITHUB_EVENT_NAME": "workflow_dispatch",
+                        "GITHUB_REF_NAME": "main",
+                    },
+                ),
+                mock.patch.object(
+                    bridge.budget,
+                    "collect",
+                    side_effect=lambda *a: copy.deepcopy(observed),
+                ),
+                mock.patch.object(
+                    bridge.budget, "evaluate", return_value={"admitted": True}
+                ),
+                mock.patch.object(bridge, "SecretMetadata") as secrets,
+                mock.patch.object(
+                    bridge.retention, "run_command", side_effect=create
+                ) as mutate,
+                mock.patch.object(
+                    bridge.urllib.request,
+                    "urlopen",
+                    return_value=BytesIO(b'{"status":"healthy"}'),
+                ),
+            ):
+                secrets.return_value.get.side_effect = lambda resource: {
+                    "state": "ENABLED",
+                    "name": resource,
+                }
+                # Absence of the exact predecessor is still an unknown provider
+                # outcome. Explicit recovery cannot authorize blind creation.
+                observed["services"][bridge.SERVICE]["revisions"].remove(legacy)
+                with self.assertRaisesRegex(
+                    bridge.retention.MutationUncertain, "supersession forbidden"
+                ):
+                    bridge.maintain(release, checkpoint, create=True)
+                mutate.assert_not_called()
+                observed["services"][bridge.SERVICE]["revisions"].append(legacy)
+                with self.assertRaises(bridge.retention.MutationUncertain):
+                    bridge.maintain(release, checkpoint, create=True)
+                bridge.maintain(release, checkpoint, create=False)
+                saved = bridge.receipt_state(
+                    json.loads(checkpoint.read_text())["capacity_bridge"]
+                )
+                self.assertEqual(saved["status"], "verified")
+                self.assertEqual(saved["predecessor"]["status"], "intent")
+                self.assertEqual(
+                    saved["predecessorObservation"], "provider_observed_unhealthy"
+                )
+                self.assertEqual(mutate.call_count, 1)
+                saved["predecessor"]["revision"] = "consent-protocol-cap-" + "f" * 16
+                with self.assertRaisesRegex(
+                    bridge.retention.UnsafeState, "predecessor evidence"
+                ):
+                    bridge.receipt_state(saved)
+
     def test_changed_source_workers_fail_actual_capacity_admission_before_mutation(
         self,
     ):
@@ -131,7 +310,7 @@ class BridgeTests(unittest.TestCase):
                 mock.patch.object(bridge.retention, "run_command") as mutate,
             ):
                 with self.assertRaisesRegex(
-                    bridge.retention.UnsafeState, "eight-connection profile"
+                    bridge.retention.UnsafeState, "source worker declaration"
                 ):
                     bridge.maintain(release, checkpoint, create=True)
                 mutate.assert_not_called()

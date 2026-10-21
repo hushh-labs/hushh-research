@@ -591,11 +591,12 @@ def evaluate(
     config = profile["environments"][environment]
     maintenance = None
     if maintenance_profile is not None:
+        bootstrap_recovery = maintenance_profile == "serving_backend_clone_v2"
         expected = {"service": "consent-protocol", "candidate": {
-            "max_instances": 1, "workers_per_instance": 2, "asyncpg_pool_max": 2,
+            "max_instances": 1, "workers_per_instance": 1 if bootstrap_recovery else 2, "asyncpg_pool_max": 4 if bootstrap_recovery else 2,
             "sqlalchemy_pool_size": 2, "sqlalchemy_max_overflow": 0}}
         if (environment != "production" or phase != "pre-deploy"
-                or maintenance_profile != "serving_backend_clone_v1"
+                or maintenance_profile not in {"serving_backend_clone_v1", "serving_backend_clone_v2"}
                 or inherited_candidate_services
                 or config.get("maintenance_candidates", {}).get(maintenance_profile) != expected):
             raise BudgetError("unreviewed maintenance capacity profile")
@@ -604,6 +605,10 @@ def evaluate(
         # caller-controlled reduction of the global budget or ordinary release.
         if candidate_services is not None:
             raise BudgetError("maintenance profile cannot narrow candidate services")
+        if bootstrap_recovery:
+            # This operation creates only its backend clone. Retained workers
+            # and all jobs still count; ordinary releases reserve new workers.
+            candidate_services = frozenset({"consent-protocol"})
     if candidate_services is None:
         candidate_services = frozenset(config["services"])
     if candidate_services - config["services"].keys():

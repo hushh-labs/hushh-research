@@ -26,7 +26,9 @@ import urllib.request
 
 budget = importlib.import_module("runtime-capacity-budget")
 retention = importlib.import_module("cloudrun-retention")
-PROFILE = "serving_backend_clone_v1"
+LEGACY_PROFILE = "serving_backend_clone_v1"
+PROFILE = "serving_backend_clone_v2"
+FROZEN_IMAGE = "gcr.io/hushh-pda/consent-protocol@sha256:ae6f7753329960b687a74aea4b357f214e81b65549f409607a2b2076248b1353"
 SERVICE = "consent-protocol"
 PROJECT = "hushh-pda"
 REGION = "us-central1"
@@ -36,6 +38,7 @@ POOLS = {
     "DB_SQLALCHEMY_POOL_SIZE": "2",
     "DB_SQLALCHEMY_MAX_OVERFLOW": "0",
 }
+BOOTSTRAP_POOLS = {**POOLS, "DB_POOL_MIN_SIZE": "1", "DB_POOL_MAX_SIZE": "4"}
 
 
 def fingerprint(value):
@@ -51,7 +54,7 @@ def timestamp(value):
     return at
 
 
-def receipt_state(value):
+def receipt_state(value, *, predecessor=False):
     if value is None:
         return None
     if (
@@ -79,6 +82,7 @@ def receipt_state(value):
         or not isinstance(value.get("traffic"), list)
         or len(value["traffic"]) > 100
         or type(value.get("requested")) is not bool
+        or value.get("profile", LEGACY_PROFILE) not in {LEGACY_PROFILE, PROFILE}
     ):
         raise retention.UnsafeState("Invalid capacity bridge receipt")
     for pin in value["pins"].values():
@@ -91,6 +95,25 @@ def receipt_state(value):
             or pin.get("unchangedSinceSource") is not True
         ):
             raise retention.UnsafeState("Invalid capacity bridge secret pin")
+    prior = value.get("predecessor")
+    if prior is not None:
+        if predecessor or value.get("profile") != PROFILE:
+            raise retention.UnsafeState("Invalid bridge supersession chain")
+        receipt_state(prior, predecessor=True)
+        if (
+            prior.get("profile", LEGACY_PROFILE) != LEGACY_PROFILE
+            or prior["status"] != "intent"
+            or not prior["requested"]
+            or value.get("predecessorObservation") != "provider_observed_unhealthy"
+            or prior["revision"] != value["displacedLatestRevision"]
+            or prior["sourceFingerprint"] != value["sourceFingerprint"]
+            or prior["sourceRevision"] != value["sourceRevision"]
+            or prior["serviceControlsFingerprint"]
+            != value["serviceControlsFingerprint"]
+            or prior["pins"] != value["pins"]
+            or prior["revision"] == value["revision"]
+        ):
+            raise retention.UnsafeState("Invalid bridge predecessor evidence")
     return value
 
 
@@ -276,7 +299,7 @@ def source_revision(inventory, release):
     return service, source
 
 
-def clone_template(source, pins, displaced_latest):
+def clone_template(source, pins, displaced_latest, maintenance_profile=LEGACY_PROFILE):
     template = {
         "metadata": {
             "annotations": copy.deepcopy(source["metadata"].get("annotations", {})),
@@ -313,18 +336,65 @@ def clone_template(source, pins, displaced_latest):
         ref = row.get("valueFrom", {}).get("secretKeyRef")
         if ref:
             ref["key"] = pins[ref["name"]]["version"].rsplit("/", 1)[-1]
-    container["env"] = [row for row in env if row["name"] not in POOLS] + [
-        {"name": key, "value": value} for key, value in POOLS.items()
+    pools = POOLS
+    if maintenance_profile == PROFILE:
+        if (
+            source["status"]["imageDigest"] != FROZEN_IMAGE
+            or container.get("command")
+            or container.get("args")
+        ):
+            raise retention.UnsafeState(
+                "Bootstrap bridge requires the reviewed frozen image launcher"
+            )
+        if any(
+            row["name"] == "WEB_CONCURRENCY" and row.get("value") != "2" for row in env
+        ):
+            raise retention.UnsafeState(
+                "Bootstrap source worker declaration differs from the frozen launcher"
+            )
+        # The frozen image CMD hardcodes -w 2. An environment override alone
+        # would undercount workers. Keep its exact options with one worker.
+        container["command"] = ["gunicorn"]
+        container["args"] = [
+            "server:app",
+            "-w",
+            "1",
+            "-c",
+            "gunicorn.conf.py",
+            "-k",
+            "uvicorn.workers.UvicornWorker",
+            "--timeout",
+            "120",
+            "--graceful-timeout",
+            "8",
+            "-b",
+            "0.0.0.0:8080",
+        ]
+        env = [row for row in env if row["name"] != "WEB_CONCURRENCY"] + [
+            {"name": "WEB_CONCURRENCY", "value": "1"}
+        ]
+        pools = BOOTSTRAP_POOLS
+    elif maintenance_profile != LEGACY_PROFILE:
+        raise retention.UnsafeState("Unknown bridge profile")
+    container["env"] = [row for row in env if row["name"] not in pools] + [
+        {"name": key, "value": value} for key, value in pools.items()
     ]
     name = (
         SERVICE
         + "-cap-"
         + fingerprint(
-            [source["metadata"]["name"], template, PROFILE, displaced_latest]
+            [
+                source["metadata"]["name"],
+                template,
+                maintenance_profile,
+                displaced_latest,
+            ]
         )[:16]
     )
     template["metadata"]["name"] = name
-    template["metadata"]["labels"]["capacity-bridge"] = "v1"
+    template["metadata"]["labels"]["capacity-bridge"] = (
+        "v2" if maintenance_profile == PROFILE else "v1"
+    )
     return template
 
 
@@ -355,7 +425,7 @@ def service_controls(service):
     )
 
 
-def verify_profile(revision, profile):
+def verify_profile(revision, profile, maintenance_profile=LEGACY_PROFILE):
     config = profile["environments"]["production"]
     capacity = budget.revision_connections(
         revision,
@@ -363,8 +433,11 @@ def verify_profile(revision, profile):
         config["services"][SERVICE],
         f"{PROJECT}:{REGION}:{config['database_instance']}",
     )
-    if capacity["connections"] != 8 or capacity["workers_per_instance"] != 2:
-        raise retention.UnsafeState("Bridge exceeds the fixed eight-connection profile")
+    expected = (6, 1) if maintenance_profile == PROFILE else (8, 2)
+    if (capacity["connections"], capacity["workers_per_instance"]) != expected:
+        raise retention.UnsafeState(
+            "Bridge exceeds the fixed connection/worker profile"
+        )
 
 
 def verify_clone(
@@ -376,6 +449,8 @@ def verify_clone(
     controls,
     *,
     previously_verified=False,
+    maintenance_profile=LEGACY_PROFILE,
+    probe_health=True,
 ):
     expected_name = template["metadata"]["name"]
     if (
@@ -390,7 +465,7 @@ def verify_clone(
     for key, value in template["metadata"]["annotations"].items():
         if revision["metadata"].get("annotations", {}).get(key) != value:
             raise retention.UnsafeState("Bridge revision annotations changed")
-    verify_profile(revision, profile)
+    verify_profile(revision, profile, maintenance_profile)
     if service_controls(service) != controls:
         raise retention.UnsafeState(
             "Bridge changed preserved service-level configuration"
@@ -420,8 +495,8 @@ def verify_clone(
         for row in revision.get("status", {}).get("conditions", [])
     ):
         raise retention.MutationUncertain("Bridge is not ready")
-    if previously_verified:
-        return  # Ordinary retention already removed the temporary health tag.
+    if previously_verified or not probe_health:
+        return  # Removed health tag, or explicit predecessor observation only.
     targets = [
         row
         for row in service["status"]["traffic"]
@@ -464,13 +539,42 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
     existing_names = {
         row["metadata"]["name"] for row in inventory["services"][SERVICE]["revisions"]
     }
-    reuse = previous and (
-        previous["status"] == "intent"
-        or service.get("status", {}).get("latestCreatedRevisionName")
-        == previous["revision"]
+    supersede = bool(
+        create
+        and previous
+        and previous.get("profile", LEGACY_PROFILE) == LEGACY_PROFILE
+        and previous["status"] == "intent"
+        and previous["requested"]
+    )
+    maintenance_profile = (
+        previous.get("profile", LEGACY_PROFILE)
+        if previous and not supersede
+        else PROFILE
+    )
+    if previous and (
+        previous["sourceFingerprint"] != source_hash
+        or previous["sourceRevision"] != source["metadata"]["name"]
+    ):
+        raise retention.UnsafeState(
+            "Bridge source changed during an uncertain operation"
+        )
+    if previous is None and any(
+        row["metadata"].get("labels", {}).get("capacity-bridge")
+        for row in inventory["services"][SERVICE]["revisions"]
+    ):
+        raise retention.UnsafeState("Existing bridge has no trusted checkpoint")
+    reuse = (
+        previous
+        and not supersede
+        and (
+            previous["status"] == "intent"
+            or service.get("status", {}).get("latestCreatedRevisionName")
+            == previous["revision"]
+        )
     )
     if (
         previous
+        and not supersede
         and previous["status"] == "verified"
         and not reuse
         and previous["revision"] in existing_names
@@ -478,7 +582,48 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
         raise retention.UnsafeState(
             "Retire the previous bridge through ordinary drain maintenance before another bridge"
         )
-    if reuse:
+    predecessor = copy.deepcopy(previous.get("predecessor")) if reuse else None
+    if supersede:
+        # Resolve only the provider's creation outcome; never claim this failed
+        # predecessor healthy. The successor intent keeps deployments blocked.
+        expected = clone_template(
+            source,
+            previous["pins"],
+            previous["displacedLatestRevision"],
+            LEGACY_PROFILE,
+        )
+        prior_rows = [
+            row
+            for row in inventory["services"][SERVICE]["revisions"]
+            if row["metadata"]["name"] == previous["revision"]
+        ]
+        if expected["metadata"]["name"] != previous["revision"] or len(prior_rows) != 1:
+            raise retention.MutationUncertain(
+                "Predecessor creation remains unobserved; supersession forbidden"
+            )
+        verify_clone(
+            prior_rows[0],
+            expected,
+            service,
+            [tuple(row) for row in previous["traffic"]],
+            profile,
+            previous["serviceControlsFingerprint"],
+            probe_health=False,
+        )
+        secrets = SecretMetadata()
+        for pin in previous["pins"].values():
+            metadata = secrets.get(pin["version"])
+            if (
+                metadata.get("state") != "ENABLED"
+                or metadata.get("name") != pin["version"]
+            ):
+                raise retention.UnsafeState(
+                    "Predecessor secret pin is no longer enabled"
+                )
+        predecessor = copy.deepcopy(previous)
+        pins = previous["pins"]
+        displaced = previous["revision"]
+    elif reuse:
         if (
             previous["sourceFingerprint"] != source_hash
             or previous["sourceRevision"] != source["metadata"]["name"]
@@ -493,10 +638,10 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
             return
         pins = secret_pins(source, SecretMetadata())
         displaced = service["status"]["latestCreatedRevisionName"]
-    template = clone_template(source, pins, displaced)
+    template = clone_template(source, pins, displaced, maintenance_profile)
     # Admission must reserve the actual source launcher, not merely the fixed
     # candidate profile. A changed source worker count must fail before creation.
-    verify_profile(template, profile)
+    verify_profile(template, profile, maintenance_profile)
     name = template["metadata"]["name"]
     old_traffic = (
         previous["traffic"]
@@ -511,6 +656,7 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
     ]
     receipt = {
         "version": 1,
+        "profile": maintenance_profile,
         "project": PROJECT,
         "service": SERVICE,
         "sourceFingerprint": source_hash,
@@ -524,6 +670,14 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
         "traffic": old_traffic,
         "status": "intent",
         "requested": bool(reuse and previous.get("requested")),
+        **(
+            {
+                "predecessor": predecessor,
+                "predecessorObservation": "provider_observed_unhealthy",
+            }
+            if predecessor
+            else {}
+        ),
     }
 
     def save():
@@ -550,7 +704,7 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
                 "Bridge source/service changed during preflight"
             )
         report = budget.evaluate(
-            profile, "production", fresh, maintenance_profile=PROFILE
+            profile, "production", fresh, maintenance_profile=maintenance_profile
         )
         if not report["admitted"]:
             raise retention.UnsafeState(
@@ -636,13 +790,16 @@ def maintain(release, checkpoint_path: Path, *, create: bool):
         profile,
         receipt["serviceControlsFingerprint"],
         previously_verified=bool(reuse and previous["status"] == "verified"),
+        maintenance_profile=maintenance_profile,
     )
     ordinary = profile["environments"]["production"]["services"]
     remaining = budget.evaluate(
         profile,
         "production",
         inventory,
-        candidate_services=frozenset(ordinary) - {SERVICE},
+        candidate_services=frozenset()
+        if maintenance_profile == PROFILE
+        else frozenset(ordinary) - {SERVICE},
     )
     if not remaining["admitted"]:
         raise retention.UnsafeState(
