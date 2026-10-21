@@ -30,6 +30,7 @@ export function WorldModelOptions({
   preferences,
   sourcesRequest,
   canCheckForUpdates,
+  canResearchPublicProfiles,
   pathname,
   embedded,
   present,
@@ -51,6 +52,7 @@ export function WorldModelOptions({
   /** Bumped after a claim moves the inviter's preview into these sources. */
   sourcesRequest: number;
   canCheckForUpdates: boolean;
+  canResearchPublicProfiles: boolean;
   pathname: string;
   embedded: boolean;
   present: boolean;
@@ -146,7 +148,7 @@ export function WorldModelOptions({
           present={present && open && sheet === "sources"}
           backQuery={backQuery}
           onSaved={onSourcesSaved}
-          onResearchPublicProfiles={azureResearch && preferences?.enabled && canCheckForUpdates ? urls => {
+          onResearchPublicProfiles={azureResearch && preferences?.enabled && canResearchPublicProfiles ? urls => {
             if (!present) return;
             onResearchPublicProfiles(urls);
             close();
