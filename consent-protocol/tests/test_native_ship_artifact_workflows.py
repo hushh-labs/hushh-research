@@ -49,7 +49,7 @@ def test_android_release_is_green_main_uat_backed_and_fail_closed() -> None:
     inputs = workflow.get("on", workflow.get(True))["workflow_dispatch"]["inputs"]
     assert set(inputs) == {"track", "sha", "dry_run", "notes"}
     assert inputs["track"]["type"] == "choice"
-    assert inputs["track"]["default"] == "production"
+    assert inputs["track"]["default"] == "internal"
     assert set(inputs["track"]["options"]) == {"internal", "production"}
     assert workflow["permissions"]["checks"] == "read"
     assert workflow["env"]["GCP_PROJECT_ID"] == "hushh-pda-uat"
@@ -207,9 +207,16 @@ def test_android_release_refuses_unsupported_tracks_before_any_upload(tmp_path: 
         _steps(_workflow("ship-android-playstore-v1.yml"), "ship"),
         "Validate target track",
     )
-    for track in ("internal", "production"):
-        result = _run_step(step, cwd=tmp_path, env={"TARGET_TRACK": track})
+    assert step["env"]["DRY_RUN"] == "${{ inputs.dry_run }}"
+    for track, dry_run in (("internal", "false"), ("internal", "true"), ("production", "true")):
+        result = _run_step(step, cwd=tmp_path, env={"TARGET_TRACK": track, "DRY_RUN": dry_run})
         assert result.returncode == 0, result.stderr
+    for dry_run in ("false", "", "TRUE"):
+        result = _run_step(
+            step, cwd=tmp_path, env={"TARGET_TRACK": "production", "DRY_RUN": dry_run}
+        )
+        assert result.returncode != 0
+        assert "Public Android upload is blocked" in result.stderr
     for track in ("", "alpha", "beta", "production,internal", "internal; echo unsafe"):
         result = _run_step(step, cwd=tmp_path, env={"TARGET_TRACK": track})
         assert result.returncode != 0
@@ -369,7 +376,7 @@ def test_android_dispatcher_binds_selected_track_without_confirmation_bypass() -
         encoding="utf-8"
     )
     assert "--track" in dispatcher
-    assert 'track: "production"' in dispatcher
+    assert 'track: "internal"' in dispatcher
     assert '["internal", "production"]' in dispatcher
     assert "track: options.track" in dispatcher
     assert "--yes" not in dispatcher

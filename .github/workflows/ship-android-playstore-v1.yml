@@ -4,7 +4,7 @@ name: Ship Android to Google Play Store
 # exact green `main` SHA, build the Capacitor app against the UAT backend (latest
 # frontend + latest backend, matching UAT) and the shared Firebase authority, sign
 # it with the existing Android Release Upload Keystore, and upload it directly to
-# the selected Google Play internal or production track. The UAT backend must already be serving the
+# the internal track (production track is dry-run only). The UAT backend must already be serving the
 # exact release SHA; this workflow never deploys infrastructure.
 #
 # iOS equivalent: .github/workflows/release-ios-appstore.yml (backend_target=uat).
@@ -14,9 +14,9 @@ name: Ship Android to Google Play Store
   workflow_dispatch:
     inputs:
       track:
-        description: "Google Play release track (internal for testers, production for public release)"
+        description: "Google Play track (internal for uploads; production permits dry-run only)"
         required: true
-        default: production
+        default: internal
         type: choice
         options:
           - production
@@ -67,12 +67,18 @@ jobs:
     steps:
       - name: Validate target track
         shell: bash
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
           case "$TARGET_TRACK" in
             internal|production) ;;
             *) echo "Refusing unsupported Google Play track." >&2; exit 1 ;;
           esac
+          if [ "$TARGET_TRACK" = "production" ] && [ "${DRY_RUN:-false}" != "true" ]; then
+            echo "Public Android upload is blocked while this workflow targets UAT. Verify production routing and customer data transition first." >&2
+            exit 1
+          fi
 
       - name: Assert manual dispatch originates from main
         shell: bash

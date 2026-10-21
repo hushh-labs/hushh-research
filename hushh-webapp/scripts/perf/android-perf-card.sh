@@ -131,7 +131,7 @@ if [[ "${PERF_SKIP_BUILD:-0}" != "1" ]]; then
     exit 1
   fi
   node ./scripts/native/verify-native-css-fresh.mjs --export "$NATIVE_EXPORT" || exit 1
-  node ./scripts/native/sync-native-firebase-configs.mjs --platform android >> "$OUT_DIR/build.log" 2>&1
+  node ./scripts/native/with-android-native-env.mjs node ./scripts/native/sync-native-firebase-configs.mjs --platform android >> "$OUT_DIR/build.log" 2>&1
   node ./scripts/native/with-android-native-env.mjs npx cross-env CAPACITOR_PLATFORM=android NEXT_DIST_DIR="$NATIVE_EXPORT" \
     npx cap sync android >> "$OUT_DIR/build.log" 2>&1 || { echo "cap sync android failed; see $OUT_DIR/build.log" >&2; exit 1; }
   GRADLE_TASKS=(":app:assemble${(C)BUILD_TYPE}")
