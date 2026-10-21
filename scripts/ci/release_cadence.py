@@ -3,9 +3,9 @@
 """Pure release accounting. GitHub transport and authority live in the adapter."""
 from __future__ import annotations
 
-import re
 import hashlib
 import json
+import re
 from typing import Any
 
 CONTROLLER = "release-cadence.yml"
@@ -74,28 +74,71 @@ def source_receipt(receipt: dict) -> dict:
                 "provenance_success": receipt["verification"]["provenance_success"]}}
 
 
+def cadence_at(state: dict, ordinal: int) -> tuple[int, int]:
+    """Absent transition metadata means the original, certified 4/8 policy."""
+    if "cadence" not in state:
+        return 4, 8
+    epoch = state["cadence"]
+    require(isinstance(epoch, dict) and set(epoch) == {"testflight_every", "production_every", "effective_from", "origin_run_id"}
+            and type(epoch["effective_from"]) is int and 1 <= epoch["effective_from"] <= max(1, state["count"] + 1)
+            and type(epoch["origin_run_id"]) is int and epoch["origin_run_id"] > 0
+            and (epoch["testflight_every"], epoch["production_every"]) == (2, 4),
+            "Invalid cadence transition")
+    return (2, 4) if ordinal >= epoch["effective_from"] else (4, 8)
+
+
+def milestone_lanes(ordinal: int, cadence: tuple[int, int]) -> list[str]:
+    return (["testflight"] if ordinal % cadence[0] == 0 else []) + (
+        ["deploy", "appstore"] if ordinal % cadence[1] == 0 else [])
+
+
+def request_release(state: dict, sha: str, source: dict, origin: int, policy: dict) -> None:
+    ordinal = source["ordinal"]
+    lanes = milestone_lanes(ordinal, (policy["testflight_every"], policy["production_every"]))
+    if lanes:
+        require(str(ordinal) not in state["requests"], "Milestone authority already exists")
+        state["requests"][str(ordinal)] = {
+            "sha": sha, "ordinal": ordinal, "uat_run_id": source["run_id"], "origin_run_id": origin,
+            "submit_for_review": policy["submit_for_review"],
+            "release_after_approval": policy["release_after_approval"],
+            "lanes": {lane: {"state": "pending"} for lane in lanes},
+        }
+
+
+def adopt_cadence(state: dict, origin: int, policy: dict) -> None:
+    """Adopt 2/4 once, without recounting sources or changing issued authority."""
+    if (policy["testflight_every"], policy["production_every"]) != (2, 4):
+        require("cadence" not in state, "Cannot silently undo a certified cadence transition")
+        return
+    if "cadence" in state:
+        cadence_at(state, state["count"] + 1)
+        return
+    # Catch the most recent newly eligible TestFlight milestone (2 at counts
+    # 2 or 3). Older missed milestones are not replayed. Existing requests win.
+    boundary = max(1, state["count"] - state["count"] % 2)
+    if any(int(ordinal) >= boundary for ordinal in state["requests"]):
+        boundary = state["count"] + 1
+    state["cadence"] = {"testflight_every": 2, "production_every": 4,
+                        "effective_from": boundary, "origin_run_id": origin}
+    if boundary <= state["count"]:
+        sources = [(sha, source) for sha, source in state["sources"].items() if source["ordinal"] == boundary]
+        require(len(sources) == 1, "Cadence transition has no unique boundary source")
+        request_release(state, sources[0][0], sources[0][1], origin, policy)
+
+
 def account(state: dict, run: dict, receipt: dict, sha: str, origin: int, policy: dict) -> bool:
     """Idempotent per source commit, including reruns and duplicate dispatches."""
     if sha in state["sources"]:
         return False
     require(SHA.fullmatch(sha) and receipt.get("sha") == sha, "Source identity changed")
+    require(cadence_at(state, state["count"] + 1) == (policy["testflight_every"], policy["production_every"]),
+            "Accounting policy differs from the certified cadence transition")
     state["count"] += 1
     ordinal = state["count"]
     source = {"ordinal": ordinal, "run_id": run["id"], "run_attempt": run.get("run_attempt", 1),
               "created_at": run["created_at"], "receipt": source_receipt(receipt)}
     state["sources"][sha] = source
-    lanes = []
-    if ordinal % policy["testflight_every"] == 0:
-        lanes.append("testflight")
-    if ordinal % policy["production_every"] == 0:
-        lanes.extend(("deploy", "appstore"))
-    if lanes:
-        state["requests"][str(ordinal)] = {
-            "sha": sha, "ordinal": ordinal, "uat_run_id": run["id"], "origin_run_id": origin,
-            "submit_for_review": policy["submit_for_review"],
-            "release_after_approval": policy["release_after_approval"],
-            "lanes": {lane: {"state": "pending"} for lane in lanes},
-        }
+    request_release(state, sha, source, origin, policy)
     return True
 
 
