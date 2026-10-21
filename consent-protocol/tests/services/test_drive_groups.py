@@ -11,9 +11,11 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import replace
+from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -33,9 +35,11 @@ from hushh_mcp.services.drive_groups.adapters import IsolatedHeadEmbedder, Trans
 from hushh_mcp.services.drive_groups.contract import EMBEDDING_DIMENSIONS, FLAG
 from hushh_mcp.services.drive_groups.embedding_model import EmbeddingModel
 from hushh_mcp.services.drive_groups.features import metadata_features, text_features
+from hushh_mcp.services.drive_groups.folders import FolderNames, load_folders, summarize_folders
 from hushh_mcp.services.drive_groups.fusion import FusionPolicy
 from hushh_mcp.services.drive_groups.linear_model import LinearModel
 from hushh_mcp.services.drive_groups.models import DATA_FILES, version_of
+from hushh_mcp.services.drive_groups.period import deciding_day, fiscal_quarter, title_day
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -337,3 +341,82 @@ def test_words_that_fooled_hand_weighted_rules_are_kept_not_placed():
     assert {name: result.group for name, result in kept.items()} == dict.fromkeys(trap)
     for group, head in genuine.items():
         assert place(FileEvidence("statement.pdf", PDF, head=head), alone).group == group
+
+
+IST = ZoneInfo("Asia/Kolkata")
+
+
+@pytest.mark.parametrize(
+    ("day", "start", "expected"),
+    [
+        (date(2025, 4, 1), 4, "FY 26 Q1"),
+        (date(2025, 6, 30), 4, "FY 26 Q1"),
+        (date(2025, 7, 1), 4, "FY 26 Q2"),
+        (date(2025, 12, 31), 4, "FY 26 Q3"),
+        (date(2026, 1, 1), 4, "FY 26 Q4"),
+        (date(2026, 3, 31), 4, "FY 26 Q4"),
+        (date(2026, 4, 1), 4, "FY 27 Q1"),
+        (date(2026, 10, 21), 4, "FY 27 Q3"),
+        (date(2026, 1, 1), 1, "FY 26 Q1"),
+        (date(2026, 12, 31), 1, "FY 26 Q4"),
+    ],
+)
+def test_the_fiscal_quarter_follows_the_owners_year_on_every_boundary(day, start, expected):
+    assert fiscal_quarter(day, start).label == expected
+    for bad in (0, 13, True, "4"):
+        with pytest.raises(ValueError, match="out of range"):
+            fiscal_quarter(day, bad)
+
+
+def test_a_files_quarter_comes_from_its_title_then_created_then_modified_in_the_owners_zone():
+    def decide(name, created=None, modified=None):
+        reference = created.astimezone(IST).date() if created else None
+        title = title_day(name, zone=IST, reference=reference)
+        return deciding_day(title=title, created=created, modified=modified, zone=IST)
+
+    late_march_utc = datetime(2025, 3, 31, 20, 0, tzinfo=UTC)
+    # A title date outranks the file's own times, and a month alone is its last day.
+    assert decide("Northwind_Statement_Mar2026.pdf", late_march_utc) == (date(2026, 3, 31), "title")
+    assert decide("Account statement 14 Sep 2025.pdf") == (date(2025, 9, 14), "title")
+    # A title that names several dates files under the latest: the quarter it ends in.
+    assert decide("Statement 15 Mar 2025 to 14 Apr 2025.pdf")[0] == date(2025, 4, 14)
+    # No title date: created time, read in the owner's zone (1 April in India, not 31 March).
+    assert decide("scan_0042.pdf", late_march_utc) == (date(2025, 4, 1), "created")
+    assert deciding_day(
+        title=None, created=late_march_utc, modified=None, zone=ZoneInfo("UTC")
+    ) == (
+        date(2025, 3, 31),
+        "created",
+    )
+    # Then modified time, then nothing at all.
+    modified = datetime(2026, 10, 21, 10, 0, tzinfo=UTC)
+    assert decide("Untitled document", None, modified) == (date(2026, 10, 21), "modified")
+    assert decide("Untitled document") == (None, "none")
+    # A numeric date that reads two ways is not trusted, so created time decides.
+    assert title_day("Statement 03-04-2026.pdf", zone=IST) is None
+    assert decide("Statement 03-04-2026.pdf", late_march_utc)[1] == "created"
+
+
+def test_folders_are_counted_by_group_and_quarter_with_kept_files_last():
+    names = load_folders()
+    rows = [
+        ("financial_statements", date(2025, 5, 2), None, None),
+        ("financial_statements", date(2025, 6, 9), None, None),
+        ("financial_statements", date(2025, 8, 1), None, None),
+        ("financial_statements", None, None, None),
+        ("insurance_statements", None, datetime(2026, 1, 5, tzinfo=UTC), None),
+        ("kept", date(2025, 5, 2), None, None),
+    ]
+    summary = summarize_folders(rows, zone=IST, names=names)
+    assert [(item.name, item.count) for item in summary] == [
+        ("Financial Assets (FY 26 Q2)", 1),
+        ("Financial Assets (FY 26 Q1)", 2),
+        ("Financial Assets", 1),
+        ("Insurance (FY 26 Q4)", 1),
+        ("Not sorted yet", 1),
+    ]
+    with pytest.raises(ValueError, match="folders file"):
+        FolderNames.from_payload(
+            {"kind": "folders_v1", "names": {}, "kept": "x", "fiscal_year_start_month": 4}
+        )
+    assert load_folders().names["personal_documents"] == "Personal Documents"
