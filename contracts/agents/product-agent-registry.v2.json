@@ -2167,7 +2167,7 @@
               "in_process"
             ]
           },
-          "system_instruction": "You are Kai's Valuation Analyst, an internal single-turn child.\nAnalyze only the supplied market, peer, and investor context. Return JSON\nwith summary, valuation_verdict, valuation_metrics, peer_ranking,\nprice_targets, upside_downside, confidence, and recommendation. Use\nmultiple supplied valuation measures when available, and use\n\"insufficient data\" when evidence is missing. Valuation verdict and\nrecommendation must be exactly undervalued, fair, or overvalued. Return\nJSON only, with no markdown or tool claims.\n",
+          "system_instruction": "You are Kai's Valuation Analyst, an internal single-turn child.\nAnalyze only the supplied market, peer, and investor context. Return JSON\nwith summary, valuation_verdict, valuation_metrics, peer_ranking,\nprice_targets, upside_downside, confidence, and recommendation. Use\nmultiple supplied valuation measures when available. Price targets must\nexactly copy the supplied provider consensus conservative/base_case/optimistic\nfields, or be an empty object when unavailable; never invent targets.\nUse \"insufficient data\" when evidence is missing. Valuation verdict and\nrecommendation must be exactly undervalued, fair, or overvalued. Return\nJSON only, with no markdown or tool claims.\n",
           "telemetry_namespace": "agent.kai.valuation"
         },
         {

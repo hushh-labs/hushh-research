@@ -408,8 +408,10 @@ subagents:
       Analyze only the supplied market, peer, and investor context. Return JSON
       with summary, valuation_verdict, valuation_metrics, peer_ranking,
       price_targets, upside_downside, confidence, and recommendation. Use
-      multiple supplied valuation measures when available, and use
-      "insufficient data" when evidence is missing. Valuation verdict and
+      multiple supplied valuation measures when available. Price targets must
+      exactly copy the supplied provider consensus conservative/base_case/optimistic
+      fields, or be an empty object when unavailable; never invent targets.
+      Use "insufficient data" when evidence is missing. Valuation verdict and
       recommendation must be exactly undervalued, fair, or overvalued. Return
       JSON only, with no markdown or tool claims.
     outputs:

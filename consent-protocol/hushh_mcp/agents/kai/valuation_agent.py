@@ -31,6 +31,8 @@ class ValuationInsight:
     sources: List[str]
     confidence: float
     recommendation: str  # "overvalued", "fair", "undervalued"
+    market_snapshot: Dict[str, Any] | None = None
+    analysis_degraded: bool = False
 
 
 class ValuationAgent(HushhAgent):
@@ -88,16 +90,22 @@ class ValuationAgent(HushhAgent):
             RealtimeDataUnavailable,
             fetch_market_data,
             fetch_peer_data,
+            fetch_price_target_consensus,
         )
 
         try:
             market_data = await fetch_market_data(ticker, user_id, consent_token)
-            peer_data = (
-                await fetch_peer_data(ticker, user_id, consent_token)
-                if isinstance(market_data.get("pe_ratio"), (int, float))
+            consensus = await fetch_price_target_consensus(ticker, user_id, consent_token)
+            market_data["target_consensus"] = consensus
+            peer_data = []
+            if (
+                isinstance(market_data.get("pe_ratio"), (int, float))
                 and market_data["pe_ratio"] > 0
-                else []
-            )
+            ):
+                try:
+                    peer_data = await fetch_peer_data(ticker, user_id, consent_token)
+                except RealtimeDataUnavailable:
+                    market_data["peer_coverage"] = "unavailable"
         except PermissionError as e:
             logger.error(f"[Valuation] Market data access denied: {e}")
             raise
@@ -136,8 +144,20 @@ class ValuationAgent(HushhAgent):
                         peer_data=peer_data,
                         user_context=context,
                     )
+                    supplied_targets = {
+                        name: consensus[name]
+                        for name in ("conservative", "base_case", "optimistic")
+                        if consensus.get("status") == "available"
+                        and isinstance(consensus.get(name), (int, float))
+                        and consensus[name] > 0
+                    }
+                    if gemini_analysis.get("price_targets", {}) != supplied_targets:
+                        raise ValueError(
+                            "Valuation targets must exactly match supplied provider consensus"
+                        )
                     break
                 except Exception as e:
+                    gemini_analysis = None
                     logger.warning(
                         f"[Valuation] Gemini analysis failed (attempt {attempt + 1}/2): {e}"
                     )
@@ -157,6 +177,10 @@ class ValuationAgent(HushhAgent):
                 sources=gemini_analysis.get("sources", ["Gemini Valuation Analysis"]),
                 confidence=gemini_analysis.get("confidence", 0.5),
                 recommendation=gemini_analysis.get("recommendation", "fair"),
+                market_snapshot=_provider_snapshot(market_data),
+                analysis_degraded=bool(
+                    market_data.get("is_stale") or market_data.get("peer_coverage") == "unavailable"
+                ),
             )
 
         # Fallback: Deterministic analysis
@@ -181,6 +205,8 @@ class ValuationAgent(HushhAgent):
                 sources=analysis.get("sources", ["Deterministic Analysis"]),
                 confidence=analysis.get("confidence", 0.5),
                 recommendation=analysis.get("recommendation", "fair"),
+                market_snapshot=_provider_snapshot(market_data),
+                analysis_degraded=True,
             )
         except Exception as e:
             logger.error(f"[Valuation] Deterministic analysis failed: {e}")
@@ -199,7 +225,21 @@ class ValuationAgent(HushhAgent):
             sources=["Valuation fallback", "Realtime quote unavailable"],
             confidence=0.2,
             recommendation="fair",
+            analysis_degraded=True,
         )
+
+
+def _provider_snapshot(quote: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "last_price": quote.get("price"),
+        "observed_at": quote.get("quoted_at"),
+        "change_pct": quote.get("change_percent"),
+        "source": quote.get("source"),
+        "quote_delay_minutes": quote.get("quote_delay_minutes"),
+        "is_stale": bool(quote.get("is_stale")),
+        "stale_reason": quote.get("stale_reason"),
+        "currency": "USD",
+    }
 
 
 # Export singleton for use in KaiAgent orchestration

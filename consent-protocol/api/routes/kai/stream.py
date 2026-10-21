@@ -897,17 +897,9 @@ def _derive_fair_value(
     price_targets: dict[str, Any] | None,
     valuation_metrics: dict[str, Any] | None,
     valuation_recommendation: str,
-) -> tuple[str, float, float | None]:
-    current_price = _pick_first_numeric(
-        valuation_metrics,
-        (
-            "current_price",
-            "price",
-            "market_price",
-            "spot_price",
-            "last_price",
-        ),
-    )
+    provider_snapshot: dict[str, Any] | None = None,
+) -> tuple[str, float | None, float | None]:
+    current_price = _safe_float(provider_snapshot.get("last_price")) if provider_snapshot else None
     target_price = _pick_first_numeric(
         price_targets,
         (
@@ -925,13 +917,7 @@ def _derive_fair_value(
         gap_pct = ((target_price - current_price) / current_price) * 100.0
         score = _clamp(5.0 + (gap_pct / 4.0), 0.0, 10.0)
     else:
-        rec = (valuation_recommendation or "").strip().lower()
-        if "under" in rec:
-            score = 7.2
-        elif "over" in rec:
-            score = 2.8
-        else:
-            score = 5.0
+        return "Unavailable", None, None
     if score >= 6.2:
         label = "Undervalued"
     elif score <= 3.8:
@@ -1241,6 +1227,12 @@ async def analyze_stream_generator(
 
     logger.info("[Kai Stream] Starting analysis for %s - user %s", ticker, user_id)
 
+    from hushh_mcp.services.market_provider_telemetry import (
+        finish_provider_call_counts,
+        start_provider_call_counts,
+    )
+
+    provider_calls_token = start_provider_call_counts()
     stream_token = _stream_ctx.set(CanonicalSSEStream("stock_analyze"))
     stream_ctx = _stream_ctx.get()
     stream_id = stream_ctx.stream_id if stream_ctx is not None else None
@@ -2363,6 +2355,17 @@ async def analyze_stream_generator(
             ),
             timeout=min(remaining_timeout(), 30.0),
         )
+        for name, insight in (
+            ("fundamental", fundamental_insight),
+            ("sentiment", sentiment_insight),
+            ("valuation", valuation_insight),
+        ):
+            if getattr(insight, "analysis_degraded", False) and name not in degraded_agents:
+                degraded_agents.append(name)
+        from hushh_mcp.services.market_provider_telemetry import degraded_provider_resources
+
+        if degraded_provider_resources() and "market sources" not in degraded_agents:
+            degraded_agents.append("market sources")
         analysis_degraded = len(degraded_agents) > 0
         if analysis_degraded:
             analysis_mode = "degraded"
@@ -2392,6 +2395,7 @@ async def analyze_stream_generator(
             price_targets=valuation_insight.price_targets,
             valuation_metrics=valuation_insight.valuation_metrics,
             valuation_recommendation=valuation_insight.recommendation,
+            provider_snapshot=valuation_insight.market_snapshot,
         )
         company_strength_score = _derive_company_strength_score(
             fundamental_confidence=_safe_float(fundamental_insight.confidence),
@@ -2400,15 +2404,16 @@ async def analyze_stream_generator(
             if _safe_float(debate_result.confidence) is not None
             else 0.5,
             sentiment_score=sentiment_score_value,
-            fair_value_score=fair_value_score,
+            fair_value_score=fair_value_score if fair_value_score is not None else 5.0,
             market_trend_score=market_trend_score,
         )
         analysis_updated_at = _now_utc_iso()
-        market_snapshot = _derive_market_snapshot(
-            valuation_metrics=valuation_insight.valuation_metrics,
-            price_targets=valuation_insight.price_targets,
-            analysis_updated_at=analysis_updated_at,
-        )
+        market_snapshot = valuation_insight.market_snapshot or {
+            "last_price": None,
+            "observed_at": None,
+            "source": "unavailable",
+            "currency": "USD",
+        }
 
         pkm_context = {
             "risk_profile": full_user_context.get("risk_profile"),
@@ -2639,6 +2644,7 @@ async def analyze_stream_generator(
     finally:
         _stream_activity_ctx.reset(activity_token)
         _stream_ctx.reset(stream_token)
+        finish_provider_call_counts(provider_calls_token)
 
 
 def _create_sse_response(generator: AsyncGenerator[dict, None]) -> EventSourceResponse:
