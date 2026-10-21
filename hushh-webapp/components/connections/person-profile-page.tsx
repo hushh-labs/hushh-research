@@ -45,7 +45,6 @@ import {
   StatusPill,
 } from "@/lib/morphy-ux/ui/surface-primitives";
 import { PersonProfileHero, PersonProfileTaskContent, PersonProfileEmptyState } from "./person-profile-hero";
-import { HelperText, RowLabel } from "@/components/app-ui/typography";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { SharedWithYouCard } from "@/components/agent/consent/shared-with-you-card";
 import { humanSharedLabel, type SharedWithMeCardItem } from "@/lib/agent/agui-structured-experiences";

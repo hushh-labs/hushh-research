@@ -1,4 +1,4 @@
-"""An empty provisioning container must never become a broken runtime mount."""
+"""PLG build projections and secret bindings retain their closed contracts."""
 
 import os
 import shutil
@@ -64,3 +64,24 @@ source "$1" "$2" test-project
     if profile == "production" and audience == "ENABLED":
         bindings += ["ONE_PLG_AUDIENCE_SECRET:ONE_PLG_AUDIENCE_SECRET"]
     assert result.stdout.splitlines() == bindings
+
+
+def test_observation_projection_follows_split_literals_and_rejects_expressions():
+    import runpy
+
+    root = HELPER.parents[2]
+    generator = runpy.run_path(
+        str(root / "consent-protocol/scripts/generate_plg_observation_contract.py")
+    )
+    source = generator["SOURCE"].read_text()
+    actions = generator["ACTIONS"].read_text()
+    compile_contract = generator["compile_contract"]
+    contract = compile_contract(source, actions_source=actions)
+    assert "export_saved" in contract["events"]["one_memory_action"]
+    changed = compile_contract(
+        source, actions_source=actions.replace('"export_saved"', '"export_changed"')
+    )
+    assert "export_changed" in changed["events"]["one_memory_action"]
+    assert changed["sourceDigest"] != contract["sourceDigest"]
+    with pytest.raises(ValueError, match="literal enums"):
+        compile_contract(source, actions_source=actions.replace('"export_saved"', "runtimeValue()"))
