@@ -1,7 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CacheService } from "@/lib/services/cache-service";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import GmailInformationRequestsSection, {
   isExactDraftCandidate,
 } from "@/components/gmail/gmail-information-requests-section";
@@ -54,6 +56,8 @@ function renderSection(
 
 describe("personal Gmail information-request scope boundary", () => {
   beforeEach(() => {
+    advanceVaultSessionEpoch();
+    CacheService.getInstance().clear();
     gmailServiceMocks.getPreference.mockReset();
     gmailServiceMocks.setPreference.mockReset();
     gmailServiceMocks.list.mockReset();
@@ -84,6 +88,44 @@ describe("personal Gmail information-request scope boundary", () => {
     view.rerender(createElement(GmailInformationRequestsSection, { ...props, active: true }));
     expect(screen.getByRole("button", { name: "Unlock to start" })).toBeEnabled();
     expect(gmailServiceMocks.getPreference).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a warm remount immediately and shares concurrent cold reads", async () => {
+    let resolve!: (value: unknown) => void;
+    gmailServiceMocks.getPreference.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    const first = renderSection();
+    const second = renderSection();
+    await waitFor(() => expect(gmailServiceMocks.getPreference).toHaveBeenCalledTimes(1));
+    await act(async () => { resolve({ user_id: "owner", monitoring_enabled: false }); });
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Unlock to start" })).toHaveLength(2));
+    first.unmount(); second.unmount();
+    renderSection(() => new Promise(() => {}));
+    expect(screen.getByRole("button", { name: "Unlock to start" })).toBeEnabled();
+    expect(gmailServiceMocks.getPreference).toHaveBeenCalledTimes(1);
+  });
+
+  it("purges the display snapshot when the vault credential epoch changes", async () => {
+    const view = renderSection();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Unlock to start" })).toBeEnabled());
+    view.unmount();
+    act(() => advanceVaultSessionEpoch());
+    gmailServiceMocks.getPreference.mockReturnValueOnce(new Promise(() => {}));
+    renderSection();
+    expect(screen.queryByRole("button", { name: "Unlock to start" })).toBeNull();
+    expect(screen.getByLabelText("Loading KYC workspace")).toBeVisible();
+  });
+
+  it("ends a hung read and never dispatches it after the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let release!: (value: string) => void;
+      renderSection(() => new Promise(resolve => { release = resolve; }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_001); });
+      expect(screen.getByRole("alert")).toHaveTextContent("Inbox details couldn’t refresh");
+      expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+      await act(async () => { release("late-token"); });
+      expect(gmailServiceMocks.getPreference).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
 
   it("accepts only one manifest-backed exact leaf segment", () => {
@@ -464,7 +506,7 @@ describe("personal Gmail information-request scope boundary", () => {
 
     expect(await screen.findByText("Scanning emails: 2")).toBeVisible();
     expect(await screen.findByText("Passport number")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Looking…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Check now" })).toBeDisabled();
 
     finishScan?.();
     expect(await screen.findByText("Emails checked")).toBeVisible();
