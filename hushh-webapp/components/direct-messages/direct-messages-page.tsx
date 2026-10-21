@@ -80,6 +80,7 @@ import {
   X,
 } from "@/components/icons";
 import { useAuth } from "@/hooks/use-auth";
+import { DirectMessagesResourceService } from "@/lib/services/direct-messages-resource-service";
 import {
   dispatchDirectMessagesUpdated,
   subscribeToDirectMessagesUpdated,
@@ -177,12 +178,13 @@ async function decodePhoto(url: string) {
   return { url, width: image.naturalWidth, height: image.naturalHeight };
 }
 
-function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, visitRevision }: {
+function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, visitRevision, admitted }: {
   message: DirectMessage;
   getIdToken: () => Promise<string>;
   onPhotoLoad: () => void;
   isCurrentVisit: () => boolean;
   visitRevision: number;
+  admitted: boolean;
 }) {
   const [photo, setPhoto] = useState<Awaited<ReturnType<typeof decodePhoto>> | null>(null);
   const mediaUrl = photo?.url ?? null;
@@ -229,7 +231,7 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, v
     return () => observer.disconnect();
   }, [attachment?.kind, message.conversationId, message.id]);
   useEffect(() => {
-    if (attachment?.kind !== "photo" || !photoVisible) return;
+    if (attachment?.kind !== "photo" || !photoVisible || !admitted) return;
     let current = true;
     const visit = visitGuard.current;
     const effectIsCurrent = () => current && active.current && visit();
@@ -252,7 +254,7 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, v
       // Keep the Open control available for an explicit retry.
     }).finally(() => { if (effectIsCurrent()) setOpening(false); });
     return () => { current = false; if (url) URL.revokeObjectURL(url); };
-  }, [attachment?.kind, message.conversationId, message.id, photoVisible, visitRevision]);
+  }, [attachment?.kind, message.conversationId, message.id, photoVisible, visitRevision, admitted]);
   if (!attachment) return null;
   const typeLabel = ({ "application/pdf": "PDF", "text/plain": "Text file",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word document",
@@ -458,6 +460,7 @@ function threadFromConversation(
 
 export function DirectMessagesPage({ selection, resolvingSelection = false, restoredSelection = null }: { selection?: { kind: "conversation" | "person"; ref: string } | null; resolvingSelection?: boolean; restoredSelection?: LastMessagesSelection | null } = {}) {
   const { user, loading: authLoading } = useAuth();
+  const ownerId = user?.uid;
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const router = useRouter();
@@ -467,6 +470,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [storedThread, setThread] = useState<ThreadState>(EMPTY_THREAD);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [settledReadScopes, setSettledReadScopes] = useState<readonly string[]>([]);
+  const [presentedScope, setPresentedScope] = useState<string | null>(null);
+  const cacheSession = useRef<object | null>(null);
   const [storedInbox, setInbox] = useState<{
     ownerId: string;
     items: DirectMessageConversation[];
@@ -561,12 +566,17 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const isCurrentRead = readScope !== null && settledReadScopes.includes(readScope);
   // Reuse the owner-bound read admission for main's loading/status UI. A
   // second route-only completion key could re-admit another owner's thread.
-  const pendingSelection = resolvingSelection || loadingThread || (selectedRouteKey !== null && !isCurrentRead);
+  const pendingSelection = resolvingSelection || loadingThread || (selectedRouteKey !== null && !isCurrentRead && !threadError);
   const isCurrentInbox = Boolean(user && storedInbox?.ownerId === user.uid);
   const inboxItems = useMemo(() => isCurrentInbox ? storedInbox!.items : [], [isCurrentInbox, storedInbox]);
+  const inboxRef = useRef(inboxItems); inboxRef.current = inboxItems;
   // React can render the new owner/selection before effect cleanup runs. Keep
   // the old transcript and send authority concealed during that interval.
   const thread = isCurrentRead ? storedThread : EMPTY_THREAD;
+  // Presentation is separate from read admission: a warm snapshot cannot
+  // authorize receipts, message actions, attachment reads or sending.
+  const hasPresentation = !resolvingSelection && readScope !== null && presentedScope === readScope;
+  const displayThread = isCurrentRead || hasPresentation ? storedThread : EMPTY_THREAD;
   const currentThread = useRef(thread); currentThread.current = thread;
   const activeConversationId = thread.conversation?.id ?? null;
   const settleReadScope = useCallback((scope: string | null) => {
@@ -722,6 +732,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const removeDeletedChat = useCallback((conversationId: string, peerPersonRef?: string | null) => {
     const ownerId = user?.uid;
     if (!ownerId || readAdmission.current.ownerId !== ownerId) return;
+    CacheSyncService.onDirectMessagesMutated(ownerId);
     invalidateInboxRead();
     setInbox(current => current?.ownerId === ownerId
       ? { ...current, items: current.items.filter(item => item.id !== conversationId) } : current);
@@ -765,10 +776,16 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     setDraft(drafts.current.get(draftScope) ?? ""); setAttachment(attachmentDrafts.current.get(draftScope) ?? null); setSending(sendingSelections.current.has(draftScope));
     setReplyingTo(replyDrafts.current.get(draftScope) ?? null); setEditingMessage(null); setEditingContent(""); setDeleteRequest(null); setChatDeleteRequest(null);
     setMessageActionError(null); setComposerError(null); setOpenMessageMenu(null); reactionPickerTarget.current = null; setOpenReactionPicker(null); setActiveMessageActions(null);
-    setLoadingOlder(false); setMessages([]); setThread(EMPTY_THREAD);
+    cacheSession.current = ownerId ? DirectMessagesResourceService.beginRequest(ownerId) : null;
+    const cached = ownerId ? DirectMessagesResourceService.readThread(ownerId, routeSelection) : null;
+    const known = inboxRef.current.find((item) => requestedConversationId ? item.id === requestedConversationId : requestedPersonRef && item.peerPersonRef === requestedPersonRef);
+    messagesRef.current = cached?.messages ?? [];
+    setLoadingOlder(false); setMessages(cached?.messages ?? []);
+    setThread(cached?.thread ?? (known ? threadFromConversation(known) : EMPTY_THREAD));
+    setPresentedScope(readScope); setThreadError(null);
     settleReadScope(null);
     return invalidateSelection;
-  }, [invalidateSelection, routeSelection, draftScope, user?.uid, resolvingSelection, settleReadScope, cancelMessageLongPress]);
+  }, [invalidateSelection, routeSelection, draftScope, user?.uid, ownerId, readScope, requestedConversationId, requestedPersonRef, resolvingSelection, settleReadScope, cancelMessageLongPress]);
 
   useLayoutEffect(() => {
     const input = composerRef.current;
@@ -790,6 +807,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   useChatAlertVisibility(lane === "people" && hasRouteSelection && activeConversationId && !loadingThread && !blockingLayer && !messageSearchOpen
     ? `direct-chat:${activeConversationId}` : null, messageListRef);
   const canCompose = hasRouteSelection && !resolvingSelection && isCurrentRead && thread.canSend;
+  useLayoutEffect(() => {
+    if (!ownerId || !cacheSession.current || !selectedRouteKey || !isCurrentRead || loadingThread || threadError || reactionPending.current.size) return;
+    DirectMessagesResourceService.writeThread(ownerId, cacheSession.current, selectedRouteKey, thread, messages);
+  }, [ownerId, selectedRouteKey, isCurrentRead, loadingThread, threadError, thread, messages]);
   useEffect(() => messageLongPress.cancel, [requestedPersonRef, requestedConversationId, lane, messageLongPress.cancel]);
 
   const loadInbox = useCallback(
@@ -825,6 +846,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     async (options?: { preserveMessages?: boolean }) => {
       if (!user || resolvingSelection) return;
       const generation = ++loadGeneration.current;
+      cacheSession.current = DirectMessagesResourceService.beginRequest(user.uid);
       const requestKey = requestedPersonRef
         ? `person:${requestedPersonRef}`
         : requestedConversationId
@@ -838,8 +860,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
       if (!requestScope || !loadedReadScopes.current.includes(requestScope)) {
         loadedReadScopes.current = requestScope ? [requestScope] : [];
         setSettledReadScopes([]);
-        setMessages([]);
-        setThread(EMPTY_THREAD);
       }
       if (!options?.preserveMessages) {
         setLoadingThread(true);
@@ -849,7 +869,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
       try {
         const idToken = await user.getIdToken();
         if (generation !== loadGeneration.current) return;
-        const snapshot = options?.preserveMessages ? messagesRef.current : [];
+        const snapshot = messagesRef.current;
         const snapshotIds = new Set(snapshot.map((message) => message.id));
         let refreshedFrom: DirectMessage | undefined;
         let refreshedToStart = false;
@@ -871,7 +891,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
           return { ...history, items };
         };
         const reconcileHistory = (current: DirectMessage[], incoming: DirectMessage[]) => {
-          if (!options?.preserveMessages) return sortMessages(incoming);
+          if (!snapshot.length) return sortMessages(incoming);
           const oldest = snapshot[0];
           return mergeMessages(current.filter((message) => !snapshotIds.has(message.id)
             || (oldest && compareMessages(message, oldest) < 0)
@@ -915,7 +935,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
               peerPhotoUrl: peer.peerPhotoUrl ?? history.conversation.peerPhotoUrl,
               canSend: history.canSend,
               disconnectedNotice: history.disconnectedNotice,
-              nextBefore: options?.preserveMessages && current.conversation?.id === history.conversation.id ? current.nextBefore : history.nextBefore,
+              nextBefore: snapshot.length && current.conversation?.id === history.conversation.id ? current.nextBefore : history.nextBefore,
             }),
           );
           reconcileHistoryReplies(history.items);
@@ -937,7 +957,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
           threadFromConversation(history.conversation, {
             canSend: history.canSend,
             disconnectedNotice: history.disconnectedNotice,
-            nextBefore: options?.preserveMessages && current.conversation?.id === history.conversation.id ? current.nextBefore : history.nextBefore,
+            nextBefore: snapshot.length && current.conversation?.id === history.conversation.id ? current.nextBefore : history.nextBefore,
           }),
         );
         reconcileHistoryReplies(history.items);
@@ -946,20 +966,19 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         setThreadError(null);
       } catch (error) {
         if (generation !== loadGeneration.current) return;
+        if (error instanceof DirectMessagesServiceRequestError && [401, 403, 404].includes(error.status)) {
+          CacheSyncService.onDirectMessagesMutated(user.uid);
+          invalidateOperations(); setPresentedScope(null); setLoadingOlder(false);
+          prependPosition.current = null; jumping.current = false; setJumpTarget(null);
+          setThread(EMPTY_THREAD); setMessages([]); settleReadScope(null);
+          setThreadError("This conversation is not available right now.");
+          return;
+        }
         // A short-lived refresh failure must not replace an already readable
         // conversation with a large error panel. The next focus, SSE update,
         // or explicit refresh will retry while the cached thread stays usable.
         if (options?.preserveMessages) {
           return;
-        }
-        if (requestedPersonRef) {
-          setThread({
-            ...EMPTY_THREAD,
-            peerPersonRef: requestedPersonRef,
-            peerDisplayName: "Connection",
-            disconnectedNotice:
-              "This connection is not available for messaging right now.",
-          });
         }
         const message = error instanceof Error ? error.message : "";
         setThreadError(
@@ -967,14 +986,14 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
             ? "This connection is not available for messaging right now."
             : "Messages could not be loaded. Check your connection and try again.",
         );
-        settleReadScope(requestScope);
+        settleReadScope(null);
       } finally {
         if (generation === loadGeneration.current) {
           setLoadingThread(false);
         }
       }
     },
-    [reconcileReplyDrafts, requestedConversationId, requestedPersonRef, resolvingSelection, settleReadScope, user],
+    [invalidateOperations, reconcileReplyDrafts, requestedConversationId, requestedPersonRef, resolvingSelection, settleReadScope, user],
   );
 
   useEffect(() => {
@@ -1239,22 +1258,25 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     return () => { cancelled = true; };
   }, [activeConversationId, loadingThread, messages, inboxItems, user, deliveryRevision, selectionGeneration]);
 
-  const selectedLabel =
-    thread.peerDisplayName || thread.conversation?.peerDisplayName || "Conversation";
+  const selectedInboxItem = !threadError ? inboxItems.find((item) => requestedConversationId
+    ? item.id === requestedConversationId : requestedPersonRef && item.peerPersonRef === requestedPersonRef) : undefined;
+  const selectedLabel = displayThread.peerDisplayName || displayThread.conversation?.peerDisplayName || selectedInboxItem?.peerDisplayName || "Conversation";
+  const peerPhotoUrl = displayThread.peerPhotoUrl || selectedInboxItem?.peerPhotoUrl || null;
   const peerProfileHref = thread.peerPersonRef
     ? buildPersonProfileRoute(thread.peerPersonRef, { from: ROUTES.ONE_MESSAGES })
     : null;
   const normalizedMessageSearch = messageSearchQuery.trim().toLocaleLowerCase();
   const admittedMessages = isCurrentRead ? messages : [];
+  const displayMessages = isCurrentRead || hasPresentation ? messages : [];
   const visibleMessages = normalizedMessageSearch
-    ? admittedMessages.filter((message) =>
+    ? displayMessages.filter((message) =>
         [walletMessagePreview(message.content), message.replyTo ? walletMessagePreview(message.replyTo.content) : null]
           .filter(Boolean)
           .join(" ")
           .toLocaleLowerCase()
           .includes(normalizedMessageSearch),
       )
-    : admittedMessages;
+    : displayMessages;
   const messageSearchSummary = normalizedMessageSearch
     ? `${visibleMessages.length} ${visibleMessages.length === 1 ? "match" : "matches"}`
     : "";
@@ -1264,10 +1286,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     authState: authLoading ? "pending" : user ? "authenticated" : "anonymous",
     dataState: authLoading ? "loading" : !user ? "unavailable-valid"
       : !hasRouteSelection ? !isCurrentInbox ? "loading" : inboxError ? "error" : loadingInbox ? "loading" : inboxItems.length ? "loaded" : "empty-valid"
-      : !isCurrentRead || loadingThread ? "loading"
-      : threadError ? "error" : admittedMessages.length ? "loaded" : "empty-valid",
+      : threadError ? "error" : !isCurrentRead || loadingThread ? "loading"
+      : admittedMessages.length ? "loaded" : "empty-valid",
     errorCode: !hasRouteSelection && isCurrentInbox && inboxError ? "direct_messages_read"
-      : isCurrentRead && threadError ? "direct_messages_read" : null,
+      : threadError ? "direct_messages_read" : null,
   } as const;
   const normalizedInboxSearch = inboxSearch.trim().toLocaleLowerCase();
   const visibleConversations = normalizedInboxSearch
@@ -1856,14 +1878,14 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     <span className={styles.peerProfileLink}>
                     <ConnectionPersonAvatar
                       label={selectedLabel}
-                      photoUrl={thread.peerPhotoUrl}
+                      photoUrl={peerPhotoUrl}
                       size="list"
                       className={styles.threadAvatar}
                     />
                     </span>
                     <div className={styles.threadTitle}>
                       <h2 title={selectedLabel}>{selectedLabel}</h2>
-                      <p className={styles.threadStatus}>{pendingSelection ? "Connecting…" : thread.canSend ? "Connected" : "Messaging unavailable"}</p>
+                      <p className={styles.threadStatus}>{isCurrentRead ? thread.canSend ? "Connected" : "Messaging unavailable" : "\u00a0"}</p>
                     </div>
                   </PeerProfileLink>
                   <div className={styles.threadHeaderActions}>
@@ -1932,6 +1954,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 ref={messageListRef}
                 data-testid="direct-message-list"
                 role="log"
+                aria-busy={pendingSelection}
                 aria-live={atBottom && foreground() ? "polite" : "off"}
                 onScroll={(event) => {
                   const node = event.currentTarget;
@@ -1948,10 +1971,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 }}
                 aria-label={`${selectedLabel} message feed`}
               >
-                {pendingSelection ? (
-                  <p className={styles.loading}>Loading messages…</p>
-                ) : null}
-                {threadError && messages.length === 0 && !thread.disconnectedNotice ? (
+                {threadError && !thread.disconnectedNotice ? (
                   <div className={styles.threadError} role="alert">
                     <p>{threadError}</p>
                     <Button
@@ -2059,7 +2079,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                           <PeerProfileLink href={peerProfileHref} label={selectedLabel} className={styles.messageProfileLink}>
                           <ConnectionPersonAvatar
                             label={selectedLabel}
-                            photoUrl={thread.peerPhotoUrl}
+                            photoUrl={peerPhotoUrl}
                             size="list"
                             className={styles.messagePeerAvatar}
                           />
@@ -2095,7 +2115,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                       </button>
                                     ) : null}
                                     {cardRequestReference(message.content) ? <Link className="underline underline-offset-4" href={walletCardRequestHref(cardRequestReference(message.content)!)}>View card request</Link> : cardAccessReference(message.content) ? <WalletCardAccessMessage key={`${message.id}:${activeConversationId}`} grantId={cardAccessReference(message.content)!} senderIsViewer={message.senderIsViewer} /> : isWalletCardShare(message.content) ? <WalletSharedCardMessage key={`${message.id}:${activeConversationId}`} content={message.content} peerPersonRef={thread.peerPersonRef} senderIsViewer={message.senderIsViewer} /> : message.content ? <p className="whitespace-pre-wrap break-words">{message.content}</p> : null}
-                                    <MessageAttachment message={message} visitRevision={presentationEpoch} isCurrentVisit={() => operationGeneration.current === presentationEpoch && readAdmission.current.admitted && readAdmission.current.ownerId === user?.uid} getIdToken={() => {
+                                    <MessageAttachment message={message} admitted={isCurrentRead} visitRevision={presentationEpoch} isCurrentVisit={() => operationGeneration.current === presentationEpoch && readAdmission.current.admitted && readAdmission.current.ownerId === user?.uid} getIdToken={() => {
                                       if (!user) throw new Error("Sign in to open this attachment.");
                                       return user.getIdToken();
                                     }} onPhotoLoad={() => {
@@ -2284,7 +2304,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     <input ref={documentInputRef} hidden type="file"
                       accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,.pdf,.docx,.txt"
                       onChange={(event) => { chooseAttachment(event.target.files?.[0]); event.target.value = ""; }} />
-                    {hasRouteSelection && !thread.canSend && messages.length > 0 ? (
+                    {hasRouteSelection && isCurrentRead && !thread.canSend && messages.length > 0 ? (
                       <div className={styles.readOnlyNotice} role="status">
                         {thread.disconnectedNotice || "You are no longer connected."}
                       </div>
@@ -2421,7 +2441,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 <DialogContent className={styles.contactInfoDialog}>
                   <DialogHeader><DialogTitle>Contact info</DialogTitle></DialogHeader>
                   <PeerProfileLink href={peerProfileHref} label={selectedLabel} className={styles.contactProfileLink}>
-                  <ConnectionPersonAvatar label={selectedLabel} photoUrl={thread.peerPhotoUrl} size="list" className={styles.contactInfoAvatar} />
+                  <ConnectionPersonAvatar label={selectedLabel} photoUrl={peerPhotoUrl} size="list" className={styles.contactInfoAvatar} />
                   </PeerProfileLink>
                   <h3>{selectedLabel}</h3>
                   <DialogDescription>{thread.canSend ? "Connected" : thread.disconnectedNotice || "Messaging unavailable"}</DialogDescription>

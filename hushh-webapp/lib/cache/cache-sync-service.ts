@@ -771,6 +771,7 @@ export class CacheSyncService {
    * letting each request UI guess which RIA/Market resources it owns.
    */
   static onConnectionCapabilityMutated(userId: string): void {
+    this.onDirectMessagesMutated(userId);
     this.onConsentMutated(userId);
     // Accepting or declining a request also settles the incoming-request list,
     // which is a connections cache rather than a consent one and so survives
@@ -963,6 +964,13 @@ export class CacheSyncService {
       advanceMailKycDisplayVersion(userId);
       CacheService.getInstance().invalidatePattern(`mail_kyc_display_${userId}_`);
     }
+  }
+
+  /** Message events invalidate inactive snapshots; the active view reconciles in place. */
+  static onDirectMessagesMutated(userId: string): void {
+    CacheService.getInstance().invalidateMany([
+      CACHE_KEYS.DIRECT_MESSAGE_THREADS(userId), CACHE_KEYS.DIRECT_MESSAGE_SESSION(userId),
+    ]);
   }
 
   static onAuthSignedOut(userId?: string | null): void {

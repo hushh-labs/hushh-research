@@ -1134,6 +1134,25 @@ test("refresh reconciles remote edits and deletions throughout loaded history", 
 });
 
 
+for (const width of [390, 1440]) test(`visited conversations stay readable during revalidation at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  const errors = await mount(page);
+  await page.getByRole("button", { name: "Back to messages" }).click();
+  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await expect(page.getByRole("textbox", { name: /Message Arjun Mehta/ })).toBeEnabled();
+  await page.getByRole("button", { name: "Back to messages" }).click();
+  await fixture(page, "fixture.holdHistory()");
+  await page.getByRole("button", { name: /Maya Rao/ }).click();
+  await expect(page.locator('[data-chat-message="maya-79"]')).toBeVisible();
+  await expect(page.getByText("Loading messages…", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Connecting…", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Message Maya Rao" })).toBeDisabled();
+  await page.screenshot({ path: test.info().outputPath(`messages-warm-${width}.png`), animations: "disabled" });
+  await fixture(page, "fixture.releaseHistory()");
+  await expect(page.getByRole("textbox", { name: "Message Maya Rao" })).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+
 test("cold route resolution completes an already pending inbox request", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page, false, true);
   await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toHaveCount(0);

@@ -14,6 +14,8 @@ import { DirectMessageVoiceRecorder } from "@/components/direct-messages/direct-
 import { DirectMessageVoicePlayer } from "@/components/direct-messages/direct-message-voice-player";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { CacheService } from "@/lib/services/cache-service";
+import { DirectMessagesServiceRequestError } from "@/lib/services/direct-messages-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 const mocks = vi.hoisted(() => {
@@ -227,6 +229,7 @@ function DirectMessagesPage() {
 
 describe("DirectMessagesPage", () => {
   beforeEach(() => {
+    CacheService.getInstance().clear();
     for (const item of toast.getToasts()) toast.dismiss(item.id);
     mocks.user = { uid: "viewer-1", getIdToken: vi.fn().mockResolvedValue("test-token") };
     mocks.search = "person=person-1";
@@ -459,7 +462,9 @@ describe("DirectMessagesPage", () => {
     renderConnectionThread();
     expect(screen.queryByText(/Start the conversation with/)).not.toBeInTheDocument();
     expect(screen.queryByText("Messaging unavailable")).not.toBeInTheDocument();
-    expect(screen.getByText("Loading messages…")).toBeInTheDocument();
+    expect(screen.queryByText("Loading messages…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connecting…")).not.toBeInTheDocument();
+    expect(screen.getByTestId("direct-message-list")).toHaveAttribute("aria-busy", "true");
     expect(screen.queryByRole("link", { name: /View .*profile/ })).not.toBeInTheDocument();
   });
 
@@ -529,6 +534,128 @@ describe("DirectMessagesPage", () => {
     expect(mocks.getConversationWithPerson).toHaveBeenCalledWith({ idToken: "test-token", personRef: "person-1" });
     expect(mocks.getConversationMessages).toHaveBeenCalledWith({ idToken: "test-token", conversationId: "conversation-1", limit: 60 });
     expect(screen.queryByText(/Start the conversation with/)).not.toBeInTheDocument();
+  });
+
+  it("restores a visited thread immediately while checking permission again", async () => {
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [visibleMessage],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    const view = renderConnectionThread();
+    await screen.findByText(visibleMessage.content);
+    mocks.search = "conversation=another-thread";
+    mocks.getConversationMessages.mockImplementation(() => new Promise(() => {}));
+    view.rerender(<ConnectionThread />);
+    expect(screen.queryByText(visibleMessage.content)).not.toBeInTheDocument();
+    mocks.search = "person=person-1";
+    mocks.getConversationWithPerson.mockImplementation(() => new Promise(() => {}));
+    view.rerender(<ConnectionThread />);
+    expect(screen.getByText(visibleMessage.content)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toBeDisabled();
+    expect(screen.queryByText("Loading messages…")).not.toBeInTheDocument();
+    expect(screen.queryByText("You are no longer connected.")).not.toBeInTheDocument();
+  });
+
+  it("primes the selected person's header from the inbox before history arrives", async () => {
+    mocks.getConversationWithPerson.mockImplementation(() => new Promise(() => {}));
+    renderConnectionThread();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toBeDisabled());
+    expect(screen.queryByText("Loading messages…")).not.toBeInTheDocument();
+  });
+
+  it("keeps a cached transcript on transport failure and offers retry", async () => {
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [visibleMessage],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    const view = renderConnectionThread();
+    await screen.findByText(visibleMessage.content);
+    view.unmount();
+    mocks.getConversationWithPerson.mockRejectedValue(new TypeError("Offline"));
+    renderConnectionThread();
+    expect(screen.getByText(visibleMessage.content)).toBeInTheDocument();
+    await screen.findByRole("button", { name: "Try again" });
+    expect(screen.getByText(visibleMessage.content)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toBeDisabled();
+  });
+
+  it.each([401, 403, 404])("clears cached history after an authoritative %s response", async (status) => {
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [visibleMessage],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    const view = renderConnectionThread();
+    await screen.findByText(visibleMessage.content);
+    view.unmount();
+    mocks.getConversationWithPerson.mockRejectedValue(new DirectMessagesServiceRequestError(status, "Unavailable"));
+    renderConnectionThread();
+    await screen.findByText("This conversation is not available right now.");
+    expect(screen.queryByText(visibleMessage.content)).not.toBeInTheDocument();
+  });
+
+  it("does not restore a denied transcript from an earlier pagination response", async () => {
+    const history = { conversation: mocks.conversation, items: [visibleMessage],
+      canSend: true, disconnectedNotice: null, nextBefore: "older-cursor" };
+    let finishOlder!: (value: unknown) => void;
+    mocks.getConversationMessages.mockResolvedValueOnce(history)
+      .mockReturnValueOnce(new Promise(resolve => { finishOlder = resolve; }))
+      .mockRejectedValueOnce(new DirectMessagesServiceRequestError(403, "Unavailable"));
+    renderConnectionThread();
+    fireEvent.click(await screen.findByRole("button", { name: "Load older messages" }));
+    await waitFor(() => expect(mocks.getConversationMessages).toHaveBeenCalledTimes(2));
+    fireEvent(window, new Event("focus"));
+    await screen.findByText("This conversation is not available right now.");
+    await act(async () => finishOlder(history));
+    expect(screen.queryByText(visibleMessage.content)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load older messages" })).not.toBeInTheDocument();
+  });
+
+  it("never restores another account's cached transcript", async () => {
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [visibleMessage],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    const view = renderConnectionThread();
+    await screen.findByText(visibleMessage.content);
+    mocks.user.uid = "viewer-2";
+    mocks.getConversationWithPerson.mockImplementation(() => new Promise(() => {}));
+    view.rerender(<ConnectionThread />);
+    expect(screen.queryByText(visibleMessage.content)).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Message Ankit Kumar Singh" })).not.toBeInTheDocument();
+  });
+
+  it("does not cache an optimistic reaction when navigation interrupts its rollback", async () => {
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [{ ...visibleMessage, reactions: [] }],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    let reject!: (error: Error) => void;
+    mocks.reactToMessage.mockImplementation(() => new Promise((_, failure) => { reject = failure; }));
+    const view = renderConnectionThread();
+    fireEvent.click(await screen.findByText(visibleMessage.content));
+    fireEvent.click(screen.getByRole("button", { name: "React to message" }));
+    fireEvent.change(await screen.findByPlaceholderText("Search emoji"), { target: { value: "heart" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use ❤️" }));
+    await waitFor(() => expect(mocks.reactToMessage).toHaveBeenCalled());
+    mocks.search = "conversation=another-thread";
+    mocks.getConversationMessages.mockImplementation(() => new Promise(() => {}));
+    view.rerender(<ConnectionThread />);
+    await act(async () => reject(new Error("Offline")));
+    mocks.search = "person=person-1";
+    mocks.getConversationWithPerson.mockImplementation(() => new Promise(() => {}));
+    view.rerender(<ConnectionThread />);
+    expect(screen.getByText(visibleMessage.content)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "❤️ reaction, 1" })).not.toBeInTheDocument();
+  });
+
+  it("starts cached photo loading only after fresh read admission succeeds", async () => {
+    arrangePhoto();
+    const view = renderConnectionThread();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toBeEnabled());
+    const history = await mocks.getConversationMessages.mock.results[0]!.value;
+    view.unmount();
+    const photo = arrangePhoto();
+    let finish!: (value: unknown) => void;
+    mocks.getConversationMessages.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
+    renderConnectionThread();
+    await screen.findByRole("button", { name: "Load photo" });
+    photo.enterViewport();
+    expect(mocks.getAttachment).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.getConversationMessages).toHaveBeenCalledTimes(2));
+    await act(async () => finish(history));
+    expect(await screen.findByRole("img", { name: "Photo" })).toBeVisible();
+    expect(mocks.getAttachment).toHaveBeenCalledOnce();
   });
 
   it("downloads an inline photo only near the viewport and releases its preview on unmount", async () => {

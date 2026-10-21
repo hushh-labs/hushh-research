@@ -3048,15 +3048,19 @@
       "route_contract_mode": "standard",
       "screen_class": "realtime/SSE",
       "cache_policy": "memory-only+sse-background",
-      "cache_keys": [],
+      "cache_keys": [
+        "DIRECT_MESSAGE_THREADS",
+        "DIRECT_MESSAGE_ROUTES",
+        "DIRECT_MESSAGE_SESSION"
+      ],
       "resource_classes": [
         "realtime_stream"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.SHORT with active stream patching",
-      "warm_source": "Route-local resource loader",
+      "ttl_class": "5 minutes per memory snapshot; always revalidate message access on entry",
+      "warm_source": "DirectMessagesResourceService owner-scoped memory snapshots",
       "refresh_trigger": "SSE stream patch plus stale-aware background refresh",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "CacheSyncService message-change, connection and user/session invalidation",
       "best_available_ux_path": [
         "fresh memory",
         "background refresh",
@@ -3078,16 +3082,14 @@
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": true,
-        "resource_wrapper": false,
+        "resource_wrapper": true,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
         "sse_or_streaming": true,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/pkm",
@@ -6925,5 +6927,5 @@
       ]
     }
   ],
-  "content_sha256": "37ec8790e5715fe8ecb86947b9d425c71339d595d4881ee50a8f17981b1672a5"
+  "content_sha256": "ea4c933a5528f428cd8e03dec7daab5037f120ebce8a8e5e31341e92469e29f8"
 }
