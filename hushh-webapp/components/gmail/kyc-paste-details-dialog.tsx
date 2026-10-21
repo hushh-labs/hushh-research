@@ -8,7 +8,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/lib/morphy-ux/button";
+import mailStyles from "./mail-workspace.module.css";
+import { MailActionButton as Button } from "./mail-action-button";
 import { cn } from "@/lib/utils";
 
 /**
@@ -48,7 +49,7 @@ export function KycPasteDetailsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         srDescription="Paste your profile details so One can prepare future KYC replies."
-        className="gap-0 p-6 text-center sm:max-w-xl sm:p-8"
+        className={`${mailStyles.typography} ${mailStyles.portal} gap-0 p-6 text-center sm:max-w-xl sm:p-8`}
       >
         <DialogTitle className="px-8 text-2xl font-bold leading-tight tracking-tight text-foreground">
           Paste your profile details
@@ -88,9 +89,10 @@ export function KycPasteDetailsDialog({
             size="prominent"
             onClick={onSave}
             disabled={saving || !details.trim()}
+            aria-busy={saving}
             className="w-full justify-center"
           >
-            {saving ? "Saving…" : "Save profile"}
+            Save profile
           </Button>
           <button
             type="button"
