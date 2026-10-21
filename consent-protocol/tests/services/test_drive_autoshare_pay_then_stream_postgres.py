@@ -1317,7 +1317,8 @@ async def test_final_existing_files_are_published_free_without_pay_and_repeat_sa
         "recipient",
         [{"event_type": "document_share_outcome", "metadata": {"request_id": flow.request_id}}],
     )
-    assert projected[0]["metadata"]["current_existing_access_nocharge"] is True
+    item = feed._to_item({"id": 1, **projected[0]}, "recipient")
+    assert item["metadata"]["current_existing_access_nocharge"] is True
 
 
 @pytest.mark.asyncio

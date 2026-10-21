@@ -5,7 +5,8 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import { consentReadNeedsRevalidation } from "@/lib/cache/consent-read-after-write";
+import { consentReadNeedsRevalidation, currentConsentInvalidationEpoch } from "@/lib/cache/consent-read-after-write";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import { normalizeConsentResponse } from "@/src/lib/consent/normalizeConsent";
 
@@ -536,6 +537,10 @@ export class ConsentCenterService {
     const deviceResourceKey = `consent_center_summary:${cacheActor}:${mode}`;
     const cache = CacheService.getInstance();
     const revalidate = consentReadNeedsRevalidation(options.userId);
+    const generation = getAuthSessionGeneration();
+    const version = currentConsentInvalidationEpoch(options.userId);
+    const isCurrent = () => generation === getAuthSessionGeneration()
+      && version === currentConsentInvalidationEpoch(options.userId);
 
     if (!options.force) {
       const cached = cache.get<ConsentCenterPageSummary>(cacheKey);
@@ -549,6 +554,7 @@ export class ConsentCenterService {
         `/api/consent/center/summary?${query.toString()}`,
         {
           method: "GET",
+          isEffectCurrent: () => generation === getAuthSessionGeneration(),
           headers: {
             Authorization: `Bearer ${options.idToken}`,
             ...(revalidate ? { "Cache-Control": "no-cache" } : {}),
@@ -565,13 +571,15 @@ export class ConsentCenterService {
             `Request failed: ${response.status}`,
         );
       }
-      cache.set(cacheKey, payload, CACHE_TTL.MEDIUM);
-      void DeviceResourceCacheService.write({
-        userId: options.userId,
-        resourceKey: deviceResourceKey,
-        value: payload,
-        ttlMs: CACHE_TTL.SESSION,
-      }).catch(() => undefined);
+      if (isCurrent()) {
+        cache.set(cacheKey, payload, CACHE_TTL.MEDIUM);
+        void DeviceResourceCacheService.write({
+          userId: options.userId,
+          resourceKey: deviceResourceKey,
+          value: payload,
+          ttlMs: CACHE_TTL.SESSION,
+        }).catch(() => undefined);
+      }
       return payload;
     };
 
@@ -586,9 +594,9 @@ export class ConsentCenterService {
           userId: options.userId,
           resourceKey: deviceResourceKey,
         });
-      if (stored) {
+      if (stored && isCurrent()) {
         cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
-        void this.refreshSummaryInBackground(cacheKey, fetchFresh);
+        void this.refreshSummaryInBackground(JSON.stringify([cacheKey, generation, version]), fetchFresh);
         return stored;
       }
     }
@@ -681,6 +689,8 @@ export class ConsentCenterService {
       const cached = cache.get<ConsentCenterPageListResponse>(cacheKey);
       if (cached) return cached;
     }
+    const generation = getAuthSessionGeneration();
+    const version = currentConsentInvalidationEpoch(options.userId);
     const query = new URLSearchParams({
       mode,
       surface: options.surface,
@@ -699,6 +709,7 @@ export class ConsentCenterService {
       `/api/consent/center/list?${query.toString()}`,
       {
         method: "GET",
+        isEffectCurrent: () => generation === getAuthSessionGeneration(),
         headers: {
           Authorization: `Bearer ${options.idToken}`,
           ...(consentReadNeedsRevalidation(options.userId)
@@ -716,7 +727,10 @@ export class ConsentCenterService {
       );
     }
     payload.items = normalizeConsentEntries(payload.items);
-    if (!options.sourceRead) cache.set(cacheKey, payload, CACHE_TTL.MEDIUM);
+    if (!options.sourceRead && generation === getAuthSessionGeneration()
+      && version === currentConsentInvalidationEpoch(options.userId)) {
+      cache.set(cacheKey, payload, CACHE_TTL.MEDIUM);
+    }
     return payload;
   }
 

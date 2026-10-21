@@ -635,8 +635,6 @@ class FeedService:
             }
             projection: dict[str, Any] = {}
             metadata.pop("current_existing_access_nocharge", None)
-            if current.get("current_existing_access_nocharge") is True:
-                projection["current_existing_access_nocharge"] = True
             if (
                 row.get("event_type") == "document_share_outcome"
                 and current.get("current_request_status") == "partial"
@@ -701,7 +699,16 @@ class FeedService:
                 "document_share_payment_confirmed",
             }:
                 projection.update(self._requester_payment_projection(row["event_type"], current))
-            result.append({**row, "metadata": {**metadata, **projection}})
+            result.append(
+                {
+                    **row,
+                    "metadata": {**metadata, **projection},
+                    "_drive_existing_access_nocharge": current.get(
+                        "current_existing_access_nocharge"
+                    )
+                    is True,
+                }
+            )
         return result
 
     @staticmethod
@@ -1546,6 +1553,9 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
     @staticmethod
     def _to_item(row: dict[str, Any], viewer_user_id: str | None = None) -> dict[str, Any]:
         metadata = _safe_feed_metadata(row.get("metadata"))
+        # A participant-scoped live receipt, never a persisted metadata claim.
+        if row.get("_drive_existing_access_nocharge") is True:
+            metadata["current_existing_access_nocharge"] = True
         metadata.pop("wallet_card_grant_id", None)
         metadata.pop("wallet_card_request_id", None)
         metadata.pop("wallet_card_request_status", None)

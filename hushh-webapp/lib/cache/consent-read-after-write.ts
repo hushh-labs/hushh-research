@@ -15,7 +15,12 @@
 
 export const CONSENT_READ_AFTER_WRITE_WINDOW_MS = 60_000;
 
-const lastConsentMutationAt = new Map<string, number>();
+const consentMutations = new Map<string, { at: number; version: number }>();
+
+/** Monotonic publication fence; two changes in the same millisecond differ. */
+export function currentConsentInvalidationEpoch(userId?: string | null): number {
+  return consentMutations.get(String(userId || "").trim())?.version ?? 0;
+}
 
 export function noteConsentMutated(
   userId: string,
@@ -23,7 +28,10 @@ export function noteConsentMutated(
 ): void {
   const normalized = String(userId || "").trim();
   if (!normalized) return;
-  lastConsentMutationAt.set(normalized, nowMs);
+  consentMutations.set(normalized, {
+    at: nowMs,
+    version: currentConsentInvalidationEpoch(normalized) + 1,
+  });
 }
 
 export function consentReadNeedsRevalidation(
@@ -32,6 +40,6 @@ export function consentReadNeedsRevalidation(
 ): boolean {
   const normalized = String(userId || "").trim();
   if (!normalized) return false;
-  const at = lastConsentMutationAt.get(normalized);
+  const at = consentMutations.get(normalized)?.at;
   return at !== undefined && nowMs - at < CONSENT_READ_AFTER_WRITE_WINDOW_MS;
 }

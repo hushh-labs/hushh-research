@@ -65,6 +65,7 @@ omitted; section counts are current account state, not product limits.
 | Showing saved activity… · Retry | Retains saved rows after failed refresh; does not replace them with a cold error page. |
 | No activity yet | Valid only when all rendered content families and errors are absent. No second explanatory sentence is mounted in the current empty state. |
 | History day labels | Today, Yesterday, or local weekday/month/day; newest timestamp first. |
+| Existing Drive access completes without charge | Confirmed checkout completion invalidates consent and Feed before refreshing. An earlier pending read cannot restore Pay. History describes the server's current participant-scoped no-charge receipt; stored metadata cannot assert it. |
 | Load more / Loading… / Retry | Twenty-row history paging. Older-page failure retains existing rows and says Couldn't load more. Try again. |
 
 The session is keyed by account. Switching account retires read/clear

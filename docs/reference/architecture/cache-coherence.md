@@ -469,6 +469,13 @@ coalesces into one forced successor; publication waits for the current version.
 Same-version slow backend results are accepted. Token acquisition and final
 transport dispatch are session-fenced; a post-sign-out result cannot refill cache.
 Consent mutations now invalidate Feed as well as their existing projections.
+The existing consent read-after-write owner also increments a monotonic epoch,
+including multiple changes in one millisecond. Feed's five consent resources
+use that epoch with an auth-scoped request lifetime. Summary/list services keep
+returning complete responses but publish to memory/device caches only while
+their captured epoch and auth generation remain current. A confirmed no-charge
+Drive completion records the consent mutation before notifying/refetching Feed,
+so a pre-completion Pay projection cannot win an in-flight read.
 
 Feed return-position memory is separate from canonical list/count data and never
 authorizes actions. Confirmed history mutations invalidate its revision so later

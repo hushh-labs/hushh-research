@@ -2920,6 +2920,12 @@ delivery does not establish exhaustive search coverage or authorize unverified
 candidates. The proxy and native HTTP transport pass these additive fields;
 older servers safely omit them.
 
+Current no-charge Drive completion adds the boolean
+`current_existing_access_nocharge` from participant-scoped live receipts. It is
+injected after final metadata sanitation; persisted Feed metadata cannot assert
+it. The field lets history describe already-accessible files without reviving a
+payment instruction, and carries no file/provider details.
+
 
 ### SSE (Server-Sent Events)
 
