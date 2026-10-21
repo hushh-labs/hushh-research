@@ -138,6 +138,13 @@ async def reconcile(
                 stopped = True
         if status != "complete" and not stopped:
             return
+        if stopped and row["state"] == "erasing":
+            # The exact session can no longer deliver bytes. Erasure owns the
+            # remaining prefix inventory, including a different object revision.
+            # Never release a nonterminal write or bypass bucket incarnation.
+            bucket_admission.verify(row, await bucket_admission.observe(store, row["bucket"]))
+            await write_receipts.transition(row, operation, claimed, None, mode="recovery")
+            return
         data, version = await store.get_bounded_with_generation(
             claimed["path"],
             max_bytes=MAX_CIPHERTEXT_BYTES,

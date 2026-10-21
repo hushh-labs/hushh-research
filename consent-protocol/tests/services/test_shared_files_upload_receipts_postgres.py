@@ -186,7 +186,18 @@ async def test_completed_upload_settles_before_post_send_authority_check(
     assert await shared_storage.fetchval("SELECT 1 FROM vault_keys WHERE user_id='alice'") == 1
 
 
-@pytest.mark.parametrize("cancellation", ["unconfirmed", "confirmed", "changed_bucket"])
+@pytest.mark.parametrize(
+    "cancellation",
+    [
+        "unconfirmed",
+        "confirmed",
+        "changed_bucket",
+        "erasing_confirmed",
+        "erasing_invalidated",
+        "erasing_unconfirmed",
+        "erasing_changed_bucket",
+    ],
+)
 async def test_uncertain_create_only_session_requires_terminal_cancellation_and_bucket_identity(
     shared_storage, monkeypatch, cancellation
 ):
@@ -198,28 +209,38 @@ async def test_uncertain_create_only_session_requires_terminal_cancellation_and_
     row, epoch, lease, operation, reserved = await _reserve_receipt()
     uncertain = {**reserved, "state": "uncertain", "session": {"opaque": "encrypted-fixture"}}
     assert await write_receipts.transition(row, operation, reserved, uncertain, mode="recovery")
+    erasing = cancellation.startswith("erasing_")
+    outcome = cancellation.removeprefix("erasing_")
+    if erasing:
+        with pytest.raises(FilesRefused, match="FILES_ERASURE_WAITING_FOR_WRITES"):
+            await registry.fence("alice")
+        row = await registry.resource("alice")
     monkeypatch.setattr(write_receipts, "restore", lambda *_: "synthetic")
     monkeypatch.setattr(
         bucket_admission,
         "observe",
         AsyncMock(
-            return_value={**BUCKET, "generation": "2"}
-            if cancellation == "changed_bucket"
-            else BUCKET
+            return_value={**BUCKET, "generation": "2"} if outcome == "changed_bucket" else BUCKET
         ),
     )
     store = SimpleNamespace(
-        status=AsyncMock(return_value="uncertain"),
-        cancel=AsyncMock(return_value=cancellation != "unconfirmed"),
-        get_bounded_with_generation=AsyncMock(return_value=(b"K" * 28, "2")),
+        status=AsyncMock(return_value="invalidated" if outcome == "invalidated" else "uncertain"),
+        cancel=AsyncMock(return_value=outcome != "unconfirmed"),
+        get_bounded_with_generation=AsyncMock(
+            return_value=(b"Z" * 28 if erasing else b"K" * 28, "2")
+        ),
     )
-    if cancellation == "changed_bucket":
+    if outcome == "changed_bucket":
         with pytest.raises(FilesRefused, match="FILES_STORAGE_IDENTITY_CHANGED"):
             await writes.reconcile(store, row, operation, uncertain)
     else:
         await writes.reconcile(store, row, operation, uncertain)
-    store.cancel.assert_awaited_once_with("synthetic", uncertain["path"])
-    if cancellation == "confirmed":
+    if outcome == "invalidated":
+        store.cancel.assert_not_awaited()
+    else:
+        store.cancel.assert_awaited_once_with("synthetic", uncertain["path"])
+    confirmed = outcome in {"confirmed", "invalidated"}
+    if confirmed:
         assert (await registry.fence("alice"))["state"] == "erasing"
     else:
         with pytest.raises(FilesRefused, match="FILES_ERASURE_WAITING_FOR_WRITES"):
@@ -227,9 +248,7 @@ async def test_uncertain_create_only_session_requires_terminal_cancellation_and_
     retained = await registry.resource("alice")
     pending = retained["writes"]
     assert retained["state"] == "erasing"
-    assert bool(json.loads(pending) if isinstance(pending, str) else pending) == (
-        cancellation != "confirmed"
-    )
+    assert bool(json.loads(pending) if isinstance(pending, str) else pending) == (not confirmed)
     assert await shared_storage.fetchval("SELECT 1 FROM vault_keys WHERE user_id='alice'") == 1
-    if cancellation == "unconfirmed":
+    if outcome == "unconfirmed" or erasing:
         store.get_bounded_with_generation.assert_not_awaited()

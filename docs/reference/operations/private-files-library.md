@@ -97,8 +97,12 @@ terminal receipt and observed absence, unchanged predecessor, or exact completed
 An inconclusive status may be followed by an exact-session cancellation attempt;
 a positive JSON HTTP 499 cancellation receipt or HTTP 410 invalidation from the
 validated original session must be saved before further object/bucket verification.
-Recovery reuses that durable proof after a failed check; it still requires exact
-object bytes or the unchanged predecessor and the recorded bucket incarnation.
+Recovery reuses that durable proof after a failed check. Active libraries still
+require exact object bytes or the unchanged predecessor and the recorded bucket
+incarnation. An erasing library may settle the exact cancelled/invalidated receipt
+after verifying bucket identity, even if different ciphertext remains; the normal
+owner/library-prefix erasure inventory must then reconcile every retained version.
+Settling the write does not establish object absence or completed account deletion.
 Generic HTTP 404, HTTP 412 and lost cancellation replies remain fenced. A validated
 successful upload settles its exact permit before the final access check; that check
 still controls whether information may be returned. The terminal-proof correction
