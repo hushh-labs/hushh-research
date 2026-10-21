@@ -1,14 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ExternalLink, Loader2, Newspaper, RefreshCcw } from "@/components/icons";
+import { ExternalLink, Loader2, RefreshCcw } from "@/components/icons";
 
 import {
   AppPageContentRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
-import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
+import { SectionHeader } from "@/components/app-ui/page-sections";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
+import { OneMarketNewsCover } from "@/components/kai/cards/market-news-briefing";
+import marketStyles from "@/components/kai/shared/market-briefing.module.css";
 import { useAuth } from "@/hooks/use-auth";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { KaiMarketHomeResourceService } from "@/lib/kai/kai-market-home-resource";
@@ -105,72 +109,50 @@ function MarketNewsRow({ item }: { item: KaiHomeNewsItem }) {
   const href = validArticleUrl(item.url);
   const source = String(item.source_name || "Market news").trim() || "Market news";
   const linkedSymbols = extractNewsSymbols(item);
-  const primarySymbol = linkedSymbols[0] || null;
   const sentiment = String(item.sentiment_hint || "").toLowerCase();
 
   return (
-    <article className="border-b border-[color:var(--app-card-border-standard)] last:border-b-0">
+    <article className="min-w-0 border-b border-border/60 last:border-b-0">
       <button
         type="button"
         disabled={!href}
         onClick={() => href && openExternalUrl(href)}
         className={cn(
-          "group flex w-full items-start gap-3.5 px-4 py-4 text-left transition-colors sm:px-5",
+          "group/news flex min-h-[100px] w-full flex-col items-stretch py-5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
           href
             ? "hover:bg-muted/35 focus-visible:bg-muted/45 disabled:cursor-default"
             : "cursor-default",
         )}
       >
-        {primarySymbol ? (
-          <SymbolAvatar symbol={primarySymbol} size="md" className="mt-0.5 shrink-0" />
-        ) : (
-          <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-muted text-muted-foreground">
-            <Newspaper className="h-5 w-5" aria-hidden="true" />
+        <span className="flex min-w-0 items-start gap-4">
+          <span className="min-w-0 flex-1">
+            <span className={cn(marketStyles.newsTitle, "text-foreground transition-colors group-hover/news:text-[color:var(--app-accent)]")}>
+              {item.title}
+            </span>
+            <span className={marketStyles.newsMetadata}>
+              {source}<span aria-hidden="true"> · </span>{formatPublishedAt(item.published_at)}
+              {href ? <ExternalLink className="ml-1 inline-block h-3 w-3 align-baseline" aria-label="Opens publisher article" /> : null}
+            </span>
           </span>
-        )}
-        <span className="min-w-0 flex-1">
-          <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground/80">{source}</span>
-            <span aria-hidden="true">•</span>
-            <span>{formatPublishedAt(item.published_at)}</span>
-            {sentiment.includes("positive") ? (
-              <span className="ml-1 inline-flex items-center rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                Positive
-              </span>
-            ) : sentiment.includes("negative") ? (
-              <span className="ml-1 inline-flex items-center rounded-md bg-rose-500/10 px-1.5 py-0.5 text-[11px] font-medium text-rose-600 dark:text-rose-400">
-                Risk
-              </span>
-            ) : null}
+          <OneMarketNewsCover row={item} index={0} thumbnail className="mt-0.5 h-16 w-16 shrink-0 rounded-lg [&_img]:!h-full [&_img]:!w-full [&_img]:object-cover sm:h-20 sm:w-20" />
+        </span>
+        {item.summary ? (
+          <span className={cn(marketStyles.newsSummary, "mt-2 block break-words text-muted-foreground")}>
+            {item.summary}
           </span>
-          <span className="mt-1 block text-[15px] font-semibold leading-5 text-foreground sm:text-base">
-            {item.title}
-          </span>
-          {item.summary ? (
-            <span className="mt-1.5 line-clamp-2 block text-sm leading-5 text-muted-foreground">
-              {item.summary}
+        ) : null}
+        <span className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-[18px] text-muted-foreground">
+          <span className="font-medium">{linkedSymbols.length ? linkedSymbols.join(" · ") : "Market"}</span>
+          {sentiment.includes("positive") ? (
+            <span className="font-medium text-emerald-600 dark:text-emerald-400">
+              Positive
+            </span>
+          ) : sentiment.includes("negative") ? (
+            <span className="font-medium text-rose-600 dark:text-rose-400">
+              Risk
             </span>
           ) : null}
-          {linkedSymbols.length > 0 ? (
-            <span className="mt-2.5 flex flex-wrap items-center gap-1.5">
-              {linkedSymbols.map((sym) => (
-                <span
-                  key={sym}
-                  className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-mono font-semibold text-foreground/80"
-                >
-                  {sym}
-                </span>
-              ))}
-            </span>
-          ) : (
-            <span className="mt-2.5 inline-flex items-center rounded-md bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-              Market
-            </span>
-          )}
         </span>
-        {href ? (
-          <ExternalLink className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
-        ) : null}
       </button>
     </article>
   );
@@ -277,7 +259,9 @@ export function KaiMarketNewsPage() {
   return (
     <AppPageShell
       width="reading"
-      className="pb-32"
+      fitContent
+      headerContentSpacing="compact"
+      className={marketStyles.typography}
       nativeTest={{
         routeId: ROUTES.KAI_NEWS,
         marker: "native-route-kai-news",
@@ -288,73 +272,67 @@ export function KaiMarketNewsPage() {
       <KaiWorkspaceHeader
         workspace="market"
         title="Market news"
+        actionsInlineMobile
         description={
           mode === "personalized"
-            ? "Latest reporting around the holdings currently available in your private workspace."
-            : "A current market briefing. Unlock your vault to tailor this to your holdings."
+            ? "News for your holdings."
+            : "Latest market headlines."
         }
         actions={
-          <Button
+          <ShellActionSurface
             type="button"
-            variant="none"
-            effect="fade"
-            size="sm"
-            loading={firstPageResource.refreshing}
+            aria-label="Refresh market news"
+            disabled={firstPageResource.refreshing}
+            className="h-11 w-11"
             onClick={() => void firstPageResource.refresh({ force: true })}
-            icon={{ icon: RefreshCcw }}
           >
-            Refresh
-          </Button>
+            {firstPageResource.refreshing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCcw className="h-4 w-4" aria-hidden="true" />}
+          </ShellActionSurface>
         }
       />
 
       <AppPageContentRegion>
         <section
           aria-labelledby="market-news-list-title"
-          className="overflow-hidden rounded-[var(--app-radius-xl)] border border-[color:var(--app-card-border-standard)] bg-card shadow-[var(--app-card-shadow-soft)]"
+          className="min-w-0"
         >
-          <div className="flex items-center justify-between gap-3 border-b border-[color:var(--app-card-border-standard)] px-4 py-3 sm:px-5">
-            <div className="flex min-w-0 items-center gap-2">
-              <Newspaper className="h-4 w-4 shrink-0 text-[var(--app-accent)]" />
-              <h2 id="market-news-list-title" className="text-sm font-semibold text-foreground">
-                Headlines
-              </h2>
-            </div>
-            {firstPageResource.refreshing ? (
+          <SectionHeader title={<span id="market-news-list-title">Headlines</span>} className={marketStyles.sectionHeader} actions={firstPageResource.refreshing ? (
               <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating
               </span>
-            ) : null}
-          </div>
+            ) : undefined} />
+          <SurfaceCard>
+          <SurfaceCardContent className={marketStyles.cardBody}>
 
           {firstPageResource.loading && !rows.length ? (
-            <div className="space-y-3 px-4 py-5 sm:px-5" aria-label="Loading market news">
+            <div className="space-y-3 py-2" aria-label="Loading market news">
               {[0, 1, 2, 3].map((row) => (
                 <div key={row} className="h-16 animate-pulse rounded-xl bg-muted/60" />
               ))}
             </div>
           ) : rows.length ? (
-            <div>{rows.map((item) => <MarketNewsRow key={`${item.url}:${item.title}`} item={item} />)}</div>
+            <div className="min-w-0">{rows.map((item) => <MarketNewsRow key={`${item.url}:${item.title}`} item={item} />)}</div>
           ) : (
-            <div className="px-4 py-12 text-center sm:px-5">
+            <div className="py-8 text-center">
               <p className="text-sm font-medium text-foreground">No market headlines are available yet.</p>
               <p className="mt-1 text-sm text-muted-foreground">Try refreshing in a moment.</p>
             </div>
           )}
 
           {resyncMessage ? (
-            <p className="border-t border-[color:var(--app-card-border-standard)] px-4 py-3 text-sm text-muted-foreground sm:px-5">
+            <p className="border-t border-border/60 py-3 text-sm text-muted-foreground" role="status">
               {resyncMessage}
             </p>
           ) : null}
 
           {lastPage?.has_more ? (
-            <div className="flex justify-center border-t border-[color:var(--app-card-border-standard)] px-4 py-3 sm:px-5">
+            <div className="flex justify-center border-t border-border/60 pt-4">
               <Button
                 type="button"
                 variant="none"
                 effect="fade"
                 size="sm"
+                className="min-h-11"
                 loading={loadingMore}
                 onClick={() => void loadMore()}
               >
@@ -362,6 +340,8 @@ export function KaiMarketNewsPage() {
               </Button>
             </div>
           ) : null}
+          </SurfaceCardContent>
+          </SurfaceCard>
         </section>
 
         {firstPageResource.error && rows.length ? (

@@ -362,24 +362,24 @@ export function OneMarketIndexStrip({
 
 function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, OneMarketDisplayRow[]> }) {
   return (
-    <div className="space-y-3">
+    <div className="grid grid-cols-2 gap-4">
       {([{ key: "gain", title: "Gainers" }, { key: "lose", title: "Decliners" }] as const).map(({ key, title }) => (
-        <div key={key}>
+        <div key={key} className="min-w-0">
           <h3 className={marketBriefingStyles.groupLabel}>{title}</h3>
           {groups[key].length ? <div className="divide-y divide-border/50">
             {groups[key].slice(0, 3).map((row) => (
               <button key={row.symbol} type="button"
                 onClick={() => openOneMarketHref(buildKaiMarketRoute("analysis", { symbol: row.symbol }))}
-                className="flex min-h-12 w-full items-center gap-2.5 py-1 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-                <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" className="h-6 w-6 rounded-full [&_img]:h-4 [&_img]:w-4" />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold text-foreground">{row.symbol}</span>
-                  <span className="block text-xs leading-[18px] text-muted-foreground">{row.companyName}</span>
+                className="flex min-h-12 w-full flex-col items-stretch gap-1 py-2.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                <span className="flex min-w-0 items-baseline justify-between gap-2">
+                  <span className="min-w-0 break-words text-sm font-semibold text-foreground">{row.symbol}</span>
+                  <span className={cn("shrink-0 text-right text-sm font-semibold tabular-nums", key === "gain" ? "text-[color:var(--one-up)]" : "text-[color:var(--one-down)]")}>{formatOneMarketPercent(row.changePct)}</span>
                 </span>
-                <span className="shrink-0 text-right">
-                  <span className={cn("block text-sm font-semibold tabular-nums", key === "gain" ? "text-[color:var(--one-up)]" : "text-[color:var(--one-down)]")}>{formatOneMarketPercent(row.changePct)}</span>
-                  <span className="block text-xs text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{row.degraded ? "Cached" : formatMarketQuoteTime(row.asOf)}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                  <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" className="h-5 w-5 shrink-0 rounded-full [&_img]:h-4 [&_img]:w-4" />
+                  <span className="min-w-0 break-words text-xs leading-[18px] text-muted-foreground">{row.companyName}</span>
                 </span>
+                <span className="block text-xs text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{row.degraded ? "Cached" : formatMarketQuoteTime(row.asOf)}</span>
               </button>
             ))}
           </div> : <p className="py-4 text-sm text-muted-foreground">No {title.toLowerCase()} available.</p>}
@@ -840,7 +840,7 @@ export function KaiMarketPreviewView() {
       },
       {
         id: "market_movers",
-        title: "Leaders & laggards",
+        title: "Market movers",
         purpose: "Shows the available gainers and decliners with quote freshness.",
       },
       ...(showConnectPortfolio
@@ -1140,8 +1140,8 @@ export function KaiMarketPreviewView() {
                     </SurfaceCardContent></SurfaceCard>
                   </section>
                 ) : null}
-                <section className="min-w-0" aria-label="Market leaders and laggards">
-                  <OneMarketSectionHeader title="Leaders & laggards" />
+                <section className="min-w-0" aria-label="Market movers">
+                  <OneMarketSectionHeader title="Market movers" />
                   <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.moversBody}>
                   <OneMarketMovers groups={moverGroups} />
                   </SurfaceCardContent></SurfaceCard>

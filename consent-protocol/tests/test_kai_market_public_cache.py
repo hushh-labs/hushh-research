@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 
 import pytest
 
 from api.routes.kai import market_insights
+from hushh_mcp.services import market_insights_cache as cache_module
 from hushh_mcp.services.market_insights_cache import MarketInsightsCache
 
 
@@ -101,6 +103,109 @@ async def test_public_module_reads_back_from_l2_when_l1_is_cold(monkeypatch):
     assert tier == "postgres"
     assert cache_hit is True
     assert fetch_count["count"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tier", ["memory", "postgres"])
+@pytest.mark.parametrize(
+    ("instant", "age"),
+    [("2026-07-14T13:30:00+00:00", 1), ("2026-07-14T13:40:00+00:00", 121)],
+)
+async def test_open_session_revalidates_old_snapshots_across_cache_tiers(
+    monkeypatch, tier, instant, age
+):
+    now = datetime.fromisoformat(instant).timestamp()
+    monkeypatch.setattr(market_insights, "time", lambda: now)
+    monkeypatch.setattr(cache_module.time, "time", lambda: now)
+    monkeypatch.setattr(market_insights, "_us_market_is_open", lambda: True)
+    store = _FakeStore()
+    cache = MarketInsightsCache()
+    key = "quotes:AAPL"
+    old = {"rows": [{"price": 100}]}
+    if tier == "memory":
+        cache.seed_entry(key, old, now - age)
+    else:
+        store.entries[key] = _FakeEntry(old, now - age, now + 1800, now + 3600)
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: store)
+    monkeypatch.setattr(market_insights, "market_insights_cache", cache)
+    calls = []
+
+    async def fetch():
+        calls.append(True)
+        return {"rows": [{"price": 101}]}
+
+    result = await market_insights._get_or_refresh_public_module(
+        key=key,
+        fresh_ttl_seconds=600,
+        stale_ttl_seconds=1800,
+        fetcher=fetch,
+    )
+    assert result[0]["rows"][0]["price"] == 101
+    assert result[1] is False
+    assert calls == [True]
+    # The current session is then reusable rather than refetched by every caller.
+    await market_insights._get_or_refresh_public_module(
+        key=key,
+        fresh_ttl_seconds=600,
+        stale_ttl_seconds=1800,
+        fetcher=fetch,
+    )
+    assert calls == [True]
+
+
+@pytest.mark.asyncio
+async def test_warmer_recalculates_cadence_and_does_not_sleep_past_open(monkeypatch):
+    intervals = iter([1800, 120])
+    openings = iter([30, 10000])
+    sleeps = []
+    calls = 0
+
+    async def refresh():
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise asyncio.CancelledError
+
+    async def sleep(delay):
+        sleeps.append(delay)
+
+    monkeypatch.setattr(market_insights, "_run_refresh_with_advisory_lock", refresh)
+    monkeypatch.setattr(
+        market_insights, "_market_refresh_interval_seconds", lambda: next(intervals)
+    )
+    monkeypatch.setattr(market_insights, "seconds_until_us_market_open", lambda: next(openings))
+    monkeypatch.setattr(market_insights.secrets, "randbelow", lambda _: 0)
+    monkeypatch.setattr(market_insights.asyncio, "sleep", sleep)
+    with pytest.raises(asyncio.CancelledError):
+        await market_insights._market_refresh_loop()
+    assert sleeps == [30, 120]
+
+
+@pytest.mark.asyncio
+async def test_snapshot_build_spanning_open_rebuilds_preopen_nested_content(monkeypatch):
+    opening = datetime.fromisoformat("2026-07-14T13:30:00+00:00").timestamp()
+    now = [opening - 1]
+    monkeypatch.setattr(market_insights, "time", lambda: now[0])
+    monkeypatch.setattr(cache_module.time, "time", lambda: now[0])
+    monkeypatch.setattr(market_insights, "_us_market_is_open", lambda: now[0] >= opening)
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", _FakeStore)
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    calls = []
+
+    async def fetch():
+        calls.append(True)
+        price = 100 if now[0] < opening else 101
+        now[0] = opening + 1
+        return {"rows": [{"price": price}]}
+
+    result = await market_insights._get_or_refresh_public_module(
+        key="home:baseline:opening",
+        fresh_ttl_seconds=600,
+        stale_ttl_seconds=1800,
+        fetcher=fetch,
+    )
+    assert result[0]["rows"][0]["price"] == 101
+    assert calls == [True, True]
 
 
 def test_market_home_cache_key_uses_shared_baseline_and_user_scoped_personalization():

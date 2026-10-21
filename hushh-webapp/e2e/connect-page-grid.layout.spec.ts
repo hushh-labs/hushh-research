@@ -528,9 +528,9 @@ for (const width of [320, 393, 768]) {
     expect(await read(page, '[data-testid="directory-person-row"] [data-slot="settings-row-title"]')).toMatchObject({ size: "14px", weight: "550", line: "21px" });
     await expect(page.getByTestId("connect-directory-group").locator('[data-slot="settings-group-description"]')).toHaveCount(0);
     await page.locator("[data-connect-page]").evaluate(node => {
-      const scopedClass = [...node.classList].find(name => name.includes("workspace"));
-      if (!scopedClass) throw new Error("Connect typography scope is missing");
-      node.classList.remove(scopedClass);
+      const scopedClasses = [...node.classList].filter(name => name.includes("workspace") || name.includes("typography"));
+      if (scopedClasses.length < 2) throw new Error("Connect typography scope is missing");
+      node.classList.remove(...scopedClasses);
     });
     expect(await read(page, '[data-testid="directory-person-row"] [data-slot="settings-row-title"]')).not.toMatchObject({ size: "14px", line: "21px" });
     expect(await read(page, '[data-testid="top-app-bar-breadcrumb-trail"]')).toEqual(shell);

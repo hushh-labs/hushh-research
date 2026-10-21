@@ -82,6 +82,12 @@ Sources: [font faces, aliases and tokens](../../app/globals.css),
 [root font loading](../../app/layout.tsx), and
 [semantic wrappers](../../components/app-ui/typography.tsx).
 
+Connect, Market and All News share the font-only role scale in
+[`workspace-typography.module.css`](../../components/app-ui/workspace-typography.module.css).
+Market headings and news rows consume those section/row roles and inherit
+Plus Jakarta Sans. Financial values retain their larger tabular-number treatment;
+each workspace keeps ownership of its layout and spacing.
+
 ## Semantic defaults
 
 Values below are authored defaults in CSS pixels, **before** heading/slot

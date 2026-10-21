@@ -1,30 +1,8 @@
 .workspace {
+  composes: typography from "../app-ui/workspace-typography.module.css";
   --page-inline-gutter-standard: 24px;
   --app-shell-reading: 728px;
-  --type-row-label-size: 14px;
-  --type-row-label-weight: 550;
-  --type-row-label-line: 21px;
-  --type-row-label-compact-size: 14px;
-  --type-row-label-compact-weight: 550;
-  --type-row-label-compact-line: 21px;
-  --type-row-description-size: 12px;
-  --type-row-description-weight: 400;
-  --type-row-description-line: 18px;
-  --type-row-description-compact-size: 12px;
-  --type-row-description-compact-line: 18px;
-  --type-section-label-size: 14px;
-  --type-section-label-weight: 600;
-  --type-section-label-line: 22px;
-  --type-form-label-size: 15px;
-  --type-form-label-weight: 550;
-  --type-form-label-line: 22px;
-  --type-input-value-size: 14px;
-  --type-input-value-line: 22px;
-  --foundation-title1-size: 28px;
-  --foundation-title1-weight: 600;
-  --foundation-title1-line: 36px;
   max-width: 728px;
-  font-family: var(--font-app-body), system-ui, sans-serif;
 }
 .workspace :global([data-slot="settings-row-title"]),
 .workspace :global([data-profile-role="name"]) {

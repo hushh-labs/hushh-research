@@ -427,6 +427,26 @@ The `audit:cache-coherence` script hard-fails when the screen cache manifest is 
 
 ## Reconciliation Notes
 
+### Market session refresh
+
+`KaiMarketHomeProvider` owns the shared Market/Stocks resource and registers
+`useMarketLiveRefresh` on the shared idle scheduler. Visible, online screens
+request fresh information on the two-minute clock during scheduled US regular
+hours (weekdays, 09:30–16:00 America/New_York), including opening and return from
+the background. Scheduled requests bypass the client freshness TTL, reuse valid
+owner credentials, and retain the rendered snapshot while awaiting a response.
+Hidden/offline screens make no scheduled requests. Failed attempts are bounded
+to the cadence, and owner changes remove the old scheduled work.
+
+Backend provider, memory and Postgres caches reject pre-open price snapshots
+once that session opens. Postgres freshness is also capped by the current
+market-hours TTL rather than its stored off-hours deadline. In-flight builds
+spanning opening revalidate before caching their assembled result; provider
+cache age starts when its request began. Stale-on-error remains available. The
+background warmer recomputes its cadence and wakes by the next scheduled open.
+This schedule controls refresh only, has no holiday/early-close calendar, and
+does not replace provider market status or guarantee real-time quote delivery.
+
 ### Business Review freshness and recovery
 
 Explicit Review forces both metadata and domain ciphertext reads. A normal

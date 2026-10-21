@@ -35,6 +35,11 @@ from hushh_mcp.services.fmp_call_budget import is_budget_critical, record_fmp_ca
 from hushh_mcp.services.market_cache_store import get_market_cache_store_service
 from hushh_mcp.services.market_insights_cache import market_insights_cache
 from hushh_mcp.services.market_news_images import article_image_url, enrich_market_news_images
+from hushh_mcp.services.market_refresh_policy import (
+    seconds_until_us_market_open,
+    us_market_is_open,
+    us_market_session_opened_at,
+)
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.renaissance_service import TIER_WEIGHTS, get_renaissance_service
 from hushh_mcp.services.ria_iam_service import RIAIAMService
@@ -217,19 +222,7 @@ def _us_market_is_open(now: datetime | None = None) -> bool:
     governs cache-refresh cadence, never displayed market status, so a holiday
     treated as "open" just means a slightly tighter (harmless) refresh window.
     """
-    schedule = EXCHANGE_SCHEDULE[DEFAULT_EXCHANGE]
-    try:
-        local_now = (
-            now.astimezone(ZoneInfo(str(schedule["tz"])))
-            if now
-            else datetime.now(ZoneInfo(str(schedule["tz"])))
-        )
-    except Exception:
-        return False
-    if local_now.weekday() >= 5:
-        return False
-    minutes_now = local_now.hour * 60 + local_now.minute
-    return int(schedule["open"]) <= minutes_now < int(schedule["close"])
+    return us_market_is_open(now)
 
 
 def _market_aware_fresh_ttl(key: str, base_fresh_ttl_seconds: int) -> int:
@@ -1110,6 +1103,11 @@ async def _get_or_refresh_public_module(
     # for price-sensitive modules. Stale TTL is preserved so degradation and
     # serve-stale-while-revalidate behavior are unchanged.
     fresh_ttl_seconds = _market_aware_fresh_ttl(key, fresh_ttl_seconds)
+    fresh_after_ts = (
+        us_market_session_opened_at(datetime.fromtimestamp(now_ts, tz=timezone.utc))
+        if key.startswith(MARKET_PRICE_SENSITIVE_PREFIXES)
+        else None
+    )
 
     def has_recoverable_degradation(payload: Any) -> bool:
         if not isinstance(payload, dict):
@@ -1147,6 +1145,7 @@ async def _get_or_refresh_public_module(
     if (
         existing_l1
         and (now_ts - existing_l1.fetched_at) <= fresh_ttl_seconds
+        and (fresh_after_ts is None or existing_l1.fetched_at >= fresh_after_ts)
         and not has_recoverable_degradation(existing_l1.value)
     ):
         return (
@@ -1167,16 +1166,36 @@ async def _get_or_refresh_public_module(
         logger.warning("[Kai Market] L2 cache read skipped for %s: %s", key, exc)
         store = None
         l2_entry = None
-    if l2_entry and l2_entry.is_fresh(now_ts) and not has_recoverable_degradation(l2_entry.payload):
+    if (
+        l2_entry
+        and l2_entry.is_fresh(now_ts)
+        and now_ts - l2_entry.updated_at_ts <= fresh_ttl_seconds
+        and (fresh_after_ts is None or l2_entry.updated_at_ts >= fresh_after_ts)
+        and not has_recoverable_degradation(l2_entry.payload)
+    ):
         market_insights_cache.seed_entry(key, l2_entry.payload, l2_entry.updated_at_ts)
         return (l2_entry.payload, False, l2_entry.age_seconds(now_ts), "postgres", True)
 
     # Seed stale L2 into L1 so L1 stale-on-error can serve fallback.
-    if l2_entry and l2_entry.is_stale_servable(now_ts):
+    if (
+        l2_entry
+        and l2_entry.is_stale_servable(now_ts)
+        and (existing_l1 is None or l2_entry.updated_at_ts > existing_l1.fetched_at)
+    ):
         market_insights_cache.seed_entry(key, l2_entry.payload, l2_entry.updated_at_ts)
 
     async def wrapped_fetcher() -> Any:
+        requested_at = time()
         value = await fetcher()
+        completed_session = (
+            us_market_session_opened_at(datetime.fromtimestamp(time(), tz=timezone.utc))
+            if key.startswith(MARKET_PRICE_SENSITIVE_PREFIXES)
+            else None
+        )
+        if completed_session is not None and requested_at < completed_session:
+            # Nested caches may have been read before opening. Rebuild once
+            # under the new session before stamping this assembled snapshot.
+            value = await fetcher()
         provider_status = {}
         if isinstance(value, dict) and isinstance(value.get("provider_status"), dict):
             provider_status = value.get("provider_status") or {}
@@ -1198,7 +1217,10 @@ async def _get_or_refresh_public_module(
         fresh_ttl_seconds=fresh_ttl_seconds,
         stale_ttl_seconds=stale_ttl_seconds,
         fetcher=wrapped_fetcher,
-        serve_stale_while_revalidate=serve_stale_while_revalidate,
+        # The client keeps the old view while awaiting this request. Return the
+        # refreshed prices during the session; retain stale-on-error fallback.
+        serve_stale_while_revalidate=serve_stale_while_revalidate and fresh_after_ts is None,
+        fresh_after_ts=fresh_after_ts,
     )
     tier = "live"
     cache_hit = False
@@ -2324,8 +2346,7 @@ async def _warm_shared_baseline_market_home_once() -> None:
 
 
 async def _market_refresh_loop() -> None:
-    interval = _market_refresh_interval_seconds()
-    logger.info("[Kai Market] background refresh loop started (interval=%ss)", interval)
+    logger.info("[Kai Market] background refresh loop started")
     while True:
         try:
             await _run_refresh_with_advisory_lock()
@@ -2333,10 +2354,11 @@ async def _market_refresh_loop() -> None:
             raise
         except Exception as exc:
             logger.warning("[Kai Market] background refresh cycle failed, will retry: %s", exc)
+        interval = _market_refresh_interval_seconds()
         jitter_max = max(5.0, interval * 0.12)
         jitter_ms = int(jitter_max * 1000)
         cycle_jitter = (secrets.randbelow(jitter_ms + 1) / 1000.0) if jitter_ms > 0 else 0.0
-        await asyncio.sleep(interval + cycle_jitter)
+        await asyncio.sleep(min(interval + cycle_jitter, seconds_until_us_market_open()))
 
 
 def start_market_insights_background_refresh() -> None:

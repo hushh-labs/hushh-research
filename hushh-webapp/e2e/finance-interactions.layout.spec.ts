@@ -89,6 +89,8 @@ test.beforeAll(async () => {
           "next/navigation", "@/hooks/use-auth", "@/lib/firebase/auth-context",
           "@/lib/vault/vault-context", "@/lib/cache/use-stale-resource",
           "@/lib/kai/kai-financial-resource", "@/lib/kai/kai-market-home-resource",
+          "@/lib/kai/kai-market-news-resource",
+          "@/lib/services/api-service",
           "@/lib/services/kai-token-guard", "@/lib/kai/actions/voice-surface-metadata",
         ].map(find => ({ find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), replacement: boundary })),
         { find: "@", replacement: root },
@@ -133,10 +135,8 @@ test.beforeAll(async () => {
 for (const width of [320, 375, 393, 430, 768, 1440]) {
   for (const theme of ["light", "dark"]) {
     test(`Market briefing stays readable and fits at ${width}px in ${theme}`, async ({ page }) => {
+      page.on("pageerror", error => { throw error; });
       await page.setViewportSize({ width, height: 932 });
-      await page.route("http://localhost/fonts/Inter/InterVariable.woff2", route => route.fulfill({
-        contentType: "font/woff2", body: fs.readFileSync(path.join(process.cwd(), "public/fonts/Inter/InterVariable.woff2")),
-      }));
       await page.route("http://localhost/finance-market", route => route.fulfill({
         contentType: "text/html",
         body: `<!doctype html><html class="${theme}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><style>html,body{height:auto}</style></head><body><div id="root"></div></body></html>`,
@@ -149,7 +149,6 @@ for (const width of [320, 375, 393, 430, 768, 1440]) {
       });
       await page.addScriptTag({ content: marketScript });
       await awaitProductFont(page);
-      await page.evaluate(async () => { await document.fonts.load('600 15px "Inter"'); await document.fonts.ready; });
       const action = page.getByRole("button", { name: "All news", exact: true });
       await expect(action).toBeVisible();
       const target = await action.boundingBox();
@@ -172,17 +171,84 @@ for (const width of [320, 375, 393, 430, 768, 1440]) {
           railOverflow: el.parentElement!.scrollWidth > el.parentElement!.clientWidth,
         };
       });
-      expect(measurements.font).toMatch(/Inter/);
-      expect(measurements.headline).toEqual(["15px", "22px", "600"]);
+      expect(measurements.font).toMatch(/Plus Jakarta Sans/);
+      expect(measurements.headline).toEqual(["14px", "21px", "550"]);
       expect(measurements.metadata).toEqual(["12px", "18px"]);
       expect(measurements.clamp).toBe("none");
       expect(measurements.cardOverflow).toBe(false);
       expect(measurements.pageOverflow).toBe(false);
       expect(measurements.railOverflow).toBe(false);
+      const sectionTypography = await page.getByRole("heading", { name: "US markets", exact: true }).evaluate(element => {
+        const style = getComputedStyle(element);
+        return [style.fontFamily, style.fontSize, style.lineHeight, style.fontWeight];
+      });
+      expect(sectionTypography[0]).toMatch(/Plus Jakarta Sans/);
+      expect(sectionTypography.slice(1)).toEqual(["14px", "22px", "600"]);
+      const movers = page.getByRole("region", { name: "Market movers", exact: true });
+      await movers.scrollIntoViewIfNeeded();
+      const gainers = await movers.getByRole("heading", { name: "Gainers", exact: true }).boundingBox();
+      const decliners = await movers.getByRole("heading", { name: "Decliners", exact: true }).boundingBox();
+      expect(Math.abs(gainers!.y - decliners!.y)).toBeLessThanOrEqual(1);
+      expect(gainers!.x + gainers!.width).toBeLessThanOrEqual(decliners!.x);
+      expect(await movers.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      for (const mover of await movers.getByRole("button").all()) {
+        await expect(mover).toBeVisible();
+        expect(await mover.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+        const quote = mover.locator(":scope > span").first();
+        const ticker = await quote.locator(":scope > span").first().boundingBox();
+        const percentage = await quote.locator(":scope > span").last().boundingBox();
+        expect(Math.abs(ticker!.y - percentage!.y)).toBeLessThanOrEqual(1);
+        expect(ticker!.x + ticker!.width).toBeLessThanOrEqual(percentage!.x);
+      }
       await action.click();
       await expect(page.locator("body")).toHaveAttribute("data-navigation-href", "/one/kai/news");
       await card.scrollIntoViewIfNeeded();
       await page.screenshot({ path: test.info().outputPath(`finance-${width}-${theme}.png`) });
+
+      await page.route("https://images.example.test/**", route => route.request().url().endsWith("broken.png")
+        ? route.fulfill({ status: 404 })
+        : route.fulfill({ contentType: "image/png", body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aC1cAAAAASUVORK5CYII=", "base64") }));
+      await page.route("http://localhost/finance-market-news-fixture", route => route.fulfill({
+        contentType: "text/html",
+        body: `<!doctype html><html class="${theme}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><style>html,body{height:auto}</style></head><body><div id="root"></div></body></html>`,
+      }));
+      await page.goto("http://localhost/finance-market-news-fixture");
+      await page.addScriptTag({ content: marketScript });
+      await awaitProductFont(page);
+      const allNews = page.getByRole("region", { name: "Headlines", exact: true });
+      expect(await allNews.getByRole("heading", { name: "Headlines", exact: true }).evaluate(element => {
+        const style = getComputedStyle(element);
+        return [style.fontFamily, style.fontSize, style.lineHeight, style.fontWeight];
+      })).toEqual(sectionTypography);
+      const firstArticle = allNews.locator("article").first();
+      await expect(firstArticle.getByText("NVDA · MSFT", { exact: true })).toBeVisible();
+      await expect(firstArticle.getByText("Positive", { exact: true })).toBeVisible();
+      await expect(allNews.getByText("Risk", { exact: true })).toBeVisible();
+      const fullHeadline = firstArticle.getByText("A longer market headline stays readable on a narrow phone screen", { exact: true });
+      const allNewsType = await fullHeadline.evaluate(element => {
+        const style = getComputedStyle(element);
+        return [style.fontFamily, style.fontSize, style.lineHeight, style.fontWeight, style.webkitLineClamp];
+      });
+      expect(allNewsType[0]).toMatch(/Plus Jakarta Sans/);
+      expect(allNewsType.slice(1)).toEqual(["14px", "21px", "550", "none"]);
+      const summary = firstArticle.getByText("The full article summary remains readable without clipping, even when it takes several lines on a narrow phone screen.", { exact: true });
+      const summaryBounds = await summary.boundingBox();
+      const articleBounds = await firstArticle.getByRole("button").boundingBox();
+      expect(Math.abs(summaryBounds!.width - articleBounds!.width)).toBeLessThanOrEqual(1);
+      await expect.poll(() => allNews.locator("article").nth(1).locator("img").evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0 && element.src.endsWith("large.png"))).toBe(true);
+      expect(await allNews.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      const refresh = page.getByRole("button", { name: "Refresh market news", exact: true });
+      const refreshBounds = await refresh.boundingBox();
+      expect(refreshBounds!.width).toBeGreaterThanOrEqual(44);
+      expect(refreshBounds!.height).toBeGreaterThanOrEqual(44);
+      await refresh.click();
+      await expect(page.locator("body")).toHaveAttribute("data-news-refreshed", "true");
+      await allNews.getByRole("button", { name: "Load more", exact: true }).click();
+      await expect(allNews.locator("article")).toHaveCount(3);
+      await expect(allNews.getByText("More headlines from the same snapshot", { exact: true })).toBeVisible();
+      await expect(allNews.getByRole("button", { name: "Load more", exact: true })).toHaveCount(0);
+      await page.screenshot({ path: test.info().outputPath(`finance-all-news-${width}-${theme}.png`) });
     });
   }
 }
@@ -194,9 +260,6 @@ test.afterAll(() => {
 
 async function mount(page: Page, width = 393) {
   await page.setViewportSize({ width, height: 852 });
-  await page.route("http://localhost/fonts/Inter/InterVariable.woff2", route => route.fulfill({
-    contentType: "font/woff2", body: fs.readFileSync(path.join(process.cwd(), "public/fonts/Inter/InterVariable.woff2")),
-  }));
   await page.route("http://localhost/finance-fixture", route => route.fulfill({
     contentType: "text/html",
     body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><style>html,body{height:auto}</style></head><body><div id="root"></div></body></html>`,
@@ -204,7 +267,6 @@ async function mount(page: Page, width = 393) {
   await page.goto("http://localhost/finance-fixture");
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
-  await page.evaluate(async () => { await document.fonts.load('600 15px "Inter"'); await document.fonts.ready; });
 }
 
 for (const width of [375, 393, 430]) {
@@ -226,9 +288,9 @@ for (const width of [375, 393, 430]) {
       const style = getComputedStyle(element);
       return { family: style.fontFamily, weight: style.fontWeight, size: parseFloat(style.fontSize), clamp: style.webkitLineClamp, overflow: style.overflow };
     });
-    expect(type.family).toMatch(/Inter/);
-    expect(Number(type.weight)).toBeGreaterThanOrEqual(600);
-    expect(type.size).toBeGreaterThanOrEqual(15);
+    expect(type.family).toMatch(/Plus Jakarta Sans/);
+    expect(type.weight).toBe("550");
+    expect(type.size).toBe(14);
     expect(type.clamp).toBe("none");
     expect(type.overflow).not.toBe("hidden");
     const stocks = page.getByTestId("market-iphone-fixture");
@@ -268,7 +330,7 @@ for (const width of [375, 393, 430]) {
         const style = getComputedStyle(element);
         return { font: style.fontFamily, size: parseFloat(style.fontSize), clamp: style.webkitLineClamp, overflow: style.overflow };
       });
-      expect(headingStyle.font).toMatch(/Inter/);
+      expect(headingStyle.font).toMatch(/Plus Jakarta Sans/);
       expect(headingStyle.size).toBeGreaterThanOrEqual(20);
       expect(headingStyle.clamp).toBe("none");
       expect(headingStyle.overflow).not.toBe("hidden");
