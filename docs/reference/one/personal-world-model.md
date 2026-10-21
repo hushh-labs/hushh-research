@@ -322,6 +322,18 @@ Integration request:
 
 Name and at least one verified contact are required. Phone uses E.164. Every supplied field must match the freshly resolved owner's account. The UI normally calls `/ensure` or `/jobs` without sending identifiers. Arbitrary submitted identities are rejected.
 
+**Pages you choose** also has an explicit Azure research action when Azure/Bing
+research is already enabled and a fresh run is allowed. The owner confirms up to
+three public profile links and their public-source permission. These links enter
+normal charged web retrieval as starting leads, not received evidence or verified
+identity. They never grant access to private accounts. A changed URL set starts a
+new work generation, retains hourly starts, and cannot replace a live pending
+lease. Omission carries existing profiles and prior decisions across resumes.
+Web and Android use the shared form; the corresponding iOS owned form requires
+its additive `profileWorldModelPublicProfiles` capability. Older binaries retain
+their existing source-review action. The separate Gemini page-review action and
+the owner’s encrypted Memory save remain unchanged.
+
 `/ensure` and `POST /jobs` accept an optional body carrying the owner's earlier decisions, so research does not propose them again:
 
 ```json

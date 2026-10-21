@@ -351,6 +351,9 @@ final class NativeSupportTests: XCTestCase {
                 draftRevision: update, acknowledgedEditRevision: ack, draft: NativeWorldModelDraft(text: ack == 0 ? "Public example" : "Public corrected example"),
                 canSave: true, busy: false, error: "Public validation example", appearance: update == 1 ? "light" : "dark", accentHex: "#007AFF", foregroundHex: "#111111")
         }
+        let profile = NativeWorldModelDraft(urls: "https://public.example/profile", permitted: true)
+        XCTAssertTrue(profile.valid("world-model-public-profiles"))
+        XCTAssertFalse(NativeWorldModelDraft(text: "Wrong payload").valid("world-model-public-profiles"))
         let model = NativeWorldModelFormModel(state(1, 0)), editor = UITextView()
         model.register(editor); model.edit = { _, _, _ in true }; model.choose = { _ in true }
         editor.text = "Public corrected example"; model.capture(editor, field: "text")

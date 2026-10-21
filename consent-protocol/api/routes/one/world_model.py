@@ -16,6 +16,7 @@ from api.routes.one.profile_research import (
     PrivateProfileRoute,
 )
 from hushh_mcp.managed_ai_config import load_pwm_policy
+from hushh_mcp.one_adk.public_sources import OwnerPublicProfiles
 from hushh_mcp.one_adk.world_model import OwnerDecisions
 from hushh_mcp.one_adk.world_model_usage import public_result
 from hushh_mcp.services import world_model_invitations as invitations
@@ -25,7 +26,7 @@ from hushh_mcp.services.magic_intelligence_completion import (
     MagicReviewNotCommitted,
     complete_magic_intelligence,
 )
-from hushh_mcp.services.world_model_service import world_model_jobs
+from hushh_mcp.services.world_model_service import PublicProfilesChanged, world_model_jobs
 
 router = APIRouter(
     prefix="/api/one/world-model", tags=["Personal World Model"], route_class=PrivateProfileRoute
@@ -49,6 +50,7 @@ class RefreshPreparationInput(PreparationInput):
     """Explicit owner refresh; automatic ensure retains its reuse contract."""
 
     refresh: bool = Field(default=False, strict=True)
+    public_profiles: OwnerPublicProfiles | None = None
 
 
 def decisions(body: PreparationInput | None):
@@ -61,7 +63,7 @@ def research_response(result, status_code):
     return JSONResponse(payload, status_code=status_code, headers=headers)
 
 
-async def operation(token, start, owner_decisions=None, refresh=False):
+async def operation(token, start, owner_decisions=None, refresh=False, public_profiles=None):
     try:
         if start:
             kwargs = (
@@ -71,12 +73,18 @@ async def operation(token, start, owner_decisions=None, refresh=False):
             )
             if refresh:
                 kwargs["refresh_completed"] = True
+            if public_profiles is not None:
+                kwargs.setdefault("inputs", {})["public_profiles"] = public_profiles
             result = await world_model_jobs.start(*owner(token), **kwargs)
         else:
             result = await world_model_jobs.status(*owner(token))
         return research_response(result, status_code=202 if result["status"] == "pending" else 200)
     except PermissionError:
         raise HTTPException(403, "Unlock your vault to continue.") from None
+    except PublicProfilesChanged:
+        raise HTTPException(
+            409, "Wait for current research, then explicitly research these profiles."
+        ) from None
     except Exception:
         raise HTTPException(
             503, "Research is temporarily unavailable.", headers={"Retry-After": "5"}
@@ -90,7 +98,15 @@ async def start(
     body: RefreshPreparationInput | None = None,
     token: dict = Depends(require_vault_owner_chat_key),
 ):
-    return await operation(token, True, decisions(body), refresh=bool(body and body.refresh))
+    return await operation(
+        token,
+        True,
+        decisions(body),
+        refresh=bool(body and body.refresh),
+        public_profiles=body.public_profiles.model_dump()
+        if body and body.public_profiles
+        else None,
+    )
 
 
 @router.get("/jobs")

@@ -21774,6 +21774,163 @@
     },
     {
       "aliases": [
+        "Research your public profiles"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.world_model.public_profiles",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Explicitly choose public profile links for Azure and Bing research. Links are owner assertions, not identity verification; review findings before saving.",
+      "execution": {
+        "binding_ref": "render:profile.world_model.public_profiles",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.world_model.public_profiles",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Research your public profiles",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Back to Agents",
         "back to agents"
       ],
@@ -42733,7 +42890,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "78c4ee54535af5d413d55582c7b7c33f8d274173ec73f863248e094bf008d1bf",
+      "projection_digest": "202d210ad7e8c687456fe4b63d52a7914b127900feebefa31ab6bcd26a831d2a",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42752,7 +42909,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
       },
-      "source_revision": "b883582b09e1be66",
+      "source_revision": "9503b7156b53ae3c",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -44270,7 +44427,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "b883582b09e1be66",
+    "source_revision": "9503b7156b53ae3c",
     "web": {
       "actions": [
         {
@@ -44313,7 +44470,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "165a0411b28c4b93602e1136798811b7c0c538a4a932937aae5371dec230eeaa",
+      "projection_digest": "bb149aff4db0ed14fabf2a98e52079fceaf9d0350408f7ae6016c46ae364a09a",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -44332,7 +44489,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
       },
-      "source_revision": "b883582b09e1be66",
+      "source_revision": "9503b7156b53ae3c",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -45889,7 +46046,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "b883582b09e1be66",
+  "revision": "9503b7156b53ae3c",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -47766,12 +47923,14 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:profile.world_model.public_profiles"
+    ],
     "breaking": [],
     "changed": [],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "0ed573b111c33adc",
+    "from_revision": "b883582b09e1be66",
     "migrated": [],
     "removed": []
   },
@@ -50011,7 +50170,7 @@
     "capability_graph_evolution": "15e25c4335dfbf911e16cd03c0e2036a932977ac204f1c6ae127f3083a65d74f",
     "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "b6f231c66a4338f4acb6433be0a1c45e85cd16fe544e6973803a9a31f5e4a84e",
+    "kai_action_gateway": "99403ea223091afac2a950039aeb6a00d747b7f74632498a21caeec719cecd2e",
     "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -50020,9 +50179,9 @@
     "route_orchestration_index": "eb37a8bb7a3a30b196366cc330aafb5810c39efb8a411f39970d63652fb49733",
     "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
   },
-  "source_revision": "b883582b09e1be66",
+  "source_revision": "9503b7156b53ae3c",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "b883582b09e1be66",
+    "current_graph_revision": "9503b7156b53ae3c",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -50177,6 +50336,7 @@
           "afa3f4237cc584d1",
           "b514b1fb5e99b5bf",
           "b81f3be586a45c6a",
+          "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bae648fb1e85fb89",
@@ -50408,6 +50568,7 @@
           "afa3f4237cc584d1",
           "b514b1fb5e99b5bf",
           "b81f3be586a45c6a",
+          "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bae648fb1e85fb89",
@@ -50595,6 +50756,7 @@
           "afa3f4237cc584d1",
           "b514b1fb5e99b5bf",
           "b81f3be586a45c6a",
+          "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bae648fb1e85fb89",
@@ -50870,6 +51032,7 @@
           "afa3f4237cc584d1",
           "b514b1fb5e99b5bf",
           "b81f3be586a45c6a",
+          "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bae648fb1e85fb89",
@@ -51101,6 +51264,7 @@
           "afa3f4237cc584d1",
           "b514b1fb5e99b5bf",
           "b81f3be586a45c6a",
+          "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bae648fb1e85fb89",
@@ -51332,6 +51496,7 @@
           "afa3f4237cc584d1",
           "b514b1fb5e99b5bf",
           "b81f3be586a45c6a",
+          "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bae648fb1e85fb89",
@@ -51563,6 +51728,7 @@
           "afa3f4237cc584d1",
           "b514b1fb5e99b5bf",
           "b81f3be586a45c6a",
+          "b883582b09e1be66",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bae648fb1e85fb89",

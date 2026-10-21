@@ -17830,6 +17830,107 @@
       }
     },
     {
+      "action_id": "profile.world_model.public_profiles",
+      "surface_id": "profile_world_model",
+      "label": "Research your public profiles",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Explicitly choose public profile links for Azure and Bing research. Links are owner assertions, not identity verification; review findings before saving.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_public_sources_open",
+        "pwm_public_profiles_research"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/world-model-options.tsx",
+        "components/profile/world-model-sources.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.public_profiles",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.public_profiles",
+            "label": "Research your public profiles",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.puppy_agents",
       "surface_id": "puppy_one",
       "label": "Back to Agents",

@@ -290,6 +290,18 @@ describe("PWM service authority and request recovery", () => {
     expect(api.mock.calls[0][1].method).toBe("POST");
     expect(JSON.parse(api.mock.calls[0][1].body)).toEqual({ refresh: true });
   });
+  it("sends explicitly selected public profiles only to a jobs refresh", async () => {
+    api.mockResolvedValue({ status: "saved", pkm_written: false });
+    const publicProfileUrls = ["https://github.com/public-example"];
+    for (const refresh of [true, false]) await WorldModelResearchService.observe({
+      ...session, signal: new AbortController().signal, refresh, publicProfileUrls, onResult: vi.fn(),
+    });
+    expect(JSON.parse(api.mock.calls[0][1].body)).toEqual({ refresh: true, public_profiles: {
+      urls: publicProfileUrls, permitted_public_sources: true,
+    } });
+    expect(api.mock.calls[1][0]).toBe("/api/one/world-model/ensure");
+    expect(api.mock.calls[1][1].body).toBeUndefined();
+  });
   it("sends owner decisions only when starting research", async () => {
     const ownerDecisions = { confirmed: ["Saved."], rejected: ["Declined."] };
     api

@@ -186,6 +186,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "profileMemoryPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileSharedMemoryPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileSecretMemoryPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profileWorldModelPublicProfiles": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileWorldModelPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileRuntimeScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileConnectorScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
@@ -610,7 +611,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             destinationId != nil && destinationId == profile.profileDestinationId
         let nativePricing = scene == "request-price" && profile.open && profile.profileStack?.last?.id == "request-pricing" &&
             destinationId != nil && destinationId == profile.profileDestinationId
-        let worldModelDestinations: [String: Set<String>] = ["world-model-fact-edit": ["world-model-fact", "world-model-review-fact"], "world-model-sources": ["world-model-sources"], "world-model-invitation": ["world-model-invitations"]]
+        let worldModelDestinations: [String: Set<String>] = ["world-model-fact-edit": ["world-model-fact", "world-model-review-fact"], "world-model-sources": ["world-model-sources"], "world-model-public-profiles": ["world-model-sources"], "world-model-invitation": ["world-model-invitations"]]
         let nativeWorldModel = worldModelDestinations[scene]?.contains(profile.profileStack?.last?.id ?? "") == true && profile.open &&
             destinationId != nil && destinationId == profile.profileDestinationId
         let nativeRuntime = scene == "runtime-provider" && profile.open && profile.profileStack?.last?.id == "gemini" &&
