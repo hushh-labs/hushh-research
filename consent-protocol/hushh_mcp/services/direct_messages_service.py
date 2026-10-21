@@ -959,6 +959,8 @@ class DirectMessagesService:
         viewer_user_id: str,
         conversation_id: str,
         message_id: str,
+        *,
+        include_hidden: bool = False,
     ) -> dict[str, Any] | None:
         """Read one message through the same participant-only projection as history."""
 
@@ -1017,6 +1019,10 @@ class DirectMessagesService:
             LEFT JOIN messages reply ON reply.id = message.reply_to_message_id
             WHERE message.id = CAST(:message_id AS UUID)
               AND message.conversation_id = CAST(:conversation_id AS UUID)
+              AND (:include_hidden OR NOT (
+                (message.sender_user_id = :viewer_user_id AND message.deleted_for_sender_at IS NOT NULL)
+                OR (message.sender_user_id <> :viewer_user_id AND message.deleted_for_recipient_at IS NOT NULL)
+              ))
               AND :viewer_user_id IN (
                 conversation.participant_a_user_id,
                 conversation.participant_b_user_id
@@ -1027,6 +1033,7 @@ class DirectMessagesService:
                 "viewer_user_id": viewer_user_id,
                 "conversation_id": conversation_id,
                 "message_id": message_id,
+                "include_hidden": include_hidden,
             },
         )
 
@@ -1371,6 +1378,12 @@ class DirectMessagesService:
                             "sender_user_id": sender,
                         },
                     )
+                    if row and row.get("deleted_for_sender_at") is not None:
+                        raise DirectMessagesError(
+                            "DIRECT_MESSAGE_RETRY_CONFLICT",
+                            "This message could not be retried. Send it as a new message.",
+                            status_code=409,
+                        )
                     if row and (
                         self._cipher.open(row) != stored_content
                         or str(row.get("reply_to_message_id") or "")
@@ -1549,8 +1562,12 @@ class DirectMessagesService:
         viewer_user_id: str,
         conversation_id: str,
         message_id: str,
+        *,
+        include_hidden: bool = False,
     ) -> dict[str, Any]:
-        row = self._message_for_participant(viewer_user_id, conversation_id, message_id)
+        row = self._message_for_participant(
+            viewer_user_id, conversation_id, message_id, include_hidden=include_hidden
+        )
         if not row:
             raise DirectMessagesError(
                 "DIRECT_MESSAGE_NOT_FOUND",
@@ -1688,7 +1705,12 @@ class DirectMessagesService:
             )
         try:
             with self._transaction():
-                current = self._message_action_row(viewer, conversation_key, message_key)
+                current = self._message_action_row(
+                    viewer,
+                    conversation_key,
+                    message_key,
+                    include_hidden=scope == "me",
+                )
                 if scope == "everyone":
                     self._require_message_sender(current, viewer)
                     if current.get("deleted_for_everyone_at") is not None:
@@ -1929,6 +1951,69 @@ class DirectMessagesService:
             )
         return {"content": content, "mimeType": metadata["mimeType"], "name": metadata["name"]}
 
+    def delete_conversation(self, viewer_user_id: str, conversation_id: str) -> dict[str, Any]:
+        """Hide existing history for this participant; preserve the peer's copy.
+
+        Sends take the same conversation lock before inserting. A send ordered
+        after this transaction remains visible and can restore the inbox row.
+        """
+        viewer = self._normalize_user_id(viewer_user_id, field="viewerUserId")
+        conversation_key = self._normalize_conversation_id(conversation_id)
+        try:
+            with self._transaction():
+                conversation = self._execute_one(
+                    """SELECT id FROM conversations
+                    WHERE id = CAST(:conversation_id AS UUID)
+                      AND :viewer_user_id IN (participant_a_user_id, participant_b_user_id)
+                    FOR UPDATE""",
+                    {"viewer_user_id": viewer, "conversation_id": conversation_key},
+                )
+                if not conversation:
+                    raise DirectMessagesError(
+                        "DIRECT_MESSAGE_CONVERSATION_NOT_FOUND",
+                        "Conversation was not found.",
+                        status_code=404,
+                    )
+                self._execute_one(
+                    """WITH hidden AS (
+                      UPDATE messages SET
+                        deleted_for_sender_at = CASE WHEN sender_user_id = :viewer_user_id
+                          THEN COALESCE(deleted_for_sender_at, clock_timestamp())
+                          ELSE deleted_for_sender_at END,
+                        deleted_for_recipient_at = CASE WHEN sender_user_id <> :viewer_user_id
+                          THEN COALESCE(deleted_for_recipient_at, clock_timestamp())
+                          ELSE deleted_for_recipient_at END
+                      WHERE conversation_id = CAST(:conversation_id AS UUID)
+                        AND CASE WHEN sender_user_id = :viewer_user_id
+                          THEN deleted_for_sender_at ELSE deleted_for_recipient_at END IS NULL
+                      RETURNING id
+                    ) SELECT count(*) AS hidden_count FROM hidden""",
+                    {"viewer_user_id": viewer, "conversation_id": conversation_key},
+                )
+        except DirectMessagesError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - keep database details private
+            logger.exception("direct_messages.delete_chat_failed error=%s", type(exc).__name__)
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_DELETE_FAILED",
+                "Chat could not be deleted. Please try again.",
+                status_code=503,
+            ) from exc
+        try:
+            self._event_notifier(
+                viewer,
+                {
+                    "type": "direct_message",
+                    "message_id": f"direct-message-conversation-delete:{uuid.uuid4()}",
+                    "conversation_id": conversation_key,
+                    "action": "conversation_deleted",
+                },
+            )
+            self._event_notifier(viewer, {"type": "feed_changed"})
+        except Exception as exc:  # noqa: BLE001 - committed state is authoritative
+            logger.warning("direct_messages.delete_chat_event_failed error=%s", type(exc).__name__)
+        return {"conversationId": conversation_key, "deleted": True, "scope": "me"}
+
     def list_conversations(self, viewer_user_id: str, *, limit: int = 100) -> dict[str, Any]:
         viewer = self._normalize_user_id(viewer_user_id, field="viewerUserId")
         bounded_limit = max(1, min(int(limit or 100), 100))
@@ -2007,6 +2092,7 @@ class DirectMessagesService:
               conversation.participant_a_user_id,
               conversation.participant_b_user_id
             )
+              AND latest.id IS NOT NULL
             ORDER BY COALESCE(conversation.last_message_at, conversation.created_at) DESC,
                      conversation.id DESC
             LIMIT :limit

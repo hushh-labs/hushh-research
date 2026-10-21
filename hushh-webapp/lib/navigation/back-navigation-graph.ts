@@ -180,6 +180,7 @@ export function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.CONNECTED_SYSTEMS]: "Connected Systems",
     [ROUTES.CONSENTS]: "Consent Center",
     [ROUTES.ONE_FEED]: "Feed",
+    [ROUTES.ONE_MESSAGES]: "Messages",
     [ROUTES.ONE_TODOS]: "To-do List",
     [ROUTES.ONE_KYC]: "KYC",
     [KAI_MARKET_PATH]: "Finance",

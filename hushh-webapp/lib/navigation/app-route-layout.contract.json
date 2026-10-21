@@ -7339,6 +7339,14 @@
         {
           "href": "/people/sample",
           "expected": null
+        },
+        {
+          "href": "/people/sample?from=%2Fone%2Fmessages",
+          "expected": {
+            "href": "/one/messages",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
       "kind": "root",

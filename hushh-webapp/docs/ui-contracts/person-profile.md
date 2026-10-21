@@ -4,7 +4,7 @@ Status: current source-backed contract, updated for Profile v16 on 21 October
 2026, based on `f64c890498dd4aa9bd1fe8bb3ac35c6445948f47`.
 Owner: frontend design system and the existing consent/wallet feature owners.
 Classification: `canonical`, package-local. This is **another person's profile**
-opened from Connect, not the signed-in person's [Profile settings](./profile.md).
+opened from Connect or Messages, not the signed-in person's [Profile settings](./profile.md).
 
 This contract covers the complete mounted profile, its local dialogs/sheets,
 every immediate CTA, responsive geometry, typography, request submission,
@@ -48,6 +48,7 @@ Sources: [route](../../app/people/[personRef]/page.tsx),
 | --- | --- |
 | URL | `/people/<publicPersonRef>?from=<normalized internal return>`; a public person reference is required. The route initially mounts with no prefetched profile. |
 | From Connect | A permitted identity row opens this shared route. The trailing connection/message controls belong to Connect, not this page. |
+| From Messages | The conversation header, received-message, and Contact info avatars open the loaded peer's existing profile through a Next client link. Links require the current owner/selection's admitted public person reference and have 44px minimum targets. `from=/one/messages` gives shell Back a Messages breadcrumb and returns through the existing owner-scoped conversation restoration; identifiers and route tokens are not added to the return URL. |
 | Native iOS | Resolves the actual person reference from the pathname instead of the static-export placeholder. Other platforms use the route prop. This remains a web/WebView component. |
 | Public identity | Memory-cached public identity paints immediately; a no-store read revalidates display name, photo, and optional verified role. Contact details and grants are not public profile fields. |
 | Loading/unavailable | Centered minimum `50vh` loading region: “Loading profile…” then “This profile is unavailable.” on failure; **Try again** retries the public read. |

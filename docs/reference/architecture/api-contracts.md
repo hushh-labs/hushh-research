@@ -2227,6 +2227,7 @@ connection ended.
 | --- | --- | --- |
 | POST | `/api/one/messages/route-token` | Mint with exactly one of `{conversationId, personRef}`, or restore with `{token}`. Firebase authenticated, participant checked on both mint and restore, and private/no-store. Returns `{token, kind, ref}`; business identifiers remain in memory and API bodies. |
 | GET | `/api/one/messages/conversations` | Participant-only inbox with latest decrypted message projection, timestamp, unread count, peer-safe profile projection, and `canSend`. |
+| DELETE | `/api/one/messages/conversations/{conversationId}` | Hide the entire chat for the authenticated participant using existing per-message deletion timestamps. Returns `{conversationId, deleted:true, scope:"me"}`; preserves the other participant's history and the connection. |
 | GET | `/api/one/messages/with/person/{personRef}` | Open the viewer's existing conversation with an opaque public person reference, or return a no-conversation draft state. Internal `/with/{userId}` compatibility remains Firebase-authenticated and is never exposed as a profile route. |
 | POST | `/api/one/messages` | Send `{recipientPersonRef|recipientUserId, content, replyToMessageId?, clientMessageId?}`. Optional UUID makes a retry return the original message without another Feed/push event. A reused ID with different normalized text, reply target, conversation or sender returns the same generic 409. Every replay rechecks the active connection and block gate. Creates the canonical pair conversation on first message; empty text, self-send, unconnected pair, and a block fail closed. | A reply must reference a message in the same participant conversation.
 | GET | `/api/one/messages/conversations/{conversationId}/messages?before=&limit=` | Participant-only chronological history page; `before` is an opaque message id and `limit` is bounded. |
@@ -2252,6 +2253,17 @@ including legacy read rows. Send acceptance and push hints do not establish
 recipient delivery. Inbox body previews and authenticated history can be
 acknowledged without marking them read; the existing visibility/read boundary
 remains separate.
+
+Whole-chat deletion requires confirmation from the inbox row menu on web or a
+stationary long press on phone. It serializes with sends on the conversation
+row: messages committed before deletion are hidden for the caller, while a new
+message after deletion starts visible history again. Empty hidden conversations
+are excluded before inbox pagination; unread counts, attachment access, reply,
+edit, reaction, send retry, and derived Feed previews respect the caller's
+deletion flags. Metadata-only `conversation_deleted` and `feed_changed`
+doorbells notify only that caller, and clients invalidate owner-scoped inbox and
+Feed reads before refreshing. No schema migration or new history store is
+introduced.
 
 The send route also accepts `attachment: {name, mimeType, data}` with canonical
 unpadded base64url bytes and a 5 MB bound. Voice notes use the existing encrypted

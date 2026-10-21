@@ -10,7 +10,7 @@ import uuid
 import wave
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event
 from types import SimpleNamespace
 
 import asyncpg
@@ -22,6 +22,145 @@ from sqlalchemy.exc import DBAPIError
 from db.migration_authority import MigrationMode, apply_manifest_entries, build_manifest_entries
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize("viewer,peer", [("alice", "bob"), ("bob", "alice")])
+def test_delete_chat_is_viewer_only_durable_and_new_messages_restore_it(
+    projection_db, monkeypatch, viewer, peer
+):
+    from hushh_mcp.services.direct_messages_service import DirectMessagesError
+    from hushh_mcp.services.feed_service import _GROUPED_FEED_COUNT_SQL, FeedService
+
+    _seed_people(projection_db)
+    events = []
+    service = _message_service(projection_db, monkeypatch, events=events)
+    ids = {name: str(uuid.uuid4()) for name in ("alice", "bob")}
+    first = service.send_message(
+        "alice",
+        recipient_user_id="bob",
+        content="Old Alice body",
+        client_message_id=ids["alice"],
+        attachment={
+            "name": "note.pdf",
+            "mimeType": "application/pdf",
+            "data": base64.urlsafe_b64encode(b"%PDF-1.4\nfixture").decode().rstrip("="),
+        },
+    )
+    second = service.send_message(
+        "bob", recipient_user_id="alice", content="Old Bob body", client_message_id=ids["bob"]
+    )
+    other = service.send_message(viewer, recipient_user_id="carol", content="Keep this other chat")
+    conversation = first["conversation"]["id"]
+    peer_before = service.list_messages(peer, conversation)["items"]
+    events.clear()
+    assert service.delete_conversation(viewer, conversation) == {
+        "conversationId": conversation,
+        "deleted": True,
+        "scope": "me",
+    }
+    assert events and {event[0] for event in events} == {viewer}
+    assert any(event[1].get("action") == "conversation_deleted" for event in events)
+    assert any(event[1]["type"] == "feed_changed" for event in events)
+    assert service.list_messages(viewer, conversation)["items"] == []
+    assert service.list_messages(peer, conversation)["items"] == peer_before
+    assert (
+        service.list_conversations(viewer, limit=1)["items"][0]["id"] == other["conversation"]["id"]
+    )
+    assert service.list_conversations(viewer)["unreadCount"] == 0
+    assert service.delete_conversation(viewer, conversation)["deleted"] is True
+    with pytest.raises(DirectMessagesError):
+        service.delete_conversation("outsider", conversation)
+    for operation in (
+        lambda: service.get_attachment(viewer, conversation, first["message"]["id"]),
+        lambda: service.edit_message(
+            viewer, conversation, first["message"]["id"], content="Changed"
+        ),
+        lambda: service.react_to_message(viewer, conversation, second["message"]["id"], emoji="👍"),
+        lambda: service.send_message(
+            viewer,
+            recipient_user_id=peer,
+            content="Reply",
+            reply_to_message_id=first["message"]["id"],
+        ),
+        lambda: service.send_message(
+            viewer,
+            recipient_user_id=peer,
+            content="Old Alice body" if viewer == "alice" else "Old Bob body",
+            client_message_id=ids[viewer],
+        ),
+    ):
+        with pytest.raises(DirectMessagesError):
+            operation()
+    # Feed uses source visibility before grouping/counting and before decrypting.
+    with projection_db.engine.begin() as connection:
+        connection.execute(text("ALTER TABLE feed_events ADD COLUMN dismissed_at timestamptz"))
+        connection.execute(text("ALTER TABLE actor_identity_cache ADD COLUMN email text"))
+        assert (
+            connection.execute(text(_GROUPED_FEED_COUNT_SQL), {"user_id": viewer}).scalar_one() == 0
+        )
+    feed = FeedService()
+    monkeypatch.setattr(feed, "_get_db", lambda: projection_db)
+    source = first if viewer == "bob" else second
+    enriched = feed._with_direct_message_previews(
+        viewer,
+        [
+            {
+                "source_domain": "connections",
+                "event_type": "direct_message_received",
+                "source_row_id": source["message"]["id"],
+            }
+        ],
+    )
+    assert "_direct_message_preview" not in enriched[0]
+    new = service.send_message(peer, recipient_user_id=viewer, content="A fresh message")
+    assert [item["content"] for item in service.list_messages(viewer, conversation)["items"]] == [
+        "A fresh message"
+    ]
+    assert service.list_messages(viewer, conversation, before=new["message"]["id"])["items"] == []
+    assert service.list_conversations(viewer)["items"][0]["id"] == conversation
+    with projection_db.engine.connect() as connection:
+        assert (
+            connection.execute(text(_GROUPED_FEED_COUNT_SQL), {"user_id": viewer}).scalar_one() == 1
+        )
+
+
+def test_send_ordered_after_chat_delete_remains_visible(projection_db, monkeypatch):
+    _seed_people(projection_db)
+    deleting = _message_service(projection_db, monkeypatch)
+    sending = _message_service(projection_db, monkeypatch)
+    first = sending.send_message("alice", recipient_user_id="bob", content="Before deletion")
+    locked, release, send_waiting = Event(), Event(), Event()
+    delete_execute, send_execute = deleting._execute_one, sending._execute_one
+
+    def delete_sql(sql, params=None):
+        if "WITH hidden AS" in sql:
+            locked.set()
+            assert release.wait(5)
+        return delete_execute(sql, params)
+
+    def send_sql(sql, params=None):
+        if "FOR UPDATE" in sql and "participant_a_user_id" in sql:
+            send_waiting.set()
+        return send_execute(sql, params)
+
+    monkeypatch.setattr(deleting, "_execute_one", delete_sql)
+    monkeypatch.setattr(sending, "_execute_one", send_sql)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        deleted = pool.submit(deleting.delete_conversation, "bob", first["conversation"]["id"])
+        try:
+            assert locked.wait(5)
+            sent = pool.submit(
+                sending.send_message, "alice", recipient_user_id="bob", content="After deletion"
+            )
+            assert send_waiting.wait(5)
+        finally:
+            release.set()
+        assert deleted.result(timeout=5)["deleted"] is True
+        sent.result(timeout=5)
+    assert [
+        item["content"]
+        for item in sending.list_messages("bob", first["conversation"]["id"])["items"]
+    ] == ["After deletion"]
 
 
 def test_delivery_is_recipient_scoped_atomic_and_monotonic(projection_db, monkeypatch):

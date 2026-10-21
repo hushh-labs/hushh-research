@@ -90,6 +90,8 @@ WITH keyed AS (
     (c.participant_a_user_id = m.sender_user_id AND c.participant_b_user_id = :user_id)
     OR (c.participant_b_user_id = m.sender_user_id AND c.participant_a_user_id = :user_id))
   WHERE f.user_id = :user_id
+    AND NOT (f.source_domain = 'connections' AND f.event_type = 'direct_message_received'
+      AND (m.deleted_for_recipient_at IS NOT NULL OR m.deleted_for_everyone_at IS NOT NULL))
     AND NOT (f.source_domain = 'pwm' AND f.event_type = 'pwm_research'
       AND COALESCE(f.metadata->>'pwm_outcome', '') NOT IN ('ready', 'partial'))
 ), bounded AS (
@@ -1117,13 +1119,15 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
                      AND feed.source_row_id = message.id::TEXT
                     LEFT JOIN public.actor_identity_cache AS identity
                       ON identity.user_id = message.sender_user_id
-                    WHERE (
+                    WHERE message.deleted_for_recipient_at IS NULL
+                      AND message.deleted_for_everyone_at IS NULL
+                      AND ((
                       conversation.participant_a_user_id = message.sender_user_id
                       AND conversation.participant_b_user_id = :viewer_user_id
                     ) OR (
                       conversation.participant_b_user_id = message.sender_user_id
                       AND conversation.participant_a_user_id = :viewer_user_id
-                    )
+                    ))
                     """,
                     {
                         "viewer_user_id": user_id,
