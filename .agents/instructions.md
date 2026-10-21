@@ -11,7 +11,7 @@ pointer or refines it; nothing overrides it except a rule that is genuinely more
 | Where | What lives there |
 |---|---|
 | `.agents/instructions.md` (loaded by root `AGENTS.md`) | The binding kernel — craft, architecture, routing, delegation, authority, and hard rules |
-| `.agents/skills/` | Canonical portable and governed **skills**; host discovery uses checked bridges |
+| `.agents/skills/` | Canonical portable and governed **skills**; host discovery uses checked relative links |
 | `.agents/subagents/` | Canonical authored **subagent** lanes (`*.toml`). `.claude/agents/*.md` is generated from these and verified byte-for-byte in CI |
 | `.agents/skills/`, `.agents/workflows/` | The governed **routing brain** — manifests with owned paths, required reads, verification bundles, risk tags |
 | `.agents/adapters/`, `.agents/evals/`, `.agents/imports/` | Native settings/projections, routing cases, and pinned third-party resources; host entrypoints are checked relative links |

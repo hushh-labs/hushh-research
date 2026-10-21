@@ -140,9 +140,9 @@ reference, the registry included, and any consent card element that paints a
 background behind a sole glyph.
 
 Codex discovers this portable skill through `.agents/skills/hushh-icon-theme/`;
-Claude uses `.claude/skills/hushh-icon-theme/`. Both bridges copy only this
-frontmatter and point here. Governed owner skills remain in `.agents/skills/`;
-host-specific adapters are not a second copy of portable behavior.
+Claude's `.claude/skills/hushh-icon-theme/` is a checked relative directory link
+to that source. Governed owner skills also remain in `.agents/skills/`;
+host adapters contain no copied skill or second behavioral policy.
 
 ### UI Replacement Index
 

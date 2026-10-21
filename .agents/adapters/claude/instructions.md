@@ -1,8 +1,8 @@
 # CLAUDE.md — hushh-research (🤫 One / consent-protocol)
 
 Host context for **Claude Code** sessions in this repo. Read `AGENTS.md` first
-(the shared operating contract), then this adapter, and route deeper work through the
-**codex-bridge** skill (it reads `.agents/` at call time).
+(the shared operating contract), then this adapter. Native skill discovery links
+read `.agents/` directly; **codex-bridge** provides the existing workflow CLI entrypoint.
 
 ## What this repo is
 
@@ -20,7 +20,8 @@ separate repo, `hushh-search-console`.)
   `.github/workflows/` (deploy lanes).
 - **Docs** — `docs/reference/**` (architecture + operations runbooks), `docs/future/**`.
 - **Agent guidance** — `.agents/skills/` practices and governed skills, `.agents/workflows/`,
-  and `.agents/subagents/` authored engineering lanes, surfaced via **codex-bridge**.
+  and `.agents/subagents/` authored engineering lanes. Native discovery links and
+  generated Claude projections expose these sources; **codex-bridge** routes workflows.
 
 ## Operating contract
 
