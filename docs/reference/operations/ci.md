@@ -97,6 +97,24 @@ supported app/backend compatibility remains a release requirement. The shared
 GitHub-hosted runner limit can still cause scheduling delays; separate locks do
 not reserve runner capacity.
 
+Automatic release admission gives UAT precedence: queued, requested, pending,
+waiting or running UAT workflows defer new releases in the ledger. The observer
+exits immediately instead of sleeping on a runner, then retries on every terminal
+UAT result (including failure/cancellation), release completion or the hourly
+fallback. Failed UAT runs never advance the counter. Only one automatic release
+bundle is admitted at a time: either TestFlight, or production deploy plus its
+parallel App Store archive. Existing recorded starts keep a continuous stream of
+production candidates from starving TestFlight. The two production dispatches each recheck UAT;
+an intervening UAT request leaves a recoverable half-pair, without redispatching
+production. Active deployments, uploads and Apple processing finish normally.
+Manual release dispatches retain their existing operator contract.
+
+This is best-effort priority, not a runner reservation. The admission snapshot
+can race a new UAT request, an already admitted release may still occupy a slot,
+and other repositories share the organization quota. GitHub's standard hosted
+pool has no workflow priority or preemption setting; strict isolation requires
+dedicated UAT runner capacity.
+
 Accounting persists in the state-only `automation/release-cadence-state` branch.
 Fast-forward-only updates reject concurrent writers. A tiny immutable
 `release-cadence-authority` artifact certifies the ledger commit and state hash

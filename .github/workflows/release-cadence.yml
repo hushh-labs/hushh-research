@@ -33,7 +33,8 @@ concurrency:
 
 jobs:
   reconcile:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.path != '.github/workflows/deploy-uat.yml'
+    # Every terminal UAT result wakes deferred releases; only healthy successes
+    # advance the counter in the controller.
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.recover_checkpoint_sha && 60 || 10 }}
     env:

@@ -369,6 +369,27 @@ def reconcile_children(ledger: Ledger, trigger_run_id: int | None = None) -> Non
     ledger.save()
 
 
+def uat_busy(repository: str) -> bool:
+    # Query each nonterminal status, not a recent unfiltered page: an older
+    # queued deployment still has priority over a new release. These queries
+    # observe this repository, not the organization's shared runner quota.
+    for status in ("requested", "queued", "pending", "waiting", "in_progress"):
+        result = api(f"repos/{repository}/actions/workflows/deploy-uat.yml/runs?status={status}&per_page=1")
+        require(isinstance(result, dict) and type(result.get("total_count")) is int
+                and result["total_count"] >= 0, "Cannot establish UAT release admission")
+        if result["total_count"]:
+            return True
+    return False
+
+
+def defer_release(message: str) -> None:
+    summary = f"Release admission deferred: {message}. Pending work stays in the ledger; no runner waits.\n"
+    print(summary, end="")
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as handle:
+            handle.write(summary)
+
+
 def dispatch_pending(ledger: Ledger) -> None:
     from datetime import datetime, timezone
     requests = ledger.state["requests"]
@@ -381,12 +402,31 @@ def dispatch_pending(ledger: Ledger) -> None:
             elif child["retry_after"] <= datetime.now(timezone.utc).isoformat():
                 child.setdefault("deferred_runs", []).append(child.pop("run_id"))
                 child["state"] = "pending"
-    ledger.save()
     # Coalesce only work that has never started. An active production deploy
     # and its app remain a unit; a newer UAT release never cancels either.
+    groups = (("deploy", "appstore"), ("testflight",))
+    for lanes in groups:
+        pending = sorted((ordinal for ordinal, request in requests.items()
+                          if lanes[0] in request["lanes"] and request["lanes"][lanes[0]]["state"] == "pending"), key=int)
+        for ordinal in pending[:-1]:
+            for lane in lanes:
+                requests[ordinal]["lanes"][lane]["state"] = "superseded"
+    ledger.save()
+
+    active = {(ordinal, "production" if lane in {"deploy", "appstore"} else lane)
+              for ordinal, request in requests.items() for lane, child in request["lanes"].items()
+              if child["state"] in {"running", "dispatching"}}
+
+    def admit() -> bool:
+        if uat_busy(ledger.repository):
+            defer_release("UAT is queued or running")
+            return False
+        return True
+
     # Recover the second half even if the controller stopped immediately after
-    # recording the production deployment. Never strand its pending app build.
-    for ordinal, request in requests.items():
+    # recording the production deployment. It yields to UAT and other active
+    # bundles without losing the exact production run or redeploying it.
+    for ordinal, request in sorted(requests.items(), key=lambda item: int(item[0])):
         children = request["lanes"]
         if ("deploy" in children and children["deploy"].get("run_id") and
                 children["appstore"]["state"] == "pending"):
@@ -394,24 +434,39 @@ def dispatch_pending(ledger: Ledger) -> None:
                 children["appstore"]["state"] = "blocked"
                 ledger.save()
             else:
+                if active - {(ordinal, "production")}:
+                    defer_release("another release bundle is active")
+                    return
+                if not admit():
+                    return
                 dispatch_child(ledger, ordinal, request, "appstore")
-    for lanes in (("deploy", "appstore"), ("testflight",)):
-        busy = any(child["state"] in {"running", "dispatching"}
-                   for request in requests.values() for lane, child in request["lanes"].items() if lane in lanes)
+                return
+    if active:
+        if any(child["state"] == "pending" for request in requests.values() for child in request["lanes"].values()):
+            defer_release("another release bundle is active")
+        return
+    # A production deployment plus its archive is one bundle and remains
+    # parallel. TestFlight waits for that bundle to finish, outside Actions.
+    # Recorded starts keep continuous production milestones from starving
+    # TestFlight, without adding scheduling state to the certified ledger.
+    last_started = {lane: max((int(ordinal) for ordinal, request in requests.items()
+                              if request["lanes"].get(lane, {}).get("run_id")), default=0)
+                    for lane in ("deploy", "testflight")}
+    if last_started["deploy"] > last_started["testflight"]:
+        groups = tuple(reversed(groups))
+    for lanes in groups:
         pending = [(ordinal, request) for ordinal, request in requests.items()
                    if lanes[0] in request["lanes"] and request["lanes"][lanes[0]]["state"] == "pending"]
         if not pending:
             continue
-        pending.sort(key=lambda pair: int(pair[0]))
-        for _, old in pending[:-1]:
-            for lane in lanes:
-                old["lanes"][lane]["state"] = "superseded"
-        ledger.save()
-        if busy:
-            continue
-        ordinal, request = pending[-1]
+        ordinal, request = max(pending, key=lambda pair: int(pair[0]))
         for lane in lanes:
+            # UAT can arrive between the two dispatches. Persist the half-pair
+            # and resume later rather than posting another competing workflow.
+            if not admit():
+                return
             dispatch_child(ledger, ordinal, request, lane)
+        return
 
 
 def dispatch_child(ledger: Ledger, ordinal: str, request: dict, lane: str) -> None:
