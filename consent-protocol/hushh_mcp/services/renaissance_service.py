@@ -123,6 +123,7 @@ class RenaissanceService:
                         "tier": stock.tier,
                         "tier_rank": stock.tier_rank,
                         "fcf_billions": stock.fcf_billions,
+                        "fcf_year": 2024,
                         "investment_thesis": stock.investment_thesis,
                     },
                 )
@@ -343,9 +344,9 @@ class RenaissanceService:
                     "why_avoid": row.get("why_avoid"),
                     "source": row.get("source"),
                 }
-        except Exception:
-            # Table may not exist yet (before migration 010), or query may fail.
-            pass
+        except Exception as exc:
+            logger.error("renaissance_avoid_lookup_unavailable")
+            raise RuntimeError("Renaissance avoid screening unavailable") from exc
 
         return {
             "is_avoid": False,
@@ -436,9 +437,10 @@ class RenaissanceService:
         avoid_ctx = await self.get_avoid_context(ticker)
         screening_ctx = await self.get_screening_context()
 
-        if not is_inv:
+        if not is_inv or avoid_ctx.get("is_avoid"):
             return {
                 "is_investable": False,
+                "curation_conflict": bool(is_inv and avoid_ctx.get("is_avoid")),
                 "tier": None,
                 "tier_description": "Not in Renaissance investable universe",
                 "conviction_weight": 0.0,
@@ -488,6 +490,7 @@ class RenaissanceService:
             "conviction_weight": TIER_WEIGHTS.get(stock.tier, 0.5),
             "investment_thesis": stock.investment_thesis,
             "fcf_billions": stock.fcf_billions,
+            "fcf_year": 2024,
             "sector": stock.sector,
             "sector_peers": sector_peers,
             "recommendation_bias": bias_map.get(stock.tier, "NEUTRAL"),
