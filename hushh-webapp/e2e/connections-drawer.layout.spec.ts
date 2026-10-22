@@ -1072,7 +1072,7 @@ for (const width of [320, 390, 1440])
 
     const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
     const scrollRegion = dialog.locator('[data-history-connectors-scroll]');
-    await expect(dialog.getByRole("banner").getByRole("heading", { name: "Connectors", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("banner").getByRole("heading", { name: "One access", exact: true })).toBeVisible();
     await expect.poll(() => scrollRegion.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
 
     const plaid = dialog.getByTestId("profile-connector-row-plaid").getByRole("button").first();
