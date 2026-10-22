@@ -1679,9 +1679,10 @@ async def fetch_peer_data(
 async def _fetch_through_market_port(request, *, cached: bool = False):
     from hushh_mcp.services.legacy_market_data_adapter import LegacyMarketDataAdapter
     from hushh_mcp.services.market_data_provider import get_bound_market_data_provider
+    from hushh_mcp.services.market_refresh_policy import PRICE_MARKET_OPERATIONS
 
     provider = get_bound_market_data_provider() or LegacyMarketDataAdapter()
-    if cached and provider.name != "fixture":
+    if (cached or request.operation in PRICE_MARKET_OPERATIONS) and provider.name != "fixture":
         from hushh_mcp.services.market_provider_cache import cached_market_provider_read
 
         identity = provider.name

@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import logging
 import time
+from contextlib import nullcontext
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 from hushh_mcp.services.market_cache_store import get_market_cache_store_service
 from hushh_mcp.services.market_data_provider import MarketDataRequest
 from hushh_mcp.services.market_insights_cache import market_insights_cache
 from hushh_mcp.services.market_refresh_policy import (
+    PRICE_MARKET_OPERATIONS,
+    MarketPriceRefreshPaused,
+    closed_price_snapshot_usable,
+    market_price_refresh_scope,
+    price_cache_retention_seconds,
     provider_quote_cache_ttl_seconds,
+    us_market_is_open,
     us_market_session_opened_at,
 )
 
@@ -29,7 +37,7 @@ async def cached_market_provider_read(
         f"{','.join(request.symbols)}:{request.days_back}:{request.exchange}:"
         f"{int(request.allow_slow_fallbacks)}"
     )
-    price_sensitive = request.operation in {"quote", "quotes", "intraday", "session_history"}
+    price_sensitive = request.operation in PRICE_MARKET_OPERATIONS and request.exchange == "US"
     fresh = provider_quote_cache_ttl_seconds(600) if price_sensitive else 21_600
     if request.operation == "news":
         fresh = 900
@@ -57,8 +65,17 @@ async def cached_public_information(
     session_sensitive: bool = False,
 ) -> Any:
     now = time.time()
+    moment = datetime.fromtimestamp(now, tz=timezone.utc)
+    closed = session_sensitive and not us_market_is_open(moment)
+    if session_sensitive:
+        stale = price_cache_retention_seconds(stale, moment)
     l1 = market_insights_cache.peek(key)
-    if l1 and now - l1.fetched_at <= fresh and (fence is None or l1.fetched_at >= fence):
+    if (
+        not closed
+        and l1
+        and now - l1.fetched_at <= fresh
+        and (fence is None or l1.fetched_at >= fence)
+    ):
         return l1.value
 
     store = get_market_cache_store_service()
@@ -66,19 +83,33 @@ async def cached_public_information(
         entry = await store.get_entry(key)
         if (
             entry
-            and entry.is_stale_servable(now)
+            and (
+                entry.is_stale_servable(now)
+                or (closed and closed_price_snapshot_usable(entry.updated_at_ts, moment))
+            )
             and (l1 is None or entry.updated_at_ts > l1.fetched_at)
         ):
             market_insights_cache.seed_entry(key, entry.payload, entry.updated_at_ts)
     except Exception:
         logger.warning("market_provider_cache_read_failed operation=%s", key)
 
+    if closed:
+        saved = market_insights_cache.peek(key)
+        if saved and closed_price_snapshot_usable(saved.fetched_at, moment):
+            value = saved.value
+            if isinstance(value, dict) and "price" in value:
+                return {**value, "is_stale": True, "stale_reason": "market_closed"}
+            return value
+        raise MarketPriceRefreshPaused("market_closed_no_cached_price")
+
     async def refresh() -> Any:
         requested_at = time.time()
-        value = await fetcher()
+        with market_price_refresh_scope() if session_sensitive else nullcontext():
+            value = await fetcher()
         opening = us_market_session_opened_at() if session_sensitive else None
         if opening is not None and requested_at < opening:
-            value = await fetcher()
+            with market_price_refresh_scope():
+                value = await fetcher()
         try:
             await store.set_entry(
                 cache_key=key,

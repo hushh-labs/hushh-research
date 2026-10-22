@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 import pytest
 
 from hushh_mcp.services.market_refresh_policy import (
+    closed_price_snapshot_usable,
+    price_cache_retention_seconds,
     provider_quote_cache_ttl_seconds,
     seconds_until_us_market_open,
     us_market_session_opened_at,
@@ -60,3 +62,22 @@ def test_closed_warmer_wakes_at_next_opening(instant, opening):
         seconds_until_us_market_open(now)
         == datetime.fromisoformat(opening).timestamp() - now.timestamp()
     )
+
+
+@pytest.mark.parametrize(
+    ("saved", "opening"),
+    [
+        ("2026-07-17T19:59:00+00:00", "2026-07-20T13:30:00+00:00"),
+        ("2026-11-25T20:59:00+00:00", "2026-11-27T14:30:00+00:00"),
+        ("2026-11-27T17:59:00+00:00", "2026-11-30T14:30:00+00:00"),
+    ],
+)
+def test_price_retention_survives_weekends_holidays_and_early_closes(saved, opening):
+    saved_at, opens_at = datetime.fromisoformat(saved), datetime.fromisoformat(opening)
+    assert (
+        saved_at.timestamp() + price_cache_retention_seconds(1800, saved_at)
+        >= opens_at.timestamp() + 120
+    )
+    before_open = datetime.fromtimestamp(opens_at.timestamp() - 1, tz=timezone.utc)
+    assert closed_price_snapshot_usable(saved_at.timestamp(), before_open)
+    assert not closed_price_snapshot_usable(saved_at.timestamp() - 7 * 86400, before_open)

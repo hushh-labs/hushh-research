@@ -93,8 +93,10 @@ async def test_provider_request_spanning_open_is_not_cached_as_current_session(m
     monkeypatch.setattr(fetchers, "_fetch_finnhub_quote", quote)
     monkeypatch.setattr(fetchers, "_fetch_yahoo_quotes", quotes)
     if mode == "single":
-        await fetchers.fetch_market_data("AAPL", "public", allow_slow_fallbacks=False)
+        # Exercise the existing inner cache fence independently of the new
+        # public closed-session gate, which now refuses pre-open refreshes.
+        await fetchers._legacy_fetch_market_data("AAPL", "public", allow_slow_fallbacks=False)
     else:
-        await fetchers.fetch_market_data_batch(["AAPL"], "public")
+        await fetchers._legacy_fetch_market_data_batch(["AAPL"], "public")
     key = fetchers._market_data_cache_key("AAPL", finnhub_enabled=True, pmp_enabled=False)
     assert fetchers._get_cached_market_data(key) is None

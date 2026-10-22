@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from datetime import datetime
 from types import SimpleNamespace
 
 import httpx
@@ -94,6 +96,156 @@ def isolated_public_provider_cache(monkeypatch):
 
     monkeypatch.setattr(market_provider_cache, "market_insights_cache", MarketInsightsCache())
     monkeypatch.setattr(market_provider_cache, "get_market_cache_store_service", OfflineStore)
+    opened_at = datetime.fromisoformat("2026-07-14T14:00:00+00:00").timestamp()
+    monkeypatch.setattr(fetchers.time, "time", lambda: opened_at)
+    monkeypatch.setattr(fetchers, "_MARKET_DATA_CACHE", {})
+    monkeypatch.setattr(fetchers, "_MARKET_DATA_LOCKS", {})
+
+
+async def test_closed_price_port_retains_friday_quote_and_revalidates_monday(monkeypatch):
+    from hushh_mcp.services.market_data_provider import bind_market_data_provider
+
+    now = [datetime.fromisoformat("2026-07-17T19:59:00+00:00").timestamp()]
+    monkeypatch.setattr(fetchers.time, "time", lambda: now[0])
+
+    class RecordedProvider:
+        name = "recorded"
+        calls = 0
+
+        async def fetch(self, _request):
+            self.calls += 1
+            return {
+                "ticker": "AAPL",
+                "price": 100 + self.calls,
+                "quoted_at": "2026-07-17T19:45:00Z",
+            }
+
+    provider = RecordedProvider()
+    with bind_market_data_provider(provider):
+        assert (await fetchers.fetch_market_data("AAPL", "public"))["price"] == 101
+        now[0] = datetime.fromisoformat("2026-07-19T16:00:00+00:00").timestamp()
+        saved = await fetchers.fetch_market_data("AAPL", "public")
+        assert saved["price"] == 101 and saved["is_stale"] is True
+        assert saved["quoted_at"] == "2026-07-17T19:45:00Z"
+        assert provider.calls == 1
+        now[0] = datetime.fromisoformat("2026-07-20T13:30:00+00:00").timestamp()
+        assert (await fetchers.fetch_market_data("AAPL", "public"))["price"] == 102
+    assert provider.calls == 2
+
+
+@pytest.mark.parametrize(
+    "operation", ["quote", "quotes", "intraday", "movers", "sector_rotation", "session_history"]
+)
+async def test_closed_price_dispatchers_refuse_cold_reads_without_blocking_news(
+    monkeypatch, operation
+):
+    from hushh_mcp.services.market_data_provider import (
+        MarketDataRequest,
+        bind_market_data_provider,
+        fetch_with_market_provider,
+    )
+    from hushh_mcp.services.market_refresh_policy import MarketPriceRefreshPaused
+
+    now = datetime.fromisoformat("2026-07-19T16:00:00+00:00").timestamp()
+    monkeypatch.setattr(fetchers.time, "time", lambda: now)
+    calls = []
+
+    class RecordedProvider:
+        name = "recorded"
+
+        async def fetch(self, request):
+            calls.append(request.operation)
+            return []
+
+    async def forbidden():
+        calls.append("legacy")
+
+    with bind_market_data_provider(RecordedProvider()):
+        request = MarketDataRequest(operation, ("AAPL",))
+        with pytest.raises(MarketPriceRefreshPaused):
+            await fetchers._fetch_through_market_port(request)
+        with pytest.raises(MarketPriceRefreshPaused):
+            await fetch_with_market_provider(request, forbidden)
+        assert calls == []
+        await fetchers.fetch_market_news("AAPL", "public")
+        await fetchers.fetch_market_company_facts("AAPL")
+    assert calls == ["news", "ratios"]
+
+
+@pytest.mark.parametrize("provider", ["finnhub", "pmp"])
+async def test_quote_profile_chain_stops_before_second_send_at_close(monkeypatch, provider):
+    from hushh_mcp.services.market_refresh_policy import (
+        MarketPriceRefreshPaused,
+        market_price_refresh_scope,
+    )
+
+    now = [datetime.fromisoformat("2026-07-17T19:59:59+00:00").timestamp()]
+    closing = now[0] + 1
+    monkeypatch.setattr(fetchers.time, "time", lambda: now[0])
+    monkeypatch.setenv("FINNHUB_API_KEY", "fixture")
+    monkeypatch.setenv("PMP_API_KEY", "fixture")
+    monkeypatch.setattr(fetchers, "_provider_in_cooldown", lambda *_: False)
+    real_client = httpx.AsyncClient
+    sent = []
+
+    def reply(request):
+        sent.append(request.url.path)
+        now[0] = closing
+        payload = {"c": 100, "dp": 1} if provider == "finnhub" else [{"price": 100}]
+        return httpx.Response(200, request=request, json=payload)
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: real_client(transport=httpx.MockTransport(reply), **kwargs),
+    )
+    with pytest.raises(MarketPriceRefreshPaused), market_price_refresh_scope():
+        await (
+            fetchers._fetch_finnhub_quote("AAPL")
+            if provider == "finnhub"
+            else fetchers._fetch_pmp_quote("AAPL")
+        )
+    assert len(sent) == 1 and sent[0].endswith("/quote")
+
+
+async def test_yfinance_thread_cannot_send_after_its_parent_scope_finishes(monkeypatch):
+    import threading
+
+    from curl_cffi.requests import Session
+
+    from hushh_mcp.services.market_provider_telemetry import yahoo_counted_session
+    from hushh_mcp.services.market_refresh_policy import (
+        MarketPriceRefreshPaused,
+        market_price_refresh_scope,
+    )
+
+    now = [datetime.fromisoformat("2026-07-17T19:59:59+00:00").timestamp()]
+    monkeypatch.setattr(fetchers.time, "time", lambda: now[0])
+    sent, first, resume = [], threading.Event(), threading.Event()
+    monkeypatch.setattr(Session, "request", lambda *_args, **_kwargs: sent.append(True))
+    yahoo_counted_session.cache_clear()
+    session = yahoo_counted_session()
+
+    def worker():
+        session.request("GET", "https://query1.finance.yahoo.com/fixture")
+        first.set()
+        if not resume.wait(5):
+            raise AssertionError("worker was not resumed")
+        session.request("GET", "https://query1.finance.yahoo.com/fixture")
+
+    try:
+        with market_price_refresh_scope():
+            task = asyncio.create_task(asyncio.to_thread(worker))
+            assert await asyncio.to_thread(first.wait, 5)
+        now[0] += 1
+        resume.set()
+        with pytest.raises(MarketPriceRefreshPaused):
+            await task
+        assert sent == [True]
+    finally:
+        resume.set()
+        session.close()
+        yahoo_counted_session.cache_clear()
 
 
 @pytest.mark.asyncio

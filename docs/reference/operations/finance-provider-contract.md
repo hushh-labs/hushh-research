@@ -108,6 +108,37 @@ remain unverified. All pushes remain on hold.
 The full repository core/CI sweep is not completed by these scoped checks and
 remains required before any future push.
 
+## Closed-session prices (2026-10-22, local)
+
+US price requests now run only during the offline XNYS regular session. Quotes,
+indices, movers, sectors and price history share this rule across Market,
+analysis and public quote callers. News, SEC filings and company facts keep
+their existing refresh behavior. This pauses outbound price-provider requests;
+authenticated application reads, cache/database reads and analysis model calls
+are not disabled.
+
+During closure, retained snapshots from the last completed session are served
+with their original quote times. L2 retention extends through the next regular
+opening, including weekends, holidays and early closes; retention does not make
+old quotes fresh. A closed cold miss returns unavailable without provider
+fallback. Existing opening fences revalidate prices when regular trading resumes.
+The price warmer sleeps until that opening; displayed closed status uses the
+offline calendar instead of fetching a provider status.
+
+The shared price scope checks before each HTTP/yfinance send and after a refresh
+finishes. Already-sent requests may finish, but a partial refresh that crosses
+closing cannot overwrite the previous complete snapshot. News and filings run
+outside that scope. A missing stock-preview quote time is displayed as
+unavailable rather than replaced with the current time.
+
+Focused offline tests pass 135 cases. Six negative controls reproduce the old
+closed-session calls, extra quote/profile send and partial-snapshot overwrite by
+loading committed code only inside the test process. No live provider call,
+shared-database change, deployment or push was used for this verification.
+Typecheck, scoped lint, all 490 navigation tests and Back/Search UI contracts
+pass. The existing local backend returns HTTP 200 from its health endpoint;
+authenticated browser behavior and the deployed UAT revision remain unverified.
+
 ## Curated reference maintenance
 
 The seed replaces MMC with MRSH (January 14, 2026) and FI with FISV
