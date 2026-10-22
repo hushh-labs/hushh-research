@@ -101,7 +101,7 @@ installation remain separate; Azure has completed its approval, while GCP has no
 ### Current local implementation
 
 The MVP landed as `d69c23ce45`. The local correction candidate also includes fresh
-main `383afbf8a2`, including its Puppy, Messages, first-use, Memory and Drive work, and the reconciled ADK lineage without blanket file replacement. The completed MVP core recorded 24,519 backend/DB passes and 138 skips;
+main `5c4a79a64f`, including its Puppy, Messages, first-use, Memory, Drive and streaming work, and the reconciled ADK lineage without blanket file replacement. The completed MVP core recorded 24,519 backend/DB passes and 138 skips;
 frontend build, package and integration passed. Two hosted test-fixture corrections
 preserve runtime behavior and their original failure receipts. The final reviewed
 head `7e295ba408` passed all 26 checks before its main merge.
@@ -111,9 +111,11 @@ README identity and makes `.agents` the sole authored home: 67 canonical skills,
 19 engineering lanes and one necessary host bridge. Its core recorded 24,519
 backend/DB passes and 138 skips; the web build passed with CI's synthetic
 configuration after rejecting a mismatched local credential. MCP and integration
-passed. The prior correction head `44716a4fb1` passed all 26 hosted checks. Fresh main integration and the protected security-worker bootstrap require new affected checks and exact-SHA hosted CI.
+passed. The prior correction head `44716a4fb1` passed all 26 hosted checks. The protected-worker bootstrap core passed in 25m52s at `e3893e8b20`, including a clean web build. Later main integration and the import-only UAT repair have focused checks; exact-SHA hosted CI is still required.
 Dependency audits retain the
 unpatched development-tool family without suppression. The replacement protected `ci-security` credential is provisioned. Main-owned authority is staged; live worker qualification, receipt-consumer cutover and old repository-token retirement remain separate required steps.
+
+The existing UAT failure was reproduced without keys or network: registry tooling imported runtime authentication through OAuth constants. The repair moves unchanged constants to one import-safe owner, preserving runtime placement checks and migration/database fences. Its 340 focused contracts pass; live UAT remains unverified.
 
 The Browser repair joins initialization before takeover acknowledgement and
 publishes viewport epochs. Its negative controls and terminal cleanup are covered;

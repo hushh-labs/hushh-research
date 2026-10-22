@@ -5,6 +5,9 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -536,3 +539,30 @@ def test_prod_cli_redacts_environment_errors(monkeypatch, capsys):
         "code": "drive_registry_unavailable",
     }
     assert marker not in captured.out + captured.err
+
+
+def test_registry_import_needs_no_runtime_keys_or_network() -> None:
+    """Deployment registry maintenance must not import runtime credential authority."""
+    program = """
+import socket
+
+def refuse(*args, **kwargs):
+    raise AssertionError('network access is forbidden during registry imports')
+socket.socket.connect = refuse
+from hushh_mcp.services.drive_uat_registry_provisioning import assert_google_drive_uat_registry_target
+from hushh_mcp.services.drive_prod_registry_provisioning import assert_google_drive_prod_registry_target
+assert_google_drive_uat_registry_target(environment={
+    'HUSSH_RELEASE_ENVIRONMENT': 'uat',
+    'GCP_PROJECT_ID': 'hushh-pda-uat',
+    'CLOUDSQL_INSTANCE_CONNECTION_NAME': 'hushh-pda-uat:us-central1:hushh-uat-pg',
+})
+"""
+    result = subprocess.run(  # noqa: S603 - fixed interpreter and repository-owned probe
+        [sys.executable, "-B", "-c", program],
+        cwd=ROOT,
+        env={"PATH": os.environ.get("PATH", ""), "PYTHON_DOTENV_DISABLED": "1"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, "registry import requires runtime credentials or network"
