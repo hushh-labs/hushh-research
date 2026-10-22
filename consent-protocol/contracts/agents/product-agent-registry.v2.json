@@ -113,7 +113,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "23687bb235bc5dde64aad6cca05770cb8f45efa660a3a8f57b7ea31222ad9bc9",
+      "system_instruction_sha256": "f347aba7601a39ab2b1f5111de770c4933a1fe67ad698f019148b2c928f285e7",
       "telemetry_namespace": "agent.calendar",
       "tools": [
         {

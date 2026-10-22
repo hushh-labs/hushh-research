@@ -524,7 +524,14 @@ async def propose_calendar_event(
     location: str | None = None,
     send_updates: bool = True,
 ) -> dict[str, Any]:
-    """Prepare a meeting for review. It is not created until the owner confirms."""
+    """Prepare a meeting for review. It is not created until the owner confirms.
+
+    Preserve a title and description supplied by the owner. Otherwise, write
+    for every guest who will see the Calendar invitation: use a neutral topic
+    or "Meeting with <verified inviter name>" (not the guest's own name), and
+    briefly identify the inviter, date, time range, and timezone in the
+    description. If the inviter's name is unavailable, do not guess one.
+    """
     return await _propose(
         action="create",
         payload={
