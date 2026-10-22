@@ -807,9 +807,9 @@ class DebateEngine:
                 "- Screening Criteria:\n" + screening_excerpt if screening_excerpt else ""
             )
             ren_context_str = f"""
-        RENAISSANCE DATA (THE MATHEMATICAL TRUTH):
+        RENAISSANCE CURATED REFERENCE (dated screening inputs; verify against current filings):
         - Tier: {tier} (ACE/KING = Strong Buy, QUEEN/JACK = Watch/Hold)
-        - Free Cash Flow (Billions): {fcf}
+        - Free Cash Flow (USD billions; year {self.renaissance_context.get("fcf_year", "unavailable")}): {fcf}
         - Thesis: {thesis}
         {screening_line}
         {advisor_thesis_block}
