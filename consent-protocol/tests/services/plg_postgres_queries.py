@@ -19,7 +19,6 @@ from sqlalchemy.engine import make_url
 from hushh_mcp.services import plg_outcomes as outcomes
 from hushh_mcp.services.pkm_mutation_contracts import derive_pkm_mutation_commit_id
 
-pytestmark = pytest.mark.db
 ROOT = Path(__file__).resolve().parents[2]
 INDEX = "idx_pkm_events_plg_memory_revision"
 
@@ -28,7 +27,7 @@ def _sql(name):
     return (ROOT / "db/migrations" / name).read_text(encoding="utf-8")
 
 
-def test_skewed_memory_page_and_index_recovery():
+def _assert_memory_revision_lookup():
     configured = os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
     if not configured:
         pytest.skip("Canonical disposable PostgreSQL administrator URL is required")
@@ -263,3 +262,67 @@ def _visited(plan):
         [plan.get("Actual Rows", 0) + plan.get("Rows Removed by Filter", 0)]
         + [_visited(child) for child in plan.get("Plans", [])]
     )
+
+
+def assert_query_regressions(url):
+    """Existing PLG lifecycle case owns batching and isolated skew/index proofs."""
+    asyncio.run(_assert_batched_outcomes(url))
+    _assert_memory_revision_lookup()
+
+
+async def _assert_batched_outcomes(url):
+    import asyncpg
+
+    conn = await asyncpg.connect(
+        url.set(drivername="postgresql").render_as_string(hide_password=False)
+    )
+    now = datetime.now(timezone.utc) + timedelta(seconds=1)
+    since = now - timedelta(days=7)
+    owners = ["owner", "other", *[f"empty-page-owner-{n}" for n in range(23)]]
+    try:
+        expected = {
+            uid: await outcomes.value_summary(conn, uid, "agent_one", since, now)
+            for uid in owners[:2]
+        }
+        queries = []
+
+        class PageConnection:
+            async def fetch(self, query, *args, **kwargs):
+                assert args[0] == owners
+                queries.append(query)
+                return await conn.fetch(query, *args, **kwargs)
+
+        actual = await outcomes.value_summaries(PageConnection(), owners, "agent_one", since, now)
+        assert len(queries) == 11
+        assert actual["owner"] == expected["owner"] and expected["owner"]["count"] > 0
+        assert actual["other"] == expected["other"]
+        assert all(actual[uid]["count"] == 0 for uid in owners[2:])
+        # The SQL limit belongs to each owner, never to the flattened page.
+        owners = ["dense-owner' OR 1=1 --", *[f"dense-page-owner-{n}" for n in range(24)]]
+        await conn.executemany(
+            "INSERT INTO actor_profiles(user_id) VALUES($1)", [(uid,) for uid in owners]
+        )
+        await conn.executemany(
+            "INSERT INTO vault_keys(user_id) VALUES($1)", [(uid,) for uid in owners]
+        )
+        await conn.execute(
+            """WITH effects AS (
+              SELECT uid,uid||':'||n AS id,n FROM unnest($1::text[]) owners(uid)
+              CROSS JOIN generate_series(1,1002) numbers(n)
+            ) INSERT INTO gmail_owner_send_actions
+              (action_id,user_id,envelope_hmac,idempotency_hmac,recipient_count,state,expires_at,sent_at,gmail_message_id)
+              SELECT id,uid,repeat('a',64),md5(id)||md5(id),1,'sent',
+                $2::timestamptz+INTERVAL '1 day',$2::timestamptz-n*INTERVAL '1 second','provider-'||id
+              FROM effects""",
+            owners,
+            now,
+        )
+        queries.clear()
+        dense = await outcomes.value_summaries(PageConnection(), owners, "agent_email", since, now)
+        assert len(queries) == 1
+        assert all(row["count"] == 1000 and row["limited"] for row in dense.values())
+        assert all(
+            row["lastAt"] == (now - timedelta(seconds=1)).isoformat() for row in dense.values()
+        )
+    finally:
+        await conn.close()
