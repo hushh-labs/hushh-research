@@ -92,7 +92,12 @@ class ValuationAgent(HushhAgent):
 
         try:
             market_data = await fetch_market_data(ticker, user_id, consent_token)
-            peer_data = await fetch_peer_data(ticker, user_id, consent_token)
+            peer_data = (
+                await fetch_peer_data(ticker, user_id, consent_token)
+                if isinstance(market_data.get("pe_ratio"), (int, float))
+                and market_data["pe_ratio"] > 0
+                else []
+            )
         except PermissionError as e:
             logger.error(f"[Valuation] Market data access denied: {e}")
             raise

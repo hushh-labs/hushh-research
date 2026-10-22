@@ -688,7 +688,15 @@ def _scheduled_market_status_fallback(exchange: str = DEFAULT_EXCHANGE) -> dict[
         open_minutes = int(schedule["open"])
         close_minutes = int(schedule["close"])
 
-        if weekday >= 5:
+        if code == "US":
+            from hushh_mcp.services.market_refresh_policy import us_market_is_open
+
+            value = (
+                "Open (regular hours)"
+                if us_market_is_open(local_now)
+                else "Closed (exchange calendar)"
+            )
+        elif weekday >= 5:
             value = "Closed (weekend)"
         elif minutes_now < open_minutes:
             value = "Closed (pre-market)"

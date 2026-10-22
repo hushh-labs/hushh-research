@@ -23,6 +23,12 @@ def test_provider_quote_cache_relaxes_when_us_market_is_closed() -> None:
     assert provider_quote_cache_ttl_seconds(600, now=closed_session) == 1_800
 
 
+@pytest.mark.parametrize("instant", ["2026-12-25T16:00:00+00:00", "2026-11-27T18:00:00+00:00"])
+def test_holidays_and_early_close_do_not_use_open_cache_window(instant):
+    assert us_market_session_opened_at(datetime.fromisoformat(instant)) is None
+    assert provider_quote_cache_ttl_seconds(600, now=datetime.fromisoformat(instant)) == 1800
+
+
 @pytest.mark.parametrize(
     ("instant", "opening"),
     [

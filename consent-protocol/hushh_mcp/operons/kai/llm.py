@@ -621,23 +621,31 @@ async def analyze_valuation_with_gemini(
 
     user_risk = user_context.get("risk_tolerance", "Balanced") if user_context else "Balanced"
 
+    labels = {
+        "price": "Current Price (provider quote)",
+        "pe_ratio": "P/E Ratio",
+        "forward_pe": "Forward P/E",
+        "pb_ratio": "P/B Ratio",
+        "ps_ratio": "P/S Ratio",
+        "ev_ebitda": "EV/EBITDA",
+        "market_cap": "Market Cap",
+        "dividend_yield": "Dividend Yield (fraction; 0.02 = 2%)",
+        "52w_low": "52-Week Low",
+        "52w_high": "52-Week High",
+    }
+    supplied_metrics = "\n".join(
+        f"{label}: {market_data[key]}"
+        for key, label in labels.items()
+        if market_data.get(key) is not None
+    )
     context = f"""
     --- VALUATION ANALYSIS TERMINAL ({ticker}) ---
-    
-    [Market Data]
-    Current Price: ${market_data.get("price", "N/A")}
-    P/E Ratio: {market_data.get("pe_ratio", "N/A")}
-    Forward P/E: {market_data.get("forward_pe", "N/A")}
-    P/B Ratio: {market_data.get("pb_ratio", "N/A")}
-    P/S Ratio: {market_data.get("ps_ratio", "N/A")}
-    EV/EBITDA: {market_data.get("ev_ebitda", "N/A")}
-    Market Cap: ${market_data.get("market_cap", "N/A")}
-    Dividend Yield: {market_data.get("dividend_yield", "N/A")}
-    52-Week Range: ${market_data.get("52w_low", "N/A")} - ${market_data.get("52w_high", "N/A")}
-    
+    [Supplied market measurements; omitted fields are unavailable]
+    {supplied_metrics}
+    [Provider consensus; unavailable means no price targets]
+    {market_data.get("target_consensus", {"status": "unavailable"})}
     [Peer Comparison]
     {peer_context}
-    
     [Investor Profile]
     Risk Tolerance: {user_risk}
     """
