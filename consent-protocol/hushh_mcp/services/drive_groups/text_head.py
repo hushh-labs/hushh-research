@@ -16,7 +16,7 @@ MIN_HEAD_CHARS = 200
 MAX_HEAD_CHARS = 500
 # Fewer letters and digits than this is a scan artefact or a near-empty page.
 MIN_SIGNAL_CHARS = 12
-_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f​-‏ -‮﻿]")
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\ufeff]")
 _SPACE = re.compile(r"\s+")
 
 
