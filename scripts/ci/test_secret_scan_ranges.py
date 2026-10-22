@@ -114,12 +114,17 @@ fi
 case "$*" in
   *secret-scanning*)
     case "$ALERT_CASE" in
-      denied) exit 1 ;;
+      denied|optional_secret_denied) exit 1 ;;
       malformed) printf '%s' '{"message":"unexpected"}' ;;
-      open) printf '%s' '[{"number":1,"secret_type":"synthetic"}]' ;;
+      open|optional_dependency_denied) printf '%s' '[{"number":1,"secret_type":"synthetic"}]' ;;
       *) printf '%s' '[]' ;;
     esac ;;
-  *dependabot*) printf '%s' '[]' ;;
+  *dependabot*)
+    case "$ALERT_CASE" in
+      optional_dependency_denied) exit 1 ;;
+      optional_secret_denied) printf '%s' '[{"number":1,"security_advisory":{"severity":"critical"}}]' ;;
+      *) printf '%s' '[]' ;;
+    esac ;;
   *) exit 1 ;;
 esac
 """)
@@ -142,6 +147,15 @@ esac
                                 env=environment, capture_output=True, text=True, timeout=10)
         if not result.returncode:
             raise AssertionError("explicit strict secret policy must refuse unauthenticated CLI even without global strict mode")
+        for scenario, secret, dependency in (("optional_dependency_denied", "1", "0"),
+                                              ("optional_secret_denied", "0", "1")):
+            environment = {**base, "ALERT_CASE": scenario, "REQUIRE_GITHUB_ALERTS_CLEAN": "0",
+                           "REQUIRE_GITHUB_SECRET_ALERTS_CLEAN": secret,
+                           "REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN": dependency}
+            result = subprocess.run(["/bin/bash", str(ROOT / "scripts/ci/github-security-alerts.sh")],
+                                    env=environment, capture_output=True, text=True, timeout=10)
+            if not result.returncode:
+                raise AssertionError("an optional read failure skipped required open-alert clearance")
 
 
 def main() -> None:

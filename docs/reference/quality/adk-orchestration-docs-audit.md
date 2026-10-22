@@ -101,7 +101,7 @@ installation remain separate; Azure has completed its approval, while GCP has no
 ### Current local implementation
 
 The MVP landed as `d69c23ce45`. The local correction candidate also includes fresh
-main `08861bc8e1`, including its Puppy and Messages work, and the reconciled ADK lineage without blanket file replacement. The completed MVP core recorded 24,519 backend/DB passes and 138 skips;
+main `383afbf8a2`, including its Puppy, Messages, first-use, Memory and Drive work, and the reconciled ADK lineage without blanket file replacement. The completed MVP core recorded 24,519 backend/DB passes and 138 skips;
 frontend build, package and integration passed. Two hosted test-fixture corrections
 preserve runtime behavior and their original failure receipts. The final reviewed
 head `7e295ba408` passed all 26 checks before its main merge.
@@ -111,10 +111,9 @@ README identity and makes `.agents` the sole authored home: 67 canonical skills,
 19 engineering lanes and one necessary host bridge. Its core recorded 24,519
 backend/DB passes and 138 skips; the web build passed with CI's synthetic
 configuration after rejecting a mismatched local credential. MCP and integration
-passed. Combined main/UI review and exact-SHA hosted CI remain separate checks.
+passed. The prior correction head `44716a4fb1` passed all 26 hosted checks. Fresh main integration and the protected security-worker bootstrap require new affected checks and exact-SHA hosted CI.
 Dependency audits retain the
-unpatched development-tool family without suppression. Trusted CI alert-credential
-isolation needs separate credential provisioning and main-owned authority.
+unpatched development-tool family without suppression. The replacement protected `ci-security` credential is provisioned. Main-owned authority is staged; live worker qualification, receipt-consumer cutover and old repository-token retirement remain separate required steps.
 
 The Browser repair joins initialization before takeover acknowledgement and
 publishes viewport epochs. Its negative controls and terminal cleanup are covered;
@@ -125,8 +124,7 @@ this candidate; never substitute a broad replica or handcrafted grant.
 
 Dev-only 971 repairs review-channel constraints through canonical replay. Historical
 checksums and original failed tasks remain preserved. Destructive history cleanup
-is separate. Automatic production/native release cadence remains held; manual
-release authority and accounting remain unchanged.
+is separate. Incoming main re-enabled production/native release cadence. This UAT-only candidate restores its existing `enabled: false` hold, preserving the peer implementation, intervals and ledger. Verify the landed hold and in-flight controllers before UAT; do not automatically re-enable catch-up. Manual release authority remains unchanged.
 
 ## Performance and economics
 

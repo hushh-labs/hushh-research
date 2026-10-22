@@ -848,19 +848,31 @@ python3 scripts/ci/verify-deployment-environment-governance.py
 The secret gate is intentionally stricter than raw regex scanning:
 
 - local runs use authenticated `gh` access to compare against open GitHub secret-scanning and Dependabot alerts
-- CI uses a dedicated repo secret such as `GH_SECURITY_ALERTS_TOKEN` so GitHub Actions can read the same alert surfaces
+- the protected `ci-security` environment holds `GH_SECURITY_ALERTS_TOKEN`, a replacement fine-grained token with only Secret scanning alerts: read and Dependabot alerts: read; its custom deployment branch policy permits `main` only
 - the final blocking mode fails if either:
   - `gitleaks` finds a leak in the scanned commit range, or
   - GitHub still reports any open secret-scanning alerts
 - open Dependabot alerts are currently advisory in CI; they are still reported in logs and should be managed as backlog, but they do not block unrelated merges
 - explicitly strict checks refuse missing CLI/authentication, unavailable required reads and malformed responses; unavailable authority is never a successful clearance
 
-Credential isolation is a separate pending correction: remote-alert reads must move
-to main-owned execution with a read-only, main-restricted environment credential.
-PR-local scanning must not receive that credential. Removing a YAML reference alone
-does not protect a repository-level secret from other PR-controlled workflows. Keep
-this prerequisite visible until provisioning and exact-run/attempt receipt
-verification are demonstrated; current alert checks remain required.
+Credential isolation is a two-step cutover. First land
+[the main-owned alert worker](../../../.github/workflows/ci-security.yml), then
+qualify its protected credential and switch the existing Secret Scan job to an
+exact-source receipt consumer. Until that switch is verified and the old
+repository-level token is removed, credential isolation remains incomplete.
+Removing a YAML reference alone cannot protect a repository-level secret from
+other PR-controlled workflows. Existing alert checks remain required.
+
+The worker starts when PR Validation enters `in_progress`, including reruns; it
+does not wait for the validation it must unblock. Only immutable main code reads
+the protected token. It validates the repository, canonical workflow, source run,
+current attempt and exact SHA before and after bounded, complete API pagination.
+Its two-day artifact contains counts and provenance only. Repository-wide secret
+clearance intentionally replaces the old PR-created-date filter; dependency
+backlog remains advisory. No PR code, dependencies, caches or artifacts execute
+with alert credentials. Manual main-only recovery requires the existing protected
+pipeline operator cohort and exact `source_run_id`, `source_attempt`, `source_sha`.
+A missing credential, denied read or incomplete inventory refuses clearance.
 
 ## Advisory Checks (Non-Blocking By Default)
 

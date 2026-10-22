@@ -74,7 +74,7 @@ if ! gh api -H 'Accept: application/vnd.github+json' \
   if [ "$STRICT_MODE" = "1" ] || [ "$STRICT_SECRET_ALERTS" = "1" ]; then
     exit 1
   fi
-  exit 0
+  printf '%s\n' '[]' >"$SECRET_ALERTS_JSON"
 fi
 
 if ! gh api -H 'Accept: application/vnd.github+json' \
@@ -91,7 +91,7 @@ if ! gh api -H 'Accept: application/vnd.github+json' \
   if [ "$STRICT_MODE" = "1" ] || [ "$STRICT_DEPENDABOT_ALERTS" = "1" ]; then
     exit 1
   fi
-  exit 0
+  printf '%s\n' '[]' >"$DEPENDABOT_ALERTS_JSON"
 fi
 
 if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -f "${GITHUB_EVENT_PATH:-}" ]; then
