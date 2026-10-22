@@ -139,6 +139,27 @@ Typecheck, scoped lint, all 490 navigation tests and Back/Search UI contracts
 pass. The existing local backend returns HTTP 200 from its health endpoint;
 authenticated browser behavior and the deployed UAT revision remain unverified.
 
+The visible Finance workspace checks for refreshed news and filings every ten
+minutes while closed, using its existing shared scheduler. Scheduled reads
+bypass client snapshots for both baseline and personalized information; the
+server continues serving saved prices without price-provider requests. Open
+sessions retain the two-minute cadence and opening revalidation. Hidden,
+offline, overlapping and same-slot requests remain suppressed. Provider-side
+news and filings TTLs still bound upstream refreshes.
+
+Localhost acceptance on October 22 found a stale backend worker; restarting
+only that component loaded the policy. Three repeated public quote reads used
+Postgres snapshots, and a closed cold miss returned HTTP 503. An isolated
+loopback HTTP rehearsal using the production quote/news routers and legacy
+adapter passed eight checks: zero additional price sends while closed, three
+new sends at a controlled opening, and news sends increasing from three to six
+after expiry while prices stayed paused. Its clock, auth dependency, upstream
+transport and persistence were synthetic; it does not prove a real opening,
+authenticated browser behavior or deployed UAT behavior. Twenty-four focused
+frontend tests pass, including warm personalized-news revalidation; the two
+initial regression cases fail before the timer correction. A separate negative
+control proves cache-first focus events cannot postpone scheduled news reads.
+
 ## Curated reference maintenance
 
 The seed replaces MMC with MRSH (January 14, 2026) and FI with FISV
