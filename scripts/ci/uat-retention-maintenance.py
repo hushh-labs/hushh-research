@@ -32,6 +32,8 @@ LANES = {
         "project": "hushh-pda-uat",
         "workflow": "deploy-uat.yml",
         "prefix": "uat",
+        "deploy_job": "Deploy UAT Scope",
+        "upload_step": "Upload UAT deploy artifacts",
         "state_artifact": "uat-retention-state",
         "services": {
             "consent-protocol": 2,
@@ -43,6 +45,8 @@ LANES = {
         "project": "hushh-pda",
         "workflow": "deploy-production.yml",
         "prefix": "prod",
+        "deploy_job": "Deploy Production Scope",
+        "upload_step": "Upload production deploy artifacts",
         "state_artifact": "production-retention-state",
         "services": {"consent-protocol": 2, "hushh-webapp": 10},
     },
@@ -334,14 +338,19 @@ def artifact_exists(repository: str, run_id: int, name: str) -> bool:
     return True
 
 
-def replayed_uat_release_artifact(repository: str, run_id: int, name: str) -> dict:
+def replayed_release_artifact(
+    repository: str, run_id: int, name: str, environment: str = "uat"
+) -> dict:
     """Resolve a duplicate release name only from its exact current upload step."""
+    if environment not in LANES:
+        raise retention.UnsafeState("release environment is invalid")
+    lane = LANES[environment]
     run = api(repository, f"runs/{run_id}")
     attempt = run.get("run_attempt")
     if (
-        name != f"uat-release-{run_id}"
+        name != f"{lane['prefix']}-release-{run_id}"
         or run.get("id") != run_id
-        or not governed_dispatch(run, repository, "uat")
+        or not governed_dispatch(run, repository, environment)
         or type(attempt) is not int
         or attempt < 2
         or run.get("conclusion") not in {"success", "failure"}
@@ -361,7 +370,7 @@ def replayed_uat_release_artifact(repository: str, run_id: int, name: str) -> di
     if not isinstance(jobs, list) or result.get("total_count") != len(jobs):
         raise retention.UnsafeState("release attempt job inventory is incomplete")
     deploy = [
-        job for job in jobs if isinstance(job, dict) and job.get("name") == "Deploy UAT Scope"
+        job for job in jobs if isinstance(job, dict) and job.get("name") == lane["deploy_job"]
     ]
     if len(deploy) != 1 or any(
         deploy[0].get(key) != value
@@ -377,7 +386,7 @@ def replayed_uat_release_artifact(repository: str, run_id: int, name: str) -> di
     uploads = [
         step
         for step in deploy[0].get("steps", [])
-        if step.get("name") == "Upload UAT deploy artifacts"
+        if step.get("name") == lane["upload_step"]
     ]
     if (
         len(uploads) != 1
@@ -416,8 +425,13 @@ def replayed_uat_release_artifact(repository: str, run_id: int, name: str) -> di
     return selected[0]
 
 
-def download_replayed_uat_release(repository: str, artifact: dict, directory: Path) -> None:
+def download_replayed_release(
+    repository: str, artifact: dict, directory: Path, environment: str = "uat"
+) -> None:
     """Read only the release status from an immutable, digest-verified archive."""
+    if environment not in LANES:
+        raise retention.UnsafeState("release environment is invalid")
+    status_name = f"{LANES[environment]['prefix']}-release-status.json"
     if (
         type(artifact.get("id")) is not int
         or artifact["id"] < 1
@@ -446,12 +460,12 @@ def download_replayed_uat_release(repository: str, artifact: dict, directory: Pa
             if (
                 len(entries) > 500
                 or len(names) != len(set(names))
-                or names.count("uat-release-status.json") != 1
+                or names.count(status_name) != 1
                 or sum(entry.file_size for entry in entries) > 20 * 1024 * 1024
                 or any(path.is_absolute() or ".." in path.parts for path in map(Path, names))
             ):
                 raise retention.UnsafeState("release artifact has unsafe files")
-            status = bundle.getinfo("uat-release-status.json")
+            status = bundle.getinfo(status_name)
             if (
                 status.is_dir()
                 or stat.S_IFMT(status.external_attr >> 16) == stat.S_IFLNK
@@ -461,12 +475,17 @@ def download_replayed_uat_release(repository: str, artifact: dict, directory: Pa
             if directory.is_symlink():
                 raise retention.UnsafeState("release artifact directory is a symlink")
             directory.mkdir(parents=True, exist_ok=True)
-            target = directory / "uat-release-status.json"
+            target = directory / status_name
             with target.open("xb") as output:
                 output.write(bundle.read(status))
             target.chmod(0o600)
     except BadZipFile as exc:
         raise retention.UnsafeState("release artifact is not a ZIP") from exc
+
+
+# Preserve existing UAT-only imports while both lanes share the strict reader.
+replayed_uat_release_artifact = replayed_release_artifact
+download_replayed_uat_release = download_replayed_release
 
 
 def download(repository: str, run_id: int, name: str, directory: Path) -> None:
@@ -519,16 +538,14 @@ def load_release(repository: str, run_id: int, directory: Path, environment: str
         if not artifact_exists(repository, run_id, name):
             return None
     except retention.UnsafeState:
-        if environment != "uat":
-            raise
-        artifact = replayed_uat_release_artifact(repository, run_id, name)
+        artifact = replayed_release_artifact(repository, run_id, name, environment)
     release_directory = directory / (
         f"{run_id}-artifact-{artifact['id']}" if artifact else str(run_id)
     )
     status_file = release_directory / f"{prefix}-release-status.json"
     if not status_file.exists():
         if artifact:
-            download_replayed_uat_release(repository, artifact, release_directory)
+            download_replayed_release(repository, artifact, release_directory, environment)
         else:
             download(repository, run_id, name, release_directory)
     if status_file.is_symlink():
