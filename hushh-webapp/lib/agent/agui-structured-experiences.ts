@@ -1,3 +1,4 @@
+import { asRecord, parseRecord, unwrapToolResult } from "./tool-result-envelope";
 import type { PersonScopeCatalog } from "@/lib/services/person-profile-service";
 import { parseScopeProposal, type ScopeProposal } from "./scope-proposal";
 import { parseSharedFieldSensitivities, type SharedFieldSensitivity } from "@/lib/consent/field-sensitivity";
@@ -39,7 +40,7 @@ export const STYLE_SETTINGS_OFFER_EXPERIENCE_TYPE = "one.style_settings_offer.v1
 /**
  * One's offer to change how it writes to the owner. It names the proposed
  * values and only opens Settings; the owner saves there, with the Settings
- * writer. Chat never writes the reserved style branch.
+ * writer. A chosen name is saved separately by the live chat turn.
  */
 export type StyleSettingsOfferExperience = {
   type: typeof STYLE_SETTINGS_OFFER_EXPERIENCE_TYPE;
@@ -259,12 +260,6 @@ type ExperienceParser = (
   content: unknown,
 ) => AgentStructuredExperience | null;
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
 function boundedString(
   value: unknown,
   maxLength: number,
@@ -273,28 +268,6 @@ function boundedString(
   const normalized = value.replace(/\s+/g, " ").trim();
   if (!normalized) return null;
   return normalized.slice(0, maxLength);
-}
-
-function parseRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value === "string") {
-    try {
-      return asRecord(JSON.parse(value));
-    } catch {
-      return null;
-    }
-  }
-  return asRecord(value);
-}
-
-function unwrapToolResult(value: unknown): Record<string, unknown> | null {
-  const record = parseRecord(value);
-  if (!record) return null;
-
-  for (const key of ["result", "content", "data"] as const) {
-    const nested = parseRecord(record[key]);
-    if (nested?.status || nested?.requestableScopes) return nested;
-  }
-  return record;
 }
 
 function parsePresentation(value: unknown): AgentExperiencePresentation | null {

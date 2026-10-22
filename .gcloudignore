@@ -100,6 +100,7 @@ assets/
 # Re-inclusion has to come AFTER the `*.sh` that excludes it -- gitignore semantics are
 # last-match-wins -- so do not move this above that line.
 !scripts/deploy/backend-deploy.sh
+!scripts/deploy/backend-capacity-settings.sh
 !scripts/deploy/verify-managed-vertex-runtime.sh
 !scripts/deploy/frontend-google-native-config.sh
 !scripts/deploy/backend-model-settings.sh

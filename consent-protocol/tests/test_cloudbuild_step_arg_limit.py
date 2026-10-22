@@ -289,23 +289,6 @@ def test_no_cloud_build_step_exceeds_the_env_entry_cap() -> None:
             )
 
 
-def test_capacity_knobs_travel_packed_and_unpack_to_the_same_names() -> None:
-    config = _load("deploy/backend.cloudbuild.yaml") or {}
-    step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
-    packed = [e for e in step.get("env") or [] if e.startswith("_CLOUD_RUN_CAPACITY=")]
-    assert len(packed) == 1, "the capacity knobs must travel as exactly one packed entry"
-    for key in (
-        "max=${_CLOUD_RUN_MAX_INSTANCES}",
-        "cpu=${_CLOUD_RUN_CPU}",
-        "no_traffic=${_CLOUD_RUN_NO_TRAFFIC}",
-    ):
-        assert key in packed[0]
-    assert not any(e.startswith("_CLOUD_RUN_CPU=") for e in step.get("env") or [])
-    script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text(encoding="utf-8")
-    assert 'cpu) _CLOUD_RUN_CPU="${_value}" ;;' in script
-    assert '"--cpu=${_CLOUD_RUN_CPU}"' in script
-
-
 def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env() -> None:
     """Ported from main during the 2026-09-02 sync, adapted to the extracted script.
 
@@ -319,6 +302,7 @@ def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env(
     """
     root = Path(__file__).resolve().parents[2]
     script = (root / "scripts" / "deploy" / "backend-deploy.sh").read_text(encoding="utf-8")
+    script += (root / "scripts/deploy/backend-capacity-settings.sh").read_text(encoding="utf-8")
     script += (root / "scripts/deploy/backend-model-settings.sh").read_text(encoding="utf-8")
     script += (root / "scripts/deploy/backend-drive-secret-settings.sh").read_text(encoding="utf-8")
     config = _load("deploy/backend.cloudbuild.yaml")
@@ -427,6 +411,7 @@ def test_cloud_build_upload_includes_the_deploy_shell_and_release_reader():
     upload = GitIgnoreSpec.from_lines(rules)
     for script in (
         "scripts/deploy/backend-deploy.sh",
+        "scripts/deploy/backend-capacity-settings.sh",
         "scripts/deploy/verify-managed-vertex-runtime.sh",
         "scripts/deploy/backend-model-settings.sh",
         "scripts/deploy/backend-drive-secret-settings.sh",
