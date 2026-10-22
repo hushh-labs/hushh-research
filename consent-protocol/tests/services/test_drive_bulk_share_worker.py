@@ -4,7 +4,7 @@ import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, create_autospec
 
 import httpx
 import pytest
@@ -40,6 +40,18 @@ def _job(state="queued"):
     }
 
 
+def _discovery_job(file_id="file-1"):
+    from hushh_mcp.services.drive_request_discovery import discovery_evidence
+    from tests.services.test_drive_request_search_unit import _discovery_checkpoint
+
+    job = _job()
+    job["file"].update(id=file_id, mimeType="video/mp4")
+    job["file"]["discoveryEvidence"] = discovery_evidence(
+        _discovery_checkpoint(), user_id="owner", generation=7, metadata=job["file"]
+    )
+    return job
+
+
 def _worker(*, permission=None, send_push=None):
     store = SimpleNamespace(
         due=AsyncMock(return_value=[]),
@@ -60,13 +72,9 @@ def _worker(*, permission=None, send_push=None):
         settle_notification=AsyncMock(return_value="settled"),
         cipher=SimpleNamespace(digest=lambda *args: "a" * 64),
     )
-    adapter = SimpleNamespace(
-        inspect_shareable=AsyncMock(),
-        list_permissions=AsyncMock(return_value=PermissionSnapshot(())),
-        create_reader=AsyncMock(
-            return_value=CreatedReader("permission-1", "recipient@example.com")
-        ),
-    )
+    adapter = create_autospec(GoogleDrivePermissionAdapter, instance=True, spec_set=True)
+    adapter.list_permissions.return_value = PermissionSnapshot(())
+    adapter.create_reader.return_value = CreatedReader("permission-1", "recipient@example.com")
     oauth = SimpleNamespace(
         current_credential=AsyncMock(
             return_value=(
@@ -301,20 +309,19 @@ async def test_parallel_files_wait_for_real_oauth_refresh_before_granting(monkey
                     "name": "Financial document",
                     "mimeType": "application/pdf",
                     "trashed": False,
-                    "modifiedTime": "2026-10-01T00:00:00Z",
+                    "modifiedTime": "2026-09-26T00:00:00Z",
                     "capabilities": {"canShare": True},
                 }
         return httpx.Response(200, stream=Stream(payload))
 
+    first, second = _discovery_job(), _discovery_job("file-2")
+    second["position"] = 2
     original_client = httpx.AsyncClient
     monkeypatch.setattr(
         httpx,
         "AsyncClient",
         lambda **kwargs: original_client(**kwargs, transport=httpx.MockTransport(handle)),
     )
-    first, second = _job(), _job()
-    second["position"] = 2
-    second["file"] = {**second["file"], "id": "file-2"}
     outcomes = await asyncio.wait_for(
         asyncio.gather(worker._grant(first), worker._grant(second)), 5
     )
@@ -506,21 +513,10 @@ async def test_bulk_worker_passes_frozen_expiry_and_records_it_for_early_stop(sh
 async def test_discovery_delivery_uses_metadata_acl_checks_and_rejects_forged_source(
     tamper, shared_hub_owner
 ):
-    from hushh_mcp.services.drive_request_discovery import discovery_evidence
-    from tests.services.test_drive_request_search_unit import _discovery_checkpoint
-
     worker, store, adapter = _worker()
-    job = _job()
-    file = {
-        "id": "media",
-        "name": "Cedar Rook recording",
-        "mimeType": "video/mp4",
-        "sourceVersion": "9",
-    }
-    checkpoint = _discovery_checkpoint()
-    file["discoveryEvidence"] = discovery_evidence(
-        checkpoint, user_id="owner", generation=7, metadata=file
-    )
+    job = _discovery_job()
+    file = job["file"]
+    checkpoint = file["discoveryEvidence"]
     if tamper:
         file["name"] = "Changed recording"
     job["file"] = file
@@ -531,6 +527,6 @@ async def test_discovery_delivery_uses_metadata_acl_checks_and_rejects_forged_so
     else:
         args = adapter.inspect_shareable.await_args.kwargs
         assert args["metadata_only"] is True
-        assert args["metadata_period"]["start"] == checkpoint["requested_period"]["start"]
+        assert args["metadata_period"]["start"] == checkpoint["period"]["start"]
         assert args["metadata_period"]["date_basis"] == "title_created_modified"
         adapter.create_reader.assert_awaited_once()
