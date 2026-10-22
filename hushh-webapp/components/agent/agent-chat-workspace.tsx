@@ -8870,6 +8870,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     <ChatOnboardingTurns
       controller={chatOnboarding}
       slot={slot}
+      onCompletionShown={revealOnboardingStarters}
+      completion={!hasStartedConversation && !voiceActive && !isPuppySurface && hasChatAccess && isVaultUnlocked ? (
+        <AgentPromptSuggestions prompts={welcomePrompts}
+          disabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
+          onPromptSelect={handleWelcomePromptSelect} />
+      ) : undefined}
       gmailConnected={Boolean(onboardingGmail.status?.connected &&
         !onboardingGmail.status.revoked && !onboardingGmail.status.needs_reauth)}
       renderBubble={(message: ChatOnboardingBubbleMessage) => (
@@ -9321,6 +9327,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     transcript.scrollTo({ top, behavior: "instant" });
     setMessagesBelow(0);
   }, [beginTranscriptProgrammaticScroll]);
+  const revealOnboardingStarters = useCallback(() => {
+    if (transcriptUserScrollRef.current && !transcriptStuckToEndRef.current) return;
+    jumpToLatestMessage();
+  }, [jumpToLatestMessage]);
   // The transcript's bottom band tracks the composer's real height, so a
   // draft that grows to several lines never covers the last message. A
   // reader already at the end stays at the end while it grows.
@@ -9879,7 +9889,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 selectedButtonRef={agentSurfaceFocusRef}
                 variant="sliding"
                 size="sm"
-                ariaLabel="Agent"
+                ariaLabel="Where your agent runs"
                 value={agentSurface}
                 onValueChange={(next) => {
                   const surface = next as AgentChatSurface;
@@ -9900,11 +9910,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     value: "puppy",
                     label: "Puppy",
                     icon: Laptop,
-                    accessibleLabel: "Puppy One",
+                    accessibleLabel: "Puppy One, on your linked computer",
                   },
                 ]}
-                iconClassName="sm:hidden"
-                labelClassName="max-sm:hidden"
+                iconClassName="hidden"
+                labelClassName=""
                 className="w-full shrink-0 text-xs"
               />
               </NativeChatChrome>
@@ -9933,6 +9943,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 </Avatar>
               </ShellActionSurface>
             </div>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 px-[var(--agent-chat-header-inline-gutter)] py-1 text-xs leading-5 text-muted-foreground">
+            <p>One: cloud · Puppy: your linked computer</p>
+            {!isPuppySurface && hasChatAccess ? (
+              <button type="button" aria-label="What One can access" onClick={event => {
+                historyDrawerTriggerRef.current = event.currentTarget;
+                openHistoryConnectors();
+              }}
+                className="min-h-11 text-left font-medium text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                Access
+              </button>
+            ) : null}
           </div>
 
           <OneAgentProfileSheet presenceState={onePresenceState} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef}

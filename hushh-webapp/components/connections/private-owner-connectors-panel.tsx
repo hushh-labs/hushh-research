@@ -11,6 +11,7 @@ import type { PrepareRecovery } from "@/lib/connections/custom-connector-setup";
 export function PrivateOwnerConnectorsPanel(props: {
   open: boolean; onBack: () => void; onClose?: () => void; surface?: "drawer" | "profile";
   onPrepareRecovery?: PrepareRecovery;
+  showAccessDetails?: boolean;
 }) {
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();

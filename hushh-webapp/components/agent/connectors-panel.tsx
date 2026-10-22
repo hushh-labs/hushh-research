@@ -90,6 +90,7 @@ import { DriveCollectionView, useDriveCollectionModel, type DriveCollectionModel
 import { DrivePacketCatalogView, useDrivePacketCatalogModel, useOwnerPacketPageModel, type DrivePacketCatalogModel, type OwnerPacketPageModel } from "@/components/consent/drive-packet-catalog";
 import { CustomConnectorsSettings, type CustomConnectorSettingsModel } from "@/components/agent/custom-connectors-settings";
 import { PrivateOwnerConnectorsPanel } from "@/components/connections/private-owner-connectors-panel";
+import { connectorAccessPurpose } from "@/lib/agent/connector-access-copy";
 import { CatalogConnectorDetails } from "@/components/agent/catalog-connector-details";
 import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
 
@@ -106,6 +107,7 @@ type Props = {
    * Back, so the panel draws no header of its own.
    */
   surface?: "drawer" | "profile";
+  showAccessDetails?: boolean;
   initialConnector?: "google_drive" | "gmail" | null;
   /**
    * The open connector, when the host keeps it in its own address (Profile
@@ -279,7 +281,7 @@ function ConnectorGlyph({ id }: { id: string }) {
   );
 }
 
-function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
+function ConnectorRow({ entry, showAccessDetails = false }: { entry: ConnectorListEntry; showAccessDetails?: boolean }) {
   const detailId = useId();
   const status = connectorRowStatus(entry);
   return (
@@ -299,6 +301,7 @@ function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
         >
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-normal">{entry.name}</span>
+            {showAccessDetails ? <span className="block py-1 text-xs leading-5 text-muted-foreground">{connectorAccessPurpose(entry.id)}</span> : null}
             {status ? (
               <span id={detailId} role="status" className="block truncate text-xs text-muted-foreground">{status}</span>
             ) : entry.accountDetail ? (
@@ -310,6 +313,7 @@ function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
       ) : (
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-normal">{entry.name}</span>
+          {showAccessDetails ? <span className="block py-1 text-xs leading-5 text-muted-foreground">{connectorAccessPurpose(entry.id)}</span> : null}
           {status ? (
             <span role="status" className="block truncate text-xs text-muted-foreground">{status}</span>
           ) : entry.accountDetail ? (
@@ -462,6 +466,7 @@ function OwnerConnectorsPanel({
   onBack,
   onClose = onBack,
   surface = "drawer",
+  showAccessDetails = false,
   initialConnector = null,
   activeConnector: hostActiveConnector,
   onActiveConnectorChange,
@@ -2621,7 +2626,7 @@ function OwnerConnectorsPanel({
                 <section key={heading} aria-label={heading} className="space-y-2">
                   <h3 className="text-sm font-semibold text-muted-foreground">{heading}</h3>
                   <ul className="overflow-hidden rounded-2xl bg-foreground/10">
-                    {items.length ? items.map((entry) => <ConnectorRow key={entry.id} entry={entry} />) : (
+                    {items.length ? items.map((entry) => <ConnectorRow key={entry.id} entry={entry} showAccessDetails={showAccessDetails} />) : (
                       <li className="px-4 py-4 text-sm text-muted-foreground">
                         {heading === "Connected" ? "No connected connectors" : "No available connectors"}
                       </li>

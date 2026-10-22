@@ -44,6 +44,7 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: { alias: [
       ...["@/hooks/use-auth", "@/lib/vault/vault-context", "@/lib/services/pre-vault-user-state-service",
+        "@/lib/pkm/use-live-mirror-view",
         "@/lib/services/personal-knowledge-model-service", "@/lib/services/api-service",
         "@/lib/services/pkm-upgrade-orchestrator", "@/lib/services/pkm-upgrade-service"].map(find => ({
           find, replacement: path.join(root, "e2e/fixtures/onboarding-name-boundaries.ts"),
@@ -102,6 +103,30 @@ async function mount(page: Page, theme: "light" | "dark", journey: boolean | "or
   await expect(journey ? page.getByLabel("Chat profile name") : page.getByTestId("transcript")).toBeVisible();
   return errors;
 }
+
+test("access explanations fit a narrow phone without requesting device permissions", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await mount(page, "light");
+  const permissionRequests: string[] = [];
+  await page.addInitScript(() => {
+    navigator.geolocation.getCurrentPosition = () => { throw new Error("Unexpected location prompt"); };
+  });
+  page.on("request", request => { if (request.url().includes("/api/")) permissionRequests.push(request.url()); });
+  await page.goto("http://localhost/chat-onboarding?access");
+  await page.addScriptTag({ content: script });
+  await expect(page.getByRole("heading", { name: "What One knows" })).toBeVisible();
+  await expect(page.getByText(/No apps connected/)).toBeVisible();
+  const sharing = page.getByRole("link", { name: "Review sharing permissions" });
+  await expect(sharing).toHaveAttribute("href", "/one/consent");
+  expect((await sharing.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+  expect(permissionRequests).toEqual([]);
+  const deviceExplanation = page.getByText(/Opening this panel requests no device permissions/);
+  await deviceExplanation.scrollIntoViewIfNeeded();
+  await expect(deviceExplanation).toBeVisible();
+  await page.getByRole("heading", { name: "One access", exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath("access-phone.png"), fullPage: true });
+});
 
 test("an ordinary chat name saves encrypted memory, updates the label and survives re-entry", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -166,7 +191,7 @@ test("preferred name entry saves privately, refreshes the profile label, and rec
   const errors = await mount(page, "light", true);
   await page.getByRole("button", { name: "Something else" }).click();
   await expect(page.getByText("Okay. What should I call you?")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Skip for now" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Skip this question" })).toBeVisible();
   await page.getByRole("textbox", { name: "Your reply" }).fill("Please call me Roopmann");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
@@ -187,6 +212,7 @@ test("preferred name entry saves privately, refreshes the profile label, and rec
 });
 
 test("a picked name labels One at once, holds through the save, and reverts when declined", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   let encrypted: unknown = null;
   let revision = 0;
@@ -213,7 +239,7 @@ test("a picked name labels One at once, holds through the save, and reverts when
   });
   const labelSeen = () => page.evaluate(() => (window as unknown as { labelSeen: string[] }).labelSeen);
   const answerRest = async () => {
-    await page.getByRole("button", { name: "Skip for now" }).click();
+    await page.getByRole("button", { name: "Skip this question" }).click();
     await page.getByRole("button", { name: "Casual" }).click();
   };
 
@@ -223,6 +249,7 @@ test("a picked name labels One at once, holds through the save, and reverts when
   await expect(label).toHaveText("Owner");
   await answerRest();
   await page.getByRole("button", { name: "Don't save" }).click();
+  await expect(page.getByRole("button", { name: "What do you remember about me?" })).toBeVisible();
   await expect(label).toHaveText("One");
   expect(writes).toHaveLength(0);
   expect(await labelSeen()).toEqual(["One", "Owner", "One"]);
@@ -236,6 +263,11 @@ test("a picked name labels One at once, holds through the save, and reverts when
   await answerRest();
   await page.getByRole("button", { name: "Save to memory" }).click();
   await expect(page.getByText(/^Saved\. You can change it anytime in Memory/)).toBeVisible();
+  const starter = page.getByRole("button", { name: "What's on my calendar this week?" });
+  await starter.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath("saved-starters-phone.png") });
+  await starter.click();
+  await expect(page.getByRole("textbox", { name: "Your reply" })).toHaveValue("What's on my calendar this week?");
   await expect(label).toHaveText("Owner");
   expect(writes).toHaveLength(1);
   expect(writes[0]).not.toContain("Owner");
@@ -263,7 +295,7 @@ test("Skip invalidates a slow semantic answer before it can save", async ({ page
   await page.getByRole("textbox", { name: "Your reply" }).fill("Stale");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect.poll(() => typeof finishReply).toBe("function");
-  await page.getByRole("button", { name: "Skip for now" }).click();
+  await page.getByRole("button", { name: "Skip this question" }).click();
   await finishReply();
   await expect(page.getByRole("textbox", { name: "Your reply" })).toBeEnabled();
   await expect(page.getByLabel("Chat profile name")).toHaveText("One");
@@ -283,7 +315,7 @@ async function assertContract(page: Page, viewportWidth: number) {
   const chips = page.getByTestId("chat-onboarding-chips").getByRole("button");
   await expect(chips).toHaveCount(10);
   await expect(chips).toHaveText([
-    "Location", "Mail", "Calendar", "Finance", "Advisor", "Wallet", "Consent", "Memory", "Messages", "Skip for now",
+    "Location", "Mail", "Calendar", "Finance", "Advisor", "Wallet", "Consent", "Memory", "Messages", "Skip this question",
   ]);
   const boxes = await chips.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
   expect(boxes[9].y).toBeGreaterThanOrEqual(Math.max(...boxes.slice(0, 9).map((box) => box.bottom)));
@@ -486,7 +518,7 @@ for (const theme of ["light", "dark"] as const) {
       await page.keyboard.press("ArrowRight");
       await expect(chips.nth(1)).toBeFocused();
       await page.keyboard.press("End");
-      await expect(page.getByRole("button", { name: "Skip for now" })).toBeFocused();
+      await expect(page.getByRole("button", { name: "Skip this question" })).toBeFocused();
 
       await page.getByRole("button", { name: "Dismiss tip" }).click();
       await expect(page.getByTestId("chat-onboarding-daily-tip")).toHaveCount(0);

@@ -36,12 +36,14 @@ export function ProfileConnectorsSection({
   open = true,
   onExternalModalChange,
   render,
+  showAccessDetails = false,
 }: {
   connectorId: string | null;
   onConnectorChange: (connectorId: string | null) => void;
   open?: boolean;
   onExternalModalChange?: (open: boolean) => void;
   render?: (presentation: ConnectorsPanelPresentation) => ReactNode;
+  showAccessDetails?: boolean;
 }) {
   const { user } = useAuth();
   // A sign-in that leaves the app must not lose what is underneath the pane.
@@ -86,6 +88,7 @@ export function ProfileConnectorsSection({
 
   return (
     <ConnectorsPanel
+      showAccessDetails={showAccessDetails}
       open={open}
       surface="profile"
       activeConnector={connectorId}

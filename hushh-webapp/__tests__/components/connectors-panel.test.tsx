@@ -7,6 +7,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
 import type { GmailConnectionStatus } from "@/lib/services/gmail-receipts-service";
+import { HistoryConnectorsPage } from "@/components/agent/history-connectors-page";
 
 const state = vi.hoisted(() => ({
   privatePlacement: vi.fn(),
@@ -38,7 +39,20 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/services/api-service', () => ({ ApiService: { ownerPodRequest: state.ownerPodRequest } }));
 vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: state.privatePlacement }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }), usePathname: () => "/" }));
+vi.mock("@/components/profile/live-mirror-preview", () => ({ LiveMirrorPreview: () => <p>Memory preview</p> }));
+vi.mock("@/components/profile/profile-connectors-section", () => ({
+  ProfileConnectorsSection: function RetainedConnectorFixture({ connectorId, onConnectorChange }: {
+    connectorId: string | null; onConnectorChange: (id: string | null) => void;
+  }) {
+    const [draft, setDraft] = React.useState("");
+    return <div>
+      <input aria-label="Connector setup draft" value={draft} onChange={event => setDraft(event.target.value)} />
+      <button onClick={() => onConnectorChange("gmail")}>Review Gmail</button>
+      <span>{connectorId ? "Connector detail" : "Connector list"}</span>
+    </div>;
+  },
+}));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, vaultKey: state.token ? "synthetic-key" : null,
   getVaultKey: () => state.token ? "synthetic-key" : null, getVaultOwnerToken: () => state.token }) }));
@@ -109,6 +123,20 @@ describe('private Google transition owner review', () => {
     return <><button onClick={() => void confirmTransition(terms).then(result)}>Review Google</button>{transitionDialog}</>;
   }
   afterEach(cleanup);
+
+  it("keeps connector setup state while the access overview hides for details and returns on Back", () => {
+    render(<HistoryConnectorsPage open native={false} owner="owner-a" context="chat"
+      onBack={vi.fn()} onClose={vi.fn()} onExternalModalChange={vi.fn()} />);
+    expect(screen.getByRole("heading", { name: "What One knows" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Connector setup draft" }), { target: { value: "Unfinished setup" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review Gmail" }));
+    expect(screen.queryByRole("heading", { name: "What One knows" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "What One can access" })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Connector setup draft" })).toHaveValue("Unfinished setup");
+    fireEvent.click(screen.getByRole("button", { name: "Back to connectors" }));
+    expect(screen.getByRole("heading", { name: "What One knows" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Connector setup draft" })).toHaveValue("Unfinished setup");
+  });
   it('requires explicit confirmation and explains that private-agent grants are replaced', async () => {
     const result = vi.fn();
     render(<ReviewHarness ownerId="owner-a" epoch={snapshotVaultSessionEpoch()} result={result} />);
@@ -195,8 +223,9 @@ describe("supported connector catalog", () => {
 
   it('private placement mounts only pod connectors and does not claim management access from a connection receipt', async () => {
     state.privatePlacement.mockResolvedValue(true);
-    const view = render(panel());
+    const view = render(<ConnectorsPanel open showAccessDetails {...callbacks} />);
     expect(await screen.findByTestId('private-google-connectors')).toBeInTheDocument();
+    expect(screen.getByText('Use your calendar to help plan your time.')).toBeInTheDocument();
     expect(await screen.findAllByRole('button', { name: 'Allow changes' })).toHaveLength(2);
     expect(screen.getAllByText('Connected · reading only')).toHaveLength(2);
     expect(state.ownerPodRequest).toHaveBeenCalledTimes(4);
@@ -206,6 +235,17 @@ describe("supported connector catalog", () => {
     view.rerender(panel());
     expect(await screen.findByText('Sign in and unlock your vault to connect Google.')).toBeInTheDocument();
     expect(screen.queryByText('Connected · reading only')).not.toBeInTheDocument();
+  });
+
+  it("explains app access alongside the existing guarded disconnect action", async () => {
+    state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected" } };
+    render(<ConnectorsPanel open showAccessDetails {...callbacks} />);
+    expect(await screen.findByText("Use your calendar to help plan your time.")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect Calendar" }));
+    expect(state.calendarDisconnect).not.toHaveBeenCalled();
+    const confirmation = await screen.findByRole("alertdialog");
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Disconnect" }));
+    await waitFor(() => expect(state.calendarDisconnect).toHaveBeenCalledOnce());
   });
 
   it("shows real connections without roadmap placeholders", async () => {

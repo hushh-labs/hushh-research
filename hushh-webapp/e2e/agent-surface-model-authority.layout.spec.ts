@@ -575,7 +575,7 @@ test.describe("Agent Chat: which agent is answering", () => {
     ).toHaveAttribute("aria-checked", "true");
 
     // The selected agent's concise authored name matches native and web.
-    expect(puppyOption.accessibleLabel).toBe("Puppy One");
+    expect(puppyOption.accessibleLabel).toBe("Puppy One, on your linked computer");
     expect(oneOption.accessibleLabel ?? "").toMatch(/cloud/i);
 
     // Name and controls moved in the same render: the surface below is Puppy's
