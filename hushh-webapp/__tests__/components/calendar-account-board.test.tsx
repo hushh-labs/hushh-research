@@ -210,4 +210,24 @@ describe("three-account Calendar board", () => {
     expect(join.closest("button")).toBeNull();
     expect(screen.getByText("Google Meet")).toBeInTheDocument();
   });
+
+  it("shows a concise event detail with one account address and the existing response actions", async () => {
+    mocks.boardDay.mockResolvedValue({ ...board, accounts: [{ ...board.accounts[0], events: [{
+      ...meetingA,
+      calendar_name: "default@example.com",
+      conference_url: "https://meet.google.com/abc-defg-hij",
+      html_link: "https://calendar.google.com/calendar/event?eid=meeting-one",
+    }] }], conflicts: [] });
+    render(page({ ...status, accounts: status.accounts.slice(0, 1) }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Planning review in default@example.com" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: "Planning review" })).toBeInTheDocument();
+    expect(within(dialog).getAllByText(/default@example\.com/)).toHaveLength(1);
+    expect(within(dialog).getByText("Organized by organizer-one@example.com")).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "Join meeting" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    expect(within(dialog).queryByRole("link", { name: "Open in Google Calendar" })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Accept" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Decline", exact: true })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Decline & offer another time" })).toBeInTheDocument();
+  });
 });

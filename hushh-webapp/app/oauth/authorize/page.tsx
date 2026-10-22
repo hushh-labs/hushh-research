@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -11,6 +11,15 @@ import { ApiService } from "@/lib/services/api-service";
 type OAuthApprovalResponse = {
   redirect_uri?: string;
   detail?: { error_description?: string };
+  error_description?: string;
+};
+
+type OAuthReview = {
+  client_id: string;
+  client_label: string;
+  redirect_host: string;
+  requestRef: string;
+  ownerUid: string;
 };
 
 export default function OAuthAuthorizePage() {
@@ -19,6 +28,34 @@ export default function OAuthAuthorizePage() {
   const requestRef = String(searchParams.get("request") || "").trim();
   const [submitting, setSubmitting] = useState<"approve" | "deny" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [review, setReview] = useState<OAuthReview | null>(null);
+  const currentReview = review?.requestRef === requestRef && review.ownerUid === user?.uid ? review : null;
+
+  useEffect(() => {
+    if (!user || !requestRef) return;
+    const controller = new AbortController();
+    let active = true;
+    async function loadReview() {
+      try {
+        const token = await user!.getIdToken();
+        const response = await ApiService.apiFetch(`/api/oauth/authorize/${encodeURIComponent(requestRef)}`, {
+          headers: { Authorization: `Bearer ${token}` }, cache: "no-store", signal: controller.signal,
+        });
+        const payload = await response.json();
+        if (!response.ok || typeof payload.client_id !== "string" || typeof payload.client_label !== "string" || typeof payload.redirect_host !== "string") {
+          throw new Error("This authorization request could not be reviewed.");
+        }
+        if (active) {
+          setReview({ ...payload, requestRef, ownerUid: user!.uid });
+          setError(null);
+        }
+      } catch {
+        if (active) setError("This authorization request could not be reviewed. Reconnect from your connector to try again.");
+      }
+    }
+    void loadReview();
+    return () => { active = false; controller.abort(); };
+  }, [requestRef, user]);
 
   const complete = useCallback(
     async (decision: "approve" | "deny") => {
@@ -26,6 +63,7 @@ export default function OAuthAuthorizePage() {
         setError("Sign in to continue with this connection.");
         return;
       }
+      if (decision === "approve" && !currentReview) return;
       setSubmitting(decision);
       setError(null);
       try {
@@ -41,7 +79,7 @@ export default function OAuthAuthorizePage() {
         const payload = (await response.json()) as OAuthApprovalResponse;
         if (!response.ok || !payload.redirect_uri) {
           throw new Error(
-            payload.detail?.error_description ||
+            payload.error_description || payload.detail?.error_description ||
               "This authorization request is no longer available.",
           );
         }
@@ -56,7 +94,7 @@ export default function OAuthAuthorizePage() {
         setSubmitting(null);
       }
     },
-    [requestRef, user],
+    [currentReview, requestRef, user],
   );
 
   if (loading) {
@@ -97,6 +135,17 @@ export default function OAuthAuthorizePage() {
             </Button>
           </div>
         ) : null}
+        {user && !currentReview && !error ? <p role="status">Checking connection details…</p> : null}
+        {currentReview ? (
+          <dl className="space-y-2 break-all text-sm">
+            <dt className="font-medium">Requesting application</dt>
+            <dd>{currentReview.client_label}</dd>
+            <dt className="font-medium">Client identifier</dt>
+            <dd>{currentReview.client_id}</dd>
+            <dt className="font-medium">Returns to</dt>
+            <dd>{currentReview.redirect_host}</dd>
+          </dl>
+        ) : null}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         <div className="flex gap-3">
           <Button
@@ -109,7 +158,7 @@ export default function OAuthAuthorizePage() {
           </Button>
           <Button
             onClick={() => complete("approve")}
-            disabled={!user || !requestRef || submitting !== null}
+            disabled={!user || !requestRef || !currentReview || submitting !== null}
           >
             {submitting === "approve" ? "Authorizing…" : "Authorize"}
           </Button>

@@ -531,9 +531,8 @@ describe("ContactSyncResultsSheet", () => {
       />,
     );
 
-    expect(
-      screen.getByLabelText("Connected from your contacts"),
-    ).toBeInTheDocument();
+    const contactBadge = screen.getByLabelText("Connected from your contacts");
+    expect(contactBadge.closest('[data-slot="avatar"]')).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /send a connection request/i }))
       .not.toBeInTheDocument();
   });

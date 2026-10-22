@@ -70,83 +70,75 @@ class SecurityAuthorityTest(unittest.TestCase):
 
     def test_bound_complete_pagination_and_malformed_or_truncated_refusal(self):
         calls = []
+        next_url = "https://api.github.com/repositories/10/dependabot/alerts?state=open&per_page=100&after=opaque%3Dcursor"
 
         def read(path):
             calls.append(path)
-            return (
-                authority.AlertPage([{"state": "open"}] * 100, path + "&page=2")
-                if "&page=" not in path
-                else authority.AlertPage([{"state": "open"}])
-            )
+            self.assertNotIn("&page=", path)
+            if "after=" not in path:
+                # Even a short page may have a next cursor; row count is not EOF.
+                return ([{"state": "open"}] * 2, f'<{next_url}>; rel="next"')
+            return ([{"state": "open"}] * 100, "")
 
         self.assertEqual(
-            authority.inventory(read, REPOSITORY, "secret-scanning")["open"], 101
+            authority.inventory(read, REPOSITORY, "dependabot", 10)["open"], 102
         )
         self.assertEqual(len(calls), 2)
+        self.assertEqual(
+            calls[1],
+            f"repos/{REPOSITORY}/dependabot/alerts?state=open&per_page=100&after=opaque%3Dcursor",
+        )
         for rows in ({"message": "denied"}, [None], [{"state": "closed"}]):
             with self.subTest(rows=rows), self.assertRaises(authority.Refused):
-                authority.inventory(
-                    lambda _: authority.AlertPage(rows), REPOSITORY, "secret-scanning"
-                )
+                authority.inventory(lambda _: (rows, ""), REPOSITORY, "secret-scanning")
         with (
             patch.object(authority, "MAX_PAGES", 1),
             self.assertRaises(authority.Refused),
         ):
             authority.inventory(
-                lambda _: authority.AlertPage([{"state": "open"}] * 100, "next"),
-                REPOSITORY,
-                "secret-scanning",
-            )
-
-    def test_dependabot_uses_every_cursor_page_even_when_a_page_is_short(self):
-        first = f"repos/{REPOSITORY}/dependabot/alerts?state=open&per_page=100"
-        second = first + "&after=opaque%3Dcursor"
-        third = first + "&after=last-cursor"
-        calls = []
-
-        def read(path):
-            self.assertNotIn("&page=", path)
-            calls.append(path)
-            return authority.AlertPage(
-                [{"state": "open", "security_advisory": {"severity": "high"}}]
-                * (100 if path == first else 1),
-                second if path == first else third if path == second else None,
-            )
-
-        result = authority.inventory(read, REPOSITORY, "dependabot")
-        self.assertEqual(calls, [first, second, third])
-        self.assertEqual(
-            result, {"complete": True, "open": 102, "severity": {"high": 102}}
-        )
-        with self.assertRaises(authority.Refused):
-            authority.inventory(
-                lambda _: authority.AlertPage([], first), REPOSITORY, "dependabot"
-            )
-        with self.assertRaises(authority.Refused):
-            authority.inventory(
-                lambda _: (_ for _ in ()).throw(
-                    authority.Refused("later page unavailable")
-                ),
+                lambda _: ([], f'<{next_url}>; rel="next"'),
                 REPOSITORY,
                 "dependabot",
+                10,
+            )
+        with self.assertRaisesRegex(authority.Refused, "repeated"):
+            authority.inventory(
+                lambda _: ([], f'<{next_url}>; rel="next"'),
+                REPOSITORY,
+                "dependabot",
+                10,
             )
 
-    def test_next_link_is_bound_to_host_repository_endpoint_and_cursor(self):
-        path = f"repos/{REPOSITORY}/dependabot/alerts?state=open&per_page=100"
-        target = "https://api.github.com/repositories/10/dependabot/alerts?state=open&per_page=100&after=opaque%3Dcursor"
-        self.assertEqual(
-            authority.next_alert_path(f'<{target}>; rel="next"', path, 10),
-            path + "&after=opaque%3Dcursor",
-        )
-        for bad in (
-            target.replace("api.github.com", "evil.example"),
-            target.replace("repositories/10", "repositories/11"),
-            target.replace("dependabot", "secret-scanning"),
-            target.replace("after=opaque%3Dcursor", "page=2"),
-            target + "&after=other",
+    def test_alert_next_link_cannot_redirect_credentials_or_change_filters(self):
+        root = f"https://api.github.com/repos/{REPOSITORY}/dependabot/alerts"
+        query = "?state=open&per_page=100&after=cursor"
+        for url in (
+            root.replace("api.github.com", "untrusted.example") + query,
+            root.replace(REPOSITORY, "another/repository") + query,
+            root.replace("dependabot", "secret-scanning") + query,
+            root.replace("https:", "http:") + query,
+            root + query + "#fragment",
+            root + query.replace("state=open", "state=closed"),
+            root + query.replace("after=cursor", "page=2"),
+            root + query + "&after=duplicate",
+            root + query + "&after=",
+            root + query + "&state=",
+            root + query.replace("after=cursor", "after="),
+            root + query.replace("after=cursor", "after=" + "x" * 2049),
+            "https://api.github.com/repositories/11/dependabot/alerts" + query,
         ):
-            with self.subTest(bad=bad), self.assertRaises(authority.Refused):
-                authority.next_alert_path(f'<{bad}>; rel="next"', path, 10)
+            with self.subTest(url=url), self.assertRaises(authority.Refused):
+                authority.next_alert_page(
+                    f'<{url}>; rel="next"', REPOSITORY, "dependabot", 10
+                )
+        for page in ("0", "-1", "not-a-page"):
+            url = root.replace("dependabot", "secret-scanning") + query.replace(
+                "after=cursor", "page=" + page
+            )
+            with self.subTest(page=page), self.assertRaises(authority.Refused):
+                authority.next_alert_page(
+                    f'<{url}>; rel="next"', REPOSITORY, "secret-scanning", 10
+                )
 
     def test_manual_recovery_is_governed_and_exact(self):
         policy = {"main": {"protected_pipeline_edit_users": ["maintainer"]}}
@@ -199,23 +191,19 @@ class SecurityAuthorityTest(unittest.TestCase):
                 "GH_SECURITY_ALERTS_TOKEN": "synthetic-alerts",
             }
 
-            def read(client, path):
+            def read_page(client, path):
                 if "/alerts?" in path:
                     return (
-                        [{"state": "open", "secret": "unapproved-fixture-value"}]
-                        if "/secret-scanning/" in path
-                        else []
+                        (
+                            [{"state": "open", "secret": "unapproved-fixture-value"}]
+                            if "/secret-scanning/" in path
+                            else []
+                        ),
+                        "",
                     )
-                return responses[path]
+                return responses[path], ""
 
-            with (
-                patch.object(authority.GitHub, "read", read),
-                patch.object(
-                    authority.GitHub,
-                    "read_page",
-                    lambda client, path: authority.AlertPage(read(client, path)),
-                ),
-            ):
+            with patch.object(authority.GitHub, "read_page", read_page):
                 result = authority.produce(env)
                 self.assertEqual(result["verdict"], "blocked")
                 self.assertNotIn("unapproved-fixture-value", json.dumps(result))

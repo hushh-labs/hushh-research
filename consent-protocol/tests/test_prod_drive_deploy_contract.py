@@ -15,6 +15,8 @@ import pathspec
 import pytest
 import yaml
 
+from tests.helpers.deployment_cli import DRIVE_PRODUCTION_TOOLS
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -436,16 +438,6 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     git("commit", "-qm", "Old application target")
     old_sha = git("rev-parse", "HEAD")
     old_upload_policy = git("show", f"{old_sha}:.gcloudignore")
-    tools = (
-        "resolve_prod_release_mode.py",
-        "verify_prod_prerequisites.py",
-        "verify_hashcoin_config.sh",
-        "setup_native_callback_log_exclusion.sh",
-        "deploy_worker_service_prod.sh",
-        "setup_work_drain_scheduler_prod.sh",
-        "work_drain_scheduler_snapshot_prod.py",
-        "restore_prod_after_release_failure.sh",
-    )
     current_paths = [
         *old_paths,
         "scripts/ci/verify-predecessor-acceptance.py",
@@ -458,10 +450,11 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         "deploy/plg/bind_secrets.sh",
         "scripts/ci/verify-prod-places-readiness.py",
         "scripts/ci/cloudrun-retention.py",
+        "scripts/ci/process_group.py",
         "scripts/ci/account-deletion-fence-decision.py",
         "scripts/ci/managed_provider_readiness.py",
         "scripts/ops/verify-env-secrets-parity.py",
-        *(f"deploy/drive/{name}" for name in tools),
+        *(f"deploy/drive/{name}" for name in DRIVE_PRODUCTION_TOOLS),
         *(
             f"scripts/deploy/{name}"
             for name in (
@@ -577,6 +570,9 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     )
     assert (runner / "release-tools/verify-prod-places-readiness.py").read_text() == (
         ROOT / "scripts/ci/verify-prod-places-readiness.py"
+    ).read_text()
+    assert (repo / "scripts/ci/process_group.py").read_text() == (
+        ROOT / "scripts/ci/process_group.py"
     ).read_text()
     retained_catalog = runner / "release-tools/drive-domain-aliases.json"
     assert retained_catalog.read_text() == (ROOT / catalog_path).read_text()

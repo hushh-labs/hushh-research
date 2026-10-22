@@ -28,7 +28,6 @@ import {
   Phone,
   Play,
   SealCheck,
-  ShareNetwork,
   Siren,
   TextAa,
   TextAlignLeft,
@@ -43,6 +42,7 @@ import {
 } from "@phosphor-icons/react";
 
 import { AccentedKeyIcon } from "../ui/accented-key-icon";
+import { AccentedShareNetworkIcon } from "../ui/accented-share-network-icon";
 
 import type { AgentIconProps } from "./agent-icons";
 
@@ -121,7 +121,7 @@ export const DisconnectRowIcon = createRowIcon(LinkBreak, ROW_TONE.red, "Disconn
 
 // Sharing, people and invitations
 export const LinkRowIcon = createRowIcon(LinkSimple, ROW_TONE.cobalt, "LinkRowIcon");
-export const ShareRowIcon = createRowIcon(ShareNetwork, ROW_TONE.indigo, "ShareRowIcon");
+export const ShareRowIcon = AccentedShareNetworkIcon;
 export const JoinRowIcon = createRowIcon(UserPlus, ROW_TONE.purple, "JoinRowIcon");
 export const PeopleRowIcon = createRowIcon(UsersThree, ROW_TONE.indigo, "PeopleRowIcon");
 /** An SOS alert from someone who listed you as an emergency contact. */

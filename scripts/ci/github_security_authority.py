@@ -9,10 +9,10 @@ import json
 import os
 from pathlib import Path
 import re
-from typing import Any, Callable, NamedTuple
+from typing import Any, Callable
 import urllib.error
 import urllib.request
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, urlsplit
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +23,7 @@ MAX_PAGES = 50
 SHA = re.compile(r"[0-9a-f]{40}")
 Document = dict[str, Any]
 Read = Callable[[str], Any]
+ReadPage = Callable[[str], tuple[Any, str]]
 
 
 class Refused(RuntimeError):
@@ -35,76 +36,18 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise Refused("GitHub API redirect refused")
 
 
-class AlertPage(NamedTuple):
-    rows: Any
-    next_path: str | None = None
-
-
-def next_alert_path(link: str, path: str, repository_id: int | None) -> str | None:
-    if len(link) > 8192:
-        raise Refused("Alert pagination header exceeded its bound")
-    targets = []
-    for part in link.split(",") if link else []:
-        match = re.fullmatch(r'\s*<([^<>]+)>;\s*rel="([^"<>]+)"\s*', part)
-        if not match:
-            raise Refused("Alert pagination header is malformed")
-        if "next" in match[2].split():
-            targets.append(match[1])
-    if not targets:
-        return None
-    if len(targets) != 1:
-        raise Refused("Alert pagination is ambiguous")
-    target = urlsplit(targets[0])
-    endpoint = path.split("?", 1)[0]
-    suffix = "/" + endpoint.split("/", 3)[3]
-    allowed = {"/" + endpoint}
-    if repository_id is not None:
-        allowed.add(f"/repositories/{repository_id}{suffix}")
-    if (
-        target.scheme != "https"
-        or target.netloc != "api.github.com"
-        or target.fragment
-        or target.path not in allowed
-    ):
-        raise Refused("Alert pagination left its repository endpoint")
-    query = parse_qs(target.query, keep_blank_values=True, strict_parsing=True)
-    cursor = "after" if "/dependabot/" in endpoint else "page"
-    if (
-        set(query) != {"state", "per_page", cursor}
-        or any(len(v) != 1 for v in query.values())
-        or query["state"] != ["open"]
-        or query["per_page"] != ["100"]
-    ):
-        raise Refused("Alert pagination parameters are invalid")
-    value = query[cursor][0]
-    if (
-        not value
-        or len(value) > 2048
-        or (cursor == "page" and not re.fullmatch(r"[1-9][0-9]*", value))
-    ):
-        raise Refused("Alert pagination cursor is invalid")
-    # Rebuild the path under the already verified owner; never follow a URL
-    # carrying credentials to a different host, repository or endpoint.
-    return endpoint + "?" + urlencode({k: v[0] for k, v in query.items()})
-
-
 class GitHub:
-    def __init__(self, repository: str, token: str, repository_id: int | None = None):
+    def __init__(self, repository: str, token: str):
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
             raise Refused("Invalid repository")
         if not token:
             raise Refused("Required GitHub credential unavailable")
         self.repository, self.token = repository, token
-        self.repository_id = repository_id
 
     def read(self, path: str) -> Any:
-        return self._read(path)[0]
+        return self.read_page(path)[0]
 
-    def read_page(self, path: str) -> AlertPage:
-        rows, link = self._read(path)
-        return AlertPage(rows, next_alert_path(link, path, self.repository_id))
-
-    def _read(self, path: str) -> tuple[Any, str]:
+    def read_page(self, path: str) -> tuple[Any, str]:
         root = f"repos/{self.repository}"
         if path != root and not path.startswith(root + "/"):
             raise Refused("GitHub request left its repository")
@@ -121,7 +64,7 @@ class GitHub:
                 request, timeout=20
             ) as response:
                 raw = response.read(MAX_PAGE_BYTES + 1)
-                link = response.headers.get("Link", "")
+                links = response.headers.get("Link", "")
         except urllib.error.HTTPError as error:
             error.close()
             raise Refused(f"GitHub authority unavailable (HTTP {error.code})") from None
@@ -130,7 +73,7 @@ class GitHub:
         if len(raw) > MAX_PAGE_BYTES:
             raise Refused("GitHub response exceeded its bound")
         try:
-            return json.loads(raw), link
+            return json.loads(raw), links
         except (ValueError, UnicodeError):
             raise Refused("GitHub response was not valid JSON") from None
 
@@ -212,18 +155,75 @@ def verify_source(read: Read, repository: str, expected: Document) -> Document:
     }
 
 
-def inventory(read: Read, repository: str, family: str) -> Document:
+def next_alert_page(
+    links: str, repository: str, family: str, repository_id: int | None = None
+) -> str | None:
+    """Follow only GitHub's next link for this exact open-alert inventory."""
+    if not isinstance(links, str) or len(links) > 16384:
+        raise Refused("Alert pagination header exceeded its bound")
+    next_path = None
+    for part in links.split(",") if links else ():
+        match = re.fullmatch(r'\s*<([^<>]+)>\s*;\s*rel="([^"]+)"\s*', part)
+        if not match:
+            raise Refused("Alert pagination header is malformed")
+        if "next" not in match[2].split():
+            continue
+        if next_path is not None:
+            raise Refused("Alert pagination has multiple next links")
+        url = urlsplit(match[1])
+        expected = f"/repos/{repository}/{family}/alerts"
+        paths = {expected}
+        if repository_id is not None:
+            paths.add(
+                f"/repositories/{positive(repository_id, 'repository identity')}/{family}/alerts"
+            )
+        if (
+            url.scheme != "https"
+            or url.netloc != "api.github.com"
+            or url.path not in paths
+            or url.fragment
+        ):
+            raise Refused("Alert pagination left its repository inventory")
+        try:
+            query = parse_qs(
+                url.query, strict_parsing=True, max_num_fields=5, keep_blank_values=True
+            )
+        except ValueError:
+            raise Refused("Alert pagination query is malformed") from None
+        allowed = {"state", "per_page", "after", "before"}
+        if family == "secret-scanning":
+            allowed.add("page")
+        if (
+            query.keys() - allowed
+            or query.get("state") != ["open"]
+            or query.get("per_page") != ["100"]
+            or any(len(values) != 1 or not values[0] for values in query.values())
+            or len(query.keys() & {"after", "before", "page"}) != 1
+            or any(
+                len(query[key][0]) > 2048 for key in ("after", "before") if key in query
+            )
+            or ("page" in query and not re.fullmatch(r"[1-9][0-9]*", query["page"][0]))
+        ):
+            raise Refused("Alert pagination changed its inventory filters")
+        # GitHub may return its immutable numeric alias. Keep every request on
+        # the already verified named repository, preserving the opaque cursor.
+        next_path = expected.lstrip("/") + "?" + url.query
+    return next_path
+
+
+def inventory(
+    read: ReadPage, repository: str, family: str, repository_id: int | None = None
+) -> Document:
+    if family not in {"secret-scanning", "dependabot"}:
+        raise Refused("Unknown alert inventory")
     count, severities = 0, {}
     path = f"repos/{repository}/{family}/alerts?state=open&per_page=100"
-    seen = set()
+    visited = set()
     for _ in range(MAX_PAGES):
-        if path in seen:
+        if path in visited:
             raise Refused("Alert pagination repeated a page")
-        seen.add(path)
-        page = read(path)
-        if not isinstance(page, AlertPage):
-            raise Refused("Alert page metadata is unavailable")
-        rows = page.rows
+        visited.add(path)
+        rows, links = read(path)
         if (
             not isinstance(rows, list)
             or len(rows) > 100
@@ -242,9 +242,9 @@ def inventory(read: Read, repository: str, family: str) -> Document:
                 if severity not in {"critical", "high", "medium", "low", "unknown"}:
                     raise Refused("Alert severity is malformed")
                 severities[severity] = severities.get(severity, 0) + 1
-        if page.next_path is None:
+        path = next_alert_page(links, repository, family, repository_id)
+        if path is None:
             return {"complete": True, "open": count, "severity": severities}
-        path = page.next_path
     raise Refused(
         "Alert inventory exceeded its bounded pagination; clearance unavailable"
     )
@@ -271,13 +271,13 @@ def produce(environment: Document) -> Document:
     source_api = GitHub(repository, environment.get("GH_TOKEN", ""))
     expected = requested_source(event, environment, policy)
     source = verify_source(source_api.read, repository, expected)
-    alert_api = GitHub(
-        repository,
-        environment.get("GH_SECURITY_ALERTS_TOKEN", ""),
-        source["repository_id"],
+    alert_api = GitHub(repository, environment.get("GH_SECURITY_ALERTS_TOKEN", ""))
+    secrets = inventory(
+        alert_api.read_page, repository, "secret-scanning", source["repository_id"]
     )
-    secrets = inventory(alert_api.read_page, repository, "secret-scanning")
-    dependencies = inventory(alert_api.read_page, repository, "dependabot")
+    dependencies = inventory(
+        alert_api.read_page, repository, "dependabot", source["repository_id"]
+    )
     # Re-read after inventory; an old attempt cannot mint a current clearance.
     verify_source(source_api.read, repository, expected)
     return {
