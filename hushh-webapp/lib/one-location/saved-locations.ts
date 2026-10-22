@@ -659,7 +659,7 @@ export async function favoriteSavedLocation(params: {
 }): Promise<SavedLocation[]> {
   return mutateSavedLocations({
     context: params.context,
-    source: "one_location_saved_place_favorite_confirm",
+    source: "one_location_saved_place_edit_confirm",
     mutate: (existing) => {
       if (!existing.some((location) => location.id === params.id)) {
         throw new Error("This saved place is no longer available.");

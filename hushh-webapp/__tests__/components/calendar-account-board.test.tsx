@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   boardDay: vi.fn(), reviewConflict: vi.fn(), confirmConflict: vi.fn(),
@@ -54,7 +54,11 @@ function page(currentStatus: GoogleCalendarStatus = status) {
 }
 
 describe("three-account Calendar board", () => {
+  afterEach(() => vi.useRealTimers());
+
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(`${date}T08:00:00Z`));
     vi.clearAllMocks();
     mocks.boardDay.mockResolvedValue(board);
     mocks.reviewConflict.mockResolvedValue({ review_id: "review-conflict", review_token: "sealed-review", expires_at: "2999-01-01T00:00:00Z", previews: [

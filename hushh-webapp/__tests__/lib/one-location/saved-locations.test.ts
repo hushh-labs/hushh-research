@@ -91,6 +91,13 @@ describe("encrypted saved-locations PKM store", () => {
     });
     await favoriteSavedLocation({ context: CONTEXT, id: saved.id });
     await favoriteSavedLocation({ context: CONTEXT, id: saved.id });
+    expect(pkm.saveMergedDomain).toHaveBeenLastCalledWith(expect.objectContaining({
+      confirmation: {
+        confirmedByUser: true,
+        surface: "web",
+        source: "one_location_saved_place_edit_confirm",
+      },
+    }));
     const locations = await loadSavedLocations(CONTEXT);
     expect(locations).toHaveLength(1);
     expect(locations[0]).toMatchObject({ ...saved, savedFrom: undefined });
