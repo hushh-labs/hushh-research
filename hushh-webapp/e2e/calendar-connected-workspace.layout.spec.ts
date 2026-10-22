@@ -268,10 +268,19 @@ for (const width of [390, 1440]) {
   test(`three-account board and inline conflict review at ${width}px`, async ({ page }) => {
     const { errors, unexpectedRequests, calls } = await openFixture(page, width, false, "standard", false, true);
     await expect(page.locator("[data-calendar-account-board]")).toBeVisible();
+    const boardShell = page.locator('[data-app-shell-width="agent"]').filter({ has: page.locator("[data-calendar-account-board]") });
+    await expect(boardShell).toBeVisible();
+    const shellBox = (await boardShell.boundingBox())!;
+    expect(shellBox.width).toBeLessThanOrEqual(880);
+    if (width === 1440) expect(Math.abs(shellBox.x - (width - shellBox.width) / 2)).toBeLessThanOrEqual(1);
     for (const email of ["qa-owner@example.com", "qa-work@example.com", "qa-projects@example.com"]) {
       const label = page.getByRole("group", { name: `Calendar account ${email}` }).getByText(email, { exact: true });
       await expect(label).toBeVisible();
       await expect(label).toHaveCSS("font-size", "14px");
+      if (width === 1440) {
+        const labelHeight = await label.evaluate(element => element.getBoundingClientRect().height);
+        expect(labelHeight).toBeLessThanOrEqual(22);
+      }
     }
     for (const event of ["QA Design Review", "QA Client Call", "QA Project Focus"]) await expect(page.getByRole("button", { name: new RegExp(`^Open ${event}`) })).toBeVisible();
     await expect(page.getByText("1 cross-account overlap")).toBeVisible();

@@ -958,12 +958,13 @@ test.describe("Circle roster row", () => {
             );
           });
           await expect(sheet).toContainText(fixture.memberName);
-          await expect(
-            page.getByRole("menu", { name: `Actions for ${fixture.memberName}` }),
-          ).toBeVisible();
-          await expect(
-            page.getByRole("menuitem", { name: "Share location" }),
-          ).toBeVisible();
+          await expect(sheet.getByRole("menu")).toHaveCount(0);
+          const share = sheet.getByRole("button", { name: `Share location with ${fixture.memberName}` });
+          await expect(share).toBeVisible();
+          await expect(share).toHaveCSS("width", "44px");
+          await expect(share).toHaveCSS("height", "44px");
+          await expect(share).toHaveText("");
+          await expect(share.locator("svg")).toHaveCSS("width", "20px");
           const remove = sheet.getByRole("button", { name: "Remove from Circle", exact: true });
           if (owner) {
             await expect(remove).toHaveCount(0);
@@ -984,11 +985,6 @@ test.describe("Circle roster row", () => {
           await expect(sheet.locator('[data-slot="avatar"]')).toHaveCSS("height", "48px");
           await expect(sheet.locator('[data-slot="drawer-title"]')).toHaveCSS("font-weight", "600");
           await expect(sheet.locator('[data-slot="drawer-title"]')).toHaveCSS("font-size", "20px");
-          const menu = sheet.getByRole("menu");
-          await expect(menu).toHaveCSS("border-radius", "20px");
-          const share = page.getByRole("menuitem", { name: "Share location" });
-          await expect(share).toHaveCSS("height", "52px");
-          await expect(share).toHaveCSS("font-size", "17px");
           const colors = await share.locator("svg").evaluate(svg => ({
             outline: getComputedStyle(svg.querySelector("path")!).stroke,
             accent: getComputedStyle(svg.querySelector(".profile-pane-icon-accent")!).stroke,
@@ -1003,21 +999,24 @@ test.describe("Circle roster row", () => {
             await expect(remove).toHaveCSS("border-width", "0px");
           }
           await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-          const sheetGeometry = await sheet.evaluate((element) => {
-            const menu = element.querySelector<HTMLElement>('[role="menu"]')!;
+          const sheetGeometry = await sheet.evaluate((element, memberName) => {
             const body = element.querySelector<HTMLElement>('[data-task-region="body"]')!;
+            const share = [...element.querySelectorAll<HTMLButtonElement>("button")].find(button => button.getAttribute("aria-label") === `Share location with ${memberName}`)!;
+            const title = element.querySelector<HTMLElement>('[data-slot="drawer-title"]')!;
             const cancel = [...element.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === "Cancel")!;
             const handle = element.firstElementChild!;
             const bodyBox = body.getBoundingClientRect();
             const bodyStyle = getComputedStyle(body);
-            const menuBox = menu.getBoundingClientRect();
+            const shareBox = share.getBoundingClientRect();
+            const titleBox = title.getBoundingClientRect();
             const cancelBox = cancel.getBoundingClientRect();
             return {
               overflow: element.scrollWidth > element.clientWidth,
               bodyLeft: bodyBox.left,
               bodyRight: bodyBox.right,
-              menuLeft: menuBox.left,
-              menuRight: menuBox.right,
+              shareLeft: shareBox.left,
+              shareRight: shareBox.right,
+              titleRight: titleBox.right,
               // Classic scrollbars consume the stable gutter; overlay
               // scrollbars do not. Controls align within the content seat.
               contentLeft: bodyBox.left + body.clientLeft + parseFloat(bodyStyle.paddingLeft),
@@ -1026,14 +1025,14 @@ test.describe("Circle roster row", () => {
               cancelRight: cancelBox.right,
               cancelBottom: cancelBox.bottom,
               handleHeight: handle.getBoundingClientRect().height,
-              font: getComputedStyle(menu).fontFamily,
+              font: getComputedStyle(title).fontFamily,
             };
-          });
+          }, fixture.memberName);
           expect(sheetGeometry.overflow).toBe(false);
           expect(sheetGeometry.bodyLeft).toBe(0);
           expect(sheetGeometry.bodyRight).toBe(width);
-          expect(sheetGeometry.menuLeft).toBe(sheetGeometry.contentLeft);
-          expect(sheetGeometry.menuRight).toBe(sheetGeometry.contentRight);
+          expect(sheetGeometry.shareRight).toBeLessThanOrEqual(sheetGeometry.contentRight + 1);
+          expect(sheetGeometry.shareLeft).toBeGreaterThanOrEqual(sheetGeometry.titleRight - 1);
           expect(sheetGeometry.cancelRight - sheetGeometry.cancelLeft).toBeCloseTo(244, 0);
           expect((sheetGeometry.cancelLeft + sheetGeometry.cancelRight) / 2)
             .toBeCloseTo((sheetGeometry.contentLeft + sheetGeometry.contentRight) / 2, 0);
