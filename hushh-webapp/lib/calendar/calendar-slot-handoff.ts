@@ -25,7 +25,7 @@ export function calendarSlotInstruction(slot: CalendarSlotHandoff, now = Date.no
     JSON.stringify({ date: slot.date, windowStart: slot.windowStart, windowEnd: slot.windowEnd,
       durationMinutes: slot.durationMinutes, timeZone: slot.timeZone, accountEmail: slot.accountEmail, ...suggested }),
     "The user was asked Who should join? Their message supplies the attendee or changes this request.",
-    "The selected window and duration are mandatory constraints. Every proposal must fit entirely inside that window with exactly the selected duration. Use the suggested earliest fitting time unless the user chooses another fitting start. Default the title to Meeting with the attendee; do not ask for a title.",
+    "The selected window and duration are mandatory constraints. Every proposal must fit entirely inside that window with exactly the selected duration. Use the suggested earliest fitting time unless the user chooses another fitting start. Preserve any title the user supplies; otherwise use a recipient-facing title such as Meeting with the owner's verified name, or Meeting invitation if no verified name is available. Never title it Meeting with the attendee. Do not ask for a title.",
     "Resolve the attendee through existing tools if needed. Recheck availability and show the existing Calendar proposal with exact time, duration, title and attendees for explicit confirmation. Never create or send an invitation from this context alone.",
   ].join("\n");
 }

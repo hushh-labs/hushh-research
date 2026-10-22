@@ -1026,6 +1026,8 @@ class CalendarScheduleService:
             "exact_time": exact_time,
             "review_token": review_token,
             "title": event.get("summary") or "Untitled event",
+            "start": event.get("start"),
+            "end": event.get("end"),
             "recipient": draft["to"] if draft else None,
             "subject": draft["subject"] if draft else None,
             "message": draft["body"] if draft else None,
