@@ -6019,7 +6019,7 @@
       "limit": 250,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": "TestAgentTreeShape",
-      "value": 661
+      "value": 662
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -18376,7 +18376,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/agents/calendar/tools.py",
       "symbol": null,
-      "value": 1161
+      "value": 1168
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21715,7 +21715,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": null,
-      "value": 6517
+      "value": 6518
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22642,7 +22642,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/location-immersive-map.test.tsx",
       "symbol": null,
-      "value": 5127
+      "value": 5181
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22921,7 +22921,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/one-location/saved-locations.test.ts",
       "symbol": null,
-      "value": 632
+      "value": 679
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23650,7 +23650,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connect/circles/__tests__/connect-circles-tab.test.tsx",
       "symbol": null,
-      "value": 1116
+      "value": 1133
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23668,7 +23668,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connect/circles/connect-circles-tab.tsx",
       "symbol": null,
-      "value": 1247
+      "value": 1264
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24181,7 +24181,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/__tests__/saved-locations-section.test.tsx",
       "symbol": null,
-      "value": 565
+      "value": 628
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24190,7 +24190,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/location-immersive-map.tsx",
       "symbol": null,
-      "value": 5083
+      "value": 5111
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24199,7 +24199,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/nearby-check-in/__tests__/nearby-check-in-sheet.test.tsx",
       "symbol": null,
-      "value": 2913
+      "value": 2981
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24208,7 +24208,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
       "symbol": null,
-      "value": 3511
+      "value": 3556
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24298,7 +24298,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/redesign/circles/__tests__/named-circle-flows.test.tsx",
       "symbol": null,
-      "value": 3592
+      "value": 3602
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24370,7 +24370,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/saved-locations-section.tsx",
       "symbol": null,
-      "value": 948
+      "value": 1051
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25252,7 +25252,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/one-location/saved-locations.ts",
       "symbol": null,
-      "value": 678
+      "value": 727
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25864,7 +25864,7 @@
       "limit": 500,
       "path": "hushh-webapp/scripts/design/generate-hushh-brand-assets.mjs",
       "symbol": null,
-      "value": 797
+      "value": 801
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27778,7 +27778,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/profile-pane-close.layout.spec.ts",
       "symbol": null,
-      "value": 649
+      "value": 711
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27922,7 +27922,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
       "symbol": "CalendarScheduleService",
-      "value": 1060
+      "value": 1062
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -27976,7 +27976,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
       "symbol": "review",
-      "value": 211
+      "value": 213
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -28327,7 +28327,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
       "symbol": null,
-      "value": 1225
+      "value": 1227
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28354,7 +28354,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_calendar_attendance_service.py",
       "symbol": null,
-      "value": 742
+      "value": 744
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29210,7 +29210,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts",
       "symbol": null,
-      "value": 737
+      "value": 747
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30767,7 +30767,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connect-page-grid.layout.spec.ts",
       "symbol": null,
-      "value": 627
+      "value": 744
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -31124,7 +31124,7 @@
       "kind": "class_size",
       "path": "consent-protocol/hushh_mcp/services/calendar_conflict_service.py",
       "detail": "class exceeds the advisory operon budget",
-      "value": 296,
+      "value": 307,
       "limit": 250,
       "symbol": "CalendarConflictService",
       "key": "class_size|consent-protocol/hushh_mcp/services/calendar_conflict_service.py|CalendarConflictService|class exceeds the advisory operon budget"
@@ -31196,7 +31196,7 @@
       "kind": "function_size",
       "path": "consent-protocol/hushh_mcp/services/calendar_conflict_service.py",
       "detail": "function exceeds the advisory gene budget",
-      "value": 150,
+      "value": 161,
       "limit": 80,
       "symbol": "review",
       "key": "function_size|consent-protocol/hushh_mcp/services/calendar_conflict_service.py|review|function exceeds the advisory gene budget"
@@ -83799,6 +83799,206 @@
         "after": 111,
         "source_sha256": "d045a4de10ba20f2ec6ba9829786d29c368ed5968412151ef93d0838854bd795",
         "review": "Read-only architecture and Browser security review: installed early takeover interrupted Chromium initialization; join startup after the observation fence and before worker cancellation. Publish pending resize geometry with its epoch, preserving failed-effect fencing. Three negative controls fail the installed source; nearest lifecycle checks include startup failure, concurrent Stop and permit release. Exact active ceilings only; no authority, fallback or global budget change."
+      }
+    ]
+  },
+  "main_e4a_calendar_profile_integration_review_20261022": {
+    "reviewer": "agent_layout_audit",
+    "merge_revision": "0464d0235c",
+    "frozen_main": "e4a7f7893502d6ea7f5e1fa7fa81b290a77a6a05",
+    "policy": "Only 24 reviewed inherited rank-0 size ceilings changed. Local Browser producer and consent edits are excluded; historical annotations and global500/250/80 budgets remain.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|CalendarScheduleService|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1060,
+        "after": 1062,
+        "source_sha256": "d9e26bd68731c6d4f345abc7e2538ee7c5e0b4b641306616be7ecb787d8da62d",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestAgentTreeShape|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 661,
+        "after": 662,
+        "source_sha256": "279a1f02b3d391a51e584bd6e564a6a85b121c8d6ab85891c8a86836d8d4aaa5",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/calendar_conflict_service.py|CalendarConflictService|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 296,
+        "after": 307,
+        "source_sha256": "fc07b8f8607dd07d45c2a4c698230f548d2821729a95b8af181c226bcb87f4ea",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|review|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 211,
+        "after": 213,
+        "source_sha256": "d9e26bd68731c6d4f345abc7e2538ee7c5e0b4b641306616be7ecb787d8da62d",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_conflict_service.py|review|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 150,
+        "after": 161,
+        "source_sha256": "fc07b8f8607dd07d45c2a4c698230f548d2821729a95b8af181c226bcb87f4ea",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_one_adk_agent_tree.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 6517,
+        "after": 6518,
+        "source_sha256": "279a1f02b3d391a51e584bd6e564a6a85b121c8d6ab85891c8a86836d8d4aaa5",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/location-immersive-map.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 5127,
+        "after": 5181,
+        "source_sha256": "c438218ae2b142890d56364535cc09ffe3b892977bb90500e046fefc26c49b73",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/one-location/location-immersive-map.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 5083,
+        "after": 5111,
+        "source_sha256": "2c55322c149d77cc689ff9394d42cb9dca1f83d008a49eb5a29b915adcea031a",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/one-location/redesign/circles/__tests__/named-circle-flows.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 3592,
+        "after": 3602,
+        "source_sha256": "9b401e3ac0480ab14f8242f1348c2b88915e3e52fd54131ff7fe967618ad9521",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/one-location/nearby-check-in/nearby-check-in-sheet.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 3511,
+        "after": 3556,
+        "source_sha256": "fde9cb234da22b66574efb5d281e186110d3756a5b503130dfcd401e748d217c",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/one-location/nearby-check-in/__tests__/nearby-check-in-sheet.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 2913,
+        "after": 2981,
+        "source_sha256": "bcc07e70970d82ed100b59aeb4beef813cc01ec77aba4eb9e25951c7a4df8121",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/connect/circles/connect-circles-tab.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1247,
+        "after": 1264,
+        "source_sha256": "2e3beed425f9c2a8be46b91c91f6d119cb34dae20862b318f223e003b94375a3",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1225,
+        "after": 1227,
+        "source_sha256": "d9e26bd68731c6d4f345abc7e2538ee7c5e0b4b641306616be7ecb787d8da62d",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/agents/calendar/tools.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1161,
+        "after": 1168,
+        "source_sha256": "ed0d1325c9bc4e5edd95638c9681bc7520effcb4ca1ff312de8b05e2cd3ae386",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/connect/circles/__tests__/connect-circles-tab.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1116,
+        "after": 1133,
+        "source_sha256": "baee9053e43f0e584bf74edfeb7c419143b9f50a8a6ac413dfa066b4e33ab327",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/one-location/saved-locations-section.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 948,
+        "after": 1051,
+        "source_sha256": "68dcc9d5d80a5593ce2604498cd1ff097e30c2a9d3652bbc50c649e1a27cdac3",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/scripts/design/generate-hushh-brand-assets.mjs||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 797,
+        "after": 801,
+        "source_sha256": "93ad0714d35cc6d9597ecda7255630aaa1f4c2be5e7e08f4ef5e46abb167d365",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 737,
+        "after": 747,
+        "source_sha256": "d3c2cb748b61adbdf993719259edc36250d1f0f4275c571fc6c733815ce9b25b",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_calendar_attendance_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 742,
+        "after": 744,
+        "source_sha256": "94c7f9e8341261bceb73471f40f50566e1723e2ee32c18899ad683dd3ee5c5ed",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/connect-page-grid.layout.spec.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 627,
+        "after": 744,
+        "source_sha256": "039a8f19a1b2237b20138db1b42d17245d4be6fd7bdd55e15cae16bf6a895e81",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/one-location/saved-locations.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 678,
+        "after": 727,
+        "source_sha256": "3e579ba77f3d9345838e310c5dd5e4f42ffee42615d83b74f0222a94d1b530f5",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/profile-pane-close.layout.spec.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 649,
+        "after": 711,
+        "source_sha256": "5e6509c52fde9e92806317e542ea487a653b47523ecaf63d9542161862e53706",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/one-location/saved-locations.test.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 632,
+        "after": 679,
+        "source_sha256": "1a60c8d3c63bffdb48b82174d034d08b9ac7e8bda29fa2abaa185283f8d4e800",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/one-location/__tests__/saved-locations-section.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 565,
+        "after": 628,
+        "source_sha256": "d41a9c8229d5520c1ea88e89e5cd947b2eefc6b09c07c7a7b80bb2370a19b1b2",
+        "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
       }
     ]
   }

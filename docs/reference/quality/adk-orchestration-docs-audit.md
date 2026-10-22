@@ -70,7 +70,9 @@ It does not replace the qualified pod image.
 The synthetic account, vault and original library remain fenced after
 `409 FILES_ERASURE_WAITING_FOR_WRITES`. Exact-session status and cancellation return
 412; retained bytes differ from the expected write. An isolated synthetic final-PUT
-precondition failure reproduces that latched response. A documented malformed-range
+precondition failure reproduces that latched response. A later DELETE-only removal
+of the write precondition also returns 412; conflicting bytes and generation were
+preserved and synthetic active objects cleaned. A documented malformed-range
 abort also returns 412, so neither establishes termination. The original write
 fence and objects remain intact. No SQL override, direct provider deletion or
 blind retry is permitted. Its earlier
@@ -88,15 +90,15 @@ installation remain separate; Azure has completed its approval, while GCP has no
 | Dev app | `91b987b017`; hub `00190-b4p` / `14f794b4a363`; web `00158-tds` / `ee57ef1c127a`; both 100% | [Exact-SHA CI](https://github.com/hushh-labs/hushh-research/actions/runs/39722690656) and [governed rollout](https://github.com/hushh-labs/hushh-research/actions/runs/39725645119) succeeded. ADC serving readback: 22 October, 05:29 UTC |
 | Azure owner pod | Dev 28; digest `8b846022…68ac07`; revision `ca-hussh-one-pod--u31257e45d565` | Normal approval `op_13e165d0d1bf4a6788ae230cc7e2a93f`, verified 02:22:22 UTC. Same service identity, 1 vCPU / 2 GiB, min 0 / max 1. Active-work drain overlap is not established |
 | Schema / rollback | 69 dev checksums match; all three private-review CHECK definitions and both 971 lineage markers verified at 05:28 UTC | No historical SQL changed. Ready rollback targets: hub `00189-j24`, web `00157-9sx`. History cleanup remains separate |
-| Integration | Serving `91b987b017` includes main `c241cfe554`, frozen ADK `914e7c044c` and opt-in provider disclosure `2bbbec2f52` | Main `e4a7f78935` has eight newer commits to reconcile. Nine peer edits and active ADK remain preserved; main is unmerged |
+| Integration | Serving `91b987b017` includes main `c241cfe554`, frozen ADK `914e7c044c` and opt-in provider disclosure `2bbbec2f52` | Local merge `0464d0235c` reconciles main `e4a7f78935`; 35 focused frontend and 286 backend cases pass, with 73 inherited optional skips. UI contracts are regenerated and verified. Nine peer edits and active ADK remain preserved; main is unmerged |
 | Published pod offer | Dev 28 reuses image `sha256:8b846022947bca939fba48cddf1101f3c26dddfb043ab41e20bd7407e068ac07`, source `67a64533ac6a` | Both exact personal predecessors recovered identity, six sealed records, consent/PKM state and 245,763 exact file bytes. Temporary resources cleaned; GCP seven-day soft-delete retention preserved |
 | GCP configuration / inventory | Revision `00019-p6z`, unchanged predecessor `26bab163…61809`, 1 vCPU / 2 GiB / concurrency 8, min 0 / max 1 | Guarded inventory reconciliation committed locally as `02a7aec016` and applied. Storage protection enforced; all 39 objects preserved. Authenticated domain repair recovered identical keys, permits both exact dev domains and refuses unrelated origins; temporary job absence verified |
 | Browser component evidence | GCP Gemini 3.8: 20.366 s / three rounds; Azure actual `one-chat` GPT-5.6 Luna: 16.823 s / five rounds | Real frames, native continuations, 390 × 844 resize, login-observation fencing and joined Stop. Component takeover followed model completion. These are not installed-owner, cold or full-pod capacity results |
 
 ### Current local implementation
 
-Main through `c241cfe554` and ADK `914e7c044c` are reconciled without whole-file
-overrides. The next local batch fixes Files offer recognition of the exact
+Main through `e4a7f78935` and ADK `914e7c044c` are reconciled without whole-file
+overrides in local merge `0464d0235c`. The next local batch fixes Files offer recognition of the exact
 deployment-approved owner bridge, same-image changed Browser policy discovery,
 and visible interactive website scope before approval. Thirty-one nearest backend
 checks, 30 frontend checks, Ruff and two-source mypy pass. These follow-ups are not
@@ -124,13 +126,18 @@ The original failed task is preserved separately from the fresh owner rehearsal.
 
 The qualified public policy permits Python documentation only. Login, submissions,
 selected PKM production and Files downloads need their own policy/owner acceptance.
-The exact pod-recipient PKM consumer exists; its normal owner-approved producer is
-unfinished. Never substitute a broad replica or handcrafted grant.
+The exact pod-recipient PKM consumer exists. Its local owner-request producer now
+uses normal Consent Center V2 approval and a fresh exact export. Atomic export/grant
+publication and cancellation/denial share existing request locks; nine real PostgreSQL
+checks cover rollback, concurrent approval, terminal-decision races and admitted
+metadata refusal. The owner UI handoff and installed acceptance remain unfinished. Never substitute a broad replica or handcrafted grant.
 
 The completed C3 local core used documented environment-only resumes on unchanged
 source; original fixture failures remain retained and the test role is restored.
-The next completed source batch needs its own core mirror, exact-SHA hosted
-validation and governed dev rollout.
+The scoped UAT backend path now requires exact-SHA dev/backend acceptance before
+build, deployment or interrupted recovery. Its regression rejects the old workflow;
+78 nearest checks and independent source review pass. The next completed source
+batch needs its own core mirror, exact-SHA hosted validation and governed dev rollout.
 The dev Gemini bridge is explicit; the owner configuration and serving checks are
 separate from Shared AI policy. No new model sweep is required.
 

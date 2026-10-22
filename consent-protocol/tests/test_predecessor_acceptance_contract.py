@@ -277,24 +277,42 @@ def test_predecessor_refuses_untrusted_or_changed_github_artifacts(failure):
         client.accept(pins["dev"], "dev", SHA, "backend")
 
 
-@pytest.mark.parametrize("environment", ["uat", "production"])
+@pytest.mark.parametrize("environment", ["uat", "production", "uat-one-chat"])
 def test_every_release_image_mode_requires_predecessor_before_mutation(environment):
     workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
     steps = workflow["jobs"]["deploy"]["steps"]
     gate = next(step for step in steps if step.get("id") == "predecessor-acceptance")
     assert "if" not in gate  # Includes source-build and promoted-image production.
-    assert '--scope "${{ steps.scope.outputs.scope }}"' in gate["run"]
+    scoped = environment == "uat-one-chat"
+    expected_scope = "--scope backend" if scoped else '--scope "${{ steps.scope.outputs.scope }}"'
+    assert expected_scope in gate["run"]
     assert '"${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py"' in gate["run"]
-    scope_index = next(i for i, step in enumerate(steps) if step.get("id") == "scope")
-    assert steps.index(gate) == scope_index + 1
+    prior_index = (
+        next(
+            i
+            for i, step in enumerate(steps)
+            if step.get("name") == "Validate exact main SHA and actor"
+        )
+        if scoped
+        else next(i for i, step in enumerate(steps) if step.get("id") == "scope")
+    )
+    assert steps.index(gate) == prior_index + 1
     preserve = next(
         step for step in steps if step.get("name") == "Preserve current release tooling"
     )
     checkout = next(
-        i for i, step in enumerate(steps) if step.get("name") == "Checkout deployment SHA"
+        i
+        for i, step in enumerate(steps)
+        if step.get("name")
+        == ("Validate exact main SHA and actor" if scoped else "Checkout deployment SHA")
     )
     assert steps.index(preserve) < checkout
     assert "verify-predecessor-acceptance.py" in preserve["run"]
+    if scoped:
+        recovery = next(
+            step for step in steps if step.get("name") == "Recover interrupted backend promotion"
+        )
+        assert "steps.predecessor-acceptance.outcome == 'success'" in recovery["if"]
 
 
 @pytest.mark.parametrize("environment", ["dev", "uat", "production"])

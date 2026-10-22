@@ -1,60 +1,50 @@
 # Private agent: normal release transition
 
 **Status:** authorized execution, refreshed 2026-10-22 UTC. Continue on the
-infrastructure branch; preserve concurrent work and the active ADK tree. Prior
-main/ADK integration remains preserved. Frozen executable candidate `67a64533ac`
-integrates main through `89516ab01d` and ADK `914e7c044c`. The later metadata
-publication source `f055c05948` additionally incorporates main `f7d80942ed`, preserving its
-bounded account exports and owner-fenced Feed, plus the focused Shared Files
-terminal-erasure repair; it reuses the qualified Browser
-image and original provenance. The latest union preserves main’s responsive Profile header, streamed account exports, dual-principal connector fencing, SOS recovery, Azure playback and exact provider receipts alongside the private-agent authorities. Main's messaging and Azure managed-provider selection is preserved alongside
-private-pod admission, Browser phase history and release publication. Nine peer
-edits and the active ADK worktree remain unchanged.
+infrastructure branch; preserve nine peer edits and the active ADK tree.
+Local merge `0464d0235c` integrates main `e4a7f78935` without replacing its
+Calendar, Profile, check-in or account behavior. ADK `914e7c044c` remains preserved.
+The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
+owns exact source, serving and installed-owner evidence.
 
 One and Browser share the owner's image, container, non-root identity and
 lifecycle. GCP remains Cloud Run with Chromium's sandbox enabled; Azure remains
 Container Apps with it explicitly disabled. The whole owner pod is the compromise
 boundary. No VM migration, separate Browser service or artificial keepalive.
 
-The same immutable component image passes native Gemini research on GCP and the
-owner's actual Azure deployment, real public-page frames and joined shutdown.
-Both exact predecessor recovery fixtures pass and are cleaned. Normal owner
-approval, active takeover/login/reconnect, delivery, full-runtime capacity and
-installed acceptance remain separate gates. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
-owns current source and serving evidence; qualification does not enable a pod.
+## Current gate and execution order
 
-The frozen publication passed all 26 exact-SHA CI jobs in run `39703303543`;
-governed dev rollout `39706459253` succeeded. Both serving revisions carry the
-exact source at 100% traffic; installed-owner acceptance remains separate. Targeted fixture repairs preserve
-their original failures. The local-only effective-provider disclosure correction
-is held for the next combined source batch, preserving this frozen release.
-Remaining execution order: deploy the locally tested private-review schema replay
-repair → finish the approved Azure Browser journey and GCP legacy-inventory
-reconciliation → installed Browser/core acceptance and measured capacity →
-**Admin SOP main merge and landed-SHA validation/dev receipt**. Main integration is now explicitly authorized
-after those gates. UAT/production, stable publication and automatic owner upgrades
-remain unauthorized. General scheduled-task expansion and coding activation are
-outside this Browser-plus-core gate; preserve supported schedules.
+- Dev application `91b987b017` passed exact-SHA CI and governed rollout. Both
+  services serve that source at 100%; 69 migration checksums and the actual
+  private-review constraint definitions match. The 971/replay repair is deployed.
+- Azure's normal owner approval installed Dev 28, digest `8b846022…68ac07`.
+  Fresh Browser consent and active takeover passed; early takeover then exposed
+  a startup/resize race. Its local repair requires a new qualified image and
+  exact approval. Installed Browser acceptance is still incomplete.
+- GCP legacy inventory, storage protection and old-domain access are repaired.
+  All 39 objects and the original keys, image and economy configuration are
+  preserved. The local Files offer correction recognizes only the already
+  approved personal Gemini bridge; native organization AI remains restricted.
+- The scoped UAT backend workflow now has a locally verified exact-SHA
+  dev/backend acceptance guard, including interrupted recovery. Its 78 nearest
+  checks pass; it has not been dispatched or merged to main.
+- Selected Browser information has a local owner-request/export foundation.
+  Normal encrypted approval, atomic publication and cancellation serialization
+  use existing consent owners. UI handoff and installed acceptance remain open.
+- Retained Shared erasure remains fenced: exact-session cancellation returns
+  412. The final isolated DELETE-only normalization hypothesis also failed.
+  Neither failed preconditions nor process exit establish provider termination.
 
-Qualification probes do not establish full-pod capacity. Measure overlap and
-headroom on the normally started, admitted runtime after its exact approval;
-keep the main gate closed until that evidence passes. The metadata publication
-reuses the qualified image and its original source provenance rather than
-building the same executable again. Reconcile later dependency-relevant main
-changes in that planned source phase, preserving concurrent work.
+Finish Browser's owner information and website-policy handoff, qualify the new
+image, then freeze one combined candidate. Run the core mirror once, exact-SHA
+hosted CI and one governed dev deployment. Perform normal exact-release owner
+installations, installed Browser/core acceptance and measured capacity before
+**Admin SOP main merge and landed-SHA validation/dev receipt**.
 
-Azure's normal owner approval installed Dev 28 as operation
-`op_13e165d0d1bf4a6788ae230cc7e2a93f`, verified at 02:22:22 UTC on 22 October.
-The first One-delegated Browser task failed before review because canonical replay
-restored channel checks excluding `pod_chat`, despite 945/966 ledger parity.
-Local dev-only 971 and narrowly pinned replay adapters preserve the exact private
-review successor without changing accepted migration checksums. Fifty-seven
-focused PostgreSQL/manifest/replay checks pass; the repair is not deployed.
-GCP's older genuine receipt needs typed creation-evidence reconciliation; current
-GETs and provider audit events are evidence, not permission to patch inventory.
-
-GCP dev uses the approved personal Gemini bridge because native organization AI
-is restricted. More IAM grants cannot repair the recorded provider dunning denial.
+Qualification alone never enables a pod. Main integration is authorized only
+after those gates. UAT/production rollout, stable publication and automatic owner
+upgrades remain unauthorized. General scheduled-task expansion and coding
+activation are outside this Browser-plus-core gate; preserve supported schedules.
 
 ## Visual Context
 
