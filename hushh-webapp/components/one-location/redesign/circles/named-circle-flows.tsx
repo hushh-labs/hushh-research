@@ -20,7 +20,6 @@ import { AddPeopleAction } from "@/components/app-ui/add-people-action";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { INPUT_CLASSNAME } from "@/components/ui/input";
-import { InputGroup, InputGroupInput } from "@/components/ui/input-group";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -134,6 +133,8 @@ const CIRCLES_GROUP_SURFACE =
 
 const CIRCLES_EMPTY_STATE_WRAPPER =
   "[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)] dark:[&>[data-ui-role=grouped-card]]:shadow-none";
+
+const CIRCLE_CREATE_FIELD_CLASSNAME = "h-[52px] w-full rounded-[14px] border border-transparent bg-[color:var(--app-card-surface-default-solid)] px-4 ui-text-input-value shadow-[var(--app-card-shadow-standard)] outline-none transition dark:shadow-none";
 
 /**
  * Leave / Delete circle.
@@ -832,7 +833,8 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
           spellCheck
           placeholder="Family, close friends, project team"
           className={cn(
-            inTaskSurface ? INPUT_CLASSNAME : "h-[52px] w-full rounded-[14px] border border-transparent bg-[color:var(--app-card-surface-default-solid)] px-4 ui-text-input-value shadow-[var(--app-card-shadow-standard)] outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:shadow-none",
+            inTaskSurface ? INPUT_CLASSNAME : CIRCLE_CREATE_FIELD_CLASSNAME,
+            connectStyles.circleCreateField,
             showNameError && "ring-2 ring-[#FF3B30]/35 focus:ring-[#FF3B30]/35",
           )}
         />
@@ -922,11 +924,10 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
           {model.customTypesSupported && kind === "other" ? (
             <label className="flex flex-col gap-2">
               <span className="ui-text-form-label">Type name (optional)</span>
-              <InputGroup className="h-11 !bg-[color:var(--app-neutral-fill)] shadow-none">
-                <InputGroupInput aria-label="Type name (optional)" className="h-full" value={model.customTypeLabel} maxLength={MAX_CIRCLE_TYPE_LABEL_LENGTH}
-                  placeholder="For example, Finance" onChange={event => model.setCustomTypeLabel(event.target.value)}
-                  aria-invalid={Boolean(model.typeError)} aria-describedby="circle-custom-type-help" />
-              </InputGroup>
+              <input aria-label="Type name (optional)" className={cn(inTaskSurface ? INPUT_CLASSNAME : CIRCLE_CREATE_FIELD_CLASSNAME, connectStyles.circleCreateField)}
+                value={model.customTypeLabel} maxLength={MAX_CIRCLE_TYPE_LABEL_LENGTH}
+                placeholder="For example, Finance" onChange={event => model.setCustomTypeLabel(event.target.value)}
+                aria-invalid={Boolean(model.typeError)} aria-describedby="circle-custom-type-help" />
               <span id="circle-custom-type-help" className={cn(connectStyles.circleCreateDescription, model.typeError ? "text-destructive" : "text-muted-foreground")}>
                 {model.typeError || "Reuse this type for other circles. You can keep up to 3 custom types."}
               </span>

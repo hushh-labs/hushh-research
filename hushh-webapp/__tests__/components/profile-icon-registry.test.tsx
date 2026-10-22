@@ -2,8 +2,8 @@ import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { XIcon, PlusIcon, ShieldIcon, WalletIcon, Key, KeyRound, KeyIcon, AccentedKeyIcon, PeoplePairIcon, Users, Trash2, TrashIcon } from "@/components/icons";
-import { ProfilePaneDeleteIcon, ProfilePanePrivacyIcon } from "@/components/profile/profile-pane-icons";
+import { XIcon, PlusIcon, ShieldIcon, WalletIcon, Key, KeyRound, KeyIcon, AccentedKeyIcon, AccentedShareNetworkIcon, Share2, ShareNetworkIcon, PeoplePairIcon, Users, Trash2, TrashIcon } from "@/components/icons";
+import { ProfilePaneDeleteIcon, ProfilePanePrivacyIcon, ProfilePaneShareIcon } from "@/components/profile/profile-pane-icons";
 import { PROFILE_MENU_GROUPS } from "@/components/profile/profile-menu-model";
 import * as RowIcons from "@/components/icons/agents/row-icons";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
@@ -21,6 +21,18 @@ vi.mock("@/lib/capacitor/app-haptics", () => ({ usesNativeHapticPreference: () =
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 
 afterEach(cleanup);
+
+it("uses the same blue source node and neutral destination nodes for share actions", () => {
+  const icons = [AccentedShareNetworkIcon, Share2, ShareNetworkIcon, ProfilePaneShareIcon, RowIcons.ShareRowIcon];
+  const { container } = render(<>{icons.map((Icon, index) => <Icon key={index} />)}</>);
+  for (const svg of container.querySelectorAll("svg")) {
+    expect(svg).toHaveAttribute("viewBox", "0 0 256 256");
+    expect(svg.getAttribute("fill")).toMatch(/^url\(#/);
+    expect(svg.querySelector("pattern rect")).toHaveAttribute("fill", "currentColor");
+    expect(svg.querySelector("pattern circle")).toHaveAttribute("cx", "64");
+    expect(svg.querySelector("pattern circle")).toHaveAttribute("fill", "var(--ios-account-accent)");
+  }
+});
 
 it("uses the Feed people pair through the existing invitation and people aliases", () => {
   const icons = [PeoplePairIcon, Users, PROFILE_ICONS.invite, PROFILE_ICONS.people];

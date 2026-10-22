@@ -1,5 +1,6 @@
 import type { ReactNode, SVGProps } from "react";
 import { AccentedKeyIcon } from "@/components/icons/ui/accented-key-icon";
+import { AccentedShareNetworkIcon } from "@/components/icons/ui/accented-share-network-icon";
 import { PeoplePairIcon, AddPeopleIcon } from "@/components/icons/ui/people-action-icons";
 
 type ProfilePaneIconProps = SVGProps<SVGSVGElement> & {
@@ -39,12 +40,7 @@ export function ProfilePaneCopyIcon(props: ProfilePaneIconProps) {
 }
 
 export function ProfilePaneShareIcon(props: ProfilePaneIconProps) {
-  return <PaneIcon {...props}>
-    <path d="m8 10 8-5M8 14l8 5" />
-    <circle cx="5" cy="12" r="3" />
-    <circle className="profile-pane-icon-accent" cx="19" cy="4" r="3" />
-    <circle className="profile-pane-icon-accent" cx="19" cy="20" r="3" />
-  </PaneIcon>;
+  return <AccentedShareNetworkIcon {...props} />;
 }
 
 export function ProfilePaneBriefcaseIcon(props: ProfilePaneIconProps) {

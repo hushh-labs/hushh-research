@@ -3828,22 +3828,18 @@ export default function ConnectPageClient() {
                                               <ProfilePaneMessageIcon size={22} strokeWidth={1.65} className="translate-x-1.5" />
                                             </Button>
                                           ) : <span className="size-11 shrink-0" aria-hidden="true" />}
-                                          <Popover>
-                                            <PopoverTrigger asChild>
-                                              <Button type="button" variant="none" effect="fade" size="compact"
-                                                aria-label={`Options for ${connectionName}`} className={CONNECT_ROW_ICON_ACTION_CLASSNAME}>
-                                                <MoreHorizontal aria-hidden="true" className="size-5 -translate-x-1.5" />
-                                              </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent align="end" className="w-56 p-1">
-                                              <Button type="button" variant="none" effect="fade" size="compact"
-                                                onClick={() => setPendingRemoveTarget(user ? { ownerId: user.uid, generation: batchDraftGenerationRef.current, connection } : null)}
-                                                aria-label={`Remove connection with ${connectionName}`}
-                                                className="min-h-11 w-full justify-start text-destructive">
-                                                <Trash2 aria-hidden="true" className="mr-2 size-4" />Remove connection
-                                              </Button>
-                                            </PopoverContent>
-                                          </Popover>
+                                          <Button
+                                            type="button"
+                                            variant="none"
+                                            effect="fade"
+                                            size="compact"
+                                            aria-label={`Options for ${connectionName}`}
+                                            aria-haspopup="dialog"
+                                            className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
+                                            onClick={() => setPendingRemoveTarget(user ? { ownerId: user.uid, generation: batchDraftGenerationRef.current, connection } : null)}
+                                          >
+                                            <MoreHorizontal aria-hidden="true" className="size-5 -translate-x-1.5" />
+                                          </Button>
                                         </span>
                                       }
                                     />
@@ -4176,18 +4172,19 @@ export default function ConnectPageClient() {
               for this dialog only; the shared dialog is unchanged elsewhere. */}
           <AlertDialogContent size="sm" data-profile-type-scale="">
             <AlertDialogHeader>
-              <AlertDialogTitle>Remove connection?</AlertDialogTitle>
+              <AlertDialogTitle>Remove connection</AlertDialogTitle>
               <AlertDialogDescription>
                 Remove {connectPersonName(pendingRemoveConnection ?? {}, "this person")}{" "}
                 from your connections?
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={Boolean(busyId)}>
+              <AlertDialogCancel size="standard" disabled={Boolean(busyId)}>
                 Cancel
               </AlertDialogCancel>
               <AlertDialogAction
                 variant="destructive"
+                size="standard"
                 disabled={Boolean(busyId)}
                 onClick={(event) => {
                   event.preventDefault();
