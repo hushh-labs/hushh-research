@@ -33,11 +33,3 @@ if [[ -n "$target" ]] && ! [[ "$target" =~ ^0\.(1[0-9]?|[2-8][0-9]?|9[0-5]?)$ ]]
   echo "Scaling concurrency target must be empty or 0.10 through 0.95 (at most two decimal places)." >&2
   exit 1
 fi
-
-# Called after the existing command array is constructed. Empty preserves the
-# service's current/default target and every other deployment argument.
-append_backend_scaling_flags() {
-  if [[ -n "${_CLOUD_RUN_SCALING_CONCURRENCY_TARGET:-}" ]]; then
-    cmd+=("--scaling-concurrency-target=${_CLOUD_RUN_SCALING_CONCURRENCY_TARGET}")
-  fi
-}

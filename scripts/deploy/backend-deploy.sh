@@ -1000,7 +1000,9 @@ cmd=(
   "--set-secrets=${secrets}"
 )
 
-append_backend_scaling_flags
+if [[ -n "${_CLOUD_RUN_SCALING_CONCURRENCY_TARGET:-}" ]]; then
+  cmd+=("--scaling-concurrency-target=${_CLOUD_RUN_SCALING_CONCURRENCY_TARGET}")
+fi
 
 # Preview IAM admission belongs to the workflow after authenticated candidate
 # health and application traffic promotion. Leave existing service IAM unchanged.
