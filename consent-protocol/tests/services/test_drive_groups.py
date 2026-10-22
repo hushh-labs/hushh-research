@@ -649,7 +649,7 @@ def local_export_setup(monkeypatch):
     )
     from hushh_mcp.services.drive_groups import indexer
     from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
-    from scripts import drive_group_local_adapters
+    from scripts import drive_group_local_adapters, drive_group_local_inventory
 
     monkeypatch.setenv("ENVIRONMENT", "development")
     for key in (
@@ -722,6 +722,14 @@ def local_export_setup(monkeypatch):
         "list_files",
         listing,
     )
+
+    async def inventory(reads, user, **kwargs):
+        rows, complete, limited = await listing(reads, user)
+        return drive_group_local_inventory.LocalInventory(
+            rows, complete, limited, "before-cursor", "after-cursor"
+        )
+
+    monkeypatch.setattr(drive_group_local_inventory, "load_inventory", inventory)
     monkeypatch.setattr(
         drive_group_local_adapters, "LocalHeadEmbedder", lambda: SimpleNamespace(embed=AsyncMock())
     )
@@ -799,6 +807,7 @@ async def test_local_export_preserves_completed_batches_and_resumes_only_current
         await export(args)
     checkpoint = output.with_name(output.name + ".checkpoint.json")
     saved_text = checkpoint.read_text(encoding="utf-8-sig")
+    assert json.loads(saved_text)["inventory"]["cursor"] == "before-cursor"
     saved = json.loads(output.read_text(encoding="utf-8-sig"))
     assert sum(row["index_status"] == "indexed" for row in saved) == 25
     assert saved[-1]["index_status"] == "pending" and saved[-1]["confidence"] == ""
@@ -832,6 +841,10 @@ async def test_local_export_preserves_completed_batches_and_resumes_only_current
     assert all(
         row["index_status"] == "indexed"
         for row in json.loads(output.read_text(encoding="utf-8-sig"))
+    )
+    assert (
+        json.loads(checkpoint.read_text(encoding="utf-8-sig"))["inventory"]["cursor"]
+        == "after-cursor"
     )
 
 
@@ -880,7 +893,10 @@ async def test_local_export_revocation_during_backoff_prevents_another_provider_
     with pytest.raises(DriveReadError, match="background_preparation_required"):
         await export(
             SimpleNamespace(
-                email="owner@example.com", time_zone="Asia/Kolkata", output=tmp_path / "index.csv"
+                email="owner@example.com",
+                time_zone="Asia/Kolkata",
+                format="csv",
+                output=tmp_path / "index.csv",
             )
         )
     assert read.await_count == 1
@@ -979,3 +995,131 @@ async def test_local_refresh_waiter_rechecks_revoked_authority():
         isinstance(result, DriveOAuthError) and str(result) == "reconnect_required"
         for result in results
     )
+
+
+def inventory_row(identity, version="1"):
+    return row(identity, "statement.pdf", version=version, modifiedTime="2026-04-01T00:00:00Z")
+
+
+def changes_page(changes, *, following=None, terminal="next-cursor"):
+    return SimpleNamespace(
+        is_error=False,
+        truncated=False,
+        payload={
+            "changes": changes,
+            "nextPageToken": following,
+            "newStartPageToken": terminal,
+        },
+    )
+
+
+def file_change(identity, *, version="1", removed=False):
+    return {
+        "changeType": "file",
+        "fileId": identity,
+        "removed": removed,
+        "trashed": False,
+        **({} if removed else {"file": inventory_row(identity, version)}),
+    }
+
+
+@pytest.mark.parametrize("oversize", [False, True])
+async def test_incremental_inventory_reuses_snapshot_and_applies_updates_and_removals(
+    monkeypatch, oversize
+):
+    from scripts import drive_group_local_inventory as inventory
+
+    listing = AsyncMock()
+    monkeypatch.setattr(inventory.DriveGroupIndexJob, "list_files", listing)
+    saved = inventory.LocalInventory(
+        [inventory_row("unchanged"), inventory_row("edited"), inventory_row("deleted")],
+        True,
+        False,
+        "old-cursor",
+        "old-cursor",
+    ).checkpoint(completed=True)
+    read = AsyncMock(
+        side_effect=[
+            *([DriveReadError("file_too_large")] if oversize else []),
+            changes_page(
+                [file_change("edited", version="2"), file_change("deleted", removed=True)],
+                following="page-two",
+                terminal=None,
+            ),
+            changes_page([file_change("new")]),
+        ]
+    )
+    result = await inventory.load_inventory(SimpleNamespace(read_tool=read), "owner", saved=saved)
+    assert [(item["id"], item["version"]) for item in result.rows] == [
+        ("unchanged", "1"),
+        ("edited", "2"),
+        ("new", "1"),
+    ]
+    assert result.mode == "changes" and result.complete and not result.limited
+    assert result.checkpoint(completed=False)["cursor"] == "old-cursor"
+    assert result.checkpoint(completed=True)["cursor"] == "next-cursor"
+    assert [call.kwargs["arguments"]["pageToken"] for call in read.await_args_list] == [
+        *(["old-cursor"] if oversize else []),
+        "old-cursor",
+        "page-two",
+    ]
+    assert read.await_args_list[-1].kwargs["arguments"]["pageSize"] == (25 if oversize else 200)
+    listing.assert_not_awaited()
+    assert saved["rows"][-1]["id"] == "deleted"  # Failed publication may retain the old checkpoint.
+
+
+@pytest.mark.parametrize("reset", [None, "expired", "membership"])
+async def test_incremental_inventory_bootstrap_captures_cursor_before_listing_and_catches_up(
+    monkeypatch, reset
+):
+    from scripts import drive_group_local_inventory as inventory
+
+    calls = []
+
+    async def listing(*args):
+        calls.append("listing")
+        return [inventory_row("edited")], True, False
+
+    monkeypatch.setattr(inventory.DriveGroupIndexJob, "list_files", listing)
+
+    async def read(*, tool_name, **kwargs):
+        calls.append(tool_name)
+        if tool_name == "changes_start_token":
+            return SimpleNamespace(
+                is_error=False, truncated=False, payload={"startPageToken": "start"}
+            )
+        if len(calls) == 1:
+            if reset == "expired":
+                raise DriveReadError("source_unavailable")
+            return changes_page([{"changeType": "drive"}])
+        return changes_page([file_change("edited", version="2")])
+
+    saved = (
+        None
+        if reset is None
+        else inventory.LocalInventory([inventory_row("old")], True, False, "old", "old").checkpoint(
+            completed=True
+        )
+    )
+    result = await inventory.load_inventory(SimpleNamespace(read_tool=read), "owner", saved=saved)
+    assert calls[-3:] == ["changes_start_token", "listing", "list_changes"]
+    assert result.rows == [inventory_row("edited", "2")] and result.mode == "full"
+
+
+@pytest.mark.parametrize("failure", ["truncated", "cycle", "revoked"])
+async def test_incremental_inventory_refuses_incomplete_or_revoked_delta_without_advancing(failure):
+    from scripts import drive_group_local_inventory as inventory
+
+    saved = inventory.LocalInventory([inventory_row("old")], True, False, "old", "old").checkpoint(
+        completed=True
+    )
+    before = json.dumps(saved)
+    if failure == "revoked":
+        read = AsyncMock(side_effect=DriveReadError("connection_changed"))
+    else:
+        page = changes_page([], following="old", terminal=None)
+        page.truncated = failure == "truncated"
+        read = AsyncMock(return_value=page)
+    with pytest.raises(DriveReadError, match="provider_response_invalid|connection_changed"):
+        await inventory.load_inventory(SimpleNamespace(read_tool=read), "owner", saved=saved)
+    assert json.dumps(saved) == before

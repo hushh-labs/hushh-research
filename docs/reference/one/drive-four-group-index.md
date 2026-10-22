@@ -184,10 +184,40 @@ The inventory is published first with pending rows and blank decisions. Complete
 batches replace those rows atomically, alongside a metadata-only checkpoint; an
 interruption preserves completed decisions. `--resume` explicitly permits updating
 that output only when its checkpoint matches the owner, connection generation,
-background revision, model, time zone and format. A fresh fenced listing limits
-reuse to current file IDs with unchanged provider versions. A different existing
+background revision, model, time zone and format. The first resume establishes a
+Drive changes cursor before a fresh fenced listing and catches up its changes.
+Later resumes replay that cursor against the saved metadata inventory, reading
+content only for new or changed provider versions and removing deleted or
+trashed files. A different existing
 output is refused. Neither file contains text starts or vectors. Every retry checks
 background authority again; credential refresh is single-flight in this process.
+
+The metadata snapshot and cursor share the checkpoint's owner, generation,
+background revision and model context. Completed placements alone permit cursor
+advancement; an interrupted batch retains the earlier cursor and pending source
+versions, so its changes replay on resume. Expired cursors and shared-drive
+membership changes trigger an authoritative inventory again. Incomplete or
+cyclic changes pages fail without replacing the last output. Changes requests
+use the existing fenced transport with the expected connection generation.
+
+For a previously completed index, run the same command with `--resume`.
+On 2026-10-22 the one-time upgrade reconciled 83 changed versions, reused 4,858
+placements, and established the cursor in 156.674 seconds. The following full
+4,941-file refresh completed in **25.320 seconds**: one changes request, zero
+inventory requests, zero document downloads, all 4,941 placements reused, and
+zero pending files. This meets the one-minute target for that completed,
+unchanged Drive. Large edit bursts and recovery inventories can take longer;
+the result reports changed/reused counts and duration rather than claiming a
+fresh cold content index completed in one minute.
+
+A second refresh took 23.733 seconds inside the CLI and 28.578 seconds for the
+entire fresh helper process, including credential setup and Python startup.
+The updated local CSV has 4,941 indexed rows, 15 columns and no pending entries.
+Focused checks cover version updates, additions, removals, bootstrap catch-up,
+expired cursors, shared-drive scope changes, oversize-page fallback, cyclic or
+truncated deltas, revocation, and cursor retention during interrupted batches.
+Separate negative controls that advance the cursor early or bypass the expected
+generation check fail the corresponding recovery and trust-boundary tests.
 
 The exporter defaults to six concurrent fenced reads (`--read-concurrency 1` to
 `8`); its parser still starts at most two children concurrently. Every read gets
@@ -206,7 +236,7 @@ from 99.169 to 53.536 seconds. Both runs issued 121 SQL statements and their 15
 export fields matched exactly. This sample reused the same inventory to isolate
 reading, parsing and embedding; it does not measure full-Drive duration or
 classification accuracy. The earlier full run took about 67 minutes. A complete
-optimized indexing run has not yet been timed. Samples and private results stay
+optimized cold run that reads every readable file has not yet been timed. Samples and private results stay
 in ignored local files.
 
 The optimized full inventory was measured separately: all 4,941 files were

@@ -791,6 +791,8 @@ _OWNER_SEARCH_OPERATIONS = {
 _GROUP_INDEX_OPERATIONS = {
     "search_files": "_owner_search_files",
     "read_file_content": "_read_index_file_content",
+    "changes_start_token": "_owner_changes_start_token",
+    "list_changes": "_owner_list_changes",
 }
 REST_TOOLS = frozenset(_OPERATIONS)
 # Owner writes. Create, copy, move/rename and comment run when the owner's agent

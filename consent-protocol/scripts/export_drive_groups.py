@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from collections import Counter
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -108,7 +109,6 @@ async def export(args):
 
     from api.utils.firebase_admin import get_firebase_auth_app
     from hushh_mcp.services.drive_document_processor import IsolatedDocumentParser
-    from hushh_mcp.services.drive_group_index_job import DriveGroupIndexJob
     from hushh_mcp.services.drive_groups.adapters import TransportHeadSource
     from hushh_mcp.services.drive_groups.export import csv_text, pending_rows, placement_rows
     from hushh_mcp.services.drive_groups.indexer import index_files
@@ -132,6 +132,7 @@ async def export(args):
         retry_read,
         windows_parser_process,
     )
+    from scripts.drive_group_local_inventory import load_inventory
 
     zone = ZoneInfo(args.time_zone)
     if os.getenv("ENVIRONMENT", "").lower() not in {"uat", "test", "local", "development"}:
@@ -231,13 +232,6 @@ async def export(args):
                 return result
 
         reads = Reads()
-        rows, complete, limited = await DriveGroupIndexJob.list_files(reads, user.uid)
-        print(
-            json.dumps(
-                {"stage": "listed", "files": len(rows), "complete": complete, "limited": limited}
-            ),
-            flush=True,
-        )
         bundle = load_bundle()
         context = {
             "schema": 1,
@@ -249,7 +243,7 @@ async def export(args):
             "format": args.format,
         }
         checkpoint = args.output.with_name(args.output.name + ".checkpoint.json")
-        cached = {}
+        cached, saved = {}, {}
         if getattr(args, "resume", False) and checkpoint.exists():
             saved = json.loads(checkpoint.read_text(encoding="utf-8-sig"))
             if saved.get("context") != context:
@@ -257,12 +251,27 @@ async def export(args):
             cached = saved["items"]
         elif checkpoint.exists():
             raise RuntimeError("output_exists")
+        inventory = await load_inventory(reads, user.uid, saved=saved.get("inventory"))
+        rows, complete, limited = inventory.rows, inventory.complete, inventory.limited
+        print(
+            json.dumps(
+                {
+                    "stage": "listed",
+                    "files": len(rows),
+                    "complete": complete,
+                    "limited": limited,
+                    "mode": inventory.mode,
+                }
+            ),
+            flush=True,
+        )
         cached = {
             row["id"]: cached[row["id"]]
             for row in rows
             if row["id"] in cached and cached[row["id"]]["version"] == row["version"]
         }
         pending = [row for row in rows if row["id"] not in cached]
+        reused = len(cached)
         metadata_only = [
             row for row in pending if row["mimeType"] not in LIVE_EXTRACTABLE_ORIGINAL_TYPES
         ]
@@ -290,7 +299,14 @@ async def export(args):
                 raise DriveReadError("background_preparation_required")
             _write(
                 checkpoint,
-                json.dumps({"context": context, "items": cached}, ensure_ascii=False),
+                json.dumps(
+                    {
+                        "context": context,
+                        "items": cached,
+                        "inventory": inventory.checkpoint(completed=len(cached) == len(rows)),
+                    },
+                    ensure_ascii=False,
+                ),
                 replace=checkpoint.exists(),
             )
             _write(args.output, value, replace=published)
@@ -339,6 +355,9 @@ async def export(args):
             "skipped": skipped,
             "listingComplete": complete,
             "limited": limited,
+            "refreshMode": inventory.mode,
+            "reusedFiles": reused,
+            "changedFiles": len(pending),
             "groups": dict(Counter(item["shelf"] for item in cached.values())),
         }
     finally:
@@ -349,6 +368,7 @@ async def export(args):
 
 
 def main():
+    started = time.perf_counter()
     args = _arguments()
     from dotenv import load_dotenv
 
@@ -418,6 +438,7 @@ def main():
             file=sys.stderr,
         )
         return 1
+    result["durationSeconds"] = round(time.perf_counter() - started, 3)
     print(json.dumps(result, sort_keys=True))
     return 0
 

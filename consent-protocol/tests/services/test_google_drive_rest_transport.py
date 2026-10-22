@@ -43,17 +43,24 @@ def transport(*, current=None, adapter=None, monkeypatch=None, enabled=True):
     return rest.GoogleDriveRestTransport(oauth=oauth, adapter=adapter or SimpleNamespace())
 
 
-async def test_group_index_read_refuses_a_replacement_grant_before_provider_io(monkeypatch):
-    adapter = SimpleNamespace(list_files=AsyncMock())
+@pytest.mark.parametrize("tool", ["search_files", "changes_start_token", "list_changes"])
+async def test_group_index_read_refuses_a_replacement_grant_before_provider_io(monkeypatch, tool):
+    adapter = SimpleNamespace(
+        list_files=AsyncMock(return_value={"files": []}),
+        collection_start_token=AsyncMock(return_value="next-cursor"),
+        index_changes=AsyncMock(return_value={"changes": [], "newStartPageToken": "next-cursor"}),
+    )
     drive = transport(adapter=adapter, monkeypatch=monkeypatch)
     with pytest.raises(DriveOAuthError, match="connection_changed"):
         await drive.read_group_index_tool(
             user_id="owner",
-            tool_name="search_files",
-            arguments={"query": "trashed = false"},
+            tool_name=tool,
+            arguments={"pageToken": "old-cursor"} if tool == "list_changes" else {},
             expected_generation=6,
         )
     adapter.list_files.assert_not_awaited()
+    adapter.collection_start_token.assert_not_awaited()
+    adapter.index_changes.assert_not_awaited()
 
 
 async def test_real_rest_page_keeps_version_and_bounded_provider_relationship_facts(monkeypatch):
