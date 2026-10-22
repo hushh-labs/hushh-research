@@ -930,7 +930,7 @@ async def _fetch_yahoo_quotes(
     return parsed
 
 
-async def fetch_market_company_facts(symbol: str) -> Dict[str, Any]:
+async def _legacy_fetch_market_company_facts(symbol: str) -> Dict[str, Any]:
     """Public company facts, independent of the price-only quote cache."""
     quote = await _fetch_yfinance_quote(symbol, timeout_seconds=8.0)
 
@@ -956,13 +956,15 @@ async def fetch_market_company_facts(symbol: str) -> Dict[str, Any]:
     }
 
 
-async def fetch_market_session_history(symbols: List[str]) -> Dict[str, List[Dict[str, float]]]:
+async def _legacy_fetch_market_session_history(
+    symbols: List[str],
+) -> Dict[str, List[Dict[str, float]]]:
     """Observed daily closes for period comparisons; never stored as spot quotes."""
     rows = await _fetch_yahoo_quotes(symbols, range_period="1mo")
     return {row["ticker"]: row.get("sparkline_points") or [] for row in rows}
 
 
-async def fetch_market_data_batch(
+async def _legacy_fetch_market_data_batch(
     tickers: List[str],
     user_id: UserID,
     consent_token: str | None = None,
@@ -1361,7 +1363,7 @@ async def fetch_sec_filings(
 # ============================================================================
 
 
-async def fetch_market_news(
+async def _legacy_fetch_market_news(
     ticker: str,
     user_id: UserID,
     consent_token: str | None = None,
@@ -1492,7 +1494,7 @@ async def fetch_market_news(
 # ============================================================================
 
 
-async def fetch_market_data(
+async def _legacy_fetch_market_data(
     ticker: str,
     user_id: UserID,
     consent_token: str | None = None,
@@ -1698,43 +1700,7 @@ async def fetch_market_data(
 # ============================================================================
 
 
-async def fetch_peer_data(
-    ticker: str,
-    user_id: UserID,
-    consent_token: str,
-    sector: str = None,
-) -> List[Dict[str, Any]]:
-    """
-    Operon: Fetch peer company data for comparison.
-
-    Invocation scope: agent.kai.analyze. Market quotes are public provider data.
-
-    Args:
-        ticker: Stock ticker symbol
-        user_id: User ID for audit
-        consent_token: Valid consent token
-        sector: Industry sector (optional, auto-detected if None)
-
-    Returns:
-        List of peer company dicts with market data
-
-    Raises:
-        PermissionError: If consent token validation fails
-    """
-    # Validate consent token
-    valid, reason, token = validate_token(
-        consent_token,
-        ConsentScope.AGENT_KAI_ANALYZE,
-    )
-
-    if not valid:
-        raise PermissionError(f"Market data access denied: {reason}")
-
-    if token.user_id != user_id:
-        raise PermissionError("Token user mismatch")
-
-    logger.info("[Peer Data Fetcher] Fetching peers for %s (user=[redacted])", ticker)
-
+async def _legacy_fetch_peer_symbols(ticker: str) -> list[str]:
     peers: list[str] = []
     errors: list[str] = []
 
@@ -1774,7 +1740,52 @@ async def fetch_peer_data(
             retryable=True,
         )
 
-    peer_universe = deduped_peers[:8]
+    return deduped_peers[:8]
+
+
+async def fetch_peer_data(
+    ticker: str,
+    user_id: UserID,
+    consent_token: str,
+    sector: str = None,
+) -> List[Dict[str, Any]]:
+    """
+    Operon: Fetch peer company data for comparison.
+
+    Invocation scope: agent.kai.analyze. Market quotes are public provider data.
+
+    Args:
+        ticker: Stock ticker symbol
+        user_id: User ID for audit
+        consent_token: Valid consent token
+        sector: Industry sector (optional, auto-detected if None)
+
+    Returns:
+        List of peer company dicts with market data
+
+    Raises:
+        PermissionError: If consent token validation fails
+    """
+    # Validate consent token
+    valid, reason, token = validate_token(
+        consent_token,
+        ConsentScope.AGENT_KAI_ANALYZE,
+    )
+
+    if not valid:
+        raise PermissionError(f"Market data access denied: {reason}")
+
+    if token.user_id != user_id:
+        raise PermissionError("Token user mismatch")
+
+    logger.info("[Peer Data Fetcher] Fetching peers for %s (user=[redacted])", ticker)
+
+    from hushh_mcp.services.market_data_provider import MarketDataRequest
+
+    peer_universe = await _fetch_through_market_port(
+        MarketDataRequest("peers", (ticker.upper().strip(),)), cached=True
+    )
+    errors: list[str] = []
     quotes: list[Dict[str, Any]] = []
     for peer_symbol in peer_universe:
         try:
@@ -1803,3 +1814,95 @@ async def fetch_peer_data(
         requested_peers=len(peer_universe),
     )
     return quotes
+
+
+async def _fetch_through_market_port(request, *, cached: bool = False):
+    from hushh_mcp.services.legacy_market_data_adapter import LegacyMarketDataAdapter
+    from hushh_mcp.services.market_data_provider import get_bound_market_data_provider
+
+    provider = get_bound_market_data_provider() or LegacyMarketDataAdapter()
+    if cached and provider.name != "fixture":
+        from hushh_mcp.services.market_provider_cache import cached_market_provider_read
+
+        identity = provider.name
+        if identity == "legacy":
+            identity += f":fh{int(bool(_finnhub_api_key()))}:fmp{int(bool(_pmp_api_key()))}"
+        return await cached_market_provider_read(
+            request, provider_identity=identity, fetcher=lambda: provider.fetch(request)
+        )
+    return await provider.fetch(request)
+
+
+def _validate_market_invocation(user_id: UserID, consent_token: str | None) -> None:
+    if consent_token is None:
+        return
+    valid, reason, token = validate_token(consent_token, ConsentScope.AGENT_KAI_ANALYZE)
+    if not valid:
+        raise PermissionError(f"Market data access denied: {reason}")
+    if token.user_id != user_id:
+        raise PermissionError("Token user mismatch")
+
+
+async def fetch_market_data(
+    ticker: str,
+    user_id: UserID,
+    consent_token: str | None = None,
+    *,
+    allow_slow_fallbacks: bool = True,
+) -> Dict[str, Any]:
+    from hushh_mcp.services.market_data_provider import MarketDataRequest
+
+    _validate_market_invocation(user_id, consent_token)
+    return await _fetch_through_market_port(
+        MarketDataRequest(
+            "quote",
+            (ticker.upper().strip(),),
+            allow_slow_fallbacks=allow_slow_fallbacks,
+        ),
+        cached=bool(consent_token),
+    )
+
+
+async def fetch_market_data_batch(
+    tickers: List[str],
+    user_id: UserID,
+    consent_token: str | None = None,
+) -> Dict[str, Dict[str, Any]]:
+    from hushh_mcp.services.market_data_provider import MarketDataRequest
+
+    _validate_market_invocation(user_id, consent_token)
+    symbols = tuple(dict.fromkeys(str(s).strip().upper() for s in tickers if str(s).strip()))
+    return await _fetch_through_market_port(
+        MarketDataRequest("quotes", symbols), cached=bool(consent_token)
+    )
+
+
+async def fetch_market_news(
+    ticker: str,
+    user_id: UserID,
+    consent_token: str | None = None,
+    days_back: int = 7,
+) -> List[Dict[str, Any]]:
+    from hushh_mcp.services.market_data_provider import MarketDataRequest
+
+    _validate_market_invocation(user_id, consent_token)
+    return await _fetch_through_market_port(
+        MarketDataRequest(
+            "news",
+            (ticker.upper().strip(),),
+            days_back=days_back,
+        ),
+        cached=bool(consent_token),
+    )
+
+
+async def fetch_market_company_facts(symbol: str) -> Dict[str, Any]:
+    from hushh_mcp.services.market_data_provider import MarketDataRequest
+
+    return await _fetch_through_market_port(MarketDataRequest("ratios", (symbol.upper().strip(),)))
+
+
+async def fetch_market_session_history(symbols: List[str]) -> Dict[str, List[Dict[str, float]]]:
+    from hushh_mcp.services.market_data_provider import MarketDataRequest
+
+    return await _fetch_through_market_port(MarketDataRequest("session_history", tuple(symbols)))

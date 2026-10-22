@@ -8,6 +8,72 @@ import pytest
 import hushh_mcp.operons.kai.fetchers as fetchers
 
 
+@pytest.fixture(autouse=True)
+def isolated_public_provider_cache(monkeypatch):
+    from hushh_mcp.services import market_provider_cache
+    from hushh_mcp.services.market_insights_cache import MarketInsightsCache
+
+    class OfflineStore:
+        async def get_entry(self, _key):
+            return None
+
+        async def set_entry(self, **_kwargs):
+            return None
+
+    monkeypatch.setattr(market_provider_cache, "market_insights_cache", MarketInsightsCache())
+    monkeypatch.setattr(market_provider_cache, "get_market_cache_store_service", OfflineStore)
+
+
+@pytest.mark.asyncio
+async def test_market_port_fixture_preserves_index_metadata_and_never_falls_back(monkeypatch):
+    from hushh_mcp.services.market_data_provider import (
+        FixtureMarketDataProvider,
+        MarketDataRequest,
+        MarketDataUnavailable,
+        bind_market_data_provider,
+    )
+
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("fixture requests must never touch a legacy provider")
+
+    monkeypatch.setattr(fetchers, "_legacy_fetch_market_data", forbidden)
+    request = MarketDataRequest("quote", ("^GSPC",))
+    fixture = FixtureMarketDataProvider(
+        {
+            request: {
+                "ticker": "^GSPC",
+                "price": 6000.0,
+                "quoted_at": "2026-10-20T20:00:00Z",
+                "quote_delay_minutes": 15,
+                "pe_ratio": None,
+            }
+        }
+    )
+    with bind_market_data_provider(fixture):
+        row = await fetchers.fetch_market_data("^GSPC", "market-public")
+        assert row["quote_delay_minutes"] == 15
+        assert row["quoted_at"] == "2026-10-20T20:00:00Z"
+        assert row["pe_ratio"] is None
+        with pytest.raises(MarketDataUnavailable, match="fixture_missing"):
+            await fetchers.fetch_market_data("AAPL", "market-public")
+    assert len(fixture.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_market_port_rejects_wrong_owner_before_fixture_read(monkeypatch):
+    from hushh_mcp.services.market_data_provider import (
+        FixtureMarketDataProvider,
+        bind_market_data_provider,
+    )
+
+    monkeypatch.setattr(fetchers, "validate_token", _valid_token)
+    fixture = FixtureMarketDataProvider({})
+    with bind_market_data_provider(fixture):
+        with pytest.raises(PermissionError, match="Token user mismatch"):
+            await fetchers.fetch_market_data("AAPL", "another_owner", "token")
+    assert fixture.calls == []
+
+
 def _valid_token(*_args, **_kwargs):
     return True, "", SimpleNamespace(user_id="user_1")
 
