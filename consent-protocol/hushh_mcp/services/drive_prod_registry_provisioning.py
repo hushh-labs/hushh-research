@@ -24,13 +24,13 @@ from typing import Any
 from sqlalchemy import text
 
 from db.db_client import get_db
-from hushh_mcp.services.external_connector_google_oauth import (
+from hushh_mcp.services.google_drive_adapter import DRIVE_BASE, DRIVE_POLICY, LIVE_POLICY_HASH
+from hushh_mcp.services.google_drive_oauth_contract import (
     AUTHORIZE_URL,
     CONNECTOR_ID,
     REGISTRY_SCOPES,
     TOKEN_URL,
 )
-from hushh_mcp.services.google_drive_adapter import DRIVE_BASE, DRIVE_POLICY, LIVE_POLICY_HASH
 from hushh_mcp.services.hushh_prod_database_attestation import (
     PROD_DATABASE_ATTESTATION_SQL,
     PROD_INSTANCE,
