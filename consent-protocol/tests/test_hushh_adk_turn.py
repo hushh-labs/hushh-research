@@ -496,8 +496,7 @@ async def test_real_nested_agent_progress_prevents_false_idle_timeout(monkeypatc
     )
     pending = run(
         built,
-        # ADK can import and initialize tool schemas before its first event.
-        # Keep startup outside the tight idle-progress regression boundary:
+        # ADK schema initialization has a separate startup allowance.
         # Each child operation is 1s, but their combined hidden work exceeds 2s.
         # Leave scheduling/schema overhead headroom on parallel hosted runners.
         first_event_timeout_s=20.0,
