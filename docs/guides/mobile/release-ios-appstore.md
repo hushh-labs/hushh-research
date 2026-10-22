@@ -37,6 +37,8 @@ runner slots. Manual invocation defaults are unchanged.
 
 Automatic packaging accepts Apple's historical numeric versions such as `1.0`
 for ordering. Source and selected packaging versions remain strict `x.y.z`.
+The complete iOS prerelease-version inventory supplies a minimum packaging
+version too, so automatic releases do not fall behind a manual TestFlight upload.
 Ambiguous latest records, or reuse that would equate a legacy editable version
 with a different canonical version string, stop in Ubuntu preflight for inspection.
 

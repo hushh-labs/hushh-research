@@ -206,6 +206,27 @@ def find_app_store_version(
     return data[0] if data else None
 
 
+def prerelease_versions(token: str, app_id: str, platform: str) -> list[str]:
+    """Read the complete app/platform train floor, including manual uploads."""
+    query = urllib.parse.urlencode(
+        {"filter[app]": app_id, "filter[platform]": platform, "limit": "200"}
+    )
+    url = f"{ASC_API_ROOT}/v1/preReleaseVersions?{query}"
+    versions, visited = [], set()
+    while url:
+        if url in visited or len(visited) >= 100:
+            die("automatic packaging cannot establish complete prerelease history")
+        visited.add(url)
+        payload = asc_get(url, token)
+        for item in payload.get("data", []):
+            attrs = item.get("attributes") or {}
+            if attrs.get("platform") != platform:
+                die("automatic packaging found a different prerelease platform")
+            versions.append(attrs.get("version"))
+        url = (payload.get("links") or {}).get("next")
+    return versions
+
+
 def resolve_packaging_version(
     token: str,
     app_id: str,
@@ -236,6 +257,8 @@ def resolve_packaging_version(
         return components[0], components[1], components[2]
 
     minimum = parts(source_version)
+    for version in prerelease_versions(token, app_id, platform):
+        minimum = max(minimum, historical_parts(version))
     query = urllib.parse.urlencode({"filter[platform]": platform, "limit": "200"})
     url = f"{ASC_API_ROOT}/v1/apps/{app_id}/appStoreVersions?{query}"
     versions = []
@@ -246,7 +269,7 @@ def resolve_packaging_version(
         )
         url = (payload.get("links") or {}).get("next")
     if not versions:
-        return source_version
+        return ".".join(map(str, minimum))
     ordered = [
         (historical_parts(attrs.get("versionString")), attrs) for attrs in versions
     ]

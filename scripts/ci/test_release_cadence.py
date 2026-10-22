@@ -3,9 +3,11 @@
 # SPDX-FileCopyrightText: 2026 Hushh
 """Core release accounting, exact dispatch authority and production join regressions."""
 import json
+import importlib.util
 import os
 import tempfile
 import unittest
+import sys
 from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
@@ -438,6 +440,113 @@ class AdmissionTest(unittest.TestCase):
 
 
 class ReconciliationTest(unittest.TestCase):
+    def retirement_fixture(self):
+        ledger, inventory, jobs = FakeLedger(counted(16)), {}, {}
+        identity = 200
+        for ordinal, request in ledger.state["requests"].items():
+            for lane, child in request["lanes"].items():
+                identity += 1
+                child.update(state="failure", run_id=identity, run_attempt=1)
+                if ordinal == "16" and lane == "deploy":
+                    child["state"] = "success"
+                observed = run(identity, core.WORKFLOWS[lane], "github-actions[bot]")
+                observed.update(conclusion=child["state"], display_title=core.marker(ordinal, request, lane))
+                inventory[identity] = observed
+                if lane == "deploy":
+                    continue
+                packaging = ("Resolve automatic packaging before allocating macOS" if lane == "testflight"
+                             else "Admit automatic App Store version or defer without a Mac")
+                names = (["Build and distribute normal UAT TestFlight build", "Process and distribute uploaded TestFlight build"]
+                         if lane == "testflight" else ["Build, upload & prepare iOS App Store release", "Process and prepare uploaded App Store build"])
+                rows = [{"name": "preflight", "conclusion": "failure", "steps": [{"name": packaging, "conclusion": "failure"}]}]
+                rows += [{"name": name, "conclusion": "skipped", "runner_name": None} for name in names]
+                jobs[identity] = {"total_count": len(rows), "jobs": rows}
+        replacement = ledger.state["requests"]["16"]
+        value = {"sha": replacement["sha"], "status": "healthy", "scope": "all",
+                 "candidate": {"backend_revision": "ready", "frontend_revision": "web-ready"},
+                 "final": {"backend_revision": "ready", "frontend_revision": "web-ready"},
+                 "verification": {key: "success" for key in ("backend_provenance", "backend_health", "frontend_provenance", "frontend_health")}}
+        return ledger, inventory, jobs, value
+
+    def test_reviewed_retirement_preserves_history_and_rejects_uncertain_uploads(self):
+        for invalid in (None, "stale", "frontier", "active", "attempt", "native-ran", "missing-jobs", "replacement", "frontend", "actor"):
+            with self.subTest(invalid=invalid):
+                ledger, inventory, jobs, value = self.retirement_fixture()
+                controller = run(100, core.CONTROLLER)
+                head, frontier = ledger.head, 16
+                if invalid == "stale": head = "e" * 40
+                if invalid == "frontier": frontier = 12
+                first = next(iter(inventory))
+                if invalid == "active": ledger.state["requests"]["4"]["lanes"]["testflight"]["state"] = "running"
+                if invalid == "attempt": inventory[first]["run_attempt"] = 2
+                if invalid == "native-ran": jobs[first]["jobs"][1]["conclusion"] = "success"
+                if invalid == "missing-jobs": jobs[first]["jobs"].pop()
+                if invalid == "replacement": value["sha"] = "b" * 40
+                if invalid == "frontend": value["verification"]["frontend_health"] = "failure"
+                if invalid == "actor": controller["actor"]["login"] = "outsider"
+                before = deepcopy(ledger.state)
+                with patch.object(github, "configuration", return_value=(NEW_POLICY, GOVERNANCE)), \
+                        patch.object(github, "run_info", side_effect=lambda repo, identity: inventory[identity]), \
+                        patch.object(github, "api", side_effect=lambda path: jobs[int(path.split('/runs/')[1].split('/')[0])]), \
+                        patch.object(github, "receipt", return_value=value):
+                    if invalid:
+                        with self.assertRaises(core.UnsafeRelease):
+                            github.retire_obsolete_failures(ledger, frontier, head, controller)
+                        self.assertEqual(ledger.state, before)
+                        self.assertEqual(ledger.saves, [])
+                        continue
+                    github.retire_obsolete_failures(ledger, frontier, head, controller)
+                restored = deepcopy(ledger.state)
+                for ordinal, request in restored["requests"].items():
+                    for child in request["lanes"].values():
+                        if int(ordinal) < 16:
+                            audit = child.pop("retirement")
+                            self.assertEqual(child["state"], "superseded")
+                            self.assertEqual(audit["reviewed_head"], head)
+                            self.assertEqual(audit["operator"], "maintainer")
+                            child["state"] = audit["previous_state"]
+                self.assertEqual(restored, before)
+                self.assertEqual(len(ledger.saves), 1)
+                with patch.object(github, "run_info", side_effect=lambda repo, identity: inventory[identity]) as info:
+                    github.reconcile_children(ledger, first)
+                # Only latest non-retired failed/successful children can be polled.
+                self.assertNotIn(first, [call.args[1] for call in info.call_args_list])
+
+    def test_disabled_cli_reports_certified_history_without_advancing_work(self):
+        policy = {**NEW_POLICY, "enabled": False}
+        ledger = FakeLedger(counted(10))
+        checkpoint = {"ledger_sha": "f" * 40, "state_sha256": core.state_digest(ledger.state),
+                      "checkpoint_at": "2026-10-22T09:14:34Z"}
+        before = deepcopy(ledger.state)
+        controller = run(100, core.CONTROLLER)
+        spec = importlib.util.spec_from_file_location("cadence_cli", Path(__file__).with_name("release-cadence.py"))
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory, "event.json")
+            event.write_text("{}")
+            with patch.dict(os.environ, {"GITHUB_REPOSITORY": REPOSITORY, "GITHUB_RUN_ID": "100",
+                                         "GITHUB_EVENT_PATH": str(event), "RUNNER_TEMP": directory}), \
+                    patch.object(sys, "argv", ["release-cadence.py", "reconcile"]), \
+                    patch.object(cli, "configuration", return_value=(policy, GOVERNANCE)), \
+                    patch.object(github, "configuration", return_value=(policy, GOVERNANCE)), \
+                    patch.object(github, "run_info", return_value=controller), \
+                    patch.object(github, "Ledger", return_value=ledger), \
+                    patch.object(ledger, "verify_checkpoint", return_value=checkpoint), \
+                    patch.object(ledger, "save") as save, \
+                    patch.object(cli, "reconcile") as reconcile, \
+                    patch.object(github, "dispatch_pending") as dispatch:
+                self.assertEqual(cli.main(), 0)
+                snapshot = json.loads(Path(directory, "release-cadence-monitor.json").read_text())
+                self.assertEqual(snapshot, {"mode": "disabled", "state": before, "checkpoint": checkpoint})
+                save.assert_not_called()
+                reconcile.assert_not_called()
+                dispatch.assert_not_called()
+                with patch.object(ledger, "verify_checkpoint", side_effect=core.UnsafeRelease("checkpoint mismatch")):
+                    with self.assertRaisesRegex(core.UnsafeRelease, "checkpoint mismatch"):
+                        cli.main()
+        self.assertEqual(ledger.state, before)
+
     def test_clock_wake_requires_exact_bot_event_before_any_state_access(self):
         controller = run(100, core.CONTROLLER, "github-actions[bot]")
         controller["event"] = "repository_dispatch"
@@ -708,6 +817,14 @@ class AuthorityTest(unittest.TestCase):
                         with self.subTest(lane=lane, valid_transport=values):
                             event.write_text(json.dumps({"inputs": values}))
                             self.assertIs(github.authorize_current(surface, "github-actions[bot]"), request)
+                    event.write_text(json.dumps({"inputs": expected}))
+                    original_state = request["lanes"][lane]["state"]
+                    request["lanes"][lane]["state"] = "superseded"
+                    with self.assertRaisesRegex(core.UnsafeRelease, "Retired releases"):
+                        github.authorize_current(surface, "github-actions[bot]")
+                    request["lanes"][lane]["state"] = "failure"
+                    self.assertIs(github.authorize_current(surface, "github-actions[bot]"), request)
+                    request["lanes"][lane]["state"] = original_state
                     for key, value in expected.items():
                         mutations = [{**expected, key: "f" * 40 if key == "sha" else value + "changed"}]
                         if value:
@@ -729,6 +846,35 @@ class AuthorityTest(unittest.TestCase):
 
 
 class MonitorTest(unittest.TestCase):
+    def test_disabled_and_resumed_notifications_preserve_release_journal(self):
+        state = counted(10)
+        previous = {"release_highwater": 10, "pending_releases": ["release:8:appstore"],
+                    "seen": {"controller-health": "failure", "release:8:appstore": "201:1:failure"}}
+        before = deepcopy(state)
+        with patch.object(monitor, "runs", return_value=[]), \
+                patch.object(monitor, "git", return_value="2026-10-22T09:14:34Z"), \
+                patch.object(monitor, "run_info") as info:
+            journal, notices = monitor.observations(REPOSITORY, state, {}, previous, True, enabled=False)
+            self.assertTrue(any("disabled" in value for value in notices))
+            self.assertFalse(any("publication failed" in value for value in notices))
+            self.assertEqual(journal["pending_releases"], previous["pending_releases"])
+            self.assertEqual(journal["seen"]["release:8:appstore"], "201:1:failure")
+            journal["checkpoint_at"] = "2026-10-22T09:14:34Z"
+            body = monitor.issue_body(state, journal, 100)
+            self.assertIn("Last certified UAT count: 10", body)
+            self.assertIn("2026-10-22T09:14:34Z", body)
+            self.assertNotIn("count: unavailable", body)
+            quiet, repeated = monitor.observations(REPOSITORY, state, {}, journal, True, enabled=False)
+            self.assertEqual(repeated, [])
+            _, failed = monitor.observations(REPOSITORY, None, {}, quiet, False, enabled=False)
+            self.assertTrue(any("publication failed" in value for value in failed))
+            resumed, notices = monitor.observations(REPOSITORY, state, {}, quiet, True)
+            self.assertTrue(any("resumed" in value for value in notices))
+            _, repeated = monitor.observations(REPOSITORY, state, {}, resumed, True)
+            self.assertEqual(repeated, [])
+            info.assert_not_called()
+        self.assertEqual(state, before)
+
     def test_failed_uat_is_reported_once_without_mutating_accounting(self):
         state = counted(2)
         before = deepcopy(state)

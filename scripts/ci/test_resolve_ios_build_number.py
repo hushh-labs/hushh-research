@@ -60,6 +60,11 @@ class ResolveIOSBuildNumberTests(unittest.TestCase):
 
 
 class AppStoreReleaseReadbackTests(unittest.TestCase):
+    def setUp(self):
+        self.trains = patch.object(RELEASE, "prerelease_versions", return_value=[])
+        self.trains.start()
+        self.addCleanup(self.trains.stop)
+
     def history(self, records, *, next_url=None):
         return {
             "data": [
@@ -70,9 +75,11 @@ class AppStoreReleaseReadbackTests(unittest.TestCase):
         }
 
     def test_automatic_packaging_cli_reads_legacy_history_without_mutating_apple(self):
+        self.trains.stop()
         next_url = "https://api.appstoreconnect.apple.com/v1/apps/app/appStoreVersions?cursor=2"
         responses = [
             {"data": [{"id": "app"}]},
+            {"data": [{"attributes": {"version": "1.4.3", "platform": "IOS"}}]},
             self.history([("1.0", "READY_FOR_SALE")], next_url=next_url),
             self.history([("1.4.2", "DEVELOPER_REJECTED")]),
         ]
@@ -113,9 +120,44 @@ class AppStoreReleaseReadbackTests(unittest.TestCase):
                     ]
                 )
             self.assertEqual(result, 0)
-            self.assertEqual(output.getvalue(), "1.4.2\n")
-            self.assertEqual(read.call_count, 3)
+            self.assertEqual(output.getvalue(), "1.4.3\n")
+            self.assertEqual(read.call_count, 4)
             self.assertEqual(read.call_args_list[-1].args[0], next_url)
+
+    def test_manual_prerelease_floor_is_paginated_and_applies_to_both_lanes(self):
+        self.trains.stop()
+        next_url = "https://api.appstoreconnect.apple.com/v1/preReleaseVersions?cursor=2"
+        def response(url, token):
+            if "/appStoreVersions?" in url:
+                return self.history([("1.4.2", "DEVELOPER_REJECTED")])
+            if "cursor=2" in url:
+                return {"data": [{"attributes": {"version": "1.4.3", "platform": "IOS"}}]}
+            self.assertIn("filter%5Bapp%5D=app", url)
+            self.assertIn("filter%5Bplatform%5D=IOS", url)
+            return {"data": [{"attributes": {"version": "1.0", "platform": "IOS"}}],
+                    "links": {"next": next_url}}
+        with patch.object(RELEASE, "asc_get", side_effect=response):
+            for testflight in (True, False):
+                self.assertEqual(RELEASE.resolve_packaging_version(
+                    "token", "app", "1.4.1", "IOS", testflight=testflight), "1.4.3")
+        for history in ([], [("1.4.2", "IN_REVIEW")]):
+            with patch.object(RELEASE, "prerelease_versions", return_value=["1.4.3"]), \
+                    patch.object(RELEASE, "asc_get", return_value=self.history(history)):
+                self.assertEqual(RELEASE.resolve_packaging_version(
+                    "token", "app", "1.4.1", "IOS", testflight=True), "1.4.3")
+                if history:
+                    with self.assertRaises(SystemExit) as deferred:
+                        RELEASE.resolve_packaging_version(
+                            "token", "app", "1.4.1", "IOS", defer_if_review=True)
+                    self.assertEqual(deferred.exception.code, 75)
+        for attrs in ({"version": "1.4-beta", "platform": "IOS"},
+                      {"version": "1.4.3", "platform": "MAC_OS"}):
+            with patch.object(RELEASE, "asc_get", return_value={"data": [{"attributes": attrs}]}):
+                with self.assertRaises(SystemExit):
+                    RELEASE.resolve_packaging_version("token", "app", "1.4.1", "IOS")
+        with patch.object(RELEASE, "asc_get", return_value={"data": [], "links": {"next": next_url}}):
+            with self.assertRaises(SystemExit):
+                RELEASE.prerelease_versions("token", "app", "IOS")
 
     def test_history_orders_numerically_across_pages_and_ignores_older_alias_ties(self):
         responses = [
